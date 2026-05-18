@@ -261,10 +261,13 @@ const startServer = async () => {
     const baseRequired = hasDatabaseUrl
       ? ['JWT_SECRET']
       : ['JWT_SECRET', 'DB_HOST', 'DB_NAME', 'DB_USER'];
+    // Stripe is intentionally NOT required: paymentService and creditPacks
+    // routes fall back to placeholder mode and surface a friendly "payments
+    // not configured" message. The candidate-only launch ships without
+    // billing; recruiter/paid flows can be enabled later by setting
+    // STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in the environment.
     const prodRequired = [
       'OPENAI_API_KEY',
-      'STRIPE_SECRET_KEY',
-      'STRIPE_WEBHOOK_SECRET',
       'CLOUDINARY_CLOUD_NAME',
       'CLOUDINARY_API_KEY',
       'CLOUDINARY_API_SECRET',
