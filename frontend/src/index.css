@@ -1,0 +1,74 @@
+/* Global styles for ProfileAI */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ===========================================================================
+   Accessibility — visible focus indicators (P3.2)
+   --------------------------------------------------------------------------
+   Suppress default focus rings only when navigation is via mouse, but ensure
+   keyboard / programmatic focus always shows a high-contrast 2px outline that
+   meets WCAG AA (3:1 vs adjacent backgrounds for both light & dark surfaces).
+   =========================================================================== */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible,
+[role='menuitem']:focus-visible,
+[role='link']:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:not([tabindex='-1']):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
+  border-radius: 4px;
+}
+
+/* MUI's OutlinedInput / FilledInput / Input components already render their
+   own visible focus state on the wrapping fieldset. The global ring above
+   would draw a second rectangle around just the inner <input>, skipping the
+   icon adornments and looking broken. Suppress it for MUI inputs only — the
+   fieldset / underline still provides keyboard focus feedback. */
+.MuiInputBase-root .MuiInputBase-input:focus-visible,
+.MuiOutlinedInput-root .MuiInputBase-input:focus-visible,
+.MuiFilledInput-root .MuiInputBase-input:focus-visible,
+.MuiInput-root .MuiInputBase-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* On dark surfaces, switch to a lighter ring for sufficient contrast. */
+.dark-surface a:focus-visible,
+.dark-surface button:focus-visible,
+[data-theme='dark'] a:focus-visible,
+[data-theme='dark'] button:focus-visible {
+  outline-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.35);
+}

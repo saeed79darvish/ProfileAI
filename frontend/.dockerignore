@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+build
+dist
+.DS_Store
+*.log
+coverage
+Dockerfile
+.dockerignore
+applypilot-server
+*.html
+!index.html

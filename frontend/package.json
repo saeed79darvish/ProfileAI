@@ -1,0 +1,54 @@
+{
+  "name": "profileai-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "tsc && vite build",
+    "build:no-typecheck": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.x",
+    "@emotion/styled": "^11.x",
+    "@mui/icons-material": "^5.x",
+    "@mui/material": "^5.x",
+    "@mui/x-date-pickers": "^8.23.0",
+    "@react-oauth/google": "^0.13.4",
+    "@sentry/react": "^8.55.2",
+    "@stripe/react-stripe-js": "^2.x",
+    "@stripe/stripe-js": "^2.x",
+    "axios": "^1.x",
+    "chart.js": "^4.5.1",
+    "date-fns": "^4.1.0",
+    "dompurify": "^3.4.0",
+    "framer-motion": "^12.26.2",
+    "lucide-react": "^0.562.0",
+    "react": "^18.x",
+    "react-chartjs-2": "^5.3.1",
+    "react-cookie-consent": "^10.0.1",
+    "react-dom": "^18.x",
+    "react-router-dom": "^6.x",
+    "styled-components": "^6.1.19"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  }
+}

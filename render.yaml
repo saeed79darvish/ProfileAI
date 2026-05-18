@@ -1,0 +1,114 @@
+# Render Blueprint for ProfileAI
+# https://render.com/docs/blueprint-spec
+#
+# Deploy with: New → Blueprint → connect this repo. Render creates the database
+# and services in one click. After first deploy you still need to:
+#   1) Open the Postgres shell and run: CREATE EXTENSION IF NOT EXISTS vector;
+#   2) Fill in secret env vars (marked `sync: false`) in each service's dashboard
+#   3) Open a backend shell and run: npm run init-db   (one-time, creates tables)
+#   4) Add custom domain api.profileai.pro to the backend service
+#
+# Workers are commented out — uncomment when ApplyPilot / scheduled jobs ship
+# to candidates. Until then they're not needed and would just burn $14/mo.
+
+databases:
+  - name: profileai-db
+    plan: starter            # 1GB, $7/mo — pgvector supported
+    databaseName: profileai
+    user: profileai
+    postgresMajorVersion: 16
+    ipAllowList: []          # internal-network only; no public access
+
+services:
+  - type: web
+    name: profileai-api
+    runtime: node
+    plan: starter            # 512MB, $7/mo — does not sleep
+    region: oregon           # change to ohio/frankfurt/singapore as needed
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: profileai-db
+          property: connectionString
+      - key: DB_SSL
+        value: "false"        # internal network, no SSL needed
+      - key: JWT_EXPIRE
+        value: 7d
+      - key: FRONTEND_URL
+        value: https://profileai.pro
+      - key: ALLOWED_ORIGINS
+        value: https://profileai.pro,https://www.profileai.pro
+      # Feature flags — candidate-only launch
+      - key: ENABLE_RECRUITER_SURFACE
+        value: "false"
+      - key: ENABLE_RECRUITER_AGENT_ARENA
+        value: "false"
+      - key: ENABLE_FEED
+        value: "false"
+      - key: ENABLE_CLAUDE_CONNECTOR
+        value: "false"
+      # AI cost controls
+      - key: OPENAI_JOB_MODEL
+        value: gpt-4o-mini
+      # ───────── Secrets (set these in the Render dashboard) ─────────
+      - key: JWT_SECRET
+        generateValue: true   # Render generates a strong random value once
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # Email (Resend recommended — set after picking provider)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false           # e.g. noreply@profileai.pro
+      # Stripe (only if you charge on day 1)
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+  # ───────── Background workers — uncomment when you need them ─────────
+  #
+  # - type: worker
+  #   name: profileai-submit-worker
+  #   runtime: node
+  #   plan: starter
+  #   rootDir: backend
+  #   buildCommand: npm ci
+  #   startCommand: npm run worker
+  #   autoDeploy: true
+  #   branch: main
+  #   envVars:
+  #     - fromGroup: profileai-shared       # define an env group with all the
+  #                                          # shared vars to avoid duplication
+  #
+  # - type: worker
+  #   name: profileai-cron-worker
+  #   runtime: node
+  #   plan: starter
+  #   rootDir: backend
+  #   buildCommand: npm ci
+  #   startCommand: npm run cron
+  #   autoDeploy: true
+  #   branch: main
+  #   envVars:
+  #     - fromGroup: profileai-shared

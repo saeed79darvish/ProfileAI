@@ -1,0 +1,829 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Header } from './components/Header';
+import { AuthRequired } from './components/AuthRequired';
+import { ProfileSection } from './components/ProfileSection';
+import { JobMatchSection } from './components/JobMatchSection';
+import { QuickActions } from './components/QuickActions';
+import { SavedAnswersSection } from './components/SavedAnswersSection';
+import { AnswersModal } from './components/AnswersModal';
+import { JobTrackerLink } from './components/JobTrackerLink';
+import { Footer } from './components/Footer';
+import { TailoredResults } from './components/TailoredResults';
+import { AutofillSettings, getAutofillMode } from './components/AutofillSettings';
+import { PromoCodeRedeem } from './components/PromoCodeRedeem';
+import { Notification, NotificationProps } from './components/Notification';
+import { CoverLetterModal } from './components/CoverLetterModal';
+import { SmartAnswersModal } from './components/SmartAnswersModal';
+import { MatchAnalysisModal } from './components/MatchAnalysisModal';
+import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
+import { TailoringProgress } from './components/TailoringProgress';
+import { GapReviewModal } from './components/GapReviewModal';
+import type { FullProfile, JobInfo, AuthState } from '../types';
+
+export const SidePanel: React.FC = () => {
+  const [authState, setAuthState] = useState<AuthState>({
+    isAuthenticated: false,
+    token: null,
+    user: null,
+  });
+  const [profile, setProfile] = useState<FullProfile | null>(null);
+  const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [answersCount, setAnswersCount] = useState(0);
+  const [showAnswersModal, setShowAnswersModal] = useState(false);
+  const [notification, setNotification] = useState<NotificationProps | null>(null);
+  const [tailoredProfile, setTailoredProfile] = useState<any | null>(null);
+  const [isTailoring, setIsTailoring] = useState(false);
+  const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
+  const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
+  const [keywordAnalysis, setKeywordAnalysis] = useState<{ matchScore: number; present: string[]; missing: string[]; totalKeywords: number } | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
+  const [showTailorSettings, setShowTailorSettings] = useState(false);
+  const [tailorSettings, setTailorSettings] = useState<TailorSettings | null>(null);
+  const [showSmartAnswers, setShowSmartAnswers] = useState(false);
+  const [isDetectingQuestions, setIsDetectingQuestions] = useState(false);
+  const [detectedCount, setDetectedCount] = useState(0);
+  const [showMatchAnalysis, setShowMatchAnalysis] = useState(false);
+  const [matchAnalysis, setMatchAnalysis] = useState<import('../types').MatchAnalysis | null>(null);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [gapReview, setGapReview] = useState<{
+    gaps: any[];
+    settings: TailorSettings | null;
+  } | null>(null);
+
+  // Load auth and profile on mount
+  useEffect(() => {
+    loadAuthAndProfile();
+    loadJobInfo();
+    loadAnswersCount();
+
+    // Recover tailoring state if the panel was closed mid-tailor.
+    (async () => {
+      try {
+        const { tailoringInFlight, tailoringResult, tailoringError } = await chrome.storage.local.get([
+          'tailoringInFlight',
+          'tailoringResult',
+          'tailoringError',
+        ]);
+        // Stale guard: 4 minutes. A typical tailor finishes in 30–60s; if the
+        // service worker was killed mid-fetch the flag may stick — clearing it
+        // here lets the user retry without staring at a stuck spinner.
+        const STALE_MS = 4 * 60 * 1000;
+        if (tailoringInFlight?.startedAt && (Date.now() - tailoringInFlight.startedAt) < STALE_MS) {
+          setIsTailoring(true);
+        } else if (tailoringInFlight) {
+          // Stale flag — clear it.
+          chrome.storage.local.remove('tailoringInFlight').catch(() => {});
+        }
+        // If a result landed while the panel was closed, surface it once.
+        if (tailoringResult?.tailored) {
+          setTailoredProfile(tailoringResult.tailored);
+          chrome.storage.local.remove('tailoringResult').catch(() => {});
+        }
+        if (tailoringError?.error) {
+          showNotification(tailoringError.error, 'error');
+          chrome.storage.local.remove('tailoringError').catch(() => {});
+        }
+      } catch (_) {}
+    })();
+
+    // Re-fetch job info when the active tab navigates (SPA support)
+    const onTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      if (changeInfo.url || changeInfo.status === 'complete') {
+        // Small delay to let SPA content render, then poll
+        setTimeout(() => loadJobInfoWithRetry(), 600);
+      }
+    };
+    const onTabActivated = () => {
+      setTimeout(() => loadJobInfoWithRetry(), 300);
+    };
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+    chrome.tabs.onActivated.addListener(onTabActivated);
+
+    // Listen for storage changes — content script writes job info reactively,
+    // and the background writes tailoring lifecycle state.
+    const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.currentJobInfo?.newValue) {
+        const job = changes.currentJobInfo.newValue;
+        if (job.title || job.company) {
+          console.log('[ProfileAI SidePanel] Got job from storage change:', job.title);
+          setCurrentJob(job);
+        }
+      }
+      // Tailoring lifecycle (set/cleared by background)
+      if ('tailoringInFlight' in changes) {
+        const next = changes.tailoringInFlight.newValue;
+        setIsTailoring(!!next);
+      }
+      if (changes.tailoringResult?.newValue?.tailored) {
+        setTailoredProfile(changes.tailoringResult.newValue.tailored);
+        showNotification('Profile tailored! Download your resume below.', 'success');
+        chrome.storage.local.remove('tailoringResult').catch(() => {});
+      }
+      if (changes.tailoringError?.newValue?.error) {
+        showNotification(changes.tailoringError.newValue.error, 'error');
+        chrome.storage.local.remove('tailoringError').catch(() => {});
+      }
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+
+    // Start a background polling for job info (covers cases where storage was written
+    // before listener was registered, or tab message fails from iframe/side panel context)
+    let pollCount = 0;
+    const maxPolls = 8;
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+      if (pollCount > maxPolls) {
+        clearInterval(pollInterval);
+        return;
+      }
+      // Only poll if we don't have a job yet
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
+        if (response && (response.title || response.company)) {
+          setCurrentJob((prev: JobInfo | null) => {
+            if (!prev) {
+              console.log('[ProfileAI SidePanel] Got job from poll relay:', response.title);
+              return response;
+            }
+            return prev;
+          });
+          clearInterval(pollInterval);
+        }
+      } catch (_) {}
+    }, 2000);
+
+    return () => {
+      chrome.tabs.onUpdated.removeListener(onTabUpdated);
+      chrome.tabs.onActivated.removeListener(onTabActivated);
+      chrome.storage.onChanged.removeListener(onStorageChanged);
+      clearInterval(pollInterval);
+    };
+  }, []);
+
+  const loadAuthAndProfile = async () => {
+    try {
+      setLoading(true);
+      
+      // First try to get existing auth
+      let authData = await chrome.runtime.sendMessage({ type: 'GET_AUTH' });
+      
+      // If not authenticated, try to sync from web app
+      if (!authData?.token) {
+        console.log('[ProfileAI] No auth found, trying to sync from web app...');
+        authData = await chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_WEB' });
+      }
+      
+      if (authData?.token && authData?.user) {
+        setAuthState({
+          isAuthenticated: true,
+          token: authData.token,
+          user: authData.user,
+        });
+
+        // Load profile
+        const profileResponse = await chrome.runtime.sendMessage({ type: 'GET_PROFILE' });
+        const profileData = profileResponse?.profile || profileResponse?.data;
+        
+        if (profileData) {
+          // Merge user data into profile
+          setProfile({
+            ...profileData,
+            firstName: authData.user.firstName,
+            lastName: authData.user.lastName,
+            email: authData.user.email,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[ProfileAI] Error loading auth:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadJobInfo = async () => {
+    let job: JobInfo | null = null;
+    let jobUrl = '';
+
+    // Method 1 (most reliable): Ask the background script to relay from content script + storage
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
+      if (response && (response.title || response.company)) {
+        job = response;
+        console.log('[ProfileAI SidePanel] Got job from background relay:', job!.title);
+      }
+    } catch (e) {
+      console.log('[ProfileAI SidePanel] Background relay failed:', e);
+    }
+
+    // Method 2: Read directly from storage
+    if (!job) {
+      try {
+        const stored = await chrome.storage.local.get(['currentJobInfo', 'currentJobUrl']);
+        if (stored.currentJobInfo && (stored.currentJobInfo.title || stored.currentJobInfo.company)) {
+          job = stored.currentJobInfo;
+          jobUrl = stored.currentJobUrl || '';
+          console.log('[ProfileAI SidePanel] Got job from storage:', job!.title);
+        }
+      } catch (e) {
+        console.log('[ProfileAI SidePanel] Storage read failed:', e);
+      }
+    }
+
+    // Method 3: Direct tab message (works in native side panel context)
+    if (!job) {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        jobUrl = tab?.url || '';
+        if (tab?.id) {
+          const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
+          if (response?.title || response?.company) {
+            job = response;
+            console.log('[ProfileAI SidePanel] Got job from direct tab message:', job!.title);
+          }
+        }
+      } catch (e) {
+        console.log('[ProfileAI SidePanel] Direct tab message failed:', e);
+      }
+    }
+
+    if (job) {
+      setCurrentJob(job);
+      // Get the URL for cache lookup
+      if (!jobUrl) {
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          jobUrl = tab?.url || '';
+        } catch (_) {}
+      }
+      if (jobUrl) {
+        try {
+          const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+          const cached = tailoredCache[jobUrl];
+          if (cached) {
+            setTailoredProfile(cached);
+          }
+        } catch (_) {}
+      }
+    } else {
+      console.log('[ProfileAI SidePanel] No job found after all methods');
+      setCurrentJob(null);
+    }
+  };
+
+  // Retry wrapper that keeps trying via background relay
+  const loadJobInfoWithRetry = async () => {
+    await loadJobInfo();
+    setTimeout(async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
+        if (response && (response.title || response.company)) {
+          setCurrentJob((prev: JobInfo | null) => {
+            if (!prev) {
+              console.log('[ProfileAI SidePanel] Got job from delayed relay:', response.title);
+              return response;
+            }
+            return prev;
+          });
+        }
+      } catch (_) {}
+    }, 2500);
+  };
+
+  const loadAnswersCount = async () => {
+    const { savedAnswers } = await chrome.storage.local.get('savedAnswers');
+    setAnswersCount(Object.keys(savedAnswers || {}).length);
+  };
+
+  const handleRefresh = useCallback(async () => {
+    await loadAuthAndProfile();
+    await loadJobInfo();
+    showNotification('Refreshed!', 'success');
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await chrome.runtime.sendMessage({ type: 'LOGOUT' });
+    setAuthState({ isAuthenticated: false, token: null, user: null });
+    setProfile(null);
+  }, []);
+
+  const handleAutofill = useCallback(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab?.id) {
+        const autofillMode = await getAutofillMode();
+        await chrome.tabs.sendMessage(tab.id, {
+          type: 'TRIGGER_AUTOFILL',
+          data: profile,
+          autofillMode,
+          // NEW: conservative mode — fills only reliable text basics. Skips selects, custom dropdowns,
+          // checkboxes, radios — which are unreliable on React-rendered ATSes.
+          basicsOnly: true,
+        });
+        showNotification('Filled the basics — review the rest before submitting', 'success');
+      }
+    } catch (error) {
+      showNotification('Please refresh the page and try again', 'warning');
+    }
+  }, [profile]);
+
+  const handleSmartAnswers = useCallback(async () => {
+    setIsDetectingQuestions(true);
+    try {
+      // Make sure we have job info first.
+      if (!currentJob) {
+        try {
+          const r = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+          if (r?.jobInfo && (r.jobInfo.title || r.jobInfo.company)) {
+            setCurrentJob(r.jobInfo);
+          }
+        } catch (_) {}
+      }
+      // Open the modal — it will run detect + answer when opened.
+      setShowSmartAnswers(true);
+    } finally {
+      setIsDetectingQuestions(false);
+    }
+  }, [currentJob]);
+
+  const handleAnalyzeMatch = useCallback(async () => {
+    setShowMatchAnalysis(true);
+    setMatchLoading(true);
+    try {
+      // Ensure we have a fresh job info + analysis.
+      let job = currentJob;
+      if (!job) {
+        const r = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        if (r?.jobInfo) {
+          job = r.jobInfo;
+          setCurrentJob(r.jobInfo);
+          if (r.success && r.keywords) setKeywordAnalysis(r.keywords);
+        }
+      }
+      const resp = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_MATCH',
+        data: {
+          jobTitle: job?.title,
+          company: job?.company,
+          jobDescription: job?.description || '',
+        },
+      });
+      if (resp?.success && resp?.analysis) {
+        setMatchAnalysis(resp.analysis);
+      } else {
+        showNotification(resp?.error || 'Could not analyze match', 'error');
+      }
+    } catch (e) {
+      showNotification((e as Error).message || 'Match analysis failed', 'error');
+    } finally {
+      setMatchLoading(false);
+    }
+  }, [currentJob]);
+
+  const handleTailor = useCallback(async () => {
+    // Get fresh job info — try ANALYZE_JOB_PAGE which uses executeScript (most reliable)
+    let freshJob = currentJob;
+    if (!freshJob) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
+          freshJob = response.jobInfo;
+          setCurrentJob(response.jobInfo);
+          if (response?.success && response?.keywords) {
+            setKeywordAnalysis(response.keywords);
+          }
+        }
+      } catch (_) {}
+    }
+    if (!freshJob) {
+      try {
+        const relayResponse = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
+        if (relayResponse && (relayResponse.title || relayResponse.company || relayResponse.description)) {
+          freshJob = relayResponse;
+          setCurrentJob(relayResponse);
+        }
+      } catch (_) {}
+    }
+
+    if (!freshJob) {
+      showNotification('Could not detect job info on this page', 'warning');
+      return;
+    }
+
+    // Check if already tailored for this job
+    try {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const jobUrl = tabs[0]?.url || '';
+      if (jobUrl) {
+        const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+        if (tailoredCache[jobUrl]) {
+          setRetailorConfirm({ jobUrl, jobTitle: freshJob.title || '', company: freshJob.company || '' });
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // Show settings modal before proceeding
+    setShowTailorSettings(true);
+  }, [currentJob]);
+
+  const handleTailorSettingsContinue = useCallback(async (settings: TailorSettings) => {
+    setTailorSettings(settings);
+    setShowTailorSettings(false);
+    await proceedWithTailor(settings);
+  }, [currentJob]);
+
+  const proceedWithTailor = useCallback(async (settings?: TailorSettings | null) => {
+    if (!currentJob) return;
+    setRetailorConfirm(null);
+    const activeSettings = settings || tailorSettings;
+    
+    // Step 1: Analyze gaps first
+    setIsAnalyzingGaps(true);
+    showNotification('Analyzing skill gaps...', 'info');
+    
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_GAPS',
+        data: {
+          jobDescription: currentJob.description || '',
+          jobTitle: currentJob.title,
+          company: currentJob.company,
+        },
+      });
+      
+      if (response?.success && response?.gaps?.length > 0) {
+        // Show in-page modal (rendered below) instead of opening a popup window.
+        setGapReview({ gaps: response.gaps, settings: activeSettings || null });
+      } else {
+        // No gaps — proceed directly to tailoring
+        await doTailor(null, undefined, activeSettings);
+      }
+    } catch (error) {
+      console.warn('[ProfileAI] Gap analysis failed, proceeding to tailor:', error);
+      await doTailor(null, undefined, activeSettings);
+    } finally {
+      setIsAnalyzingGaps(false);
+    }
+  }, [currentJob]);
+
+  // Core tailor logic
+  const doTailor = useCallback(async (
+    gapSelections: { acceptedGaps: string[]; skippedGaps: string[] } | null,
+    acceptedGapObjects?: any[],
+    settings?: TailorSettings | null
+  ) => {
+    if (!currentJob) return;
+
+    // Capture the job URL up front so the background can persist progress/result
+    // by URL — this lets the panel recover state if it's closed mid-tailor.
+    let jobUrl = '';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      jobUrl = tab?.url || '';
+    } catch (_) {}
+
+    setIsTailoring(true);
+    showNotification('Tailoring your profile...', 'info');
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'TAILOR_PROFILE',
+        data: {
+          jobDescription: currentJob.description || '',
+          jobTitle: currentJob.title,
+          company: currentJob.company,
+          jobUrl,
+          gapSelections: gapSelections ? {
+            ...gapSelections,
+            acceptedGapObjects: acceptedGapObjects || [],
+          } : null,
+          tailorSettings: settings || undefined,
+        },
+      });
+
+      if (response?.success && response?.tailoredProfile) {
+        const tailored = {
+          ...response.tailoredProfile,
+          jobTitle: currentJob.title,
+          company: currentJob.company,
+          _skillGaps: acceptedGapObjects || [],
+        };
+        setTailoredProfile(tailored);
+        showNotification('Profile tailored! Download your resume below.', 'success');
+        // Note: background already persists tailoredCache and saves to backend, so we no
+        // longer need to duplicate that work here.
+      } else {
+        throw new Error(response?.error || 'Tailoring failed');
+      }
+    } catch (error) {
+      showNotification((error as Error).message || 'Please refresh the page and try again', 'error');
+    } finally {
+      setIsTailoring(false);
+    }
+  }, [currentJob]);
+
+  const handleAnalyzeKeywords = useCallback(async () => {
+    setIsAnalyzing(true);
+    try {
+      // Use ANALYZE_JOB_PAGE: background extracts fresh job info via scripting API + analyzes in one step
+      const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+      
+      // Update the job card with fresh info (accept if it has description, title, or company)
+      if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
+        setCurrentJob(response.jobInfo);
+      }
+
+      if (response?.success && response?.keywords) {
+        setKeywordAnalysis(response.keywords);
+        showNotification(`Matched ${response.keywords.present.length} of ${response.keywords.totalKeywords} keywords`, 'success');
+      } else {
+        throw new Error(response?.error || 'Analysis failed');
+      }
+    } catch (error) {
+      showNotification((error as Error).message || 'Keyword analysis failed', 'error');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, []);
+
+  const showNotification = (message: string, type: 'success' | 'warning' | 'info' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleCoverLetter = useCallback(async () => {
+    // Fetch job info on-demand if not already detected
+    if (!currentJob) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
+          setCurrentJob(response.jobInfo);
+          if (response?.success && response?.keywords) {
+            setKeywordAnalysis(response.keywords);
+          }
+        } else {
+          showNotification('Could not detect job info on this page', 'warning');
+          return;
+        }
+      } catch (_) {
+        showNotification('Could not detect job info on this page', 'warning');
+        return;
+      }
+    }
+    setShowCoverLetterModal(true);
+  }, [currentJob]);
+
+  const generateCoverLetter = useCallback(async (tone: string, length: string): Promise<string | null> => {
+    if (!currentJob) return null;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'GENERATE_COVER_LETTER',
+        data: {
+          jobTitle: currentJob.title,
+          company: currentJob.company,
+          jobDescription: currentJob.description || '',
+          tone,
+          length,
+        },
+      });
+      if (response?.success && response?.coverLetter) {
+        showNotification('Cover letter generated!', 'success');
+        return response.coverLetter;
+      }
+      throw new Error(response?.error || 'Generation failed');
+    } catch (error) {
+      showNotification((error as Error).message || 'Failed to generate cover letter', 'error');
+      return null;
+    }
+  }, [currentJob]);
+
+  if (loading) {
+    return (
+      <div className="app loading-state">
+        <div className="loading-spinner">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <defs>
+              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style={{ stopColor: '#7c3aed' }}/>
+                <stop offset="100%" style={{ stopColor: '#8b5cf6' }}/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="spinner" />
+        </div>
+        <div className="loading-logo">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span>ProfileAI</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <Header onRefresh={handleRefresh} />
+      
+      {!authState.isAuthenticated ? (
+        <AuthRequired onAuthSync={loadAuthAndProfile} />
+      ) : (
+        <>
+          <div className="main-content">
+            <ProfileSection profile={profile} />
+            
+            <JobMatchSection 
+              currentJob={currentJob} 
+              onAnalyze={handleAnalyzeKeywords}
+              keywordAnalysis={keywordAnalysis}
+              isAnalyzing={isAnalyzing}
+            />
+            
+            <QuickActions 
+              onSmartAnswers={handleSmartAnswers}
+              onQuickFillBasics={handleAutofill}
+              onTailor={handleTailor}
+              onCoverLetter={handleCoverLetter}
+              hasJob={!!currentJob}
+              isTailoring={isTailoring || isAnalyzingGaps}
+              isDetecting={isDetectingQuestions}
+              detectedCount={detectedCount}
+            />
+
+            {currentJob && (
+              <button
+                className="btn secondary small full-width-btn"
+                onClick={handleAnalyzeMatch}
+                disabled={matchLoading}
+                style={{ marginTop: 8 }}
+              >
+                {matchLoading ? 'Analyzing match…' : 'Analyze job to see match'}
+              </button>
+            )}
+
+            {(isTailoring || isAnalyzingGaps) && (
+              <TailoringProgress
+                jobTitle={currentJob?.title}
+                company={currentJob?.company}
+                onCancel={async () => {
+                  try {
+                    await chrome.storage.local.remove(['tailoringInFlight', 'tailoringResult', 'tailoringError']);
+                  } catch (_) {}
+                  setIsTailoring(false);
+                  showNotification('Tailoring canceled. You can try again.', 'info');
+                }}
+              />
+            )}
+
+            <AutofillSettings />
+
+            {/* Skill Gap Review modal (in-page, not a separate window) */}
+            {gapReview && (
+              <GapReviewModal
+                gaps={gapReview.gaps}
+                onCancel={() => {
+                  setGapReview(null);
+                  showNotification('Gap review cancelled', 'info');
+                }}
+                onContinue={async ({ acceptedGaps, skippedGaps, acceptedGapObjects }) => {
+                  const settings = gapReview.settings;
+                  setGapReview(null);
+                  await doTailor(
+                    { acceptedGaps, skippedGaps },
+                    acceptedGapObjects,
+                    settings
+                  );
+                }}
+              />
+            )}
+
+            {/* Re-tailor confirmation modal */}
+            {retailorConfirm && (
+              <div className="retailor-overlay" onClick={() => setRetailorConfirm(null)}>
+                <div className="retailor-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="retailor-icon">📋</div>
+                  <p className="retailor-text">
+                    You already tailored your resume for <strong>{retailorConfirm.jobTitle}</strong>
+                    {retailorConfirm.company ? ` at ${retailorConfirm.company}` : ''}.
+                    Save your tailoring limit for another job, or tailor again.
+                  </p>
+                  <div className="retailor-actions">
+                    <button className="retailor-btn keep" onClick={() => setRetailorConfirm(null)}>
+                      Keep Existing
+                    </button>
+                    <button className="retailor-btn retailor" onClick={() => { setRetailorConfirm(null); setShowTailorSettings(true); }}>
+                      Tailor Again
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {tailoredProfile && (
+              <TailoredResults
+                tailoredProfile={tailoredProfile}
+                profile={profile}
+                onNotification={showNotification}
+                onDismiss={async () => {
+                  setTailoredProfile(null);
+                  // Remove from cache
+                  try {
+                    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                    const jobUrl = tab?.url || '';
+                    if (jobUrl) {
+                      const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+                      delete tailoredCache[jobUrl];
+                      await chrome.storage.local.set({ tailoredCache });
+                    }
+                  } catch (_) {}
+                }}
+              />
+            )}
+            
+            <SavedAnswersSection 
+              count={answersCount}
+              onManage={() => setShowAnswersModal(true)}
+            />
+            
+            <JobTrackerLink />
+            
+            <PromoCodeRedeem
+              onSuccess={(msg) => showNotification(msg, 'success')}
+              onError={(msg) => showNotification(msg, 'error')}
+            />
+          </div>
+          
+          <Footer onLogout={handleLogout} />
+        </>
+      )}
+      
+      {showAnswersModal && (
+        <AnswersModal 
+          onClose={() => {
+            setShowAnswersModal(false);
+            loadAnswersCount();
+          }}
+          onNotification={showNotification}
+        />
+      )}
+
+      {showTailorSettings && currentJob && (
+        <TailorSettingsModal
+          jobTitle={currentJob.title || ''}
+          company={currentJob.company || ''}
+          onContinue={handleTailorSettingsContinue}
+          onCancel={() => setShowTailorSettings(false)}
+        />
+      )}
+
+      {showCoverLetterModal && (
+        <CoverLetterModal
+          open={showCoverLetterModal}
+          onClose={() => setShowCoverLetterModal(false)}
+          jobTitle={currentJob?.title}
+          company={currentJob?.company}
+          onGenerate={generateCoverLetter}
+          onNotification={showNotification}
+        />
+      )}
+
+      <SmartAnswersModal
+        open={showSmartAnswers}
+        onClose={() => {
+          setShowSmartAnswers(false);
+          loadAnswersCount();
+        }}
+        currentJob={currentJob}
+        onNotification={showNotification}
+        onAnswersGenerated={(count?: number) => {
+          if (typeof count === 'number') setDetectedCount(count);
+          loadAnswersCount();
+        }}
+      />
+
+      <MatchAnalysisModal
+        open={showMatchAnalysis}
+        onClose={() => setShowMatchAnalysis(false)}
+        loading={matchLoading}
+        analysis={matchAnalysis}
+        currentJob={currentJob}
+        onRefresh={handleAnalyzeMatch}
+      />
+      
+      {notification && (
+        <Notification 
+          message={notification.message} 
+          type={notification.type}
+        />
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,67 @@
+name: Post-deploy smoke
+
+# Runs the candidate-surface smoke test against a live environment.
+# Trigger options:
+#   - Manually from the Actions tab (workflow_dispatch)
+#   - Automatically after a successful push to main, ~60s after deploy
+#     (your host's auto-deploy must complete in that window)
+#
+# Required repo secret:
+#   PROD_API_URL  e.g. https://api.your-domain.com
+#
+# Optional repo secret:
+#   STAGING_API_URL  e.g. https://api-staging.your-domain.com
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which environment to smoke test'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    name: Smoke test ${{ github.event.inputs.target || 'production' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Wait for deploy to settle
+        if: github.event_name == 'push'
+        run: sleep 60
+
+      - name: Resolve target API URL
+        id: target
+        run: |
+          if [ "${{ github.event.inputs.target }}" = "staging" ]; then
+            echo "url=${{ secrets.STAGING_API_URL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ secrets.PROD_API_URL }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail fast if target URL missing
+        run: |
+          if [ -z "${{ steps.target.outputs.url }}" ]; then
+            echo "::error::Target API URL is empty. Set PROD_API_URL (and STAGING_API_URL) in repo secrets."
+            exit 1
+          fi
+          echo "Smoking ${{ steps.target.outputs.url }}"
+
+      - name: Run smoke test
+        env:
+          API: ${{ steps.target.outputs.url }}
+        run: node scripts/smokeTest.js

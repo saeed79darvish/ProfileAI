@@ -1,0 +1,23 @@
+{
+  "name": "applypilot-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend for Agent Arena · ApplyPilot. Scaffold — move into your main backend repo or run standalone behind the same /api proxy.",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "worker:scout": "node src/workers/scoutWorker.js",
+    "worker:prep": "node src/workers/prepWorker.js",
+    "worker:submit": "node src/workers/submitWorker.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0",
+    "zod": "^3.23.8"
+  }
+}

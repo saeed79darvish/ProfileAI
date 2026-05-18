@@ -1,0 +1,1010 @@
+const express = require('express');
+const router = express.Router();
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const { body, validationResult } = require('express-validator');
+const { User, Profile, RecruiterProfile, PasswordReset } = require('../models');
+const auth = require('../middleware/auth');
+const { sendPasswordResetEmail } = require('../services/emailService');
+const { buildUniqueUserSlug } = require('../utils/slug');
+const rateLimit = require('express-rate-limit');
+const featureFlags = require('../config/featureFlags');
+
+// Constant pre-computed bcrypt hash used to keep login response time
+// roughly constant when the supplied email doesn't exist. Without this,
+// the "no such user" path returns in microseconds while the real path
+// spends ~250ms in bcrypt.compare — a trivial user-enumeration oracle.
+// Hash is for the literal string "invalid" at cost 12; value is fixed
+// so we don't burn a hash on every cold boot.
+const DUMMY_BCRYPT_HASH = '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.YkfQpODazjJ7P5G3jXk5q8wQ5h2K';
+
+// Token lifetime — single source of truth. Falls back to 7d if env var unset.
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRE || '7d';
+
+// Rate limiters for sensitive endpoints
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: { error: 'Too many password reset requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { error: 'Too many login attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { error: 'Too many registrations from this IP. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Password complexity regex
+// At least 8 characters, 1 uppercase, 1 lowercase, 1 number, 1 special character
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+const passwordValidator = (value) => {
+  if (!PASSWORD_REGEX.test(value)) {
+    throw new Error('Password must be at least 8 characters and include uppercase, lowercase, number, and special character (@$!%*?&)');
+  }
+  return true;
+};
+
+// @route   POST /api/auth/register
+// @desc    Register a new user
+// @access  Public
+router.post(
+  '/register',
+  registerLimiter,
+  [
+    body('email').isEmail().withMessage('Please provide a valid email'),
+    body('password').custom(passwordValidator),
+    body('firstName').notEmpty().withMessage('First name is required'),
+    body('lastName').notEmpty().withMessage('Last name is required'),
+    body('role').optional().isIn(['candidate', 'recruiter']).withMessage('Invalid role')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email, password, firstName, lastName, role = 'candidate' } = req.body;
+
+      // Candidate-only launch: reject recruiter signups until the
+      // recruiter surface is enabled (see config/featureFlags.js).
+      if (role === 'recruiter' && !featureFlags.recruiterSurface) {
+        return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
+      }
+
+      // Check if user exists. We respond with a generic error rather than
+      // confirming/denying email registration to avoid user enumeration.
+      const existingUser = await User.findOne({ where: { email } });
+      if (existingUser) {
+        return res.status(400).json({ error: 'Unable to create account. Please try a different email or sign in.' });
+      }
+
+      // Generate a unique URL slug from the user's name (e.g. "saeed-darvish").
+      // Used by the public profile route — see utils/slug.js.
+      const slug = await buildUniqueUserSlug(User, firstName, lastName);
+
+      // Create user
+      const user = await User.create({
+        email,
+        password,
+        firstName,
+        lastName,
+        role,
+        slug
+      });
+
+      // Generate JWT
+      const token = jwt.sign(
+        { id: user.id },
+        process.env.JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+      );
+
+      res.status(201).json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          slug: user.slug,
+          role: user.role,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus
+        }
+      });
+    } catch (error) {
+      console.error('Registration error:', error);
+      res.status(500).json({ error: 'Server error during registration' });
+    }
+  }
+);
+
+// @route   POST /api/auth/login
+// @desc    Login user
+// @access  Public
+router.post(
+  '/login',
+  loginLimiter,
+  [
+    body('email').isEmail().withMessage('Please provide a valid email'),
+    body('password').notEmpty().withMessage('Password is required')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email, password } = req.body;
+
+      // Find user. If no match we still run a bcrypt compare against a
+      // dummy hash so the response time matches the "wrong password"
+      // path — closing the user-enumeration timing side channel.
+      const user = await User.findOne({ where: { email } });
+      if (!user) {
+        await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Check password
+      const isMatch = await user.comparePassword(password);
+      if (!isMatch) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Check if active
+      if (!user.isActive) {
+        return res.status(401).json({ error: 'Account is deactivated' });
+      }
+
+      // Generate JWT
+      const token = jwt.sign(
+        { id: user.id },
+        process.env.JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+      );
+
+      // Fetch profile picture based on role
+      let profilePicture = null;
+      let hasRecruiterProfile = false;
+      if (user.role === 'recruiter') {
+        const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
+        profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo || null;
+        hasRecruiterProfile = !!recruiterProfile;
+      } else {
+        const profile = await Profile.findOne({ where: { userId: user.id } });
+        profilePicture = profile?.profilePicture || null;
+      }
+
+      res.json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          slug: user.slug,
+          role: user.role,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionStatus: user.subscriptionStatus,
+          profilePicture,
+          hasRecruiterProfile
+        }
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ error: 'Server error during login' });
+    }
+  }
+);
+
+// @route   GET /api/auth/me
+// @desc    Get current user
+// @access  Private
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.userId, {
+      attributes: ['id', 'email', 'firstName', 'lastName', 'slug', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Fetch profile picture based on role - always get most recent profile
+    let profilePicture = null;
+    let hasRecruiterProfile = false;
+    if (user.role === 'recruiter') {
+      const recruiterProfile = await RecruiterProfile.findOne({ 
+        where: { userId: user.id },
+        order: [['createdAt', 'DESC']],
+        attributes: ['profilePicture', 'companyLogo']
+      });
+      profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo || null;
+      hasRecruiterProfile = !!recruiterProfile;
+    } else {
+      const profile = await Profile.findOne({ 
+        where: { userId: user.id },
+        order: [['createdAt', 'DESC']],
+        attributes: ['profilePicture']
+      });
+      profilePicture = profile?.profilePicture || null;
+    }
+
+    // Disable caching for this endpoint
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      slug: user.slug,
+      role: user.role,
+      subscriptionTier: user.subscriptionTier,
+      subscriptionStatus: user.subscriptionStatus,
+      subscriptionExpiresAt: user.subscriptionExpiresAt,
+      profilePicture,
+      hasRecruiterProfile
+    });
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// @route   POST /api/auth/impersonate/:userId
+// @desc    Login as another user (recruiter/admin only)
+// @access  Private (Recruiter/Admin)
+router.post('/impersonate/:userId', auth, async (req, res) => {
+  try {
+    // Get the current user (recruiter)
+    const recruiter = await User.findByPk(req.userId);
+    
+    if (!recruiter) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Only recruiters and admins can impersonate
+    if (recruiter.role !== 'recruiter' && recruiter.role !== 'admin') {
+      return res.status(403).json({ error: 'Only recruiters and admins can use this feature' });
+    }
+
+    // Get the target user (candidate)
+    const targetUser = await User.findByPk(req.params.userId);
+    
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Target user not found' });
+    }
+
+    // Only allow impersonating candidates (not other recruiters/admins)
+    if (targetUser.role !== 'candidate') {
+      return res.status(403).json({ error: 'Can only impersonate candidates' });
+    }
+
+    // Generate JWT for the target user with impersonation flag
+    const token = jwt.sign(
+      { 
+        id: targetUser.id,
+        impersonatedBy: recruiter.id,
+        isImpersonation: true
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' } // Shorter expiry for impersonation
+    );
+
+    // Get profile picture
+    const profile = await Profile.findOne({ where: { userId: targetUser.id } });
+    const profilePicture = profile?.profilePicture || null;
+
+    res.json({
+      token,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        firstName: targetUser.firstName,
+        lastName: targetUser.lastName,
+        role: targetUser.role,
+        subscriptionTier: targetUser.subscriptionTier,
+        subscriptionStatus: targetUser.subscriptionStatus,
+        profilePicture,
+        isImpersonation: true,
+        impersonatedBy: {
+          id: recruiter.id,
+          firstName: recruiter.firstName,
+          lastName: recruiter.lastName
+        }
+      },
+      // Return original token so recruiter can switch back
+      originalToken: req.headers.authorization?.replace('Bearer ', '')
+    });
+  } catch (error) {
+    console.error('Impersonation error:', error);
+    res.status(500).json({ error: 'Server error during impersonation' });
+  }
+});
+
+// @route   POST /api/auth/forgot-password
+// @desc    Request password reset
+// @access  Public
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  [body('email').isEmail().withMessage('Please provide a valid email')],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { email } = req.body;
+      const user = await User.findOne({ where: { email } });
+
+      // Always return success to prevent email enumeration
+      if (!user) {
+        return res.json({ 
+          message: 'If an account with that email exists, a password reset link has been sent.' 
+        });
+      }
+
+      // Invalidate any existing reset tokens for this user
+      await PasswordReset.update(
+        { usedAt: new Date() },
+        { where: { userId: user.id, usedAt: null } }
+      );
+
+      // Generate token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+      // Create reset record (expires in 1 hour)
+      await PasswordReset.create({
+        userId: user.id,
+        token: hashedToken,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+      });
+
+      // Build reset URL
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
+
+      // Send email
+      try {
+        await sendPasswordResetEmail(user.email, user.firstName, resetUrl);
+      } catch (emailError) {
+        console.error('Error sending password reset email:', emailError);
+        // Don't fail the request if email fails - user can request again
+      }
+
+      res.json({ 
+        message: 'If an account with that email exists, a password reset link has been sent.' 
+      });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// @route   POST /api/auth/reset-password
+// @desc    Reset password with token
+// @access  Public
+router.post(
+  '/reset-password',
+  [
+    body('token').notEmpty().withMessage('Reset token is required'),
+    body('password').custom(passwordValidator)
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { token, password } = req.body;
+
+      // Hash the token to compare with stored hash
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+      // Find valid reset token
+      const resetRecord = await PasswordReset.findOne({
+        where: {
+          token: hashedToken,
+          usedAt: null
+        }
+      });
+
+      if (!resetRecord) {
+        return res.status(400).json({ error: 'Invalid or expired reset token' });
+      }
+
+      // Check if token is expired
+      if (new Date() > resetRecord.expiresAt) {
+        await resetRecord.update({ usedAt: new Date() });
+        return res.status(400).json({ error: 'Reset token has expired. Please request a new one.' });
+      }
+
+      // Get user
+      const user = await User.findByPk(resetRecord.userId);
+      if (!user) {
+        return res.status(400).json({ error: 'User not found' });
+      }
+
+      // Update password (will be hashed by model hook)
+      await user.update({ password });
+
+      // Mark token as used
+      await resetRecord.update({ usedAt: new Date() });
+
+      res.json({ message: 'Password has been reset successfully. You can now log in with your new password.' });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// @route   GET /api/auth/validate-reset-token/:token
+// @desc    Validate if a reset token is still valid
+// @access  Public
+router.get('/validate-reset-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const resetRecord = await PasswordReset.findOne({
+      where: {
+        token: hashedToken,
+        usedAt: null
+      }
+    });
+
+    if (!resetRecord || new Date() > resetRecord.expiresAt) {
+      return res.json({ valid: false });
+    }
+
+    res.json({ valid: true });
+  } catch (error) {
+    console.error('Validate token error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==========================================
+// Google OAuth Routes
+// ==========================================
+
+// @route   POST /api/auth/google
+// @desc    Authenticate with Google OAuth token from frontend
+// @access  Public
+router.post('/google', async (req, res) => {
+  try {
+    const { credential, clientId } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({ error: 'Google credential is required' });
+    }
+
+    // Verify the Google token
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, given_name, family_name, picture } = payload;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email not found in Google profile' });
+    }
+
+    // Check if user exists by googleId
+    let user = await User.findOne({ where: { googleId } });
+
+    if (!user) {
+      // Check if user exists by email (link accounts)
+      user = await User.findOne({ where: { email } });
+
+      if (user) {
+        // Link Google account to existing user
+        // Backfill slug for legacy accounts created before slug support shipped.
+        const updates = {
+          googleId,
+          profilePictureUrl: picture || user.profilePictureUrl,
+        };
+        if (!user.slug) {
+          updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
+        }
+        await user.update(updates);
+      } else {
+        // Create new user
+        const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+        user = await User.create({
+          email,
+          firstName: given_name || 'User',
+          lastName: family_name || '',
+          googleId,
+          profilePictureUrl: picture,
+          role: 'candidate',
+          password: null,
+          slug
+        });
+
+        // Create empty profile for new candidate
+        await Profile.create({
+          userId: user.id,
+          profilePicture: picture
+        });
+      }
+    } else {
+      // Update profile picture if changed
+      if (picture && user.profilePictureUrl !== picture) {
+        await user.update({ profilePictureUrl: picture });
+      }
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    // Get profile picture
+    let profilePicture = user.profilePictureUrl;
+    if (!profilePicture) {
+      if (user.role === 'recruiter') {
+        const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
+        profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo;
+      } else {
+        const profile = await Profile.findOne({ where: { userId: user.id } });
+        profilePicture = profile?.profilePicture;
+      }
+    }
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture
+      }
+    });
+  } catch (error) {
+    console.error('Google auth error:', error);
+    if (error.message?.includes('Token used too late') || error.message?.includes('Invalid token')) {
+      return res.status(401).json({ error: 'Invalid or expired Google token' });
+    }
+    res.status(500).json({ error: 'Google authentication failed' });
+  }
+});
+
+// @route   POST /api/auth/google/register
+// @desc    Register with Google OAuth and specify role
+// @access  Public
+router.post('/google/register', async (req, res) => {
+  try {
+    const { credential, role = 'candidate' } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({ error: 'Google credential is required' });
+    }
+
+    if (!['candidate', 'recruiter'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (role === 'recruiter' && !featureFlags.recruiterSurface) {
+      return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
+    }
+
+    // Verify the Google token
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, given_name, family_name, picture } = payload;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email not found in Google profile' });
+    }
+
+    // Check if user already exists
+    let user = await User.findOne({ 
+      where: { 
+        [require('sequelize').Op.or]: [
+          { googleId },
+          { email }
+        ]
+      }
+    });
+
+    if (user) {
+      // User exists - just log them in (update googleId if not set)
+      // Also backfill slug if the user predates slug support.
+      const updates = {};
+      if (!user.googleId) {
+        updates.googleId = googleId;
+        updates.profilePictureUrl = picture;
+      }
+      if (!user.slug) {
+        updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
+      }
+      if (Object.keys(updates).length > 0) {
+        await user.update(updates);
+      }
+    } else {
+      // Create new user with specified role
+      const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+      user = await User.create({
+        email,
+        firstName: given_name || 'User',
+        lastName: family_name || '',
+        googleId,
+        profilePictureUrl: picture,
+        role,
+        password: null,
+        slug
+      });
+
+      // Create profile based on role
+      if (role === 'recruiter') {
+        await RecruiterProfile.create({
+          userId: user.id,
+          profilePicture: picture
+        });
+      } else {
+        await Profile.create({
+          userId: user.id,
+          profilePicture: picture
+        });
+      }
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture: picture
+      }
+    });
+  } catch (error) {
+    console.error('Google register error:', error);
+    res.status(500).json({ error: 'Google registration failed' });
+  }
+});
+
+// ==========================================
+// GitHub OAuth Routes
+// ==========================================
+
+// @route   POST /api/auth/github
+// @desc    Authenticate with GitHub OAuth code from frontend
+// @access  Public
+router.post('/github', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'GitHub authorization code is required' });
+    }
+
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (tokenData.error) {
+      return res.status(401).json({ error: tokenData.error_description || 'GitHub authentication failed' });
+    }
+
+    const accessToken = tokenData.access_token;
+
+    // Get user data from GitHub
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    const githubUser = await userResponse.json();
+
+    // Get user email (may be private)
+    let email = githubUser.email;
+    if (!email) {
+      const emailsResponse = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+      const emails = await emailsResponse.json();
+      const primaryEmail = emails.find(e => e.primary) || emails[0];
+      email = primaryEmail?.email;
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'Could not retrieve email from GitHub. Please make your email public.' });
+    }
+
+    const githubId = String(githubUser.id);
+    const firstName = githubUser.name?.split(' ')[0] || githubUser.login || 'User';
+    const lastName = githubUser.name?.split(' ').slice(1).join(' ') || '';
+    const picture = githubUser.avatar_url;
+
+    // Check if user exists by githubId
+    let user = await User.findOne({ where: { githubId } });
+
+    if (!user) {
+      // Check if user exists by email (link accounts)
+      user = await User.findOne({ where: { email } });
+
+      if (user) {
+        // Link GitHub account to existing user
+        await user.update({
+          githubId,
+          profilePictureUrl: picture || user.profilePictureUrl
+        });
+      } else {
+        // User doesn't exist - return 404 for login, they need to register first
+        return res.status(404).json({ error: 'No account found with this GitHub email. Please sign up first.' });
+      }
+    } else {
+      // Update profile picture if changed
+      if (picture && user.profilePictureUrl !== picture) {
+        await user.update({ profilePictureUrl: picture });
+      }
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    // Get profile picture
+    let profilePicture = user.profilePictureUrl;
+    if (!profilePicture) {
+      if (user.role === 'recruiter') {
+        const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
+        profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo;
+      } else {
+        const profile = await Profile.findOne({ where: { userId: user.id } });
+        profilePicture = profile?.profilePicture;
+      }
+    }
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture
+      }
+    });
+  } catch (error) {
+    console.error('GitHub auth error:', error);
+    res.status(500).json({ error: 'GitHub authentication failed' });
+  }
+});
+
+// @route   POST /api/auth/github/register
+// @desc    Register with GitHub OAuth and specify role
+// @access  Public
+router.post('/github/register', async (req, res) => {
+  try {
+    const { code, role = 'candidate' } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'GitHub authorization code is required' });
+    }
+
+    if (!['candidate', 'recruiter'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (role === 'recruiter' && !featureFlags.recruiterSurface) {
+      return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
+    }
+
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (tokenData.error) {
+      return res.status(401).json({ error: tokenData.error_description || 'GitHub authentication failed' });
+    }
+
+    const accessToken = tokenData.access_token;
+
+    // Get user data from GitHub
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    const githubUser = await userResponse.json();
+
+    // Get user email (may be private)
+    let email = githubUser.email;
+    if (!email) {
+      const emailsResponse = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+      const emails = await emailsResponse.json();
+      const primaryEmail = emails.find(e => e.primary) || emails[0];
+      email = primaryEmail?.email;
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'Could not retrieve email from GitHub. Please make your email public.' });
+    }
+
+    const githubId = String(githubUser.id);
+    const firstName = githubUser.name?.split(' ')[0] || githubUser.login || 'User';
+    const lastName = githubUser.name?.split(' ').slice(1).join(' ') || '';
+    const picture = githubUser.avatar_url;
+
+    // Check if user already exists
+    let user = await User.findOne({ 
+      where: { 
+        [require('sequelize').Op.or]: [
+          { githubId },
+          { email }
+        ]
+      }
+    });
+
+    if (user) {
+      // User exists - just log them in (update githubId if not set)
+      // Also backfill slug if the user predates slug support.
+      const updates = {};
+      if (!user.githubId) {
+        updates.githubId = githubId;
+        updates.profilePictureUrl = picture;
+      }
+      if (!user.slug) {
+        updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
+      }
+      if (Object.keys(updates).length > 0) {
+        await user.update(updates);
+      }
+    } else {
+      // Create new user with specified role
+      const slug = await buildUniqueUserSlug(User, firstName, lastName);
+      user = await User.create({
+        email,
+        firstName,
+        lastName,
+        githubId,
+        profilePictureUrl: picture,
+        role,
+        password: null,
+        slug
+      });
+
+      // Create profile based on role
+      if (role === 'recruiter') {
+        await RecruiterProfile.create({
+          userId: user.id,
+          profilePicture: picture
+        });
+      } else {
+        await Profile.create({
+          userId: user.id,
+          profilePicture: picture
+        });
+      }
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture: picture
+      }
+    });
+  } catch (error) {
+    console.error('GitHub register error:', error);
+    res.status(500).json({ error: 'GitHub registration failed' });
+  }
+});
+
+module.exports = router;

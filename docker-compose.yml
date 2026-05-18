@@ -1,0 +1,60 @@
+# Local dev / staging compose file for ProfileAI.
+# Production deployments should orchestrate these services separately
+# (e.g. ECS, Fly, Railway) — this file is for one-command local up.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${DB_USER:-profileai}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-profileai}
+      POSTGRES_DB: ${DB_NAME:-profileai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-profileai}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_HOST: db
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5001:5001"
+
+  cron:
+    build:
+      context: ./backend
+    command: ["node", "workers/cronWorker.js"]
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_HOST: db
+      NODE_ENV: ${NODE_ENV:-development}
+      ENABLE_EXTERNAL_JOBS_CRON: "true"
+      ENABLE_APPLYPILOT_SCOUT_CRON: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

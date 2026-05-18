@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.production.local
+.env.test.local
+backend/.env
+frontend/.env
+chrome-extension/.env
+chrome-extension-react/.env
+
+# Build outputs
+frontend/build/
+frontend/dist/
+chrome-extension-react/dist/
+chrome-extension-react/build/
+*.tsbuildinfo
+
+# Packaged extension artifacts
+profileai-extension.zip
+*.crx
+*.pem
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Backups / scratch
+*.bak
+*.orig
+_*.tmp.js
+_mp.js
+_mint_tmp.js
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Backend uploads (legacy local storage)
+backend/uploads/
+
+# Misc
+.claude/

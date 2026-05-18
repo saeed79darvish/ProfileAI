@@ -1,0 +1,32 @@
+export const ROUTES = {
+  FORGOT_PASSWORD: '/forgot-password',
+  LOGIN: '/login',
+} as const;
+
+export const TEXT = {
+  ERROR_INVALID_TOKEN: 'Invalid or expired reset link',
+  ERROR_NO_TOKEN: 'No reset token provided',
+  ERROR_MISMATCH: 'Passwords do not match',
+  ERROR_REQUIREMENTS: 'Password must meet all requirements',
+  ERROR_RESET: 'Failed to reset password. Please try again.',
+  VALIDATING: 'Validating reset link...',
+  INVALID_TITLE: 'Invalid Reset Link',
+  INVALID_MESSAGE: 'This password reset link is invalid or has expired.',
+  INVALID_HELP: 'Please request a new password reset link.',
+  REQUEST_NEW_LINK: 'Request New Link',
+  SUCCESS_TITLE: 'Password Reset Successful!',
+  SUCCESS_MESSAGE: 'Your password has been updated. You can now log in with your new password.',
+  GO_TO_LOGIN: 'Go to Login',
+  FORM_TITLE: 'Create New Password',
+  FORM_SUBTITLE: 'Enter your new password below.',
+  NEW_PASSWORD: 'New Password',
+  CONFIRM_PASSWORD: 'Confirm New Password',
+  MISMATCH_HELPER: "Passwords don't match",
+  BUTTON_LOADING: 'Resetting...',
+  BUTTON_SUBMIT: 'Reset Password',
+  REQ_MIN_LENGTH: '8+ characters',
+  REQ_LOWERCASE: 'Lowercase letter',
+  REQ_UPPERCASE: 'Uppercase letter',
+  REQ_NUMBER: 'Number',
+  REQ_SPECIAL: 'Special char (@$!%*?&)',
+} as const;
