@@ -53,15 +53,23 @@ jobs:
             echo "url=${{ secrets.PROD_API_URL }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fail fast if target URL missing
+      - name: Skip if target URL missing
+        id: guard
         run: |
           if [ -z "${{ steps.target.outputs.url }}" ]; then
-            echo "::error::Target API URL is empty. Set PROD_API_URL (and STAGING_API_URL) in repo secrets."
-            exit 1
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::error::Target API URL is empty. Set PROD_API_URL (and STAGING_API_URL) in repo secrets."
+              exit 1
+            fi
+            echo "::notice::PROD_API_URL not configured yet — skipping smoke test on push."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Smoking ${{ steps.target.outputs.url }}"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Smoking ${{ steps.target.outputs.url }}"
 
       - name: Run smoke test
+        if: steps.guard.outputs.skip != 'true'
         env:
           API: ${{ steps.target.outputs.url }}
         run: node scripts/smokeTest.js

@@ -36,6 +36,10 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install
         run: npm ci
+      - name: Enable pgvector extension
+        run: |
+          PGPASSWORD=profileai psql -h localhost -U profileai -d profileai_test \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
       - name: Syntax check (all JS entrypoints)
         run: |
           node -c server.js
