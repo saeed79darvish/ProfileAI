@@ -3,5 +3,12 @@
     "nodemailer": "^7.0.12",
     "sharp": "^0.34.5",
     "styled-components": "^6.1.19"
+  },
+  "devDependencies": {
+    "wrangler": "^4.92.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   }
 }
