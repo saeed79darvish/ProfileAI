@@ -12,7 +12,6 @@
 
 const { parse } = require('csv-parse');
 const { sequelize, User, Profile, CandidateImport, ImportedCandidate, Job, JobApplication } = require('../models');
-const { v4: uuidv4 } = require('uuid');
 const { enrichFromLinkedInUrl, enrichFromEmail } = require('./linkedinEnrichmentService');
 
 // Import modular components

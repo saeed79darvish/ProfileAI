@@ -94,7 +94,15 @@ export const authAPI = {
   googleRegister: (credential, role) => api.post('/auth/google/register', { credential, role }),
   // GitHub OAuth
   githubLogin: (code) => api.post('/auth/github', { code }),
-  githubRegister: (code, role) => api.post('/auth/github/register', { code, role })
+  githubRegister: (code, role) => api.post('/auth/github/register', { code, role }),
+  // LinkedIn OAuth
+  linkedinAuthorizeUrl: (redirectUri, state) =>
+    api.get('/auth/linkedin/authorize-url', { params: { redirectUri, state } }),
+  linkedinLogin: (code, redirectUri) => api.post('/auth/linkedin', { code, redirectUri }),
+  linkedinRegister: (code, redirectUri, role) => api.post('/auth/linkedin/register', { code, redirectUri, role }),
+  // Email verification
+  verifyEmail: (token) => api.post('/auth/verify-email', { token }),
+  resendVerification: () => api.post('/auth/resend-verification')
 };
 
 // Profile API

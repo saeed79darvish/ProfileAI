@@ -1,4 +1,29 @@
 
+import {
+  Container,
+  Paper,
+  Box,
+  Typography,
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Link,
+} from '@mui/material';
+import {
+  Security,
+  Person,
+  Storage,
+  Cookie,
+  Email,
+  Phone,
+  Delete,
+  Download,
+  CloudUpload,
+  Payment,
+  Psychology,
+} from '@mui/icons-material';
 import { LAST_UPDATED, CONTACT_EMAILS } from './constants';
 
 const PrivacyPolicy = () => {

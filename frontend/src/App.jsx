@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box, Button, Typography } from '@mui/material';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -20,6 +20,7 @@ import Register from './pages/Register';
 // Everything else, lazy loaded
 const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./pages/ResetPassword'));
+const VerifyEmail = React.lazy(() => import('./pages/VerifyEmail'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const ProfileForm = React.lazy(() => import('./pages/ProfileForm'));
 const ProfileCreation = React.lazy(() => import('./pages/ProfileCreation'));
@@ -64,8 +65,10 @@ const AdminPromos = React.lazy(() => import('./pages/AdminPromos'));
 const CandidateOnboarding = React.lazy(() => import('./pages/CandidateOnboarding'));
 const RecruiterOnboarding = React.lazy(() => import('./pages/RecruiterOnboarding'));
 const JobPreferencesWizard = React.lazy(() => import('./pages/JobPreferencesWizard'));
-const ApplyPilotPage = React.lazy(() => import('./pages/ApplyPilotPage'));
+const ApplyPilotLanding = React.lazy(() => import('./pages/AgentArena/LandingPage'));
 const MyJobs = React.lazy(() => import('./pages/MyJobs'));
+const NotFound = React.lazy(() => import('./pages/NotFound'));
+const CheckEmail = React.lazy(() => import('./pages/CheckEmail'));
 
 const LazyFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -91,19 +94,21 @@ const theme = createTheme({
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 // Routes where the Navbar should be hidden (full-screen auth layouts)
-const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
+const AUTH_ROUTES = ['/login', '/register', '/signup', '/forgot-password', '/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track', '/check-email'];
 
-// `/applypilot` is shared between the Chrome-extension marketing
-// page and the candidate auto-apply dashboard. Signed-in candidates
-// land on the in-app welcome/landing page (which adapts its primary
-// CTA to "Go to Dashboard" for users who are already set up).
+// `/applypilot` is shared between the redesigned candidate landing
+// page (the new ApplyPilot marketing page) and the in-app candidate
+// dashboard. Signed-in candidates land on the in-app welcome page
+// (which adapts its primary CTA for users who are already set up).
+// Signed-out visitors see the same redesigned landing page rather
+// than the legacy Chrome-extension marketing surface.
 function ApplyPilotGateway() {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return LazyFallback;
   if (isAuthenticated && user?.role === 'candidate') {
     return <Navigate to="/applypilot/welcome" replace />;
   }
-  return <ApplyPilotPage />;
+  return <ApplyPilotLanding />;
 }
 
 // Legacy /agent-arena/* → /applypilot/* redirect. Preserves sub-paths
@@ -121,13 +126,31 @@ function ArenaLegacyRedirect() {
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
   const isOverlayMode =
     location.pathname === '/resume/download' &&
     new URLSearchParams(location.search).get('overlay') === '1';
   const hideNavbar =
     AUTH_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
+    location.pathname.startsWith('/reset-password/') ||
+    location.pathname.startsWith('/verify-email/') ||
     isOverlayMode;
+  const showOnboardingSignOut =
+    isAuthenticated &&
+    [
+      '/onboarding',
+      '/recruiter/onboarding',
+      '/profile/create',
+      '/profile/create-form',
+      '/profile/preferences',
+      '/check-email'
+    ].includes(location.pathname);
+
+  const handleOnboardingSignOut = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   // Register navigate so the api.js 401 interceptor can do SPA navigation
   React.useEffect(() => {
@@ -137,6 +160,60 @@ function AppContent() {
 
   return (
     <>
+      {showOnboardingSignOut && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: { xs: 10, md: 14 },
+            right: { xs: 10, md: 16 },
+            zIndex: 1400,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            px: { xs: 1.1, md: 1.4 },
+            py: 0.7,
+            borderRadius: 999,
+            border: '1px solid rgba(15, 23, 42, 0.12)',
+            backgroundColor: 'rgba(255, 255, 255, 0.92)',
+            backdropFilter: 'blur(6px)',
+            boxShadow: '0 6px 20px rgba(15, 23, 42, 0.08)',
+            maxWidth: 'min(92vw, 420px)'
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: { xs: 11, md: 12 },
+              color: '#334155',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+            title={user?.email || ''}
+          >
+            {user?.email || user?.firstName || 'Signed in'}
+          </Typography>
+          <Button
+            onClick={handleOnboardingSignOut}
+            size="small"
+            sx={{
+              minWidth: 'auto',
+              px: 1,
+              py: 0.25,
+              lineHeight: 1.2,
+              fontSize: { xs: 11, md: 12 },
+              fontWeight: 700,
+              color: '#475569',
+              textTransform: 'none',
+              '&:hover': {
+                backgroundColor: 'rgba(71, 85, 105, 0.1)',
+                color: '#0f172a'
+              }
+            }}
+          >
+            Sign out
+          </Button>
+        </Box>
+      )}
       <ImpersonationBanner />
       {!hideNavbar && <Navbar />}
       {!isOverlayMode && <CookieConsentBanner />}
@@ -148,6 +225,11 @@ function AppContent() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/signup" element={<Register />} />
+              <Route path="/check-email" element={
+                <PrivateRoute>
+                  <CheckEmail />
+                </PrivateRoute>
+              } />
               <Route path="/onboarding" element={
                 <PrivateRoute allowedRoles={['candidate']}>
                   <CandidateOnboarding />
@@ -164,6 +246,7 @@ function AppContent() {
               <Route path="/resume/download" element={<ResumeDownloadPage />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password/:token" element={<ResetPassword />} />
+              <Route path="/verify-email/:token" element={<VerifyEmail />} />
               <Route path="/invite/:token" element={<InvitationAcceptPage />} />
               <Route path="/screen/:token" element={<GuestScreeningPage />} />
               <Route path="/track" element={<TrackApplicationPage />} />
@@ -436,6 +519,8 @@ function AppContent() {
               path="/interviews"
               element={<Navigate to="/profile" replace />}
             />
+            {/* Catch-all 404 — must be the last route */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
         </ErrorBoundary>

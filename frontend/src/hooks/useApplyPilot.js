@@ -63,11 +63,13 @@ function useFetch(fetcher, initial, deps = []) {
 /* ================================================================
    Setup page
    ================================================================ */
-export function useApplyPilotConfig() {
+export function useApplyPilotConfig({ enabled = true } = {}) {
   return useFetch(
-    () => applyPilotAPI.getConfig(),
+    () => (enabled
+      ? applyPilotAPI.getConfig()
+      : Promise.resolve({ data: { config: null, status: 'idle', training: { coverage: [] } } })),
     { config: null, status: 'idle', training: { coverage: [] } },
-    [],
+    [enabled],
   );
 }
 

@@ -80,8 +80,7 @@ function calculateBasicScore(profile, job) {
  * @returns {string} UUID for the import batch
  */
 function generateImportId() {
-  const { v4: uuidv4 } = require('uuid');
-  return uuidv4();
+  return require('crypto').randomUUID();
 }
 
 /**

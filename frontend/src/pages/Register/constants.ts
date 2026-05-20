@@ -17,7 +17,7 @@ export const TEXT = {
   ROLE_CANDIDATE: 'Candidate',
   ROLE_RECRUITER: 'Recruiter',
   COMING_SOON: 'COMING SOON',
-  GITHUB_BUTTON: 'Sign up with GitHub',
+  LINKEDIN_BUTTON: 'Sign up with LinkedIn',
   DIVIDER: 'Or register with email',
   LABELS: {
     FIRST_NAME: 'First Name',
@@ -40,6 +40,8 @@ export const TEXT = {
     GOOGLE_FAILED: 'Google sign-in failed. Please try again.',
     GOOGLE_SIGNUP_FAILED: 'Google sign-up failed. Please try again.',
     GITHUB_FAILED: 'GitHub sign-up failed. Please try again.',
+    LINKEDIN_FAILED: 'LinkedIn sign-up failed. Please try again.',
+    LINKEDIN_NOT_CONFIGURED: 'LinkedIn sign-up is not configured.',
   },
 } as const;
 

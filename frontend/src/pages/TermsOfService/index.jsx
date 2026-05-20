@@ -1,4 +1,26 @@
 
+import {
+  Container,
+  Paper,
+  Box,
+  Typography,
+  Alert,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  Link,
+} from '@mui/material';
+import {
+  Gavel,
+  Shield,
+  Person,
+  Payment,
+  Warning,
+  Block,
+  Balance,
+  Psychology,
+} from '@mui/icons-material';
 import { LAST_UPDATED, EFFECTIVE_DATE, CONTACT_EMAILS, POLICY } from './constants';
 
 const TermsOfService = () => {

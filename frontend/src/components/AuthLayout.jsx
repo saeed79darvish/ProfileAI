@@ -406,6 +406,30 @@ const AuthLayout = ({ children }) => {
         }} />
 
         <FormContainer>
+          <MobileTopBar>
+            <MobileBrand to="/">
+              <MobileBrandLogo>
+                <SparkleIcon sx={{ color: '#fff', fontSize: 18 }} />
+              </MobileBrandLogo>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', letterSpacing: '-0.3px' }}>
+                ProfileAI
+              </Typography>
+            </MobileBrand>
+            <Link
+              component={RouterLink}
+              to="/"
+              sx={{
+                display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                color: '#64748b', textDecoration: 'none', fontSize: '0.82rem',
+                fontWeight: 500,
+                '&:hover': { color: '#667eea' },
+              }}
+            >
+              <ArrowBackIcon sx={{ fontSize: 15 }} />
+              Home
+            </Link>
+          </MobileTopBar>
+
           <MobileHero>
             <MobileHeroPill>Join 12,000+ professionals</MobileHeroPill>
             <Typography

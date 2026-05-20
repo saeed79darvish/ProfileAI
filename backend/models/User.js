@@ -2,12 +2,6 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const bcrypt = require('bcryptjs');
 
-// Cost factor for password hashing. 12 is the modern baseline (~250ms/hash
-// on commodity hardware) and is reused for the dummy compare in login to
-// keep timing constant. Bumping this rotates new hashes only; existing
-// hashes keep verifying correctly via the stored salt.
-const BCRYPT_ROUNDS = 12;
-
 const User = sequelize.define('User', {
   id: {
     type: DataTypes.UUID,
@@ -92,19 +86,37 @@ const User = sequelize.define('User', {
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
+  },
+  emailVerified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
+  },
+  emailVerifiedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  emailVerificationToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'SHA256 hashed verification token'
+  },
+  emailVerificationExpiresAt: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   timestamps: true,
   hooks: {
     beforeCreate: async (user) => {
       if (user.password) {
-        const salt = await bcrypt.genSalt(BCRYPT_ROUNDS);
+        const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(user.password, salt);
       }
     },
     beforeUpdate: async (user) => {
       if (user.changed('password')) {
-        const salt = await bcrypt.genSalt(BCRYPT_ROUNDS);
+        const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(user.password, salt);
       }
     }

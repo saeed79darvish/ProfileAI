@@ -112,7 +112,7 @@ const LogoText = styled.span`
 `;
 
 /* The single nav row that holds primary items + actions + user menu.
-   Hidden under mobile breakpoint (where the hamburger replaces it). */
+   Hidden below the desktop breakpoint (where the hamburger replaces it). */
 const NavRow = styled.div`
   display: flex;
   align-items: center;
@@ -121,7 +121,7 @@ const NavRow = styled.div`
   flex: 1;
   justify-content: flex-end;
 
-  ${media.mobile} { display: none; }
+  ${media.tabletDown} { display: none; }
 `;
 
 const NavItem = styled.button`
@@ -145,12 +145,6 @@ const NavItem = styled.button`
 
   &:hover { background: rgba(167, 139, 250, 0.15); color: #c4b5fd; }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
-
-  /* Tablet: icon-only.  Hide the text label (rendered as <span class="label">). */
-  ${media.tablet} {
-    padding: 8px;
-    .label { display: none; }
-  }
 `;
 
 const IconBtn = styled.button`
@@ -197,7 +191,7 @@ const Hamburger = styled.button`
   &:hover { background: rgba(167, 139, 250, 0.1); }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 
-  ${media.mobile} { display: inline-flex; }
+  ${media.tabletDown} { display: inline-flex; }
 `;
 
 /* User pill */

@@ -11,7 +11,6 @@ import {
   IconButton,
   InputAdornment
 } from '@mui/material';
-import GitHubIcon from '@mui/icons-material/GitHub';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { GoogleLogin } from '@react-oauth/google';
@@ -27,7 +26,6 @@ import {
   alertSx,
   socialButtonsContainerSx,
   googleLoginWrapperSx,
-  githubButtonSx,
   dividerSx,
   dividerTextSx,
   emailGroupSx,
@@ -39,10 +37,10 @@ import {
   footerTextSx,
   signUpLinkSx,
 } from './styled';
-import { ROUTES, TEXT, ROLES, GITHUB_OAUTH_STATE, STORAGE_KEY_TOKEN } from './constants';
+import { ROUTES, TEXT, ROLES, LINKEDIN_OAUTH_STATE, STORAGE_KEY_TOKEN } from './constants';
 import { getRecruiterDest } from './utils';
 
-const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || '';
+const LINKEDIN_CLIENT_ID = import.meta.env.VITE_LINKEDIN_CLIENT_ID || '';
 
 // --- Component ---
 const Login = () => {
@@ -74,50 +72,11 @@ const Login = () => {
     }
   }, [user, existingToken, navigate, fromExtension]);
 
-  // Handle GitHub OAuth callback
-  useEffect(() => {
-    const code = searchParams.get('code');
-    const state = searchParams.get('state');
-    if (code && state === GITHUB_OAUTH_STATE) {
-      handleGitHubCallback(code);
-      window.history.replaceState({}, document.title, ROUTES.LOGIN);
-    }
-  }, [searchParams]);
-
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   // --- OAuth ---
-  const handleGitHubCallback = async (code) => {
-    setError('');
-    setLoading(true);
-    try {
-      const response = await authAPI.githubLogin(code);
-      const { token, user } = response.data;
-      localStorage.setItem(STORAGE_KEY_TOKEN, token);
-      setToken(token);
-      setUser(user);
-      const dest = redirectTarget || (user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE);
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest, { replace: true });
-    } catch (err) {
-      if (err.response?.status === 404) {
-        setError(TEXT.ERROR_GITHUB_NO_ACCOUNT);
-      } else {
-        setError(err.response?.data?.error || TEXT.ERROR_GITHUB_LOGIN);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGitHubLogin = () => {
-    const redirectUri = `${window.location.origin}${ROUTES.LOGIN}`;
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email&state=${GITHUB_OAUTH_STATE}`;
-  };
-
   const handleGoogleSuccess = async (credentialResponse) => {
     setError('');
     setLoading(true);
@@ -142,7 +101,12 @@ const Login = () => {
     }
   };
 
-  const handleGoogleError = () => setError(TEXT.ERROR_GOOGLE_SIGNIN);
+  const handleGoogleError = () => {
+    // No-op: Google's library fires onError for cosmetic reasons (COOP popup
+    // postMessage races) even when the credential is delivered successfully
+    // and handleGoogleSuccess runs. Real failures surface from the API call
+    // inside handleGoogleSuccess.
+  };
 
   // --- Form submit ---
   const handleSubmit = async (e) => {
@@ -185,7 +149,6 @@ const Login = () => {
           <GoogleLogin
             onSuccess={handleGoogleSuccess}
             onError={handleGoogleError}
-            useOneTap
             theme="outline"
             size="large"
             text="signin_with"
@@ -193,17 +156,6 @@ const Login = () => {
             width="400"
           />
         </Box>
-        <Button
-          variant="outlined"
-          fullWidth
-          size="large"
-          startIcon={<GitHubIcon />}
-          onClick={handleGitHubLogin}
-          disabled={loading}
-          sx={githubButtonSx}
-        >
-          {TEXT.SIGN_IN_GITHUB}
-        </Button>
       </Box>
 
       {/* Divider */}

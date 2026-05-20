@@ -98,17 +98,19 @@ export const socialButtonsWrapperSx = {
   display: 'flex', flexDirection: 'column', gap: 1.5, alignItems: 'stretch', mb: 0
 };
 
-export const googleButtonWrapperSx = { display: 'flex', justifyContent: 'center' };
+export const googleButtonWrapperSx = { display: 'flex', justifyContent: 'center', width: '100%', '& > div, & iframe': { width: '100% !important', colorScheme: 'light' } };
 
-export const githubButtonSx = {
+export const linkedinButtonSx = {
   borderRadius: RADIUS.MEDIUM,
-  borderColor: '#d0d5dd',
-  color: '#24292e',
+  borderColor: '#0A66C2',
+  color: '#0A66C2',
   textTransform: 'none',
   fontWeight: FONT_WEIGHT.MEDIUM,
   fontSize: FONT_SIZE.BASE,
   py: 1.2,
-  '&:hover': { borderColor: '#24292e', backgroundColor: 'rgba(36,41,46,0.04)' }
+  width: '100%',
+  height: 40,
+  '&:hover': { borderColor: '#004182', backgroundColor: 'rgba(10,102,194,0.06)' }
 };
 
 export const dividerSx = { my: 2.5 };

@@ -13,7 +13,6 @@ import {
   IconButton,
   InputAdornment
 } from '@mui/material';
-import GitHubIcon from '@mui/icons-material/GitHub';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -36,7 +35,6 @@ import {
   alertSx,
   socialButtonsWrapperSx,
   googleButtonWrapperSx,
-  githubButtonSx,
   dividerSx,
   dividerTextSx,
   fieldLabelSx,
@@ -55,8 +53,6 @@ import {
 } from './styled';
 import { ROUTES, TEXT } from './constants';
 import { getPasswordStrength } from './utils';
-
-const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || '';
 
 // --- Component ---
 const Register = () => {
@@ -102,18 +98,6 @@ const Register = () => {
     }
   }, [searchParams]);
 
-  // Handle GitHub OAuth callback
-  useEffect(() => {
-    const code = searchParams.get('code');
-    const state = searchParams.get('state');
-    if (code && state === 'github_register') {
-      const savedRole = sessionStorage.getItem('github_signup_role') || 'candidate';
-      sessionStorage.removeItem('github_signup_role');
-      handleGitHubRegister(code, savedRole);
-      window.history.replaceState({}, document.title, '/register');
-    }
-  }, [searchParams]);
-
   const passwordStrength = useMemo(
     () => getPasswordStrength(formData.password),
     [formData.password]
@@ -147,35 +131,10 @@ const Register = () => {
     }
   };
 
-  const handleGoogleError = () => setError(TEXT.ERRORS.GOOGLE_SIGNUP_FAILED);
-
-  const handleGitHubSignup = () => {
-    sessionStorage.setItem('github_signup_role', formData.role);
-    const redirectUri = `${window.location.origin}${ROUTES.REGISTER}`;
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user:email&state=github_register`;
-  };
-
-  const handleGitHubRegister = async (code, role) => {
-    setError('');
-    setLoading(true);
-    try {
-      const response = await authAPI.githubRegister(code, role);
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      setToken(token);
-      setUser(user);
-      if (referrerId) {
-        try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
-      }
-      const dest = user?.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest);
-    } catch (err) {
-      setError(err.response?.data?.error || TEXT.ERRORS.GITHUB_FAILED);
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleError = () => {
+    // No-op: Google's library fires onError for cosmetic reasons (COOP popup
+    // postMessage races) even when the credential is delivered successfully.
+    // Real failures surface from the API call in handleGoogleSuccess.
   };
 
   // --- Form submit ---
@@ -206,7 +165,9 @@ const Register = () => {
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
-      const dest = formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      const dest = result.user?.emailVerified !== true
+        ? '/check-email'
+        : formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
       fromExtension
         ? await handleExtensionAuthSuccess(result.token, result.user, navigate, dest)
         : navigate(dest);
@@ -268,17 +229,6 @@ const Register = () => {
             width="400"
           />
         </Box>
-        <Button
-          variant="outlined"
-          fullWidth
-          size="large"
-          startIcon={<GitHubIcon />}
-          onClick={handleGitHubSignup}
-          disabled={loading}
-          sx={githubButtonSx}
-        >
-          {TEXT.GITHUB_BUTTON}
-        </Button>
       </Box>
 
       {/* Divider */}

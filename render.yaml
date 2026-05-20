@@ -51,9 +51,9 @@ services:
       - key: JWT_EXPIRE
         value: 7d
       - key: FRONTEND_URL
-        value: https://profileai.pro
+        value: https://profilleai.com
       - key: ALLOWED_ORIGINS
-        value: https://profileai.pro,https://www.profileai.pro
+        value: https://profilleai.com,https://www.profilleai.com
       # Feature flags — candidate-only launch
       - key: ENABLE_RECRUITER_SURFACE
         value: "false"
@@ -82,10 +82,14 @@ services:
       - key: CLOUDINARY_API_SECRET
         sync: false
       # Email (Resend recommended — set after picking provider)
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: STRICT_BRAND_FROM
+        value: "true"
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        sync: false           # e.g. noreply@profileai.pro
+        sync: false           # e.g. no-reply@profilleai.com
       # Stripe (only if you charge on day 1)
       - key: STRIPE_SECRET_KEY
         sync: false

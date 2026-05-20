@@ -13,31 +13,21 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+const EMAIL_PROVIDER = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase(); // auto | resend | smtp
+const STRICT_BRAND_FROM = process.env.STRICT_BRAND_FROM === 'true';
+
 /**
- * Send an email using Resend (primary) or Nodemailer (fallback)
- * @param {string} to - Recipient email
- * @param {string} subject - Email subject
- * @param {string} html - Email body (HTML)
- * @param {string} text - Email body (Text fallback)
+ * Send an email using whichever configured provider succeeds first.
+ * Tries Resend, then SMTP (nodemailer), and only fails if both fail.
  */
 const sendEmail = async ({ to, subject, html, text }) => {
-  try {
-    // Option 1: Use Gmail/Nodemailer (if configured)
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      const info = await transporter.sendMail({
-        from: process.env.EMAIL_FROM || `"ProfileAI" <${process.env.EMAIL_USER}>`,
-        to,
-        subject,
-        text,
-        html
-      });
+  const errors = [];
+  const canUseResend = EMAIL_PROVIDER === 'auto' || EMAIL_PROVIDER === 'resend';
+  const canUseSmtp = EMAIL_PROVIDER === 'auto' || EMAIL_PROVIDER === 'smtp';
 
-      console.log('Email sent via Gmail:', info.messageId);
-      return true;
-    }
-
-    // Option 2: Use Resend (fallback)
-    if (resend) {
+  // Option 1: Resend
+  if (canUseResend && resend) {
+    try {
       const fromEmail = process.env.EMAIL_FROM || 'ProfileAI <onboarding@resend.dev>';
       const { data, error } = await resend.emails.send({
         from: fromEmail,
@@ -48,21 +38,46 @@ const sendEmail = async ({ to, subject, html, text }) => {
       });
 
       if (error) {
-        console.error('Resend error:', error);
-        return false;
+        errors.push(`Resend: ${error.message || JSON.stringify(error)}`);
+      } else {
+        console.log('Email sent via Resend:', data?.id);
+        return true;
       }
-
-      console.log('Email sent via Resend:', data?.id);
-      return true;
+    } catch (error) {
+      errors.push(`Resend: ${error.message}`);
     }
+  }
 
-    // No email provider configured - log for development
-    console.warn('⚠️ No email provider configured. Email not sent:', { to, subject });
-    return false;
-  } catch (error) {
-    console.error('Error sending email:', error);
+  // Option 2: SMTP (nodemailer)
+  if (!STRICT_BRAND_FROM && canUseSmtp && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_FROM || `"ProfileAI" <${process.env.EMAIL_USER}>`,
+        to,
+        subject,
+        text,
+        html
+      });
+
+      console.log('Email sent via SMTP:', info.messageId);
+      return true;
+    } catch (error) {
+      errors.push(`SMTP: ${error.message}`);
+    }
+  }
+
+  if (STRICT_BRAND_FROM && canUseSmtp) {
+    errors.push('SMTP disabled by STRICT_BRAND_FROM=true');
+  }
+
+  if (errors.length > 0) {
+    console.error('Email delivery failed with configured provider(s):', errors.join(' | '));
     return false;
   }
+
+  // No email provider configured
+  console.warn('No email provider configured. Email not sent:', { to, subject });
+  return false;
 };
 
 /**
@@ -587,6 +602,73 @@ If you didn't request a password reset, you can safely ignore this email.
   return sendEmail({ to: email, subject, html, text });
 };
 
+/**
+ * Send email verification link to a newly registered user.
+ */
+const sendEmailVerification = async (email, firstName, verifyLink) => {
+  console.log('\n========================================');
+  console.log('✉️  EMAIL VERIFICATION LINK (for development)');
+  console.log('========================================');
+  console.log(`Email: ${email}`);
+  console.log(`Link: ${verifyLink}`);
+  console.log('========================================\n');
+
+  const subject = 'Verify your ProfileAI email';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #4F46E5; margin: 0;">ProfileAI</h1>
+      </div>
+
+      <h2 style="color: #1F2937;">Hi ${firstName || 'there'},</h2>
+
+      <p style="color: #4B5563; font-size: 16px; line-height: 1.6;">
+        Thanks for signing up! Please confirm your email address so we know it's really you.
+      </p>
+
+      <div style="margin: 30px 0; text-align: center;">
+        <a href="${verifyLink}"
+           style="background-color: #4F46E5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+          Verify Email
+        </a>
+      </div>
+
+      <p style="color: #6B7280; font-size: 14px;">
+        This link expires in <strong>24 hours</strong>. If it expires, you can request a new one from your account.
+      </p>
+
+      <p style="color: #6B7280; font-size: 14px;">
+        If you didn't create a ProfileAI account, you can safely ignore this email.
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
+
+      <p style="color: #9CA3AF; font-size: 12px;">
+        If the button doesn't work, copy and paste this link into your browser:<br>
+        <a href="${verifyLink}" style="color: #4F46E5; word-break: break-all;">${verifyLink}</a>
+      </p>
+
+      <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 30px;">
+        &copy; ${new Date().getFullYear()} ProfileAI. All rights reserved.
+      </p>
+    </div>
+  `;
+
+  const text = `Hi ${firstName || 'there'},
+
+Thanks for signing up to ProfileAI. Please confirm your email by opening the link below:
+
+${verifyLink}
+
+This link expires in 24 hours.
+
+If you didn't create a ProfileAI account, you can ignore this email.
+
+- The ProfileAI Team`;
+
+  return sendEmail({ to: email, subject, html, text });
+};
+
 module.exports = {
   sendEmail,
   sendShortlistNotification,
@@ -594,5 +676,6 @@ module.exports = {
   sendApplicationConfirmation,
   sendNewApplicationNotification,
   sendApplicationStatusUpdate,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerification
 };

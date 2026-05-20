@@ -4,7 +4,7 @@ export const ROLES = {
   CANDIDATE: 'candidate',
 } as const;
 
-export const GITHUB_OAUTH_STATE = 'github_login';
+export const LINKEDIN_OAUTH_STATE = 'linkedin_login';
 export const STORAGE_KEY_TOKEN = 'token';
 
 export const ROUTES = {
@@ -20,13 +20,14 @@ export const ROUTES = {
 export const TEXT = {
   WELCOME_TITLE: 'Welcome back',
   SUBTITLE: 'Sign in to access your AI-enhanced profile',
-  ERROR_GITHUB_NO_ACCOUNT: 'No account found. Please sign up with GitHub first.',
-  ERROR_GITHUB_LOGIN: 'GitHub login failed. Please try again.',
+  ERROR_LINKEDIN_NO_ACCOUNT: 'No account found. Please sign up with LinkedIn first.',
+  ERROR_LINKEDIN_LOGIN: 'LinkedIn login failed. Please try again.',
+  ERROR_LINKEDIN_NOT_CONFIGURED: 'LinkedIn sign-in is not configured.',
   ERROR_GOOGLE_NO_ACCOUNT: 'No account found. Please sign up with Google first.',
   ERROR_GOOGLE_LOGIN: 'Google login failed. Please try again.',
   ERROR_GOOGLE_SIGNIN: 'Google sign-in failed. Please try again.',
   ERROR_LOGIN: 'Login failed. Please try again.',
-  SIGN_IN_GITHUB: 'Sign in with GitHub',
+  SIGN_IN_LINKEDIN: 'Sign in with LinkedIn',
   DIVIDER_TEXT: 'Or sign in with email',
   EMAIL_LABEL: 'Email Address',
   PASSWORD_LABEL: 'Password',

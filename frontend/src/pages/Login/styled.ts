@@ -41,17 +41,19 @@ export const alertSx = { mb: 2.5, borderRadius: RADIUS.MEDIUM } as const;
 
 export const socialButtonsContainerSx = { display: 'flex', flexDirection: 'column', gap: 1.5, alignItems: 'stretch', mb: 0 } as const;
 
-export const googleLoginWrapperSx = { display: 'flex', justifyContent: 'center' } as const;
+export const googleLoginWrapperSx = { display: 'flex', justifyContent: 'center', width: '100%', '& > div, & iframe': { width: '100% !important', colorScheme: 'light' } } as const;
 
-export const githubButtonSx = {
+export const linkedinButtonSx = {
   borderRadius: RADIUS.MEDIUM,
-  borderColor: COLORS.BORDER_DEFAULT,
-  color: COLORS.TEXT_DARK,
+  borderColor: '#0A66C2',
+  color: '#0A66C2',
   textTransform: 'none',
   fontWeight: FONT_WEIGHT.MEDIUM,
   fontSize: FONT_SIZE.BASE,
   py: 1.2,
-  '&:hover': { borderColor: COLORS.TEXT_DARK, backgroundColor: 'rgba(36,41,46,0.04)' }
+  width: '100%',
+  height: 40,
+  '&:hover': { borderColor: '#004182', backgroundColor: 'rgba(10,102,194,0.06)' }
 } as const;
 
 export const dividerSx = { my: 2.5 } as const;

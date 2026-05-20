@@ -270,6 +270,8 @@ export const AuthProvider = ({ children }) => {
     refreshUser,
     impersonate,
     exitImpersonation,
+    setUser,
+    setToken,
     isAuthenticated: !!token,
     isImpersonating: !!originalToken || user?.isImpersonation,
     loading

@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const { User, Profile, RecruiterProfile, PasswordReset } = require('../models');
 const auth = require('../middleware/auth');
-const { sendPasswordResetEmail } = require('../services/emailService');
+const { sendPasswordResetEmail, sendEmailVerification } = require('../services/emailService');
 const { buildUniqueUserSlug } = require('../utils/slug');
 const rateLimit = require('express-rate-limit');
 const featureFlags = require('../config/featureFlags');
@@ -43,6 +43,14 @@ const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: { error: 'Too many registrations from this IP. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const resendVerificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -98,14 +106,28 @@ router.post(
       const slug = await buildUniqueUserSlug(User, firstName, lastName);
 
       // Create user
+      const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
+      const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+      const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const user = await User.create({
         email,
         password,
         firstName,
         lastName,
         role,
-        slug
+        slug,
+        emailVerified: false,
+        emailVerificationToken: verificationTokenHash,
+        emailVerificationExpiresAt: verificationExpiresAt
       });
+
+      // Send verification email (non-blocking if provider isn't configured)
+      try {
+        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
+        await sendEmailVerification(user.email, user.firstName, verifyUrl);
+      } catch (mailErr) {
+        console.error('Error sending verification email during registration:', mailErr);
+      }
 
       // Generate JWT
       const token = jwt.sign(
@@ -124,7 +146,8 @@ router.post(
           slug: user.slug,
           role: user.role,
           subscriptionTier: user.subscriptionTier,
-          subscriptionStatus: user.subscriptionStatus
+          subscriptionStatus: user.subscriptionStatus,
+          emailVerified: user.emailVerified
         }
       });
     } catch (error) {
@@ -1004,6 +1027,303 @@ router.post('/github/register', async (req, res) => {
   } catch (error) {
     console.error('GitHub register error:', error);
     res.status(500).json({ error: 'GitHub registration failed' });
+  }
+});
+
+// ==========================================
+// LinkedIn OAuth Routes (OIDC: openid profile email)
+// ==========================================
+
+// @route   GET /api/auth/linkedin/authorize-url
+// @desc    Build a LinkedIn OAuth authorization URL using server-side
+//          credentials, so the frontend doesn't need its own client ID.
+// @access  Public
+router.get('/linkedin/authorize-url', (req, res) => {
+  const clientId = process.env.LINKEDIN_CLIENT_ID;
+  if (!clientId) {
+    return res.status(503).json({ error: 'LinkedIn sign-in is not configured.' });
+  }
+  const { redirectUri, state } = req.query;
+  if (!redirectUri || !state) {
+    return res.status(400).json({ error: 'redirectUri and state are required' });
+  }
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: clientId,
+    redirect_uri: String(redirectUri),
+    scope: 'openid profile email',
+    state: String(state),
+  });
+  res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}` });
+});
+
+// Exchange a LinkedIn authorization code for an access token + OIDC userinfo.
+async function fetchLinkedInProfile(code, redirectUri) {
+  const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: process.env.LINKEDIN_CLIENT_ID || '',
+      client_secret: process.env.LINKEDIN_CLIENT_SECRET || ''
+    })
+  });
+
+  const tokenData = await tokenResponse.json();
+  if (!tokenResponse.ok || tokenData.error) {
+    const err = new Error(tokenData.error_description || tokenData.error || 'LinkedIn token exchange failed');
+    err.status = 401;
+    throw err;
+  }
+
+  const userinfoResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+  });
+  const profile = await userinfoResponse.json();
+  if (!userinfoResponse.ok) {
+    const err = new Error(profile.message || 'Failed to load LinkedIn profile');
+    err.status = 401;
+    throw err;
+  }
+
+  return {
+    linkedinId: String(profile.sub),
+    email: profile.email,
+    firstName: profile.given_name || profile.name?.split(' ')[0] || 'User',
+    lastName: profile.family_name || profile.name?.split(' ').slice(1).join(' ') || '',
+    picture: profile.picture || null
+  };
+}
+
+// @route   POST /api/auth/linkedin
+// @desc    Authenticate with LinkedIn OAuth code from frontend
+// @access  Public
+router.post('/linkedin', async (req, res) => {
+  try {
+    const { code, redirectUri } = req.body;
+
+    if (!code || !redirectUri) {
+      return res.status(400).json({ error: 'LinkedIn authorization code and redirectUri are required' });
+    }
+
+    const { linkedinId, email, picture } = await fetchLinkedInProfile(code, redirectUri);
+
+    if (!email) {
+      return res.status(400).json({ error: 'Could not retrieve email from LinkedIn.' });
+    }
+
+    let user = await User.findOne({ where: { linkedinId } });
+
+    if (!user) {
+      user = await User.findOne({ where: { email } });
+
+      if (user) {
+        await user.update({
+          linkedinId,
+          profilePictureUrl: picture || user.profilePictureUrl
+        });
+      } else {
+        return res.status(404).json({ error: 'No account found with this LinkedIn email. Please sign up first.' });
+      }
+    } else if (picture && user.profilePictureUrl !== picture) {
+      await user.update({ profilePictureUrl: picture });
+    }
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    let profilePicture = user.profilePictureUrl;
+    if (!profilePicture) {
+      if (user.role === 'recruiter') {
+        const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
+        profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo;
+      } else {
+        const profile = await Profile.findOne({ where: { userId: user.id } });
+        profilePicture = profile?.profilePicture;
+      }
+    }
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture
+      }
+    });
+  } catch (error) {
+    console.error('LinkedIn auth error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'LinkedIn authentication failed' });
+  }
+});
+
+// @route   POST /api/auth/linkedin/register
+// @desc    Register with LinkedIn OAuth and specify role
+// @access  Public
+router.post('/linkedin/register', async (req, res) => {
+  try {
+    const { code, redirectUri, role = 'candidate' } = req.body;
+
+    if (!code || !redirectUri) {
+      return res.status(400).json({ error: 'LinkedIn authorization code and redirectUri are required' });
+    }
+
+    if (!['candidate', 'recruiter'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (role === 'recruiter' && !featureFlags.recruiterSurface) {
+      return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
+    }
+
+    const { linkedinId, email, firstName, lastName, picture } = await fetchLinkedInProfile(code, redirectUri);
+
+    if (!email) {
+      return res.status(400).json({ error: 'Could not retrieve email from LinkedIn.' });
+    }
+
+    let user = await User.findOne({
+      where: {
+        [require('sequelize').Op.or]: [{ linkedinId }, { email }]
+      }
+    });
+
+    if (user) {
+      const updates = {};
+      if (!user.linkedinId) {
+        updates.linkedinId = linkedinId;
+        updates.profilePictureUrl = picture;
+      }
+      if (!user.slug) {
+        updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
+      }
+      if (Object.keys(updates).length > 0) {
+        await user.update(updates);
+      }
+    } else {
+      const slug = await buildUniqueUserSlug(User, firstName, lastName);
+      user = await User.create({
+        email,
+        firstName,
+        lastName,
+        linkedinId,
+        profilePictureUrl: picture,
+        role,
+        password: null,
+        slug
+      });
+
+      if (role === 'recruiter') {
+        await RecruiterProfile.create({ userId: user.id, profilePicture: picture });
+      } else {
+        await Profile.create({ userId: user.id, profilePicture: picture });
+      }
+    }
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        slug: user.slug,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        profilePicture: picture
+      }
+    });
+  } catch (error) {
+    console.error('LinkedIn register error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'LinkedIn registration failed' });
+  }
+});
+
+// @route   POST /api/auth/verify-email
+// @desc    Confirm a user's email using the token from their inbox
+// @access  Public
+router.post('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'Verification token is required' });
+    }
+
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({ where: { emailVerificationToken: hashed } });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired verification link.' });
+    }
+
+    if (user.emailVerified) {
+      return res.json({ message: 'Email already verified.', emailVerified: true });
+    }
+
+    if (!user.emailVerificationExpiresAt || new Date() > user.emailVerificationExpiresAt) {
+      return res.status(400).json({ error: 'This verification link has expired. Please request a new one.' });
+    }
+
+    await user.update({
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      emailVerificationToken: null,
+      emailVerificationExpiresAt: null
+    });
+
+    res.json({ message: 'Email verified successfully.', emailVerified: true });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// @route   POST /api/auth/resend-verification
+// @desc    Resend the email verification link to the authenticated user
+// @access  Private
+router.post('/resend-verification', resendVerificationLimiter, auth, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.emailVerified) {
+      return res.json({ message: 'Email is already verified.' });
+    }
+
+    const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
+    const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+    const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await user.update({
+      emailVerificationToken: verificationTokenHash,
+      emailVerificationExpiresAt: verificationExpiresAt
+    });
+
+    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
+    const sent = await sendEmailVerification(user.email, user.firstName, verifyUrl);
+    if (!sent) {
+      return res.status(500).json({ error: 'Could not send verification email. Configure EMAIL_* or RESEND_API_KEY in backend/.env.' });
+    }
+
+    const response = { message: 'Verification email sent.' };
+    if (process.env.NODE_ENV !== 'production') {
+      response.verifyUrl = verifyUrl;
+    }
+
+    res.json(response);
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

@@ -21,6 +21,13 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
 
+  // Redirect unverified email users to /check-email (skip for check-email and verify-email routes)
+  if (isAuthenticated && user?.emailVerified !== true &&
+    !location.pathname.startsWith('/check-email') &&
+    !location.pathname.startsWith('/verify-email')) {
+    return <Navigate to="/check-email" replace />;
+  }
+
   // Check if user has required role (admin only bypasses if 'admin' is explicitly allowed or no roles specified)
   if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
     // User is authenticated but doesn't have permission

@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { Op, literal } = require('sequelize');
-const { v4: uuidv4 } = require('uuid');
 const auth = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
 const { User, Profile, Poll, PollVote, Notification } = require('../models');

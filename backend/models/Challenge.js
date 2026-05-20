@@ -1,6 +1,5 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
-const { v4: uuidv4 } = require('uuid');
 
 const Challenge = sequelize.define('Challenge', {
   id: {

@@ -250,6 +250,14 @@ app.use(errorHandler);
 // Database connection and server start
 const PORT = process.env.PORT || 5001;
 
+const extractEmailDomain = (from) => {
+  if (!from || typeof from !== 'string') return '';
+  const match = from.match(/<([^>]+)>/);
+  const addr = (match ? match[1] : from).trim().toLowerCase();
+  const at = addr.lastIndexOf('@');
+  return at > -1 ? addr.slice(at + 1) : '';
+};
+
 const startServer = async () => {
   try {
     // Validate required environment variables.
@@ -282,6 +290,45 @@ const startServer = async () => {
     if (missingRequired.length > 0) {
       console.error(`\u274C CRITICAL: Missing required env vars: ${missingRequired.join(', ')}`);
       process.exit(1);
+    }
+
+    // Brand-safe email validation: when STRICT_BRAND_FROM is enabled,
+    // refuse startup unless sending is locked to Resend with a non-webmail domain.
+    if (process.env.STRICT_BRAND_FROM === 'true') {
+      const provider = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
+      const from = process.env.EMAIL_FROM || '';
+      const domain = extractEmailDomain(from);
+      const blockedDomains = new Set([
+        'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com',
+        'hotmail.com', 'icloud.com', 'live.com', 'aol.com', 'resend.dev'
+      ]);
+
+      const brandErrors = [];
+      if (provider !== 'resend') {
+        brandErrors.push('EMAIL_PROVIDER must be "resend" when STRICT_BRAND_FROM=true');
+      }
+      if (!process.env.RESEND_API_KEY) {
+        brandErrors.push('RESEND_API_KEY is required when STRICT_BRAND_FROM=true');
+      }
+      if (!from || !domain) {
+        brandErrors.push('EMAIL_FROM must be set, e.g. "ProfileAI <no-reply@your-domain.com>"');
+      } else if (blockedDomains.has(domain)) {
+        brandErrors.push(`EMAIL_FROM domain must be a verified custom domain, not ${domain}`);
+      }
+
+      if (brandErrors.length > 0) {
+        console.error(`\u274C CRITICAL: Invalid branded-email configuration:\n - ${brandErrors.join('\n - ')}`);
+        process.exit(1);
+      }
+    }
+
+    // Email delivery visibility: print the resolved sender domain/provider at boot.
+    {
+      const provider = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
+      const from = process.env.EMAIL_FROM || '';
+      const domain = extractEmailDomain(from) || '(not set)';
+      const strictBrand = process.env.STRICT_BRAND_FROM === 'true';
+      console.log(`✓ Email sender config: provider=${provider} strictBrand=${strictBrand} fromDomain=${domain}`);
     }
 
     // JWT_SECRET strength check. A weak secret undermines every token in
@@ -362,6 +409,22 @@ const startServer = async () => {
 
       await sequelize.sync({ alter: true });
       console.log('✓ Database models synchronized');
+
+      // Backfill: treat all pre-existing users (no pending verification token)
+      // as already verified so we don't lock them out when the new
+      // emailVerified column rolls out.
+      try {
+        const [, meta] = await sequelize.query(`
+          UPDATE "Users"
+          SET "emailVerified" = true, "emailVerifiedAt" = COALESCE("emailVerifiedAt", NOW())
+          WHERE "emailVerified" = false AND "emailVerificationToken" IS NULL;
+        `);
+        if (meta?.rowCount) {
+          console.log(`✓ Backfilled emailVerified=true for ${meta.rowCount} existing user(s)`);
+        }
+      } catch (e) {
+        console.warn('[startup] emailVerified backfill skipped:', e.message);
+      }
 
       if (hadSearchTsv) {
         try {

@@ -2,21 +2,38 @@ import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useApplyPilotConfig } from '../../hooks/useApplyPilot';
+import { useAuth } from '../../contexts/AuthContext';
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const { data: cfg } = useApplyPilotConfig();
+  const { isAuthenticated, user } = useAuth();
+  // Skip the authenticated config fetch for signed-out / non-candidate
+  // visitors so the marketing landing renders without triggering a 401
+  // redirect to /login.
+  const canFetchConfig = isAuthenticated && user?.role === 'candidate';
+  const { data: cfg } = useApplyPilotConfig({ enabled: canFetchConfig });
 
   // Returning users have at least one saved role title. Send them to
-  // their dashboard; fresh users start the wizard.
+  // their dashboard; fresh users start the wizard. Signed-out visitors
+  // are routed to sign up.
   const isSetUp = useMemo(() => {
+    if (!canFetchConfig) return false;
     const titles = cfg?.config?.criteria?.roleTitles;
     return Array.isArray(titles) && titles.length > 0;
-  }, [cfg]);
+  }, [cfg, canFetchConfig]);
 
-  const primaryLabel = isSetUp ? 'Go to Dashboard' : 'Set up my pilot';
-  const primaryAction = () =>
+  const primaryLabel = !isAuthenticated
+    ? 'Get started — it\u2019s free'
+    : isSetUp
+      ? 'Go to Dashboard'
+      : 'Set up my pilot';
+  const primaryAction = () => {
+    if (!isAuthenticated) {
+      navigate('/register?role=candidate');
+      return;
+    }
     navigate(isSetUp ? '/applypilot/dashboard' : '/applypilot/agent?welcome=1');
+  };
 
   const goSetup = primaryAction;
   const scrollTo = (id) => {
