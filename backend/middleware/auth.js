@@ -1,6 +1,28 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
+const AUTH_MIDDLEWARE_SAFE_USER_FIELDS = [
+  'id',
+  'email',
+  'firstName',
+  'lastName',
+  'slug',
+  'googleId',
+  'githubId',
+  'profilePictureUrl',
+  'role',
+  'subscriptionTier',
+  'subscriptionStatus',
+  'subscriptionExpiresAt',
+  'isActive',
+  'emailVerified',
+  'emailVerifiedAt',
+  'emailVerificationToken',
+  'emailVerificationExpiresAt',
+  'createdAt',
+  'updatedAt'
+];
+
 const authMiddleware = async (req, res, next) => {
   try {
     // Get token from header
@@ -15,7 +37,7 @@ const authMiddleware = async (req, res, next) => {
 
     // Find user
     const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ['password'] }
+      attributes: AUTH_MIDDLEWARE_SAFE_USER_FIELDS
     });
 
     if (!user || !user.isActive) {
@@ -41,7 +63,7 @@ const optionalAuth = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ['password'] }
+      attributes: AUTH_MIDDLEWARE_SAFE_USER_FIELDS
     });
 
     if (user && user.isActive) {

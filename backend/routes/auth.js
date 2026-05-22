@@ -427,7 +427,10 @@ router.post(
       }
 
       const { email } = req.body;
-      const user = await User.findOne({ where: { email } });
+      const user = await User.findOne({
+        where: { email },
+        attributes: AUTH_SAFE_USER_FIELDS
+      });
 
       // Always return success to prevent email enumeration
       if (!user) {
