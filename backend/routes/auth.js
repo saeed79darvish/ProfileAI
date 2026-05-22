@@ -734,10 +734,13 @@ router.post('/google', async (req, res) => {
           console.error('Error sending verification email during Google sign-in auto-create:', mailErr);
         }
 
-        // Create empty profile for new candidate
+        // Create minimal candidate profile for first-time OAuth users.
         await Profile.create({
           userId: user.id,
-          profilePicture: picture
+          profilePicture: picture,
+          title: `${given_name || 'Candidate'} Profile`
+        }, {
+          fields: ['userId', 'profilePicture', 'title']
         });
       }
     } else {
@@ -907,12 +910,19 @@ router.post('/google/register', async (req, res) => {
       if (role === 'recruiter') {
         await RecruiterProfile.create({
           userId: user.id,
-          profilePicture: picture
+          profilePicture: picture,
+          companyName: 'My Company',
+          jobTitle: 'Recruiter'
+        }, {
+          fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
         });
       } else {
         await Profile.create({
           userId: user.id,
-          profilePicture: picture
+          profilePicture: picture,
+          title: `${given_name || 'Candidate'} Profile`
+        }, {
+          fields: ['userId', 'profilePicture', 'title']
         });
       }
     }
@@ -1198,12 +1208,19 @@ router.post('/github/register', async (req, res) => {
       if (role === 'recruiter') {
         await RecruiterProfile.create({
           userId: user.id,
-          profilePicture: picture
+          profilePicture: picture,
+          companyName: 'My Company',
+          jobTitle: 'Recruiter'
+        }, {
+          fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
         });
       } else {
         await Profile.create({
           userId: user.id,
-          profilePicture: picture
+          profilePicture: picture,
+          title: `${firstName || 'Candidate'} Profile`
+        }, {
+          fields: ['userId', 'profilePicture', 'title']
         });
       }
     }
@@ -1426,9 +1443,22 @@ router.post('/linkedin/register', async (req, res) => {
       });
 
       if (role === 'recruiter') {
-        await RecruiterProfile.create({ userId: user.id, profilePicture: picture });
+        await RecruiterProfile.create({
+          userId: user.id,
+          profilePicture: picture,
+          companyName: 'My Company',
+          jobTitle: 'Recruiter'
+        }, {
+          fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
+        });
       } else {
-        await Profile.create({ userId: user.id, profilePicture: picture });
+        await Profile.create({
+          userId: user.id,
+          profilePicture: picture,
+          title: `${firstName || 'Candidate'} Profile`
+        }, {
+          fields: ['userId', 'profilePicture', 'title']
+        });
       }
     }
 
