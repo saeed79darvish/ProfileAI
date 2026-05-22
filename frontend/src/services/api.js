@@ -82,6 +82,8 @@ api.interceptors.response.use(
 
 // Auth API
 export const authAPI = {
+  // Frontend and backend must verify the same Google OAuth client ID.
+  // Send the compiled client ID so the API can accept the live audience.
   register: (userData) => api.post('/auth/register', userData),
   login: (credentials) => api.post('/auth/login', credentials),
   getMe: () => api.get('/auth/me'),
@@ -89,9 +91,19 @@ export const authAPI = {
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
   validateResetToken: (token) => api.get(`/auth/validate-reset-token/${token}`),
-  // Google OAuth
-  googleLogin: (credential) => api.post('/auth/google', { credential }),
-  googleRegister: (credential, role) => api.post('/auth/google/register', { credential, role }),
+  // Google OAuth — accepts either { credential } (ID token from GIS button)
+  // or { accessToken } (from custom OAuth popup flow).
+  googleLogin: (payload) =>
+    api.post('/auth/google', {
+      ...(typeof payload === 'string' ? { credential: payload } : payload),
+      clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || undefined
+    }),
+  googleRegister: (payload, role) =>
+    api.post('/auth/google/register', {
+      ...(typeof payload === 'string' ? { credential: payload } : payload),
+      clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || undefined,
+      role
+    }),
   // GitHub OAuth
   githubLogin: (code) => api.post('/auth/github', { code }),
   githubRegister: (code, role) => api.post('/auth/github/register', { code, role }),

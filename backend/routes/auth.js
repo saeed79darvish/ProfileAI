@@ -22,87 +22,6 @@ const DUMMY_BCRYPT_HASH = '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.YkfQpODazjJ7P5G3jXk5q
 // Token lifetime — single source of truth. Falls back to 7d if env var unset.
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRE || '7d';
 
-// Keep auth-critical queries resilient if production schema lags behind
-// newer optional columns (for example slug/email verification fields).
-const AUTH_CORE_USER_FIELDS = [
-  'id',
-  'email',
-  'password',
-  'firstName',
-  'lastName',
-  'role',
-  'subscriptionTier',
-  'subscriptionStatus',
-  'subscriptionExpiresAt',
-  'isActive',
-];
-
-const isSchemaDriftDbError = (error) => {
-  if (!error) return false;
-  if (error.name !== 'SequelizeDatabaseError') return false;
-  const message = String(error.message || '').toLowerCase();
-  return message.includes('column') || message.includes('relation') || message.includes('does not exist');
-};
-
-const stripUndefined = (obj) => Object.fromEntries(
-  Object.entries(obj).filter(([, value]) => value !== undefined)
-);
-
-const findUserByGoogleOrEmail = async ({ googleId, email }) => {
-  try {
-    return await User.findOne({
-      where: {
-        [require('sequelize').Op.or]: [
-          { googleId },
-          { email }
-        ]
-      }
-    });
-  } catch (error) {
-    if (!isSchemaDriftDbError(error)) throw error;
-    return User.findOne({ where: { email } });
-  }
-};
-
-const createOAuthUserWithFallback = async ({ email, firstName, lastName, role, googleId, picture, slug }) => {
-  const fullPayload = stripUndefined({
-    email,
-    firstName,
-    lastName,
-    googleId,
-    profilePictureUrl: picture,
-    role,
-    password: null,
-    slug
-  });
-
-  try {
-    return await User.create(fullPayload);
-  } catch (error) {
-    if (!isSchemaDriftDbError(error)) throw error;
-    const minimalPayload = {
-      email,
-      firstName,
-      lastName,
-      role,
-      password: null
-    };
-    return User.create(minimalPayload);
-  }
-};
-
-const updateOAuthUserWithFallback = async (user, updates) => {
-  const safeUpdates = stripUndefined(updates);
-  if (Object.keys(safeUpdates).length === 0) return;
-
-  try {
-    await user.update(safeUpdates);
-  } catch (error) {
-    if (!isSchemaDriftDbError(error)) throw error;
-    // If optional OAuth columns don't exist in production yet, keep auth flow alive.
-  }
-};
-
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -260,10 +179,7 @@ router.post(
       // Find user. If no match we still run a bcrypt compare against a
       // dummy hash so the response time matches the "wrong password"
       // path — closing the user-enumeration timing side channel.
-      const user = await User.findOne({
-        where: { email },
-        attributes: AUTH_CORE_USER_FIELDS,
-      });
+      const user = await User.findOne({ where: { email } });
       if (!user) {
         await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
         return res.status(401).json({ error: 'Invalid credentials' });
@@ -306,7 +222,7 @@ router.post(
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          slug: user.slug || null,
+          slug: user.slug,
           role: user.role,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
@@ -316,9 +232,6 @@ router.post(
       });
     } catch (error) {
       console.error('Login error:', error);
-      if (isSchemaDriftDbError(error)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
       res.status(500).json({ error: 'Server error during login' });
     }
   }
@@ -330,7 +243,7 @@ router.post(
 router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findByPk(req.userId, {
-      attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
+      attributes: ['id', 'email', 'firstName', 'lastName', 'slug', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
     });
 
     if (!user) {
@@ -367,7 +280,7 @@ router.get('/me', auth, async (req, res) => {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      slug: user.slug || null,
+      slug: user.slug,
       role: user.role,
       subscriptionTier: user.subscriptionTier,
       subscriptionStatus: user.subscriptionStatus,
@@ -387,9 +300,7 @@ router.get('/me', auth, async (req, res) => {
 router.post('/impersonate/:userId', auth, async (req, res) => {
   try {
     // Get the current user (recruiter)
-    const recruiter = await User.findByPk(req.userId, {
-      attributes: ['id', 'firstName', 'lastName', 'role']
-    });
+    const recruiter = await User.findByPk(req.userId);
     
     if (!recruiter) {
       return res.status(404).json({ error: 'User not found' });
@@ -401,9 +312,7 @@ router.post('/impersonate/:userId', auth, async (req, res) => {
     }
 
     // Get the target user (candidate)
-    const targetUser = await User.findByPk(req.params.userId, {
-      attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'subscriptionStatus']
-    });
+    const targetUser = await User.findByPk(req.params.userId);
     
     if (!targetUser) {
       return res.status(404).json({ error: 'Target user not found' });
@@ -471,10 +380,7 @@ router.post(
       }
 
       const { email } = req.body;
-      const user = await User.findOne({
-        where: { email },
-        attributes: ['id', 'email', 'firstName']
-      });
+      const user = await User.findOne({ where: { email } });
 
       // Always return success to prevent email enumeration
       if (!user) {
@@ -516,11 +422,6 @@ router.post(
       });
     } catch (error) {
       console.error('Forgot password error:', error);
-      if (isSchemaDriftDbError(error)) {
-        return res.json({
-          message: 'If an account with that email exists, a password reset link has been sent.'
-        });
-      }
       res.status(500).json({ error: 'Server error' });
     }
   }
@@ -566,9 +467,7 @@ router.post(
       }
 
       // Get user
-      const user = await User.findByPk(resetRecord.userId, {
-        attributes: ['id', 'email', 'password']
-      });
+      const user = await User.findByPk(resetRecord.userId);
       if (!user) {
         return res.status(400).json({ error: 'User not found' });
       }
@@ -617,41 +516,76 @@ router.get('/validate-reset-token/:token', async (req, res) => {
 // Google OAuth Routes
 // ==========================================
 
+/**
+ * Resolves a Google user profile from either:
+ *  - `credential` (ID token JWT, from Google Identity Services button), or
+ *  - `accessToken` (OAuth2 access token, from custom OAuth popup flows).
+ * Returns: { googleId, email, given_name, family_name, picture } or throws.
+ */
+async function resolveGoogleProfile({ credential, accessToken }) {
+  if (credential) {
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const allowedAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      ...(process.env.GOOGLE_CLIENT_IDS || '').split(',').map((value) => value.trim()),
+      typeof arguments[0]?.clientId === 'string' ? arguments[0].clientId.trim() : ''
+    ].filter(Boolean);
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: allowedAudiences
+    });
+    const p = ticket.getPayload();
+    return {
+      googleId: p.sub,
+      email: p.email,
+      given_name: p.given_name,
+      family_name: p.family_name,
+      picture: p.picture
+    };
+  }
+  if (accessToken) {
+    const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!resp.ok) {
+      const err = new Error('Invalid Google access token');
+      err.status = 401;
+      throw err;
+    }
+    const p = await resp.json();
+    return {
+      googleId: p.sub,
+      email: p.email,
+      given_name: p.given_name,
+      family_name: p.family_name,
+      picture: p.picture
+    };
+  }
+  const err = new Error('Google credential or accessToken is required');
+  err.status = 400;
+  throw err;
+}
+
 // @route   POST /api/auth/google
 // @desc    Authenticate with Google OAuth token from frontend
 // @access  Public
 router.post('/google', async (req, res) => {
   try {
-    const { credential, clientId } = req.body;
+    const { credential, accessToken, clientId } = req.body;
 
-    if (!credential) {
+    if (!credential && !accessToken) {
       return res.status(400).json({ error: 'Google credential is required' });
     }
 
-    // Verify the Google token
-    const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID
-    });
-
-    const payload = ticket.getPayload();
-    const { sub: googleId, email, given_name, family_name, picture } = payload;
+    const { googleId, email, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
 
     if (!email) {
       return res.status(400).json({ error: 'Email not found in Google profile' });
     }
 
-    // Check if user exists by googleId first, but gracefully fall back to email
-    // when older production schemas are missing OAuth columns.
-    let user = null;
-    try {
-      user = await User.findOne({ where: { googleId } });
-    } catch (error) {
-      if (!isSchemaDriftDbError(error)) throw error;
-    }
+    // Check if user exists by googleId
+    let user = await User.findOne({ where: { googleId } });
 
     if (!user) {
       // Check if user exists by email (link accounts)
@@ -667,23 +601,18 @@ router.post('/google', async (req, res) => {
         if (!user.slug) {
           updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
         }
-        await updateOAuthUserWithFallback(user, updates);
+        await user.update(updates);
       } else {
         // Create new user
-        let slug;
-        try {
-          slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-        } catch (error) {
-          if (!isSchemaDriftDbError(error)) throw error;
-        }
-
-        user = await createOAuthUserWithFallback({
+        const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+        user = await User.create({
           email,
           firstName: given_name || 'User',
           lastName: family_name || '',
-          role: 'candidate',
           googleId,
-          picture,
+          profilePictureUrl: picture,
+          role: 'candidate',
+          password: null,
           slug
         });
 
@@ -696,7 +625,7 @@ router.post('/google', async (req, res) => {
     } else {
       // Update profile picture if changed
       if (picture && user.profilePictureUrl !== picture) {
-        await updateOAuthUserWithFallback(user, { profilePictureUrl: picture });
+        await user.update({ profilePictureUrl: picture });
       }
     }
 
@@ -735,6 +664,9 @@ router.post('/google', async (req, res) => {
     });
   } catch (error) {
     console.error('Google auth error:', error);
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     if (error.message?.includes('Token used too late') || error.message?.includes('Invalid token')) {
       return res.status(401).json({ error: 'Invalid or expired Google token' });
     }
@@ -747,9 +679,9 @@ router.post('/google', async (req, res) => {
 // @access  Public
 router.post('/google/register', async (req, res) => {
   try {
-    const { credential, role = 'candidate' } = req.body;
+    const { credential, accessToken, role = 'candidate', clientId } = req.body;
 
-    if (!credential) {
+    if (!credential && !accessToken) {
       return res.status(400).json({ error: 'Google credential is required' });
     }
 
@@ -761,24 +693,21 @@ router.post('/google/register', async (req, res) => {
       return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
     }
 
-    // Verify the Google token
-    const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID
-    });
-
-    const payload = ticket.getPayload();
-    const { sub: googleId, email, given_name, family_name, picture } = payload;
+    const { googleId, email, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
 
     if (!email) {
       return res.status(400).json({ error: 'Email not found in Google profile' });
     }
 
-    // Check if user already exists (fallback to email when googleId column is missing).
-    let user = await findUserByGoogleOrEmail({ googleId, email });
+    // Check if user already exists
+    let user = await User.findOne({ 
+      where: { 
+        [require('sequelize').Op.or]: [
+          { googleId },
+          { email }
+        ]
+      }
+    });
 
     if (user) {
       // User exists - just log them in (update googleId if not set)
@@ -791,23 +720,20 @@ router.post('/google/register', async (req, res) => {
       if (!user.slug) {
         updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
       }
-      await updateOAuthUserWithFallback(user, updates);
+      if (Object.keys(updates).length > 0) {
+        await user.update(updates);
+      }
     } else {
       // Create new user with specified role
-      let slug;
-      try {
-        slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-      } catch (error) {
-        if (!isSchemaDriftDbError(error)) throw error;
-      }
-
-      user = await createOAuthUserWithFallback({
+      const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+      user = await User.create({
         email,
         firstName: given_name || 'User',
         lastName: family_name || '',
-        role,
         googleId,
-        picture,
+        profilePictureUrl: picture,
+        role,
+        password: null,
         slug
       });
 
@@ -848,6 +774,9 @@ router.post('/google/register', async (req, res) => {
     });
   } catch (error) {
     console.error('Google register error:', error);
+    if (error.message?.includes('payload audience != requiredAudience')) {
+      return res.status(401).json({ error: 'Google client ID mismatch' });
+    }
     res.status(500).json({ error: 'Google registration failed' });
   }
 });
