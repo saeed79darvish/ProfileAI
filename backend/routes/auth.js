@@ -1480,7 +1480,10 @@ router.post('/verify-email', async (req, res) => {
 
     if (!user) {
       const hashed = crypto.createHash('sha256').update(submitted).digest('hex');
-      user = await User.findOne({ where: { emailVerificationToken: hashed } });
+      user = await User.findOne({
+        where: { emailVerificationToken: hashed },
+        attributes: AUTH_SAFE_USER_FIELDS
+      });
     }
 
     if (!user && !codeColumnAvailable && normalizedCode.length === 6) {
