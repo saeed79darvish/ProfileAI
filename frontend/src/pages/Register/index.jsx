@@ -19,7 +19,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PersonIcon from '@mui/icons-material/Person';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
-import { GoogleLogin } from '@react-oauth/google';
+import GoogleAuthButton from '@/components/GoogleAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { authAPI, referralAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -34,7 +34,6 @@ import {
   subtitleSx,
   alertSx,
   socialButtonsWrapperSx,
-  googleButtonWrapperSx,
   dividerSx,
   dividerTextSx,
   fieldLabelSx,
@@ -108,11 +107,14 @@ const Register = () => {
   };
 
   // --- OAuth ---
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const handleGoogleSuccess = async (payload) => {
     setError('');
     setLoading(true);
     try {
-      const response = await authAPI.googleRegister(credentialResponse.credential, formData.role);
+      const response = await authAPI.googleRegister(
+        payload?.credential ? { credential: payload.credential } : payload,
+        formData.role
+      );
       const { token, user } = response.data;
       localStorage.setItem('token', token);
       setToken(token);
@@ -218,17 +220,12 @@ const Register = () => {
 
       {/* Social buttons */}
       <Box sx={socialButtonsWrapperSx}>
-        <Box sx={googleButtonWrapperSx}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={handleGoogleError}
-            theme="outline"
-            size="large"
-            text="signup_with"
-            shape="rectangular"
-            width="400"
-          />
-        </Box>
+        <GoogleAuthButton
+          label={formData.role === 'recruiter' ? 'Sign up with Google' : 'Sign up with Google'}
+          loading={loading}
+          onSuccess={(payload) => handleGoogleSuccess(payload)}
+          onError={handleGoogleError}
+        />
       </Box>
 
       {/* Divider */}

@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { GoogleLogin } from '@react-oauth/google';
+import GoogleAuthButton from '@/components/GoogleAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { authAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -25,7 +25,6 @@ import {
   subtitleSx,
   alertSx,
   socialButtonsContainerSx,
-  googleLoginWrapperSx,
   dividerSx,
   dividerTextSx,
   emailGroupSx,
@@ -77,11 +76,13 @@ const Login = () => {
   };
 
   // --- OAuth ---
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const handleGoogleSuccess = async (payload) => {
     setError('');
     setLoading(true);
     try {
-      const response = await authAPI.googleLogin(credentialResponse.credential);
+      const response = await authAPI.googleLogin(
+        payload?.credential ? { credential: payload.credential } : payload
+      );
       const { token, user } = response.data;
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
       setToken(token);
@@ -145,17 +146,12 @@ const Login = () => {
 
       {/* Social buttons */}
       <Box sx={socialButtonsContainerSx}>
-        <Box sx={googleLoginWrapperSx}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={handleGoogleError}
-            theme="outline"
-            size="large"
-            text="signin_with"
-            shape="rectangular"
-            width="400"
-          />
-        </Box>
+        <GoogleAuthButton
+          label="Sign in with Google"
+          loading={loading}
+          onSuccess={(payload) => handleGoogleSuccess(payload)}
+          onError={handleGoogleError}
+        />
       </Box>
 
       {/* Divider */}
