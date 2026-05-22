@@ -59,15 +59,21 @@ const Login = () => {
   // Redirect if already authenticated
   useEffect(() => {
     if (user && existingToken && fromExtension) {
+      const extensionDest = user?.emailVerified === false
+        ? ROUTES.CHECK_EMAIL
+        : user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
       handleExtensionAuthSuccess(
         existingToken, user, navigate,
-        user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE,
+        extensionDest,
         false
       );
       return;
     }
     if (user && !fromExtension) {
-      navigate(user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE, { replace: true });
+      const dest = user?.emailVerified === false
+        ? ROUTES.CHECK_EMAIL
+        : user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      navigate(dest, { replace: true });
     }
   }, [user, existingToken, navigate, fromExtension]);
 
@@ -87,7 +93,8 @@ const Login = () => {
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
       setToken(token);
       setUser(user);
-      const dest = redirectTarget || (user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE);
+      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest, { replace: true });
@@ -117,7 +124,8 @@ const Login = () => {
     try {
       const result = await login(formData);
       const { user, token } = result;
-      const dest = redirectTarget || (user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE);
+      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest, { replace: true });

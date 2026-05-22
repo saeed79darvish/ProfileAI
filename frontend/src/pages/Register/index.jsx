@@ -77,15 +77,21 @@ const Register = () => {
   // Redirect if already authenticated
   useEffect(() => {
     if (user && token && fromExtension) {
+      const extensionDest = user?.emailVerified === false
+        ? '/check-email'
+        : user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE;
       handleExtensionAuthSuccess(
         token, user, navigate,
-        user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE,
+        extensionDest,
         false
       );
       return;
     }
     if (user && !fromExtension) {
-      navigate(user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE, { replace: true });
+      const dest = user?.emailVerified === false
+        ? '/check-email'
+        : user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE;
+      navigate(dest, { replace: true });
     }
   }, [user, token, navigate, fromExtension]);
 
@@ -122,7 +128,9 @@ const Register = () => {
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
-      const dest = user?.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      const dest = user?.emailVerified === false
+        ? '/check-email'
+        : user?.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest);

@@ -12,6 +12,7 @@ export const ROUTES = {
   RECRUITER_DASHBOARD: '/recruiter/dashboard',
   ADMIN: '/admin',
   PROFILE: '/profile',
+  CHECK_EMAIL: '/check-email',
   LOGIN: '/login',
   FORGOT_PASSWORD: '/forgot-password',
   REGISTER: '/register',

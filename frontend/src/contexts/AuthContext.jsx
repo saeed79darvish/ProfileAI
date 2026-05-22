@@ -82,6 +82,22 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('message', handler);
   }, [token, user]);
 
+  // Keep in-memory auth state in sync when the API interceptor force-logs out.
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('originalToken');
+      setOriginalToken(null);
+      setToken(null);
+      setUser(null);
+      setLoading(false);
+    };
+
+    window.addEventListener('profileai:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('profileai:session-expired', handleSessionExpired);
+  }, []);
+
   const login = async (credentials) => {
     const response = await authAPI.login(credentials);
     const { token, user } = response.data;

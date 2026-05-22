@@ -67,6 +67,8 @@ api.interceptors.response.use(
         console.log('[API] 401 from protected endpoint - session expired');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        // Notify AuthContext so in-memory auth state is cleared immediately.
+        window.dispatchEvent(new CustomEvent('profileai:session-expired'));
         // Preserve the current path so login can redirect back
         const returnPath = window.location.pathname + window.location.search;
         if (_navigate) {
