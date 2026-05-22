@@ -124,7 +124,12 @@ const User = sequelize.define('User', {
 });
 
 User.prototype.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  // OAuth users and legacy/corrupt rows may not have a bcrypt hash string.
+  // In those cases, fail closed (invalid credentials) instead of throwing 500.
+  if (typeof candidatePassword !== 'string') return false;
+  if (typeof this.password !== 'string') return false;
+  if (!this.password.startsWith('$2')) return false;
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
 module.exports = User;
