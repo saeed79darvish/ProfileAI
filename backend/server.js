@@ -480,8 +480,14 @@ const startServer = async () => {
         + ` claudeConnector=${featureFlags.claudeConnector}`);
       console.log(`✓ DB SSL: ${process.env.DB_SSL === 'true' || (isProduction && process.env.DB_SSL !== 'false') ? 'enabled' : 'disabled'}${process.env.DATABASE_URL ? ' (via DATABASE_URL)' : ''}`);
 
-      // Initialize the phone screening call scheduler
-      callSchedulerService.initializeScheduler();
+      // Initialize phone screening scheduler only when explicitly enabled.
+      // This avoids noisy DB errors in environments where screening tables
+      // have not been migrated yet.
+      if (process.env.ENABLE_PHONE_SCREENING_SCHEDULER === 'true') {
+        callSchedulerService.initializeScheduler();
+      } else {
+        console.log('[PhoneScheduler] Disabled. Set ENABLE_PHONE_SCREENING_SCHEDULER=true to enable.');
+      }
 
       // Cron jobs — by default the dedicated `cronWorker` process owns these.
       // For local/dev convenience, set RUN_CRON_INLINE=true to embed them in

@@ -22,6 +22,21 @@ const DUMMY_BCRYPT_HASH = '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.YkfQpODazjJ7P5G3jXk5q
 // Token lifetime — single source of truth. Falls back to 7d if env var unset.
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRE || '7d';
 
+// Keep auth-critical queries resilient if production schema lags behind
+// newer optional columns (for example slug/email verification fields).
+const AUTH_CORE_USER_FIELDS = [
+  'id',
+  'email',
+  'password',
+  'firstName',
+  'lastName',
+  'role',
+  'subscriptionTier',
+  'subscriptionStatus',
+  'subscriptionExpiresAt',
+  'isActive',
+];
+
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -179,7 +194,10 @@ router.post(
       // Find user. If no match we still run a bcrypt compare against a
       // dummy hash so the response time matches the "wrong password"
       // path — closing the user-enumeration timing side channel.
-      const user = await User.findOne({ where: { email } });
+      const user = await User.findOne({
+        where: { email },
+        attributes: AUTH_CORE_USER_FIELDS,
+      });
       if (!user) {
         await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
         return res.status(401).json({ error: 'Invalid credentials' });
@@ -222,7 +240,7 @@ router.post(
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          slug: user.slug,
+          slug: user.slug || null,
           role: user.role,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
@@ -243,7 +261,7 @@ router.post(
 router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findByPk(req.userId, {
-      attributes: ['id', 'email', 'firstName', 'lastName', 'slug', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
+      attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
     });
 
     if (!user) {
@@ -280,7 +298,7 @@ router.get('/me', auth, async (req, res) => {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      slug: user.slug,
+      slug: user.slug || null,
       role: user.role,
       subscriptionTier: user.subscriptionTier,
       subscriptionStatus: user.subscriptionStatus,
@@ -300,7 +318,9 @@ router.get('/me', auth, async (req, res) => {
 router.post('/impersonate/:userId', auth, async (req, res) => {
   try {
     // Get the current user (recruiter)
-    const recruiter = await User.findByPk(req.userId);
+    const recruiter = await User.findByPk(req.userId, {
+      attributes: ['id', 'firstName', 'lastName', 'role']
+    });
     
     if (!recruiter) {
       return res.status(404).json({ error: 'User not found' });
@@ -312,7 +332,9 @@ router.post('/impersonate/:userId', auth, async (req, res) => {
     }
 
     // Get the target user (candidate)
-    const targetUser = await User.findByPk(req.params.userId);
+    const targetUser = await User.findByPk(req.params.userId, {
+      attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'subscriptionStatus']
+    });
     
     if (!targetUser) {
       return res.status(404).json({ error: 'Target user not found' });
@@ -380,7 +402,10 @@ router.post(
       }
 
       const { email } = req.body;
-      const user = await User.findOne({ where: { email } });
+      const user = await User.findOne({
+        where: { email },
+        attributes: ['id', 'email', 'firstName']
+      });
 
       // Always return success to prevent email enumeration
       if (!user) {
@@ -467,7 +492,9 @@ router.post(
       }
 
       // Get user
-      const user = await User.findByPk(resetRecord.userId);
+      const user = await User.findByPk(resetRecord.userId, {
+        attributes: ['id', 'email', 'password']
+      });
       if (!user) {
         return res.status(400).json({ error: 'User not found' });
       }
