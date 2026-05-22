@@ -64,6 +64,21 @@ const callSchedulerService = require('./services/callSchedulerService');
 
 const app = express();
 
+// Trust the reverse proxy in front of the API (Render/Heroku/Nginx/Cloudflare).
+// Without this, req.ip resolves to the proxy address for every request, which:
+//   1) Collapses all users into a single express-rate-limit bucket, so the
+//      auth limiters (login/register/forgot-password/resend-verification) get
+//      exhausted globally and return 429 to everyone.
+//   2) Triggers express-rate-limit v8's ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+//      validation error when X-Forwarded-For is present.
+// In production we trust the first hop (load balancer). In dev there's no
+// proxy, so leaving it off is fine.
+if (process.env.NODE_ENV === 'production') {
+  // `1` = trust one proxy hop. Use a number (not `true`) so express-rate-limit
+  // doesn't flag it as permissive.
+  app.set('trust proxy', 1);
+}
+
 // Serve static files BEFORE helmet (to avoid CORP blocking images)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, path) => {
