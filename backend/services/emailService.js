@@ -622,12 +622,15 @@ If you didn't request a password reset, you can safely ignore this email.
 /**
  * Send email verification link to a newly registered user.
  */
-const sendEmailVerification = async (email, firstName, verifyLink) => {
+const sendEmailVerification = async (email, firstName, verifyLink, verificationCode) => {
   console.log('\n========================================');
   console.log('✉️  EMAIL VERIFICATION LINK (for development)');
   console.log('========================================');
   console.log(`Email: ${email}`);
   console.log(`Link: ${verifyLink}`);
+  if (verificationCode) {
+    console.log(`Code: ${verificationCode}`);
+  }
   console.log('========================================\n');
 
   const subject = 'Verify your ProfileAI email';
@@ -649,6 +652,15 @@ const sendEmailVerification = async (email, firstName, verifyLink) => {
           Verify Email
         </a>
       </div>
+
+      ${verificationCode ? `
+        <div style="margin: 22px 0; text-align: center;">
+          <p style="margin: 0 0 8px 0; color: #6B7280; font-size: 14px;">Or enter this verification code:</p>
+          <div style="display: inline-block; padding: 10px 16px; border: 1px dashed #C7D2FE; border-radius: 8px; font-size: 24px; letter-spacing: 4px; font-weight: 700; color: #1F2937;">
+            ${verificationCode}
+          </div>
+        </div>
+      ` : ''}
 
       <p style="color: #6B7280; font-size: 14px;">
         This link expires in <strong>24 hours</strong>. If it expires, you can request a new one from your account.
@@ -676,6 +688,10 @@ const sendEmailVerification = async (email, firstName, verifyLink) => {
 Thanks for signing up to ProfileAI. Please confirm your email by opening the link below:
 
 ${verifyLink}
+
+${verificationCode ? `Or enter this verification code in the app:
+${verificationCode}
+` : ''}
 
 This link expires in 24 hours.
 

@@ -108,6 +108,7 @@ router.post(
       // Create user
       const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
       const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+      const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
       const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const user = await User.create({
         email,
@@ -118,13 +119,14 @@ router.post(
         slug,
         emailVerified: false,
         emailVerificationToken: verificationTokenHash,
+        emailVerificationCode: verificationCode,
         emailVerificationExpiresAt: verificationExpiresAt
       });
 
       // Send verification email (non-blocking if provider isn't configured)
       try {
         const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-        await sendEmailVerification(user.email, user.firstName, verifyUrl);
+        await sendEmailVerification(user.email, user.firstName, verifyUrl, verificationCode);
       } catch (mailErr) {
         console.error('Error sending verification email during registration:', mailErr);
       }
@@ -1316,11 +1318,21 @@ router.post('/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'Verification token is required' });
     }
 
-    const hashed = crypto.createHash('sha256').update(token).digest('hex');
-    const user = await User.findOne({ where: { emailVerificationToken: hashed } });
+    const submitted = token.trim();
+    const normalizedCode = submitted.replace(/\D/g, '');
+
+    let user = null;
+    if (normalizedCode.length === 6) {
+      user = await User.findOne({ where: { emailVerificationCode: normalizedCode } });
+    }
 
     if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired verification link.' });
+      const hashed = crypto.createHash('sha256').update(submitted).digest('hex');
+      user = await User.findOne({ where: { emailVerificationToken: hashed } });
+    }
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired verification link/code.' });
     }
 
     if (user.emailVerified) {
@@ -1335,6 +1347,7 @@ router.post('/verify-email', async (req, res) => {
       emailVerified: true,
       emailVerifiedAt: new Date(),
       emailVerificationToken: null,
+      emailVerificationCode: null,
       emailVerificationExpiresAt: null
     });
 
@@ -1359,15 +1372,17 @@ router.post('/resend-verification', resendVerificationLimiter, auth, async (req,
 
     const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
     const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
     const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await user.update({
       emailVerificationToken: verificationTokenHash,
+      emailVerificationCode: verificationCode,
       emailVerificationExpiresAt: verificationExpiresAt
     });
 
     const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-    const sent = await sendEmailVerification(user.email, user.firstName, verifyUrl);
+    const sent = await sendEmailVerification(user.email, user.firstName, verifyUrl, verificationCode);
     if (!sent) {
       return res.status(500).json({ error: 'Could not send verification email. Configure EMAIL_* or RESEND_API_KEY in backend/.env.' });
     }

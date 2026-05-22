@@ -101,6 +101,11 @@ const User = sequelize.define('User', {
     allowNull: true,
     comment: 'SHA256 hashed verification token'
   },
+  emailVerificationCode: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: '6-digit email verification code'
+  },
   emailVerificationExpiresAt: {
     type: DataTypes.DATE,
     allowNull: true
