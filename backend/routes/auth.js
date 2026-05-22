@@ -1394,8 +1394,14 @@ router.post('/verify-email', async (req, res) => {
     const normalizedCode = submitted.replace(/\D/g, '');
 
     let user = null;
+    let codeColumnAvailable = true;
     if (normalizedCode.length === 6) {
-      user = await User.findOne({ where: { emailVerificationCode: normalizedCode } });
+      try {
+        user = await User.findOne({ where: { emailVerificationCode: normalizedCode } });
+      } catch (dbErr) {
+        if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        codeColumnAvailable = false;
+      }
     }
 
     if (!user) {
@@ -1415,13 +1421,25 @@ router.post('/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'This verification link has expired. Please request a new one.' });
     }
 
-    await user.update({
+    const verificationClearPayload = {
       emailVerified: true,
       emailVerifiedAt: new Date(),
       emailVerificationToken: null,
-      emailVerificationCode: null,
       emailVerificationExpiresAt: null
-    });
+    };
+
+    if (codeColumnAvailable) {
+      verificationClearPayload.emailVerificationCode = null;
+    }
+
+    try {
+      await user.update(verificationClearPayload);
+    } catch (dbErr) {
+      if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+      // Legacy DBs may not have emailVerificationCode yet.
+      delete verificationClearPayload.emailVerificationCode;
+      await user.update(verificationClearPayload);
+    }
 
     res.json({ message: 'Email verified successfully.', emailVerified: true });
   } catch (error) {
@@ -1447,14 +1465,29 @@ router.post('/resend-verification', resendVerificationLimiter, auth, async (req,
     const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
     const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    await user.update({
-      emailVerificationToken: verificationTokenHash,
-      emailVerificationCode: verificationCode,
-      emailVerificationExpiresAt: verificationExpiresAt
-    });
+    let codeColumnAvailable = true;
+    try {
+      await user.update({
+        emailVerificationToken: verificationTokenHash,
+        emailVerificationCode: verificationCode,
+        emailVerificationExpiresAt: verificationExpiresAt
+      });
+    } catch (dbErr) {
+      if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+      codeColumnAvailable = false;
+      await user.update({
+        emailVerificationToken: verificationTokenHash,
+        emailVerificationExpiresAt: verificationExpiresAt
+      });
+    }
 
     const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-    const sent = await sendEmailVerification(user.email, user.firstName, verifyUrl, verificationCode);
+    const sent = await sendEmailVerification(
+      user.email,
+      user.firstName,
+      verifyUrl,
+      codeColumnAvailable ? verificationCode : null
+    );
     if (!sent) {
       return res.status(500).json({ error: 'Could not send verification email. Configure EMAIL_* or RESEND_API_KEY in backend/.env.' });
     }
