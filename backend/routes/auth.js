@@ -22,6 +22,27 @@ const DUMMY_BCRYPT_HASH = '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.YkfQpODazjJ7P5G3jXk5q
 // Token lifetime — single source of truth. Falls back to 7d if env var unset.
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRE || '7d';
 
+const AUTH_SAFE_USER_FIELDS = [
+  'id',
+  'email',
+  'password',
+  'firstName',
+  'lastName',
+  'slug',
+  'googleId',
+  'githubId',
+  'profilePictureUrl',
+  'role',
+  'subscriptionTier',
+  'subscriptionStatus',
+  'subscriptionExpiresAt',
+  'isActive',
+  'emailVerified',
+  'emailVerifiedAt',
+  'emailVerificationToken',
+  'emailVerificationExpiresAt'
+];
+
 const isSchemaDriftDbError = (error) => (
   error?.name === 'SequelizeDatabaseError' &&
   /column|relation|does not exist/i.test(String(error?.message || ''))
@@ -186,7 +207,10 @@ router.post(
       // Find user. If no match we still run a bcrypt compare against a
       // dummy hash so the response time matches the "wrong password"
       // path — closing the user-enumeration timing side channel.
-      const user = await User.findOne({ where: { email } });
+      const user = await User.findOne({
+        where: { email },
+        attributes: AUTH_SAFE_USER_FIELDS
+      });
       if (!user) {
         await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
         return res.status(401).json({ error: 'Invalid credentials' });
@@ -610,14 +634,20 @@ router.post('/google', async (req, res) => {
     // Check if user exists by googleId; fall back gracefully when schema lags.
     let user = null;
     try {
-      user = await User.findOne({ where: { googleId } });
+      user = await User.findOne({
+        where: { googleId },
+        attributes: AUTH_SAFE_USER_FIELDS
+      });
     } catch (dbErr) {
       if (!isSchemaDriftDbError(dbErr)) throw dbErr;
     }
 
     if (!user) {
       // Check if user exists by email (link accounts)
-      user = await User.findOne({ where: { email } });
+      user = await User.findOne({
+        where: { email },
+        attributes: AUTH_SAFE_USER_FIELDS
+      });
 
       if (user) {
         // Link Google account to existing user
@@ -764,7 +794,8 @@ router.post('/google/register', async (req, res) => {
           { googleId },
           { email }
         ]
-      }
+      },
+      attributes: AUTH_SAFE_USER_FIELDS
     });
 
     if (user) {
