@@ -44,6 +44,65 @@ const isSchemaDriftDbError = (error) => {
   return message.includes('column') || message.includes('relation') || message.includes('does not exist');
 };
 
+const stripUndefined = (obj) => Object.fromEntries(
+  Object.entries(obj).filter(([, value]) => value !== undefined)
+);
+
+const findUserByGoogleOrEmail = async ({ googleId, email }) => {
+  try {
+    return await User.findOne({
+      where: {
+        [require('sequelize').Op.or]: [
+          { googleId },
+          { email }
+        ]
+      }
+    });
+  } catch (error) {
+    if (!isSchemaDriftDbError(error)) throw error;
+    return User.findOne({ where: { email } });
+  }
+};
+
+const createOAuthUserWithFallback = async ({ email, firstName, lastName, role, googleId, picture, slug }) => {
+  const fullPayload = stripUndefined({
+    email,
+    firstName,
+    lastName,
+    googleId,
+    profilePictureUrl: picture,
+    role,
+    password: null,
+    slug
+  });
+
+  try {
+    return await User.create(fullPayload);
+  } catch (error) {
+    if (!isSchemaDriftDbError(error)) throw error;
+    const minimalPayload = {
+      email,
+      firstName,
+      lastName,
+      role,
+      password: null
+    };
+    return User.create(minimalPayload);
+  }
+};
+
+const updateOAuthUserWithFallback = async (user, updates) => {
+  const safeUpdates = stripUndefined(updates);
+  if (Object.keys(safeUpdates).length === 0) return;
+
+  try {
+    await user.update(safeUpdates);
+  } catch (error) {
+    if (!isSchemaDriftDbError(error)) throw error;
+    // If optional OAuth columns don't exist in production yet, keep auth flow alive.
+  }
+};
+
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -585,8 +644,14 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ error: 'Email not found in Google profile' });
     }
 
-    // Check if user exists by googleId
-    let user = await User.findOne({ where: { googleId } });
+    // Check if user exists by googleId first, but gracefully fall back to email
+    // when older production schemas are missing OAuth columns.
+    let user = null;
+    try {
+      user = await User.findOne({ where: { googleId } });
+    } catch (error) {
+      if (!isSchemaDriftDbError(error)) throw error;
+    }
 
     if (!user) {
       // Check if user exists by email (link accounts)
@@ -602,18 +667,23 @@ router.post('/google', async (req, res) => {
         if (!user.slug) {
           updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
         }
-        await user.update(updates);
+        await updateOAuthUserWithFallback(user, updates);
       } else {
         // Create new user
-        const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-        user = await User.create({
+        let slug;
+        try {
+          slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+        } catch (error) {
+          if (!isSchemaDriftDbError(error)) throw error;
+        }
+
+        user = await createOAuthUserWithFallback({
           email,
           firstName: given_name || 'User',
           lastName: family_name || '',
-          googleId,
-          profilePictureUrl: picture,
           role: 'candidate',
-          password: null,
+          googleId,
+          picture,
           slug
         });
 
@@ -626,7 +696,7 @@ router.post('/google', async (req, res) => {
     } else {
       // Update profile picture if changed
       if (picture && user.profilePictureUrl !== picture) {
-        await user.update({ profilePictureUrl: picture });
+        await updateOAuthUserWithFallback(user, { profilePictureUrl: picture });
       }
     }
 
@@ -707,15 +777,8 @@ router.post('/google/register', async (req, res) => {
       return res.status(400).json({ error: 'Email not found in Google profile' });
     }
 
-    // Check if user already exists
-    let user = await User.findOne({ 
-      where: { 
-        [require('sequelize').Op.or]: [
-          { googleId },
-          { email }
-        ]
-      }
-    });
+    // Check if user already exists (fallback to email when googleId column is missing).
+    let user = await findUserByGoogleOrEmail({ googleId, email });
 
     if (user) {
       // User exists - just log them in (update googleId if not set)
@@ -728,20 +791,23 @@ router.post('/google/register', async (req, res) => {
       if (!user.slug) {
         updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
       }
-      if (Object.keys(updates).length > 0) {
-        await user.update(updates);
-      }
+      await updateOAuthUserWithFallback(user, updates);
     } else {
       // Create new user with specified role
-      const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-      user = await User.create({
+      let slug;
+      try {
+        slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+      } catch (error) {
+        if (!isSchemaDriftDbError(error)) throw error;
+      }
+
+      user = await createOAuthUserWithFallback({
         email,
         firstName: given_name || 'User',
         lastName: family_name || '',
-        googleId,
-        profilePictureUrl: picture,
         role,
-        password: null,
+        googleId,
+        picture,
         slug
       });
 
