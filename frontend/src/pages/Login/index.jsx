@@ -59,9 +59,10 @@ const Login = () => {
   // Redirect if already authenticated
   useEffect(() => {
     if (user && existingToken && fromExtension) {
+      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
       const extensionDest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
-        : user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+        : (redirectTarget || roleDest);
       handleExtensionAuthSuccess(
         existingToken, user, navigate,
         extensionDest,
@@ -70,12 +71,13 @@ const Login = () => {
       return;
     }
     if (user && !fromExtension) {
+      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
       const dest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
-        : user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+        : (redirectTarget || roleDest);
       navigate(dest, { replace: true });
     }
-  }, [user, existingToken, navigate, fromExtension]);
+  }, [user, existingToken, navigate, fromExtension, redirectTarget]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });

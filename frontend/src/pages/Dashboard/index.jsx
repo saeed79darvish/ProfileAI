@@ -441,7 +441,10 @@ const Dashboard = () => {
   // Load profile data
   useEffect(() => {
     const loadProfile = async () => {
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       
       try {
         setLoading(true);
