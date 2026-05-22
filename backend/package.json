@@ -12,6 +12,7 @@
     "worker": "node workers/submitWorker.js",
     "cron": "node workers/cronWorker.js",
     "init-db": "node scripts/initDatabase.js",
+    "sync-db-safe": "node scripts/syncSchemaSafe.js",
     "add-mock-profiles": "node scripts/addMockProfiles.js",
     "add-50-candidates": "node scripts/add50MockProfiles.js",
     "promote-admin": "node scripts/promote-admin.js",
