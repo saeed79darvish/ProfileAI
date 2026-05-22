@@ -1453,7 +1453,9 @@ router.post('/verify-email', async (req, res) => {
 // @access  Private
 router.post('/resend-verification', resendVerificationLimiter, auth, async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id);
+    const user = await User.findByPk(req.userId, {
+      attributes: AUTH_SAFE_USER_FIELDS
+    });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (user.emailVerified) {
@@ -1482,12 +1484,18 @@ router.post('/resend-verification', resendVerificationLimiter, auth, async (req,
     }
 
     const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-    const sent = await sendEmailVerification(
-      user.email,
-      user.firstName,
-      verifyUrl,
-      codeColumnAvailable ? verificationCode : null
-    );
+    let sent = false;
+    try {
+      sent = await sendEmailVerification(
+        user.email,
+        user.firstName,
+        verifyUrl,
+        codeColumnAvailable ? verificationCode : null
+      );
+    } catch (mailErr) {
+      console.error('Resend verification email send error:', mailErr);
+      sent = false;
+    }
     if (!sent) {
       return res.status(500).json({ error: 'Could not send verification email. Configure EMAIL_* or RESEND_API_KEY in backend/.env.' });
     }
