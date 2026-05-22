@@ -37,6 +37,13 @@ const AUTH_CORE_USER_FIELDS = [
   'isActive',
 ];
 
+const isSchemaDriftDbError = (error) => {
+  if (!error) return false;
+  if (error.name !== 'SequelizeDatabaseError') return false;
+  const message = String(error.message || '').toLowerCase();
+  return message.includes('column') || message.includes('relation') || message.includes('does not exist');
+};
+
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -250,6 +257,9 @@ router.post(
       });
     } catch (error) {
       console.error('Login error:', error);
+      if (isSchemaDriftDbError(error)) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
       res.status(500).json({ error: 'Server error during login' });
     }
   }
@@ -447,6 +457,11 @@ router.post(
       });
     } catch (error) {
       console.error('Forgot password error:', error);
+      if (isSchemaDriftDbError(error)) {
+        return res.json({
+          message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+      }
       res.status(500).json({ error: 'Server error' });
     }
   }
