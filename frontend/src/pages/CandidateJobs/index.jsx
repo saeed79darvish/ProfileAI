@@ -332,7 +332,7 @@ const CandidateJobs = () => {
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
   const [matchDialogJob, setMatchDialogJob] = useState(null);
   const [matchBreakdown, setMatchBreakdown] = useState(null);
-  const [activeTab, setActiveTab] = useState('external');
+  const [activeTab, setActiveTab] = useState('all');
   const [showApplicationModal, setShowApplicationModal] = useState(false);
   const [myApplications, setMyApplications] = useState([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);

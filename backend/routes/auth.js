@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
 const { body, validationResult } = require('express-validator');
 const { User, Profile, RecruiterProfile, PasswordReset } = require('../models');
 const auth = require('../middleware/auth');
@@ -47,6 +48,14 @@ const isSchemaDriftDbError = (error) => (
   error?.name === 'SequelizeDatabaseError' &&
   /column|relation|does not exist/i.test(String(error?.message || ''))
 );
+
+const deriveVerificationCodeFromTokenHash = (tokenHash) => {
+  const normalized = String(tokenHash || '').toLowerCase().replace(/[^a-f0-9]/g, '');
+  if (!normalized) return null;
+  const seed = Number.parseInt(normalized.slice(0, 12), 16);
+  if (!Number.isFinite(seed)) return null;
+  return String((seed % 900000) + 100000);
+};
 
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
@@ -669,6 +678,12 @@ router.post('/google', async (req, res) => {
         }
       } else {
         // Create new user
+        const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
+        const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+        const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+        const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        let codeColumnAvailable = true;
+
         let slug = null;
         try {
           slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
@@ -685,17 +700,38 @@ router.post('/google', async (req, res) => {
             profilePictureUrl: picture,
             role: 'candidate',
             password: null,
+            emailVerified: false,
+            emailVerificationToken: verificationTokenHash,
+            emailVerificationCode: verificationCode,
+            emailVerificationExpiresAt: verificationExpiresAt,
             ...(slug ? { slug } : {})
           });
         } catch (dbErr) {
           if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+          codeColumnAvailable = false;
           user = await User.create({
             email,
             firstName: given_name || 'User',
             lastName: family_name || '',
+            googleId,
+            profilePictureUrl: picture,
             role: 'candidate',
             password: null,
+            emailVerified: false,
+            emailVerificationToken: verificationTokenHash,
+            emailVerificationExpiresAt: verificationExpiresAt,
+            ...(slug ? { slug } : {})
           });
+        }
+
+        try {
+          const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
+          const emailCode = codeColumnAvailable
+            ? verificationCode
+            : deriveVerificationCodeFromTokenHash(verificationTokenHash);
+          await sendEmailVerification(user.email, user.firstName, verifyUrl, emailCode);
+        } catch (mailErr) {
+          console.error('Error sending verification email during Google sign-in auto-create:', mailErr);
         }
 
         // Create empty profile for new candidate
@@ -793,7 +829,7 @@ router.post('/google/register', async (req, res) => {
     // Check if user already exists
     let user = await User.findOne({ 
       where: { 
-        [require('sequelize').Op.or]: [
+        [Op.or]: [
           { googleId },
           { email }
         ]
@@ -818,16 +854,54 @@ router.post('/google/register', async (req, res) => {
     } else {
       // Create new user with specified role
       const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-      user = await User.create({
-        email,
-        firstName: given_name || 'User',
-        lastName: family_name || '',
-        googleId,
-        profilePictureUrl: picture,
-        role,
-        password: null,
-        slug
-      });
+      const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
+      const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+      const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+      const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      let codeColumnAvailable = true;
+
+      try {
+        user = await User.create({
+          email,
+          firstName: given_name || 'User',
+          lastName: family_name || '',
+          googleId,
+          profilePictureUrl: picture,
+          role,
+          password: null,
+          slug,
+          emailVerified: false,
+          emailVerificationToken: verificationTokenHash,
+          emailVerificationCode: verificationCode,
+          emailVerificationExpiresAt: verificationExpiresAt
+        });
+      } catch (dbErr) {
+        if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        codeColumnAvailable = false;
+        user = await User.create({
+          email,
+          firstName: given_name || 'User',
+          lastName: family_name || '',
+          googleId,
+          profilePictureUrl: picture,
+          role,
+          password: null,
+          slug,
+          emailVerified: false,
+          emailVerificationToken: verificationTokenHash,
+          emailVerificationExpiresAt: verificationExpiresAt
+        });
+      }
+
+      try {
+        const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
+        const emailCode = codeColumnAvailable
+          ? verificationCode
+          : deriveVerificationCodeFromTokenHash(verificationTokenHash);
+        await sendEmailVerification(user.email, user.firstName, verifyUrl, emailCode);
+      } catch (mailErr) {
+        console.error('Error sending verification email during Google registration:', mailErr);
+      }
 
       // Create profile based on role
       if (role === 'recruiter') {
@@ -1409,6 +1483,23 @@ router.post('/verify-email', async (req, res) => {
       user = await User.findOne({ where: { emailVerificationToken: hashed } });
     }
 
+    if (!user && !codeColumnAvailable && normalizedCode.length === 6) {
+      const pendingUsers = await User.findAll({
+        where: {
+          emailVerified: false,
+          emailVerificationToken: { [Op.ne]: null },
+          emailVerificationExpiresAt: { [Op.gt]: new Date() }
+        },
+        attributes: ['id', 'emailVerificationToken', 'emailVerificationExpiresAt', 'emailVerified'],
+        order: [['createdAt', 'DESC']],
+        limit: 300
+      });
+
+      user = pendingUsers.find(
+        (candidate) => deriveVerificationCodeFromTokenHash(candidate.emailVerificationToken) === normalizedCode
+      ) || null;
+    }
+
     if (!user) {
       return res.status(400).json({ error: 'Invalid or expired verification link/code.' });
     }
@@ -1490,7 +1581,9 @@ router.post('/resend-verification', resendVerificationLimiter, auth, async (req,
         user.email,
         user.firstName,
         verifyUrl,
-        codeColumnAvailable ? verificationCode : null
+        codeColumnAvailable
+          ? verificationCode
+          : deriveVerificationCodeFromTokenHash(verificationTokenHash)
       );
     } catch (mailErr) {
       console.error('Resend verification email send error:', mailErr);

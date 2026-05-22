@@ -43,7 +43,7 @@ const VerifyEmail = () => {
     if (user?.role === 'recruiter') navigate('/recruiter/onboarding');
     else if (user?.role === 'admin') navigate('/admin');
     else if (user) navigate('/onboarding');
-    else navigate('/login');
+    else navigate('/login?redirect=/onboarding');
   };
 
   return (
