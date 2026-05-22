@@ -243,7 +243,19 @@ router.post(
 router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findByPk(req.userId, {
-      attributes: ['id', 'email', 'firstName', 'lastName', 'slug', 'role', 'subscriptionTier', 'subscriptionStatus', 'subscriptionExpiresAt']
+      attributes: [
+        'id',
+        'email',
+        'firstName',
+        'lastName',
+        'slug',
+        'role',
+        'subscriptionTier',
+        'subscriptionStatus',
+        'subscriptionExpiresAt',
+        'emailVerified',
+        'emailVerifiedAt'
+      ]
     });
 
     if (!user) {
@@ -285,6 +297,8 @@ router.get('/me', auth, async (req, res) => {
       subscriptionTier: user.subscriptionTier,
       subscriptionStatus: user.subscriptionStatus,
       subscriptionExpiresAt: user.subscriptionExpiresAt,
+      emailVerified: user.emailVerified,
+      emailVerifiedAt: user.emailVerifiedAt,
       profilePicture,
       hasRecruiterProfile
     });
