@@ -13,24 +13,66 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-const EMAIL_PROVIDER = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase(); // auto | resend | smtp
-const STRICT_BRAND_FROM = process.env.STRICT_BRAND_FROM === 'true';
+const SIMPLE_EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+const getDefaultFromDomain = () => {
+  try {
+    const host = new URL(process.env.FRONTEND_URL || 'http://localhost:3000').hostname;
+    return host.replace(/^www\./, '');
+  } catch {
+    return 'profilleai.com';
+  }
+};
+
+const normalizeFromAddress = () => {
+  const raw = String(process.env.EMAIL_FROM || '').trim();
+
+  // Plain email: email@example.com
+  if (SIMPLE_EMAIL_RE.test(raw)) return raw;
+
+  // Name <email@example.com> or "Name" <email@example.com>
+  const namedMatch = raw.match(/^\s*"?([^"<>]*)"?\s*<\s*([^<>\s]+@[^<>\s]+)\s*>\s*$/);
+  if (namedMatch && SIMPLE_EMAIL_RE.test(namedMatch[2])) {
+    const safeName = namedMatch[1].trim().replace(/^"|"$/g, '');
+    return safeName ? `${safeName} <${namedMatch[2]}>` : namedMatch[2];
+  }
+
+  if (process.env.EMAIL_USER && SIMPLE_EMAIL_RE.test(process.env.EMAIL_USER)) {
+    return `ProfileAI <${process.env.EMAIL_USER}>`;
+  }
+
+  return `ProfileAI <no-reply@${getDefaultFromDomain()}>`;
+};
 
 /**
- * Send an email using whichever configured provider succeeds first.
- * Tries Resend, then SMTP (nodemailer), and only fails if both fail.
+ * Send an email using Resend (primary) or Nodemailer (fallback)
+ * @param {string} to - Recipient email
+ * @param {string} subject - Email subject
+ * @param {string} html - Email body (HTML)
+ * @param {string} text - Email body (Text fallback)
  */
 const sendEmail = async ({ to, subject, html, text }) => {
-  const errors = [];
-  const canUseResend = EMAIL_PROVIDER === 'auto' || EMAIL_PROVIDER === 'resend';
-  const canUseSmtp = EMAIL_PROVIDER === 'auto' || EMAIL_PROVIDER === 'smtp';
+  try {
+    const fromAddress = normalizeFromAddress();
 
-  // Option 1: Resend
-  if (canUseResend && resend) {
-    try {
-      const fromEmail = process.env.EMAIL_FROM || 'ProfileAI <onboarding@resend.dev>';
+    // Option 1: Use Gmail/Nodemailer (if configured)
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const info = await transporter.sendMail({
+        from: fromAddress,
+        to,
+        subject,
+        text,
+        html
+      });
+
+      console.log('Email sent via Gmail:', info.messageId);
+      return true;
+    }
+
+    // Option 2: Use Resend (fallback)
+    if (resend) {
       const { data, error } = await resend.emails.send({
-        from: fromEmail,
+        from: fromAddress,
         to: [to],
         subject,
         html,
@@ -38,46 +80,21 @@ const sendEmail = async ({ to, subject, html, text }) => {
       });
 
       if (error) {
-        errors.push(`Resend: ${error.message || JSON.stringify(error)}`);
-      } else {
-        console.log('Email sent via Resend:', data?.id);
-        return true;
+        console.error('Resend error:', error);
+        return false;
       }
-    } catch (error) {
-      errors.push(`Resend: ${error.message}`);
-    }
-  }
 
-  // Option 2: SMTP (nodemailer)
-  if (!STRICT_BRAND_FROM && canUseSmtp && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    try {
-      const info = await transporter.sendMail({
-        from: process.env.EMAIL_FROM || `"ProfileAI" <${process.env.EMAIL_USER}>`,
-        to,
-        subject,
-        text,
-        html
-      });
-
-      console.log('Email sent via SMTP:', info.messageId);
+      console.log('Email sent via Resend:', data?.id);
       return true;
-    } catch (error) {
-      errors.push(`SMTP: ${error.message}`);
     }
-  }
 
-  if (STRICT_BRAND_FROM && canUseSmtp) {
-    errors.push('SMTP disabled by STRICT_BRAND_FROM=true');
-  }
-
-  if (errors.length > 0) {
-    console.error('Email delivery failed with configured provider(s):', errors.join(' | '));
+    // No email provider configured - log for development
+    console.warn('⚠️ No email provider configured. Email not sent:', { to, subject });
+    return false;
+  } catch (error) {
+    console.error('Error sending email:', error);
     return false;
   }
-
-  // No email provider configured
-  console.warn('No email provider configured. Email not sent:', { to, subject });
-  return false;
 };
 
 /**
