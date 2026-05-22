@@ -224,6 +224,8 @@ router.post(
           lastName: user.lastName,
           slug: user.slug,
           role: user.role,
+          emailVerified: user.emailVerified,
+          emailVerifiedAt: user.emailVerifiedAt,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
           profilePicture,
@@ -671,6 +673,8 @@ router.post('/google', async (req, res) => {
         lastName: user.lastName,
         slug: user.slug,
         role: user.role,
+        emailVerified: user.emailVerified,
+        emailVerifiedAt: user.emailVerifiedAt,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
         profilePicture
@@ -781,6 +785,8 @@ router.post('/google/register', async (req, res) => {
         lastName: user.lastName,
         slug: user.slug,
         role: user.role,
+        emailVerified: user.emailVerified,
+        emailVerifiedAt: user.emailVerifiedAt,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
         profilePicture: picture

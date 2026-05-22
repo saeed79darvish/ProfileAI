@@ -22,7 +22,7 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
   }
 
   // Redirect unverified email users to /check-email (skip for check-email and verify-email routes)
-  if (isAuthenticated && user?.emailVerified !== true &&
+  if (isAuthenticated && user?.emailVerified === false &&
     !location.pathname.startsWith('/check-email') &&
     !location.pathname.startsWith('/verify-email')) {
     return <Navigate to="/check-email" replace />;
