@@ -22,6 +22,11 @@ const DUMMY_BCRYPT_HASH = '$2a$12$CwTycUXWue0Thq9StjUM0uJ8.YkfQpODazjJ7P5G3jXk5q
 // Token lifetime — single source of truth. Falls back to 7d if env var unset.
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRE || '7d';
 
+const isSchemaDriftDbError = (error) => (
+  error?.name === 'SequelizeDatabaseError' &&
+  /column|relation|does not exist/i.test(String(error?.message || ''))
+);
+
 // Rate limiters for sensitive endpoints
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -602,8 +607,13 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ error: 'Email not found in Google profile' });
     }
 
-    // Check if user exists by googleId
-    let user = await User.findOne({ where: { googleId } });
+    // Check if user exists by googleId; fall back gracefully when schema lags.
+    let user = null;
+    try {
+      user = await User.findOne({ where: { googleId } });
+    } catch (dbErr) {
+      if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+    }
 
     if (!user) {
       // Check if user exists by email (link accounts)
@@ -619,20 +629,41 @@ router.post('/google', async (req, res) => {
         if (!user.slug) {
           updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
         }
-        await user.update(updates);
+        try {
+          await user.update(updates);
+        } catch (dbErr) {
+          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        }
       } else {
         // Create new user
-        const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-        user = await User.create({
-          email,
-          firstName: given_name || 'User',
-          lastName: family_name || '',
-          googleId,
-          profilePictureUrl: picture,
-          role: 'candidate',
-          password: null,
-          slug
-        });
+        let slug = null;
+        try {
+          slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+        } catch (dbErr) {
+          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        }
+
+        try {
+          user = await User.create({
+            email,
+            firstName: given_name || 'User',
+            lastName: family_name || '',
+            googleId,
+            profilePictureUrl: picture,
+            role: 'candidate',
+            password: null,
+            ...(slug ? { slug } : {})
+          });
+        } catch (dbErr) {
+          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+          user = await User.create({
+            email,
+            firstName: given_name || 'User',
+            lastName: family_name || '',
+            role: 'candidate',
+            password: null,
+          });
+        }
 
         // Create empty profile for new candidate
         await Profile.create({
@@ -643,7 +674,11 @@ router.post('/google', async (req, res) => {
     } else {
       // Update profile picture if changed
       if (picture && user.profilePictureUrl !== picture) {
-        await user.update({ profilePictureUrl: picture });
+        try {
+          await user.update({ profilePictureUrl: picture });
+        } catch (dbErr) {
+          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        }
       }
     }
 
@@ -686,6 +721,9 @@ router.post('/google', async (req, res) => {
     console.error('Google auth error:', error);
     if (error.status) {
       return res.status(error.status).json({ error: error.message });
+    }
+    if (error.message?.includes('payload audience != requiredAudience')) {
+      return res.status(401).json({ error: 'Google client ID mismatch' });
     }
     if (error.message?.includes('Token used too late') || error.message?.includes('Invalid token')) {
       return res.status(401).json({ error: 'Invalid or expired Google token' });
