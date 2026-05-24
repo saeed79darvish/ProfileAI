@@ -35,9 +35,10 @@ const VerifyEmail = () => {
         authDebug('verifyEmail API success', { responseMessage: data?.message || null });
         setStatus('success');
         setMessage(data?.message || 'Your email has been verified.');
+        let refreshed = null;
         if (typeof refreshUser === 'function') {
           try {
-            const refreshed = await refreshUser();
+            refreshed = await refreshUser();
             authDebug('refreshUser after verify', {
               role: refreshed?.role,
               emailVerified: refreshed?.emailVerified,
@@ -45,6 +46,26 @@ const VerifyEmail = () => {
             });
           } catch (_) { /* non-blocking */ }
         }
+        if (cancelled) return;
+        // Auto-navigate using the freshly refreshed user. This matches the
+        // paste-code flow on /check-email and avoids relying on the stale
+        // `user` snapshot captured at Continue-click time.
+        const effective = refreshed || user;
+        const dest = effective?.role === 'recruiter'
+          ? '/recruiter/onboarding'
+          : effective?.role === 'admin'
+            ? '/admin'
+            : effective
+              ? '/onboarding'
+              : '/login?redirect=/onboarding';
+        authDebug('auto-redirect after verify', {
+          dest,
+          role: effective?.role,
+          emailVerified: effective?.emailVerified,
+          hasProfile: effective?.hasProfile,
+          usedRefreshed: !!refreshed
+        });
+        navigate(dest, { replace: true });
       } catch (err) {
         if (cancelled) return;
         authDebug('verifyEmail API error', {
