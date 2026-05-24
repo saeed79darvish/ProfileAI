@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Box, Typography, Button, Alert, CircularProgress, Link } from '@mui/material';
+import { Box, Typography, Alert, CircularProgress, Link } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import AuthLayout from '@/components/AuthLayout';
@@ -82,23 +82,6 @@ const VerifyEmail = () => {
     return () => { cancelled = true; };
   }, [token, refreshUser]);
 
-  const goHome = () => {
-    const dest = user?.role === 'recruiter'
-      ? '/recruiter/onboarding'
-      : user?.role === 'admin'
-        ? '/admin'
-        : user
-          ? '/onboarding'
-          : '/login?redirect=/onboarding';
-    authDebug('continue click', {
-      dest,
-      role: user?.role,
-      emailVerified: user?.emailVerified,
-      hasProfile: user?.hasProfile
-    });
-    navigate(dest);
-  };
-
   return (
     <AuthLayout>
       <Box sx={{ textAlign: 'center', py: 2 }}>
@@ -113,10 +96,10 @@ const VerifyEmail = () => {
           <>
             <CheckCircleOutlineIcon sx={{ fontSize: 64, color: 'success.main' }} />
             <Typography variant="h5" sx={{ mt: 2, mb: 1 }}>Email verified</Typography>
-            <Alert severity="success" sx={{ mb: 3 }}>{message}</Alert>
-            <Button variant="contained" fullWidth onClick={goHome}>
-              {user ? 'Continue' : 'Go to login'}
-            </Button>
+            <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>
+            <Typography variant="body2" color="text.secondary">
+              Redirecting you now…
+            </Typography>
           </>
         )}
 
