@@ -156,25 +156,56 @@ router.post(
       const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
       const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
       const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const user = await User.create({
-        email,
-        password,
-        firstName,
-        lastName,
-        role,
-        slug,
-        emailVerified: false,
-        emailVerificationToken: verificationTokenHash,
-        emailVerificationCode: verificationCode,
-        emailVerificationExpiresAt: verificationExpiresAt
-      });
 
-      // Send verification email (non-blocking if provider isn't configured)
+      // Schema-drift fallback: production DBs may be missing the
+      // emailVerificationCode column. Retry without it so register doesn't
+      // fail outright when the column is absent (matches resend-verification).
+      let codeColumnAvailable = true;
+      let user;
+      try {
+        user = await User.create({
+          email,
+          password,
+          firstName,
+          lastName,
+          role,
+          slug,
+          emailVerified: false,
+          emailVerificationToken: verificationTokenHash,
+          emailVerificationCode: verificationCode,
+          emailVerificationExpiresAt: verificationExpiresAt
+        });
+      } catch (dbErr) {
+        if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+        codeColumnAvailable = false;
+        user = await User.create({
+          email,
+          password,
+          firstName,
+          lastName,
+          role,
+          slug,
+          emailVerified: false,
+          emailVerificationToken: verificationTokenHash,
+          emailVerificationExpiresAt: verificationExpiresAt
+        });
+      }
+
+      // Send verification email. We deliberately don't fail the request if
+      // delivery fails — the user has an account and can hit "Resend" — but
+      // we do log loudly so the issue surfaces in monitoring.
+      let emailSent = false;
       try {
         const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-        await sendEmailVerification(user.email, user.firstName, verifyUrl, verificationCode);
+        const emailCode = codeColumnAvailable
+          ? verificationCode
+          : deriveVerificationCodeFromTokenHash(verificationTokenHash);
+        emailSent = await sendEmailVerification(user.email, user.firstName, verifyUrl, emailCode);
       } catch (mailErr) {
         console.error('Error sending verification email during registration:', mailErr);
+      }
+      if (!emailSent) {
+        console.warn('[register] verification email NOT delivered for', user.email, '— check EMAIL_* / RESEND_API_KEY env vars.');
       }
 
       // Generate JWT
