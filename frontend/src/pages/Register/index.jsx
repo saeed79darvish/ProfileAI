@@ -159,7 +159,9 @@ const Register = () => {
       }
       const dest = user?.emailVerified === false
         ? '/check-email'
-        : user?.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+        : user?.role === 'recruiter'
+          ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
+          : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
       authDebug('google register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)

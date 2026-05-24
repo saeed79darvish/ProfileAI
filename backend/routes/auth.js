@@ -90,6 +90,17 @@ const resendVerificationLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Rate limit verify-email submissions to prevent brute force of
+// 6-digit codes (~900k combinations). 20 attempts / 15 min / IP is
+// generous for real users but blocks automated guessing.
+const verifyEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many verification attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Password complexity regex
 // At least 8 characters, 1 uppercase, 1 lowercase, 1 number, 1 special character
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
@@ -173,6 +184,9 @@ router.post(
         { expiresIn: JWT_EXPIRES_IN }
       );
 
+      // Fresh registrations have neither profile yet — return the flags so the
+      // frontend can route the user straight to onboarding without an extra
+      // /me round-trip.
       res.status(201).json({
         token,
         user: {
@@ -184,7 +198,9 @@ router.post(
           role: user.role,
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
-          emailVerified: user.emailVerified
+          emailVerified: user.emailVerified,
+          hasProfile: false,
+          hasRecruiterProfile: false
         }
       });
     } catch (error) {
@@ -604,6 +620,7 @@ async function resolveGoogleProfile({ credential, accessToken }) {
     return {
       googleId: p.sub,
       email: p.email,
+      emailVerified: p.email_verified === true || p.email_verified === 'true',
       given_name: p.given_name,
       family_name: p.family_name,
       picture: p.picture
@@ -622,6 +639,7 @@ async function resolveGoogleProfile({ credential, accessToken }) {
     return {
       googleId: p.sub,
       email: p.email,
+      emailVerified: p.email_verified === true || p.email_verified === 'true',
       given_name: p.given_name,
       family_name: p.family_name,
       picture: p.picture
@@ -643,7 +661,7 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ error: 'Google credential is required' });
     }
 
-    const { googleId, email, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
+    const { googleId, email, emailVerified: googleEmailVerified, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
 
     if (!email) {
       return res.status(400).json({ error: 'Email not found in Google profile' });
@@ -668,8 +686,10 @@ router.post('/google', async (req, res) => {
       });
 
       if (user) {
-        // Link Google account to existing user
+        // Link Google account to existing user.
         // Backfill slug for legacy accounts created before slug support shipped.
+        // Also auto-verify email if Google says the email is verified — anyone
+        // who can complete a Google sign-in already controls the inbox.
         const updates = {
           googleId,
           profilePictureUrl: picture || user.profilePictureUrl,
@@ -677,27 +697,31 @@ router.post('/google', async (req, res) => {
         if (!user.slug) {
           updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
         }
+        if (googleEmailVerified && !user.emailVerified) {
+          updates.emailVerified = true;
+          updates.emailVerifiedAt = new Date();
+          updates.emailVerificationToken = null;
+          updates.emailVerificationExpiresAt = null;
+        }
         try {
           await user.update(updates);
         } catch (dbErr) {
           if (!isSchemaDriftDbError(dbErr)) throw dbErr;
         }
       } else {
-        // Create new user
-        const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
-        const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
-        const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-        const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        let codeColumnAvailable = true;
+        // Create new user. Skip the email-verification round-trip entirely
+        // when Google has already verified the email — best-practice UX, and
+        // we still record emailVerifiedAt for audit.
+        const slug = await (async () => {
+          try {
+            return await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+          } catch (dbErr) {
+            if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+            return null;
+          }
+        })();
 
-        let slug = null;
-        try {
-          slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
-        } catch (dbErr) {
-          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
-        }
-
-        try {
+        if (googleEmailVerified) {
           user = await User.create({
             email,
             firstName: given_name || 'User',
@@ -706,38 +730,60 @@ router.post('/google', async (req, res) => {
             profilePictureUrl: picture,
             role: 'candidate',
             password: null,
-            emailVerified: false,
-            emailVerificationToken: verificationTokenHash,
-            emailVerificationCode: verificationCode,
-            emailVerificationExpiresAt: verificationExpiresAt,
+            emailVerified: true,
+            emailVerifiedAt: new Date(),
             ...(slug ? { slug } : {})
           });
-        } catch (dbErr) {
-          if (!isSchemaDriftDbError(dbErr)) throw dbErr;
-          codeColumnAvailable = false;
-          user = await User.create({
-            email,
-            firstName: given_name || 'User',
-            lastName: family_name || '',
-            googleId,
-            profilePictureUrl: picture,
-            role: 'candidate',
-            password: null,
-            emailVerified: false,
-            emailVerificationToken: verificationTokenHash,
-            emailVerificationExpiresAt: verificationExpiresAt,
-            ...(slug ? { slug } : {})
-          });
-        }
+        } else {
+          // Google didn't verify the email — fall back to standard verification flow.
+          const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
+          const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
+          const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+          const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          let codeColumnAvailable = true;
 
-        try {
-          const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
-          const emailCode = codeColumnAvailable
-            ? verificationCode
-            : deriveVerificationCodeFromTokenHash(verificationTokenHash);
-          await sendEmailVerification(user.email, user.firstName, verifyUrl, emailCode);
-        } catch (mailErr) {
-          console.error('Error sending verification email during Google sign-in auto-create:', mailErr);
+          try {
+            user = await User.create({
+              email,
+              firstName: given_name || 'User',
+              lastName: family_name || '',
+              googleId,
+              profilePictureUrl: picture,
+              role: 'candidate',
+              password: null,
+              emailVerified: false,
+              emailVerificationToken: verificationTokenHash,
+              emailVerificationCode: verificationCode,
+              emailVerificationExpiresAt: verificationExpiresAt,
+              ...(slug ? { slug } : {})
+            });
+          } catch (dbErr) {
+            if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+            codeColumnAvailable = false;
+            user = await User.create({
+              email,
+              firstName: given_name || 'User',
+              lastName: family_name || '',
+              googleId,
+              profilePictureUrl: picture,
+              role: 'candidate',
+              password: null,
+              emailVerified: false,
+              emailVerificationToken: verificationTokenHash,
+              emailVerificationExpiresAt: verificationExpiresAt,
+              ...(slug ? { slug } : {})
+            });
+          }
+
+          try {
+            const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email/${verificationTokenRaw}`;
+            const emailCode = codeColumnAvailable
+              ? verificationCode
+              : deriveVerificationCodeFromTokenHash(verificationTokenHash);
+            await sendEmailVerification(user.email, user.firstName, verifyUrl, emailCode);
+          } catch (mailErr) {
+            console.error('Error sending verification email during Google sign-in auto-create:', mailErr);
+          }
         }
 
         // Candidate profile is intentionally created during onboarding.
@@ -828,7 +874,7 @@ router.post('/google/register', async (req, res) => {
       return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
     }
 
-    const { googleId, email, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
+    const { googleId, email, emailVerified: googleEmailVerified, given_name, family_name, picture } = await resolveGoogleProfile({ credential, accessToken, clientId });
 
     if (!email) {
       return res.status(400).json({ error: 'Email not found in Google profile' });
@@ -856,11 +902,45 @@ router.post('/google/register', async (req, res) => {
       if (!user.slug) {
         updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
       }
+      // Trust Google-verified email on link.
+      if (googleEmailVerified && !user.emailVerified) {
+        updates.emailVerified = true;
+        updates.emailVerifiedAt = new Date();
+        updates.emailVerificationToken = null;
+        updates.emailVerificationExpiresAt = null;
+      }
       if (Object.keys(updates).length > 0) {
         await user.update(updates);
       }
+    } else if (googleEmailVerified) {
+      // Fast path: Google already verified the email. Skip the verification
+      // round-trip and create the user as fully verified.
+      const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
+      user = await User.create({
+        email,
+        firstName: given_name || 'User',
+        lastName: family_name || '',
+        googleId,
+        profilePictureUrl: picture,
+        role,
+        password: null,
+        slug,
+        emailVerified: true,
+        emailVerifiedAt: new Date()
+      });
+
+      if (role === 'recruiter') {
+        await RecruiterProfile.create({
+          userId: user.id,
+          profilePicture: picture,
+          companyName: 'My Company',
+          jobTitle: 'Recruiter'
+        }, {
+          fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
+        });
+      }
     } else {
-      // Create new user with specified role
+      // Create new user with specified role + standard email verification flow.
       const slug = await buildUniqueUserSlug(User, given_name || 'User', family_name || '');
       const verificationTokenRaw = crypto.randomBytes(32).toString('hex');
       const verificationTokenHash = crypto.createHash('sha256').update(verificationTokenRaw).digest('hex');
@@ -1483,7 +1563,7 @@ router.post('/linkedin/register', async (req, res) => {
 // @route   POST /api/auth/verify-email
 // @desc    Confirm a user's email using the token from their inbox
 // @access  Public
-router.post('/verify-email', async (req, res) => {
+router.post('/verify-email', verifyEmailLimiter, async (req, res) => {
   try {
     const { token } = req.body || {};
     if (!token || typeof token !== 'string') {

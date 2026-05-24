@@ -65,7 +65,10 @@ const VerifyEmail = () => {
           hasProfile: effective?.hasProfile,
           usedRefreshed: !!refreshed
         });
-        navigate(dest, { replace: true });
+        // Brief delay so the user sees the success state before redirect.
+        setTimeout(() => {
+          if (!cancelled) navigate(dest, { replace: true });
+        }, 900);
       } catch (err) {
         if (cancelled) return;
         authDebug('verifyEmail API error', {

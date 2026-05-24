@@ -18,6 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { authAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
+import { safeRedirect } from '@/utils/safeRedirect';
 import {
   GradientButton,
   inputSx,
@@ -47,8 +48,9 @@ const Login = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { login, setUser, setToken, user } = useAuth();
-  // Destination after login: prefer state.from (PrivateRoute), then ?redirect= (api.js 401), then role default
-  const redirectTarget = location.state?.from || searchParams.get('redirect') || null;
+  // Destination after login: prefer state.from (PrivateRoute), then ?redirect= (api.js 401), then role default.
+  // Sanitize to prevent open-redirect attacks via `?redirect=//evil.com`.
+  const redirectTarget = safeRedirect(location.state?.from) || safeRedirect(searchParams.get('redirect')) || null;
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
