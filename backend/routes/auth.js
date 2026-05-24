@@ -245,6 +245,7 @@ router.post(
 
       // Fetch profile picture based on role
       let profilePicture = null;
+      let hasProfile = false;
       let hasRecruiterProfile = false;
       if (user.role === 'recruiter') {
         const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
@@ -253,6 +254,7 @@ router.post(
       } else {
         const profile = await Profile.findOne({ where: { userId: user.id } });
         profilePicture = profile?.profilePicture || null;
+        hasProfile = !!profile;
       }
 
       res.json({
@@ -269,6 +271,7 @@ router.post(
           subscriptionTier: user.subscriptionTier,
           subscriptionStatus: user.subscriptionStatus,
           profilePicture,
+          hasProfile,
           hasRecruiterProfile
         }
       });
@@ -306,6 +309,7 @@ router.get('/me', auth, async (req, res) => {
 
     // Fetch profile picture based on role - always get most recent profile
     let profilePicture = null;
+    let hasProfile = false;
     let hasRecruiterProfile = false;
     if (user.role === 'recruiter') {
       const recruiterProfile = await RecruiterProfile.findOne({ 
@@ -322,6 +326,7 @@ router.get('/me', auth, async (req, res) => {
         attributes: ['profilePicture']
       });
       profilePicture = profile?.profilePicture || null;
+      hasProfile = !!profile;
     }
 
     // Disable caching for this endpoint
@@ -342,6 +347,7 @@ router.get('/me', auth, async (req, res) => {
       emailVerified: user.emailVerified,
       emailVerifiedAt: user.emailVerifiedAt,
       profilePicture,
+      hasProfile,
       hasRecruiterProfile
     });
   } catch (error) {
@@ -734,14 +740,7 @@ router.post('/google', async (req, res) => {
           console.error('Error sending verification email during Google sign-in auto-create:', mailErr);
         }
 
-        // Create minimal candidate profile for first-time OAuth users.
-        await Profile.create({
-          userId: user.id,
-          profilePicture: picture,
-          title: `${given_name || 'Candidate'} Profile`
-        }, {
-          fields: ['userId', 'profilePicture', 'title']
-        });
+        // Candidate profile is intentionally created during onboarding.
       }
     } else {
       // Update profile picture if changed
@@ -763,6 +762,7 @@ router.post('/google', async (req, res) => {
 
     // Get profile picture
     let profilePicture = user.profilePictureUrl;
+    let hasProfile = false;
     if (!profilePicture) {
       if (user.role === 'recruiter') {
         const recruiterProfile = await RecruiterProfile.findOne({ where: { userId: user.id } });
@@ -770,7 +770,11 @@ router.post('/google', async (req, res) => {
       } else {
         const profile = await Profile.findOne({ where: { userId: user.id } });
         profilePicture = profile?.profilePicture;
+        hasProfile = !!profile;
       }
+    } else if (user.role !== 'recruiter') {
+      const profile = await Profile.findOne({ where: { userId: user.id }, attributes: ['id'] });
+      hasProfile = !!profile;
     }
 
     res.json({
@@ -786,7 +790,8 @@ router.post('/google', async (req, res) => {
         emailVerifiedAt: user.emailVerifiedAt,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
-        profilePicture
+        profilePicture,
+        hasProfile
       }
     });
   } catch (error) {
@@ -916,14 +921,6 @@ router.post('/google/register', async (req, res) => {
         }, {
           fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
         });
-      } else {
-        await Profile.create({
-          userId: user.id,
-          profilePicture: picture,
-          title: `${given_name || 'Candidate'} Profile`
-        }, {
-          fields: ['userId', 'profilePicture', 'title']
-        });
       }
     }
 
@@ -933,6 +930,10 @@ router.post('/google/register', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
+
+    const hasProfile = user.role === 'candidate'
+      ? !!(await Profile.findOne({ where: { userId: user.id }, attributes: ['id'] }))
+      : false;
 
     res.json({
       token,
@@ -947,7 +948,8 @@ router.post('/google/register', async (req, res) => {
         emailVerifiedAt: user.emailVerifiedAt,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
-        profilePicture: picture
+        profilePicture: picture,
+        hasProfile
       }
     });
   } catch (error) {
@@ -1214,14 +1216,6 @@ router.post('/github/register', async (req, res) => {
         }, {
           fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
         });
-      } else {
-        await Profile.create({
-          userId: user.id,
-          profilePicture: picture,
-          title: `${firstName || 'Candidate'} Profile`
-        }, {
-          fields: ['userId', 'profilePicture', 'title']
-        });
       }
     }
 
@@ -1231,6 +1225,10 @@ router.post('/github/register', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
+
+    const hasProfile = user.role === 'candidate'
+      ? !!(await Profile.findOne({ where: { userId: user.id }, attributes: ['id'] }))
+      : false;
 
     res.json({
       token,
@@ -1243,7 +1241,8 @@ router.post('/github/register', async (req, res) => {
         role: user.role,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
-        profilePicture: picture
+        profilePicture: picture,
+        hasProfile
       }
     });
   } catch (error) {
@@ -1451,16 +1450,12 @@ router.post('/linkedin/register', async (req, res) => {
         }, {
           fields: ['userId', 'profilePicture', 'companyName', 'jobTitle']
         });
-      } else {
-        await Profile.create({
-          userId: user.id,
-          profilePicture: picture,
-          title: `${firstName || 'Candidate'} Profile`
-        }, {
-          fields: ['userId', 'profilePicture', 'title']
-        });
       }
     }
+
+    const hasProfile = user.role === 'candidate'
+      ? !!(await Profile.findOne({ where: { userId: user.id }, attributes: ['id'] }))
+      : false;
 
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
@@ -1475,7 +1470,8 @@ router.post('/linkedin/register', async (req, res) => {
         role: user.role,
         subscriptionTier: user.subscriptionTier,
         subscriptionStatus: user.subscriptionStatus,
-        profilePicture: picture
+        profilePicture: picture,
+        hasProfile
       }
     });
   } catch (error) {

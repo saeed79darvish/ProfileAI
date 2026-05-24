@@ -56,10 +56,16 @@ const Login = () => {
   const [fromExtension] = useState(isFromExtension());
   const existingToken = localStorage.getItem(STORAGE_KEY_TOKEN);
 
+  const getCandidateDest = (authUser, fallback) => (
+    authUser?.role === ROLES.CANDIDATE && authUser?.hasProfile === false
+      ? '/onboarding'
+      : fallback
+  );
+
   // Redirect if already authenticated
   useEffect(() => {
     if (user && existingToken && fromExtension) {
-      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const extensionDest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
         : (redirectTarget || roleDest);
@@ -71,7 +77,7 @@ const Login = () => {
       return;
     }
     if (user && !fromExtension) {
-      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
         : (redirectTarget || roleDest);
@@ -95,7 +101,7 @@ const Login = () => {
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
       setToken(token);
       setUser(user);
-      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -126,7 +132,7 @@ const Login = () => {
     try {
       const result = await login(formData);
       const { user, token } = result;
-      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : ROUTES.PROFILE;
+      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)

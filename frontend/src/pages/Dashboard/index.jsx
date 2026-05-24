@@ -435,6 +435,8 @@ const Dashboard = () => {
       navigate('/recruiter/dashboard');
     } else if (user?.role === 'admin') {
       navigate('/admin');
+    } else if (user?.role === 'candidate' && user?.hasProfile === false) {
+      navigate('/onboarding');
     }
   }, [user, navigate]);
 

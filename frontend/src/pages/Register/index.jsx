@@ -74,12 +74,19 @@ const Register = () => {
   const referrerId = searchParams.get('ref') || null;
   const token = localStorage.getItem('token');
 
+  const getCandidateDest = (authUser, fallback) => (
+    authUser?.role === 'candidate' && authUser?.hasProfile === false
+      ? ROUTES.ONBOARDING
+      : fallback
+  );
+
   // Redirect if already authenticated
   useEffect(() => {
     if (user && token && fromExtension) {
+      const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const extensionDest = user?.emailVerified === false
         ? '/check-email'
-        : user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE;
+        : roleDest;
       handleExtensionAuthSuccess(
         token, user, navigate,
         extensionDest,
@@ -88,9 +95,10 @@ const Register = () => {
       return;
     }
     if (user && !fromExtension) {
+      const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false
         ? '/check-email'
-        : user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : ROUTES.PROFILE;
+        : roleDest;
       navigate(dest, { replace: true });
     }
   }, [user, token, navigate, fromExtension]);
