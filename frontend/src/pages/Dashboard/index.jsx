@@ -440,6 +440,12 @@ const Dashboard = () => {
     }
   }, [user, navigate]);
 
+  useEffect(() => {
+    if (!authLoading && !loading && user?.role === 'candidate' && !profile && !error) {
+      navigate('/onboarding');
+    }
+  }, [authLoading, loading, user, profile, error, navigate]);
+
   // Load profile data
   useEffect(() => {
     const loadProfile = async () => {
@@ -948,7 +954,7 @@ const Dashboard = () => {
   if (user?.role === 'recruiter' || user?.role === 'admin') {
     return null;
   }
-  
+
   if (error) {
     return (
       <PageContainer>

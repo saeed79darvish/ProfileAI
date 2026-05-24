@@ -493,12 +493,17 @@ const Navbar = () => {
   const isAdmin = isAuthenticated && user?.role === 'admin';
   const isHome = location.pathname === '/';
   const isTransparent = isHome && !scrolled && !isAuthenticated;
+  const candidateProfilePath = user?.role === 'candidate' && user?.hasProfile !== true
+    ? '/onboarding'
+    : '/profile';
 
   const navItems = useMemo(() => {
     if (!isAuthenticated) return PUBLIC_ITEMS;
     if (isRecruiter) return isAdmin ? [...ADMIN_ITEMS, ...RECRUITER_ITEMS] : RECRUITER_ITEMS;
-    return CANDIDATE_ITEMS;
-  }, [isAuthenticated, isRecruiter, isAdmin]);
+    return CANDIDATE_ITEMS.map((item) =>
+      item.path === '/profile' ? { ...item, path: candidateProfilePath } : item
+    );
+  }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath]);
 
   const isActive = (path) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
@@ -702,7 +707,7 @@ const Navbar = () => {
           </>
         ) : (
           <>
-            <DropdownItem role="menuitem" onClick={() => go('/profile')}>
+            <DropdownItem role="menuitem" onClick={() => go(candidateProfilePath)}>
               <PersonIcon /> My Profile
             </DropdownItem>
             <DropdownItem role="menuitem" onClick={() => go('/pricing')}>
@@ -927,7 +932,7 @@ const Navbar = () => {
                   </span>
                 )}
               </DrawerItem>
-              <DrawerItem type="button" onClick={() => go(isRecruiter ? '/recruiter/profile' : '/profile')}>
+              <DrawerItem type="button" onClick={() => go(isRecruiter ? '/recruiter/profile' : candidateProfilePath)}>
                 <PersonIcon aria-hidden="true" />
                 {isRecruiter ? 'My Company' : 'My Profile'}
               </DrawerItem>

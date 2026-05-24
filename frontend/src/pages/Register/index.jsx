@@ -75,7 +75,7 @@ const Register = () => {
   const token = localStorage.getItem('token');
 
   const getCandidateDest = (authUser, fallback) => (
-    authUser?.role === 'candidate' && authUser?.hasProfile === false
+    authUser?.role === 'candidate' && authUser?.hasProfile !== true
       ? ROUTES.ONBOARDING
       : fallback
   );

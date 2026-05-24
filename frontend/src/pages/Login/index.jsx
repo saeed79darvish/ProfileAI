@@ -57,7 +57,7 @@ const Login = () => {
   const existingToken = localStorage.getItem(STORAGE_KEY_TOKEN);
 
   const getCandidateDest = (authUser, fallback) => (
-    authUser?.role === ROLES.CANDIDATE && authUser?.hasProfile === false
+    authUser?.role === ROLES.CANDIDATE && authUser?.hasProfile !== true
       ? '/onboarding'
       : fallback
   );
