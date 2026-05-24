@@ -73,6 +73,12 @@ const Register = () => {
   const [fromExtension] = useState(isFromExtension());
   const referrerId = searchParams.get('ref') || null;
   const token = localStorage.getItem('token');
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][Register]', ...args);
+  };
 
   const getCandidateDest = (authUser, fallback) => (
     authUser?.role === 'candidate' && authUser?.hasProfile !== true
@@ -82,11 +88,20 @@ const Register = () => {
 
   // Redirect if already authenticated
   useEffect(() => {
+    authDebug('auto-redirect check', {
+      hasUser: !!user,
+      hasToken: !!token,
+      fromExtension,
+      role: user?.role,
+      emailVerified: user?.emailVerified,
+      hasProfile: user?.hasProfile
+    });
     if (user && token && fromExtension) {
       const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const extensionDest = user?.emailVerified === false
         ? '/check-email'
         : roleDest;
+      authDebug('extension auto-redirect', { extensionDest, roleDest });
       handleExtensionAuthSuccess(
         token, user, navigate,
         extensionDest,
@@ -99,6 +114,7 @@ const Register = () => {
       const dest = user?.emailVerified === false
         ? '/check-email'
         : roleDest;
+      authDebug('web auto-redirect', { dest, roleDest });
       navigate(dest, { replace: true });
     }
   }, [user, token, navigate, fromExtension]);
@@ -130,6 +146,11 @@ const Register = () => {
         formData.role
       );
       const { token, user } = response.data;
+      authDebug('google register response', {
+        role: user?.role,
+        emailVerified: user?.emailVerified,
+        hasProfile: user?.hasProfile
+      });
       localStorage.setItem('token', token);
       setToken(token);
       setUser(user);
@@ -139,6 +160,7 @@ const Register = () => {
       const dest = user?.emailVerified === false
         ? '/check-email'
         : user?.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      authDebug('google register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest);
@@ -179,6 +201,11 @@ const Register = () => {
         password: formData.password,
         role: formData.role
       });
+      authDebug('email register response', {
+        role: result.user?.role,
+        emailVerified: result.user?.emailVerified,
+        hasProfile: result.user?.hasProfile
+      });
       // Credit referral if user came from a shared profile link
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
@@ -186,6 +213,7 @@ const Register = () => {
       const dest = result.user?.emailVerified !== true
         ? '/check-email'
         : formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      authDebug('email register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(result.token, result.user, navigate, dest)
         : navigate(dest);

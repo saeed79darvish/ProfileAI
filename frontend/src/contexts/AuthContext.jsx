@@ -8,10 +8,17 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
   const [originalToken, setOriginalToken] = useState(localStorage.getItem('originalToken'));
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][AuthContext]', ...args);
+  };
 
   useEffect(() => {
     // Check if user is logged in
     const storedUser = localStorage.getItem('user');
+    authDebug('hydrate start', { hasStoredUser: !!storedUser, hasToken: !!token });
     if (storedUser && token) {
       let parsedUser;
       try {
@@ -28,6 +35,12 @@ export const AuthProvider = ({ children }) => {
       // Validate token with the server before considering user authenticated
       authAPI.getMe().then(res => {
         const freshUser = res.data;
+        authDebug('getMe success', {
+          role: freshUser?.role,
+          emailVerified: freshUser?.emailVerified,
+          hasProfile: freshUser?.hasProfile,
+          hasRecruiterProfile: freshUser?.hasRecruiterProfile
+        });
         if (freshUser.profilePicture) {
           freshUser.profilePicture = resolveImageUrl(freshUser.profilePicture);
         }
@@ -48,6 +61,7 @@ export const AuthProvider = ({ children }) => {
           }
         }, window.location.origin);
       }).catch(() => {
+        authDebug('getMe failed, clearing auth');
         // Token is expired/revoked, clear auth state
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -57,6 +71,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
       });
     } else {
+      authDebug('hydrate skipped (missing token or user)');
       setLoading(false);
     }
   }, [token]);

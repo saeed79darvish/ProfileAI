@@ -280,6 +280,12 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, loading: authLoading, isAuthenticated } = useAuth();
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][Dashboard]', ...args);
+  };
   
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -431,17 +437,25 @@ const Dashboard = () => {
 
   // Redirect recruiters and admins
   useEffect(() => {
+    authDebug('role redirect check', {
+      role: user?.role,
+      hasProfile: user?.hasProfile,
+      authLoading,
+      loading
+    });
     if (user?.role === 'recruiter') {
       navigate('/recruiter/dashboard');
     } else if (user?.role === 'admin') {
       navigate('/admin');
     } else if (user?.role === 'candidate' && user?.hasProfile === false) {
+      authDebug('redirect candidate to onboarding (hasProfile false)');
       navigate('/onboarding');
     }
   }, [user, navigate]);
 
   useEffect(() => {
     if (!authLoading && !loading && user?.role === 'candidate' && !profile && !error) {
+      authDebug('redirect candidate to onboarding (no profile loaded)');
       navigate('/onboarding');
     }
   }, [authLoading, loading, user, profile, error, navigate]);
@@ -450,15 +464,25 @@ const Dashboard = () => {
   useEffect(() => {
     const loadProfile = async () => {
       if (!user) {
+        authDebug('skip loadProfile: no user');
         setLoading(false);
         return;
       }
       
       try {
         setLoading(true);
+        authDebug('loadProfile request start', { userId: user?.id, role: user?.role });
         const response = await profileAPI.getMyProfile();
+        authDebug('loadProfile success', {
+          hasData: !!response?.data,
+          title: response?.data?.title || null
+        });
         setProfile(response.data);
       } catch (err) {
+        authDebug('loadProfile error', {
+          status: err?.response?.status,
+          message: err?.response?.data?.message || err?.message
+        });
         if (err.response?.status === 404) {
           // Check if user has an in-progress draft before redirecting to onboarding
           try {
@@ -490,6 +514,7 @@ const Dashboard = () => {
           setError(err.response?.data?.message || 'Failed to load profile');
         }
       } finally {
+        authDebug('loadProfile finished');
         setLoading(false);
       }
     };

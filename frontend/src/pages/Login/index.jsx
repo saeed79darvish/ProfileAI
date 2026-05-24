@@ -55,6 +55,12 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [fromExtension] = useState(isFromExtension());
   const existingToken = localStorage.getItem(STORAGE_KEY_TOKEN);
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][Login]', ...args);
+  };
 
   const getCandidateDest = (authUser, fallback) => (
     authUser?.role === ROLES.CANDIDATE && authUser?.hasProfile !== true
@@ -64,11 +70,21 @@ const Login = () => {
 
   // Redirect if already authenticated
   useEffect(() => {
+    authDebug('auto-redirect check', {
+      hasUser: !!user,
+      hasToken: !!existingToken,
+      fromExtension,
+      redirectTarget,
+      role: user?.role,
+      emailVerified: user?.emailVerified,
+      hasProfile: user?.hasProfile
+    });
     if (user && existingToken && fromExtension) {
       const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const extensionDest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
         : (redirectTarget || roleDest);
+      authDebug('extension auto-redirect', { extensionDest, roleDest });
       handleExtensionAuthSuccess(
         existingToken, user, navigate,
         extensionDest,
@@ -81,6 +97,7 @@ const Login = () => {
       const dest = user?.emailVerified === false
         ? ROUTES.CHECK_EMAIL
         : (redirectTarget || roleDest);
+      authDebug('web auto-redirect', { dest, roleDest });
       navigate(dest, { replace: true });
     }
   }, [user, existingToken, navigate, fromExtension, redirectTarget]);
@@ -98,11 +115,18 @@ const Login = () => {
         payload?.credential ? { credential: payload.credential } : payload
       );
       const { token, user } = response.data;
+      authDebug('google sign-in response', {
+        role: user?.role,
+        emailVerified: user?.emailVerified,
+        hasProfile: user?.hasProfile,
+        redirectTarget
+      });
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
       setToken(token);
       setUser(user);
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      authDebug('google sign-in navigate', { dest, roleDest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest, { replace: true });
@@ -132,8 +156,15 @@ const Login = () => {
     try {
       const result = await login(formData);
       const { user, token } = result;
+      authDebug('password login response', {
+        role: user?.role,
+        emailVerified: user?.emailVerified,
+        hasProfile: user?.hasProfile,
+        redirectTarget
+      });
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      authDebug('password login navigate', { dest, roleDest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest, { replace: true });

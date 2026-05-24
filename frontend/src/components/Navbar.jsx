@@ -473,6 +473,12 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, logout, user } = useAuth();
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][Navbar]', ...args);
+  };
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -497,6 +503,15 @@ const Navbar = () => {
     ? '/onboarding'
     : '/profile';
 
+  useEffect(() => {
+    authDebug('profile path resolved', {
+      role: user?.role,
+      hasProfile: user?.hasProfile,
+      candidateProfilePath,
+      currentPath: location.pathname
+    });
+  }, [user?.role, user?.hasProfile, candidateProfilePath, location.pathname]);
+
   const navItems = useMemo(() => {
     if (!isAuthenticated) return PUBLIC_ITEMS;
     if (isRecruiter) return isAdmin ? [...ADMIN_ITEMS, ...RECRUITER_ITEMS] : RECRUITER_ITEMS;
@@ -509,6 +524,12 @@ const Navbar = () => {
     location.pathname === path || location.pathname.startsWith(path + '/');
 
   const go = (path) => {
+    authDebug('navigate', {
+      to: path,
+      from: location.pathname,
+      role: user?.role,
+      hasProfile: user?.hasProfile
+    });
     navigate(path);
     setDrawerOpen(false);
     setUserMenuOpen(false);

@@ -11,12 +11,19 @@ const VerifyEmail = () => {
   const { token } = useParams();
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
+  const authDebugEnabled =
+    window.location.search.includes('authDebug=1') ||
+    localStorage.getItem('profileai_auth_debug') === '1';
+  const authDebug = (...args) => {
+    if (authDebugEnabled) console.log('[AUTH_FLOW][VerifyEmail]', ...args);
+  };
   const [status, setStatus] = useState('loading'); // 'loading' | 'success' | 'error'
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      authDebug('verify page mounted', { hasToken: !!token, tokenLength: token?.length || 0 });
       if (!token) {
         setStatus('error');
         setMessage('Missing verification token.');
@@ -25,13 +32,25 @@ const VerifyEmail = () => {
       try {
         const { data } = await authAPI.verifyEmail(token);
         if (cancelled) return;
+        authDebug('verifyEmail API success', { responseMessage: data?.message || null });
         setStatus('success');
         setMessage(data?.message || 'Your email has been verified.');
         if (typeof refreshUser === 'function') {
-          try { await refreshUser(); } catch (_) { /* non-blocking */ }
+          try {
+            const refreshed = await refreshUser();
+            authDebug('refreshUser after verify', {
+              role: refreshed?.role,
+              emailVerified: refreshed?.emailVerified,
+              hasProfile: refreshed?.hasProfile
+            });
+          } catch (_) { /* non-blocking */ }
         }
       } catch (err) {
         if (cancelled) return;
+        authDebug('verifyEmail API error', {
+          status: err?.response?.status,
+          message: err?.response?.data?.error || err?.message
+        });
         setStatus('error');
         setMessage(err?.response?.data?.error || 'Verification failed. The link may be invalid or expired.');
       }
@@ -40,10 +59,20 @@ const VerifyEmail = () => {
   }, [token, refreshUser]);
 
   const goHome = () => {
-    if (user?.role === 'recruiter') navigate('/recruiter/onboarding');
-    else if (user?.role === 'admin') navigate('/admin');
-    else if (user) navigate('/onboarding');
-    else navigate('/login?redirect=/onboarding');
+    const dest = user?.role === 'recruiter'
+      ? '/recruiter/onboarding'
+      : user?.role === 'admin'
+        ? '/admin'
+        : user
+          ? '/onboarding'
+          : '/login?redirect=/onboarding';
+    authDebug('continue click', {
+      dest,
+      role: user?.role,
+      emailVerified: user?.emailVerified,
+      hasProfile: user?.hasProfile
+    });
+    navigate(dest);
   };
 
   return (
