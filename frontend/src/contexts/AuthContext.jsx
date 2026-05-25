@@ -117,8 +117,63 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         setIsValidating(false);
       });
+    } else if (token) {
+      // Token survived but cached user is missing/corrupt. We MUST still
+      // fetch /auth/me — otherwise isAuthenticated stays true (!!token)
+      // while `user` stays null forever, and any component gated on `user`
+      // (e.g. Dashboard's loadProfile effect) hangs on a spinner with no
+      // network requests ever firing.
+      authDebug('hydrate: token without cached user, fetching /auth/me');
+      diag('auth.hydrate.tokenOnly');
+      setIsValidating(true);
+      authAPI.getMe().then(res => {
+        const freshUser = res.data;
+        diag('auth.getMe.success', {
+          userId: freshUser?.id,
+          role: freshUser?.role,
+          hasProfile: freshUser?.hasProfile,
+          emailVerified: freshUser?.emailVerified,
+          subscriptionTier: freshUser?.subscriptionTier,
+          source: 'tokenOnly',
+        });
+        if (freshUser.profilePicture) {
+          freshUser.profilePicture = resolveImageUrl(freshUser.profilePicture);
+        }
+        localStorage.setItem('user', JSON.stringify(freshUser));
+        setUser(freshUser);
+        window.postMessage({
+          type: 'PROFILEAI_AUTH_SUCCESS',
+          token,
+          user: {
+            id: freshUser.id,
+            email: freshUser.email,
+            firstName: freshUser.firstName,
+            lastName: freshUser.lastName,
+            role: freshUser.role,
+            profilePicture: freshUser.profilePicture,
+          },
+        }, window.location.origin);
+      }).catch((err) => {
+        const status = err?.response?.status;
+        diag('auth.getMe.failed', {
+          status,
+          message: err?.message,
+          code: err?.code,
+          source: 'tokenOnly',
+          willLogout: status === 401 || status === 403,
+        });
+        if (status === 401 || status === 403) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+          setUser(null);
+        }
+      }).finally(() => {
+        setLoading(false);
+        setIsValidating(false);
+      });
     } else {
-      authDebug('hydrate skipped (missing token or user)');
+      authDebug('hydrate skipped (no token)');
       setLoading(false);
     }
   }, [token]);

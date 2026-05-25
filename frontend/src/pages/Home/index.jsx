@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link as RouterLink, Navigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
   Box, Container, Grid, Typography, Chip, Button, Card, Link, Divider,
 } from '@mui/material';
@@ -110,16 +110,6 @@ const Home = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const [activeTab, setActiveTab] = useState('tailor');
-
-  // Authenticated users shouldn't see the public landing page — bounce them
-  // to their dashboard. This also fixes the perceived "logged out on refresh"
-  // bug where hard-refreshing while at `/` rendered the public hero.
-  if (isAuthenticated && user) {
-    let target = '/profile';
-    if (user.role === 'recruiter') target = '/recruiter/dashboard';
-    else if (user.role === 'admin') target = '/admin';
-    return <Navigate to={target} replace />;
-  }
 
   const activeFeature = FEATURE_TABS_DATA.find((t) => t.id === activeTab);
 

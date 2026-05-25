@@ -1,0 +1,15 @@
+# Cloudflare Workers Assets honors this file (Pages-compatible format).
+# The SPA shell must NEVER be cached at the edge or in the browser —
+# otherwise users keep loading an old index.html that points at hashed
+# JS files that no longer exist after a redeploy (404 → blank app).
+# Hashed assets under /assets/ are fingerprinted so they're safe to cache
+# aggressively.
+
+/index.html
+  Cache-Control: no-store, must-revalidate
+
+/
+  Cache-Control: no-store, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
