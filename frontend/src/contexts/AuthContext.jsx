@@ -77,13 +77,20 @@ export const AuthProvider = ({ children }) => {
             profilePicture: freshUser.profilePicture
           }
         }, window.location.origin);
-      }).catch(() => {
-        authDebug('getMe failed, clearing auth');
-        // Token is expired/revoked, clear auth state
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setToken(null);
-        setUser(null);
+      }).catch((err) => {
+        const status = err?.response?.status;
+        authDebug('getMe failed', { status, message: err?.message });
+        // Only clear auth on a real auth rejection from the server.
+        // Network errors, timeouts, 5xx, cold starts, CORS hiccups, etc.
+        // are transient and must NOT log the user out — otherwise a hard
+        // refresh while the backend is waking up signs them out and shows
+        // the public landing page.
+        if (status === 401 || status === 403) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+          setUser(null);
+        }
       }).finally(() => {
         setLoading(false);
         setIsValidating(false);
