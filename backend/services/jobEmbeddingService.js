@@ -644,8 +644,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       total
     };
   } catch (error) {
+    // Don't swallow: returning empty rows on a SQL error masks broken
+    // schema (e.g. missing searchTsv column, type mismatch on the
+    // vector cast) as "no results", which produces an empty /jobs
+    // page that looks identical to a normal-but-no-match query.
+    // Re-throw so the route handler can decide — typically log + 500.
+    // We still log here for fast triage in Render logs.
     console.error(`[JobEmbedding] Semantic search error:`, error.message);
-    return { rows: [], total: 0 };
+    if (error.parent?.message) console.error(`[JobEmbedding] parent:`, error.parent.message);
+    throw error;
   }
 }
 
