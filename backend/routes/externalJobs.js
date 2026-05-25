@@ -440,6 +440,16 @@ router.get('/', authMiddleware, async (req, res) => {
           const { rows: semanticJobs, total } = semanticResult;
           bumpCounter('semanticSuccesses');
 
+          // If semantic search returns 0 rows it's almost always because
+          // the corpus doesn't have embeddings populated yet (the WHERE
+          // requires `embedding IS NOT NULL`). Falling through to the
+          // keyword path below lets the candidate still see jobs while
+          // the embedding backfill runs.
+          if (total === 0) {
+            console.warn('[ExternalJobs] Semantic search returned 0 rows — falling back to keyword ranking. Likely cause: jobs missing embeddings (run scripts/backfillJobEmbeddings.js).');
+            bumpCounter('semanticEmptyFallbacks');
+          } else {
+
           // Surface matchedSkills (intersection of profile skills × job
           // skills) per row so the UI can show users WHY a job ranked high.
           // The keyword path computes this internally via rankJobs; the
@@ -464,6 +474,7 @@ router.get('/', authMiddleware, async (req, res) => {
             },
             sortMethod: 'semantic'
           });
+          }
         } catch (semanticError) {
           console.warn('[ExternalJobs] Semantic search failed, falling back to keyword ranking:', semanticError.message);
           bumpCounter('semanticFailures');
