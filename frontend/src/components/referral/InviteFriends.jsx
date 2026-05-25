@@ -267,7 +267,7 @@ const InviteFriends = ({ compact = false }) => {
     try {
       // Copy a compelling message with the link
       const link = referralData?.referralLink || `${window.location.origin}/register?ref=${referralData?.code}`;
-      const copyText = `🚀 Join me on ProfileAI!\n\nAI-powered career growth:\n✨ Profile enhancement\n🎯 Smart job matching\n💼 Interview prep\n\nSign up free: ${link}`;
+      const copyText = `🚀 Join me on ProfilleAI!\n\nAI-powered career growth:\n✨ Profile enhancement\n🎯 Smart job matching\n💼 Interview prep\n\nSign up free: ${link}`;
       await navigator.clipboard.writeText(copyText);
       setSnackbar({ open: true, message: 'Invite message copied!', severity: 'success' });
       
@@ -294,15 +294,15 @@ const InviteFriends = ({ compact = false }) => {
   // Compelling share messages for each platform
   const getShareContent = (platform) => {
     const baseMessages = {
-      twitter: `🚀 I'm using ProfileAI to supercharge my career with AI-powered profile enhancement, smart job matching, and interview prep.\n\nJoin free with my link 👇`,
+      twitter: `🚀 I'm using ProfilleAI to supercharge my career with AI-powered profile enhancement, smart job matching, and interview prep.\n\nJoin free with my link 👇`,
       
-      linkedin: `I've been using ProfileAI to optimize my professional presence and it's been a game-changer.\n\n✨ AI-enhanced profiles that get noticed\n🎯 Smart job matching\n💼 Interview preparation tools\n\nJoin the community:`,
+      linkedin: `I've been using ProfilleAI to optimize my professional presence and it's been a game-changer.\n\n✨ AI-enhanced profiles that get noticed\n🎯 Smart job matching\n💼 Interview preparation tools\n\nJoin the community:`,
       
-      whatsapp: `Hey! 👋\n\nCheck out ProfileAI - it's like having a career coach powered by AI.\n\n🔥 AI rewrites your profile to stand out\n🎯 Matches you with perfect job opportunities\n📈 Helps you grow your professional network\n\nSign up free with my invite:`,
+      whatsapp: `Hey! 👋\n\nCheck out ProfilleAI - it's like having a career coach powered by AI.\n\n🔥 AI rewrites your profile to stand out\n🎯 Matches you with perfect job opportunities\n📈 Helps you grow your professional network\n\nSign up free with my invite:`,
       
-      email: `Hey!\n\nI wanted to share something that's been really helpful for my career - ProfileAI.\n\nIt uses AI to:\n• Enhance your professional profile\n• Match you with relevant job opportunities\n• Prepare you for interviews\n• Connect you with the right people\n\nI think you'd find it valuable. You can sign up for free using my invite link:\n\n${referralLink}\n\nLet me know what you think!`,
+      email: `Hey!\n\nI wanted to share something that's been really helpful for my career - ProfilleAI.\n\nIt uses AI to:\n• Enhance your professional profile\n• Match you with relevant job opportunities\n• Prepare you for interviews\n• Connect you with the right people\n\nI think you'd find it valuable. You can sign up for free using my invite link:\n\n${referralLink}\n\nLet me know what you think!`,
       
-      copy: `🚀 Join me on ProfileAI!\n\nAI-powered career growth:\n✨ Profile enhancement\n🎯 Smart job matching\n💼 Interview prep\n\nSign up free: ${referralLink}`
+      copy: `🚀 Join me on ProfilleAI!\n\nAI-powered career growth:\n✨ Profile enhancement\n🎯 Smart job matching\n💼 Interview prep\n\nSign up free: ${referralLink}`
     };
     
     return baseMessages[platform] || baseMessages.copy;
@@ -346,7 +346,7 @@ const InviteFriends = ({ compact = false }) => {
       setSnackbar({ open: true, message: 'Loading your invite link...', severity: 'info' });
       return;
     }
-    const subject = '🚀 Check out ProfileAI - AI-powered career growth';
+    const subject = '🚀 Check out ProfilleAI - AI-powered career growth';
     const body = getShareContent('email');
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     referralAPI.share('email').catch(() => {});

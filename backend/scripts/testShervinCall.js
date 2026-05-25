@@ -93,7 +93,7 @@ async function runTestCall() {
       job = await Job.create({
         userId: userId,
         title: 'Android Developer',
-        company: 'ProfileAI',
+        company: 'ProfilleAI',
         description: 'We are looking for an experienced Android developer to build cutting-edge mobile applications using modern Android technologies.',
         requirements: '5+ years Android development, Kotlin, Jetpack Compose, MVVM architecture, REST APIs, Material Design',
         location: 'San Francisco, CA',

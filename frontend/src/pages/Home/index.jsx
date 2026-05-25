@@ -537,7 +537,7 @@ const Home = () => {
                 <Box sx={S.footerBrandIconSx}>
                   <SparkleIcon sx={{ color: '#fff', fontSize: 20 }} />
                 </Box>
-                <Typography variant="h6" sx={S.footerBrandTitleSx}>ProfileAI</Typography>
+                <Typography variant="h6" sx={S.footerBrandTitleSx}>ProfilleAI</Typography>
               </Box>
               <Typography variant="body2" sx={S.footerDescSx}>{FOOTER_DESC}</Typography>
               <Box sx={S.footerSocialWrapperSx}>
@@ -570,7 +570,7 @@ const Home = () => {
           <Divider sx={S.footerDividerSx} />
           <Box sx={S.footerBottomSx}>
             <Typography variant="body2" sx={S.footerCopyrightSx}>
-              © {new Date().getFullYear()} ProfileAI. All rights reserved.
+              © {new Date().getFullYear()} ProfilleAI. All rights reserved.
             </Typography>
             <Box sx={S.footerBottomLinksSx}>
               {FOOTER_BOTTOM_LINKS.map((l) => (

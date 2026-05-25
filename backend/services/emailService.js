@@ -38,10 +38,10 @@ const normalizeFromAddress = () => {
   }
 
   if (process.env.EMAIL_USER && SIMPLE_EMAIL_RE.test(process.env.EMAIL_USER)) {
-    return `ProfileAI <${process.env.EMAIL_USER}>`;
+    return `ProfilleAI <${process.env.EMAIL_USER}>`;
   }
 
-  return `ProfileAI <no-reply@${getDefaultFromDomain()}>`;
+  return `ProfilleAI <no-reply@${getDefaultFromDomain()}>`;
 };
 
 /**
@@ -110,17 +110,17 @@ const sendShortlistNotification = async (candidate, job, recruiter) => {
       <p>Based on your profile and experience, we think you'd be a great fit. We've already conducted an initial AI screening, and you passed with flying colors!</p>
       
       <h3>Next Steps</h3>
-      <p>We'd love to invite you to a quick AI-led screening call to discuss the role further. You can schedule it directly through your ProfileAI dashboard.</p>
+      <p>We'd love to invite you to a quick AI-led screening call to discuss the role further. You can schedule it directly through your ProfilleAI dashboard.</p>
       
       <p>
         <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/messages" style="background-color: #4F46E5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Message & Schedule</a>
       </p>
       
-      <p>Best regards,<br>${recruiter.firstName} (via ProfileAI)</p>
+      <p>Best regards,<br>${recruiter.firstName} (via ProfilleAI)</p>
     </div>
   `;
   
-  const text = `Hi ${candidate.firstName}, You've been shortlisted for ${job.title}. Log in to ProfileAI to schedule your screening call.`;
+  const text = `Hi ${candidate.firstName}, You've been shortlisted for ${job.title}. Log in to ProfilleAI to schedule your screening call.`;
 
   return sendEmail({ to: candidate.email, subject, html, text });
 };
@@ -273,7 +273,7 @@ const sendScreeningCallResults = async (phoneScreeningCallId) => {
       </div>
       
       <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 30px;">
-        This screening was conducted by ProfileAI's AI Phone Screening System.<br>
+        This screening was conducted by ProfilleAI's AI Phone Screening System.<br>
         Results should be used as one factor in your hiring decision.
       </p>
     </div>
@@ -343,13 +343,13 @@ const sendApplicationConfirmation = async (candidate, job) => {
       
       <p style="color: #6B7280;">
         Best of luck!<br>
-        The ${job.company} Team via ProfileAI
+        The ${job.company} Team via ProfilleAI
       </p>
       
       <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
       
       <p style="color: #9CA3AF; font-size: 12px; text-align: center;">
-        You received this email because you applied for a job on ProfileAI.<br>
+        You received this email because you applied for a job on ProfilleAI.<br>
         If you didn't apply, please ignore this email.
       </p>
     </div>
@@ -369,7 +369,7 @@ What happens next:
 View your applications at: ${frontendUrl}/candidate/jobs
 
 Best of luck!
-The ${job.company} Team via ProfileAI`;
+The ${job.company} Team via ProfilleAI`;
 
   return sendEmail({ to: candidate.email, subject, html, text });
 };
@@ -419,7 +419,7 @@ const sendNewApplicationNotification = async (recruiter, candidate, job, applica
       </div>
       
       <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 30px;">
-        You're receiving this because you're the recruiter for this job on ProfileAI.
+        You're receiving this because you're the recruiter for this job on ProfilleAI.
       </p>
     </div>
   `;
@@ -513,7 +513,7 @@ const sendApplicationStatusUpdate = async (candidate, job, newStatus, recruiterN
           </div>
         ` : `
           <p style="color: #6B7280; margin-top: 20px;">
-            Don't be discouraged! There are many other opportunities on ProfileAI that might be a great fit for you.
+            Don't be discouraged! There are many other opportunities on ProfilleAI that might be a great fit for you.
           </p>
           <div style="margin: 30px 0; text-align: center;">
             <a href="${frontendUrl}/jobs" 
@@ -527,7 +527,7 @@ const sendApplicationStatusUpdate = async (candidate, job, newStatus, recruiterN
       <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
       
       <p style="color: #9CA3AF; font-size: 12px; text-align: center;">
-        You received this email because you applied for a job on ProfileAI.
+        You received this email because you applied for a job on ProfilleAI.
       </p>
     </div>
   `;
@@ -560,17 +560,17 @@ const sendPasswordResetEmail = async (email, firstName, resetLink) => {
   console.log(`Link: ${resetLink}`);
   console.log('========================================\n');
 
-  const subject = 'Reset Your ProfileAI Password';
+  const subject = 'Reset Your ProfilleAI Password';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #4F46E5; margin: 0;">ProfileAI</h1>
+        <h1 style="color: #4F46E5; margin: 0;">ProfilleAI</h1>
       </div>
       
       <h2 style="color: #1F2937;">Hi ${firstName || 'there'},</h2>
       
       <p style="color: #4B5563; font-size: 16px; line-height: 1.6;">
-        We received a request to reset your password for your ProfileAI account. 
+        We received a request to reset your password for your ProfilleAI account. 
         Click the button below to create a new password:
       </p>
       
@@ -598,14 +598,14 @@ const sendPasswordResetEmail = async (email, firstName, resetLink) => {
       </p>
       
       <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 30px;">
-        &copy; ${new Date().getFullYear()} ProfileAI. All rights reserved.
+        &copy; ${new Date().getFullYear()} ProfilleAI. All rights reserved.
       </p>
     </div>
   `;
   
   const text = `Hi ${firstName || 'there'},
 
-We received a request to reset your password for your ProfileAI account.
+We received a request to reset your password for your ProfilleAI account.
 
 Click the link below to reset your password:
 ${resetLink}
@@ -614,7 +614,7 @@ This link will expire in 1 hour for security reasons.
 
 If you didn't request a password reset, you can safely ignore this email.
 
-- The ProfileAI Team`;
+- The ProfilleAI Team`;
 
   return sendEmail({ to: email, subject, html, text });
 };
@@ -633,11 +633,11 @@ const sendEmailVerification = async (email, firstName, verifyLink, verificationC
   }
   console.log('========================================\n');
 
-  const subject = 'Verify your ProfileAI email';
+  const subject = 'Verify your ProfilleAI email';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="color: #4F46E5; margin: 0;">ProfileAI</h1>
+        <h1 style="color: #4F46E5; margin: 0;">ProfilleAI</h1>
       </div>
 
       <h2 style="color: #1F2937;">Hi ${firstName || 'there'},</h2>
@@ -667,7 +667,7 @@ const sendEmailVerification = async (email, firstName, verifyLink, verificationC
       </p>
 
       <p style="color: #6B7280; font-size: 14px;">
-        If you didn't create a ProfileAI account, you can safely ignore this email.
+        If you didn't create a ProfilleAI account, you can safely ignore this email.
       </p>
 
       <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
@@ -678,14 +678,14 @@ const sendEmailVerification = async (email, firstName, verifyLink, verificationC
       </p>
 
       <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 30px;">
-        &copy; ${new Date().getFullYear()} ProfileAI. All rights reserved.
+        &copy; ${new Date().getFullYear()} ProfilleAI. All rights reserved.
       </p>
     </div>
   `;
 
   const text = `Hi ${firstName || 'there'},
 
-Thanks for signing up to ProfileAI. Please confirm your email by opening the link below:
+Thanks for signing up to ProfilleAI. Please confirm your email by opening the link below:
 
 ${verifyLink}
 
@@ -695,9 +695,9 @@ ${verificationCode}
 
 This link expires in 24 hours.
 
-If you didn't create a ProfileAI account, you can ignore this email.
+If you didn't create a ProfilleAI account, you can ignore this email.
 
-- The ProfileAI Team`;
+- The ProfilleAI Team`;
 
   return sendEmail({ to: email, subject, html, text });
 };

@@ -1,12 +1,12 @@
 /**
- * Streamable HTTP transport for the ProfileAI Claude Connector.
+ * Streamable HTTP transport for the ProfilleAI Claude Connector.
  *
  * Mounts a single endpoint `POST /mcp` (and matching GET/DELETE for the
  * MCP session lifecycle). Each MCP session is bound to the auth context
  * resolved at `initialize` time \u2014 every subsequent tool call from
  * Claude reuses that user.
  *
- * Auth strategy: ProfileAI JWT in `Authorization: Bearer <token>`.
+ * Auth strategy: ProfilleAI JWT in `Authorization: Bearer <token>`.
  * Full OAuth 2.1 / dynamic client registration can be layered on later
  * without touching the tool layer (see backend/mcp/auth.js).
  */
@@ -56,7 +56,7 @@ async function handleMcpRequest(req, res) {
     });
   }
 
-  // Resolve the ProfileAI user from the Bearer token at session start.
+  // Resolve the ProfilleAI user from the Bearer token at session start.
   const user = await resolveAuthUser(req);
   // Don't reject here \u2014 search_jobs/get_job_details are usable
   // anonymously. Tools that need auth call requireAuth() / requireRole()

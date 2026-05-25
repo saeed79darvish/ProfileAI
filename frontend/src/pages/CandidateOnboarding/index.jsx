@@ -225,7 +225,7 @@ const CandidateOnboarding = () => {
         <Logo onClick={() => navigate('/')}>
           <AIIcon />
           <Typography sx={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.3px', color: '#1a1a2e' }}>
-            ProfileAI
+            ProfilleAI
           </Typography>
         </Logo>
       </TopBar>
@@ -257,10 +257,10 @@ const CandidateOnboarding = () => {
                 </Avatar>
                 <Box>
                   <Typography sx={{ fontSize: 11.5, color: '#999', lineHeight: 1.2 }}>
-                    ProfileAI
+                    ProfilleAI
                   </Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', lineHeight: 1.3 }}>
-                    Welcome to ProfileAI!
+                    Welcome to ProfilleAI!
                   </Typography>
                 </Box>
               </WelcomeBubble>
@@ -276,7 +276,7 @@ const CandidateOnboarding = () => {
                       letterSpacing: '-0.5px'
                     }}
                   >
-                    ProfileAI can help you...
+                    ProfilleAI can help you...
                   </Typography>
                   <Typography
                     sx={{
@@ -393,7 +393,7 @@ const CandidateOnboarding = () => {
                       Build Your AI Profile
                     </Typography>
                     <Typography sx={{ fontSize: 13.5, color: '#777', lineHeight: 1.6, mb: 2.5 }}>
-                      Upload your resume or start from scratch, ProfileAI helps you create a standout profile to use with the Extension and apply for jobs.
+                      Upload your resume or start from scratch, ProfilleAI helps you create a standout profile to use with the Extension and apply for jobs.
                     </Typography>
                     <ChoiceButton>
                       Build AI Profile
@@ -474,7 +474,7 @@ const CandidateOnboarding = () => {
                       </Box>
                     </Box>
                     <Typography sx={{ fontSize: 13.5, color: '#777', lineHeight: 1.6, mb: 2.5 }}>
-                      Explore jobs matched to your skills by ProfileAI and start applying right away.
+                      Explore jobs matched to your skills by ProfilleAI and start applying right away.
                     </Typography>
                     <ChoiceButton disabled sx={{ opacity: 0.5, cursor: 'default', pointerEvents: 'none' }}>
                       Browse Jobs

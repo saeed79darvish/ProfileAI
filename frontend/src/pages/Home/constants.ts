@@ -39,7 +39,7 @@ export const TOKENS = {
 // ── Hero Section ──
 export const HERO_CHIP_LABEL = 'AI-Powered Career Platform';
 export const HERO_TITLE_PARTS = { prefix: 'Your career, ', highlight: 'supercharged', suffix: ' by AI.' } as const;
-export const HERO_SUBTITLE = 'Tailor resumes in seconds, practice negotiation with AI agents, and land interviews faster, all powered by your single ProfileAI profile.';
+export const HERO_SUBTITLE = 'Tailor resumes in seconds, practice negotiation with AI agents, and land interviews faster, all powered by your single ProfilleAI profile.';
 
 export const HERO_BUTTONS = {
   GET_STARTED: 'Get Started Free',

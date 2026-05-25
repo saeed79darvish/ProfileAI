@@ -107,7 +107,7 @@ Your role is to have a natural, conversational phone screening with a candidate 
 Be adaptable and follow the natural flow of conversation. This is a TEST call to verify the system is working.`;
 
     // Company name for caller ID context
-    const COMPANY_NAME = process.env.COMPANY_NAME || 'ProfileAI Recruiting';
+    const COMPANY_NAME = process.env.COMPANY_NAME || 'ProfilleAI Recruiting';
 
     const assistantResponse = await vapiClient.post('/assistant', {
       name: `${COMPANY_NAME} - Screening`,

@@ -154,7 +154,7 @@ function ExtensionMockup({ children, sx }) {
           <Box sx={{ width: 20, height: 20, borderRadius: '6px', background: tokens.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ExtensionIcon sx={{ color: '#fff', fontSize: 11 }} />
           </Box>
-          <Typography sx={{ fontSize: 12, fontWeight: 700 }}>ProfileAI</Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 700 }}>ProfilleAI</Typography>
         </Box>
       </Box>
       <Box sx={{ p: 2.5 }}>{children}</Box>
@@ -614,7 +614,7 @@ export default function ApplyPilotPage() {
               }}
             >
               Auto-fill applications, tailor resumes with AI, generate cover letters, and analyze job
-              matches, all from one extension powered by your ProfileAI profile.
+              matches, all from one extension powered by your ProfilleAI profile.
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mb: 4 }}>
@@ -982,7 +982,7 @@ export default function ApplyPilotPage() {
             {[
               {
                 step: '01',
-                title: 'Create your ProfileAI profile',
+                title: 'Create your ProfilleAI profile',
                 desc: 'Upload your resume or fill in your details. Your profile becomes the single source of truth for every application.',
                 icon: <DocIcon sx={{ fontSize: 28 }} />,
                 color: '#667eea',

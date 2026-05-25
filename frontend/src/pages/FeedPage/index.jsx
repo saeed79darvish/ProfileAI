@@ -985,7 +985,7 @@ const FeedPage = () => {
             <UnauthHeroBanner>
               <HeroBannerContent>
                 <HeroBannerTitle>
-                  Welcome to <span>ProfileAI</span> Community
+                  Welcome to <span>ProfilleAI</span> Community
                 </HeroBannerTitle>
                 <HeroBannerSubtitle>
                   Join our community of professionals. Get AI-powered tools to enhance your profile, 
@@ -1115,7 +1115,7 @@ const FeedPage = () => {
                             Create a free account to post, comment, and use AI tools to boost your career.
                           </InlineSignupText>
                           <InlineSignupBtn onClick={() => navigate('/register')}>
-                            Join ProfileAI, It's Free
+                            Join ProfilleAI, It's Free
                           </InlineSignupBtn>
                         </InlineSignupCard>
                       )}
@@ -1165,7 +1165,7 @@ const FeedPage = () => {
                             Create a free account to post, comment, and use AI tools to boost your career.
                           </InlineSignupText>
                           <InlineSignupBtn onClick={() => navigate('/register')}>
-                            Join ProfileAI, It's Free
+                            Join ProfilleAI, It's Free
                           </InlineSignupBtn>
                         </InlineSignupCard>
                       )}
@@ -1265,7 +1265,7 @@ const FeedPage = () => {
             {!isAuthenticated && (
               <WhyJoinCard>
                 <WhyJoinTitle>
-                  <StarIcon /> Why Join ProfileAI?
+                  <StarIcon /> Why Join ProfilleAI?
                 </WhyJoinTitle>
                 <WhyJoinItem>
                   <WhyJoinItemIcon $bg="rgba(124, 94, 207, 0.1)" $color="#7c5ecf">

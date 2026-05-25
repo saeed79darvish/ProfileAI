@@ -32,7 +32,7 @@ const openai = process.env.OPENAI_API_KEY
 // Fallback: call OpenAI GPT-4o when Claude is down
 async function callOpenAI({ system, prompt, max_tokens = 2000, temperature = 0.7 }) {
   if (!openai) throw new Error('OpenAI API key not configured — no fallback available');
-  console.log('[ProfileAI] Falling back to OpenAI GPT-4o...');
+  console.log('[ProfilleAI] Falling back to OpenAI GPT-4o...');
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
     max_tokens,
@@ -64,7 +64,7 @@ async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, re
         (err.error?.type === 'overloaded_error') || (err.message && err.message.includes('overloaded'));
       if (isRetryable && attempt < retries) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
-        console.warn(`[ProfileAI] Claude attempt ${attempt}/${retries} failed (${err.status || err.message}), retrying in ${delay}ms...`);
+        console.warn(`[ProfilleAI] Claude attempt ${attempt}/${retries} failed (${err.status || err.message}), retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         break;
@@ -79,7 +79,7 @@ async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, re
     try {
       return await callOpenAI({ system, prompt, max_tokens, temperature });
     } catch (fallbackErr) {
-      console.error('[ProfileAI] OpenAI fallback also failed:', fallbackErr.message);
+      console.error('[ProfilleAI] OpenAI fallback also failed:', fallbackErr.message);
       // Throw the original Claude error
     }
   }
@@ -848,7 +848,7 @@ Important guidelines:
     try {
       // Classify the candidate's department group for prompt selection
       const classification = classifyDepartment(profileData);
-      console.log(`[ProfileAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
+      console.log(`[ProfilleAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
 
       // Get the department-specific enhancement prompt
       const promptConfig = getDepartmentEnhancementPrompt(classification.group, profileData, customPrompt);
@@ -1045,7 +1045,7 @@ Return ONLY a valid JSON array, no additional text.`;
       const gaps = parsed.filter(g => g.suggest_adding !== false);
       const satisfiedAlternatives = parsed.filter(g => g.suggest_adding === false);
 
-      console.log(`[ProfileAI] Gap analysis: ${gaps.length} actionable gaps, ${satisfiedAlternatives.length} satisfied alternatives`);
+      console.log(`[ProfilleAI] Gap analysis: ${gaps.length} actionable gaps, ${satisfiedAlternatives.length} satisfied alternatives`);
 
       return {
         success: true,
@@ -1083,7 +1083,7 @@ Return ONLY a valid JSON array, no additional text.`;
       // This ensures we have an EXPLICIT list of keywords to inject,
       // rather than hoping the AI "figures it out" during tailoring.
       // ═══════════════════════════════════════════════════════════════
-      console.log('[ProfileAI] Step 1: Extracting keywords from job description...');
+      console.log('[ProfilleAI] Step 1: Extracting keywords from job description...');
       let extractedKeywords = { required: [], preferred: [], soft: [], domain: [] };
       try {
         const keywordResponse = await callAI({
@@ -1151,12 +1151,12 @@ Each item in the arrays must be a SHORT skill/tool name (1-5 words max). No sent
         extractedKeywords.soft = (extractedKeywords.soft || []).filter(isValidSkill);
         extractedKeywords.domain = (extractedKeywords.domain || []).filter(isValidSkill);
         
-        console.log('[ProfileAI] Extracted required keywords:', extractedKeywords.required);
-        console.log('[ProfileAI] Extracted preferred keywords:', extractedKeywords.preferred);
-        console.log('[ProfileAI] Extracted domain terms:', extractedKeywords.domain);
-        console.log('[ProfileAI] Detected OR-groups:', extractedKeywords.orGroups || []);
+        console.log('[ProfilleAI] Extracted required keywords:', extractedKeywords.required);
+        console.log('[ProfilleAI] Extracted preferred keywords:', extractedKeywords.preferred);
+        console.log('[ProfilleAI] Extracted domain terms:', extractedKeywords.domain);
+        console.log('[ProfilleAI] Detected OR-groups:', extractedKeywords.orGroups || []);
       } catch (kwError) {
-        console.error('[ProfileAI] Keyword extraction failed, continuing with prompt-only approach:', kwError.message);
+        console.error('[ProfilleAI] Keyword extraction failed, continuing with prompt-only approach:', kwError.message);
       }
 
       const allRequiredKeywords = [...(extractedKeywords.required || []), ...(extractedKeywords.preferred || [])];
@@ -1253,7 +1253,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // DEPARTMENT-AWARE PROMPT: Master prompt + role-specific addon
       // ═══════════════════════════════════════════════════════════════
       const classification = classifyDepartment(profileData);
-      console.log(`[ProfileAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
+      console.log(`[ProfilleAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
 
       const tailoringConfig = buildTailoringPrompt({
         group: classification.group,
@@ -1266,7 +1266,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         expCount
       });
 
-      console.log(`[ProfileAI] Step 2: Tailoring resume (${hasUploadedResume ? 'PATH A: uploaded resume' : 'PATH B: profile data'}, role: ${classification.group})...`);
+      console.log(`[ProfilleAI] Step 2: Tailoring resume (${hasUploadedResume ? 'PATH A: uploaded resume' : 'PATH B: profile data'}, role: ${classification.group})...`);
 
       let responseText;
       responseText = await callAI({
@@ -1303,8 +1303,8 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       };
 
       if (allRequiredKeywords.length > 0) {
-        console.log('[ProfileAI] Step 3: Verifying keyword coverage...');
-        console.log('[ProfileAI] Checking for these keywords:', allRequiredKeywords);
+        console.log('[ProfilleAI] Step 3: Verifying keyword coverage...');
+        console.log('[ProfilleAI] Checking for these keywords:', allRequiredKeywords);
 
         // Build full resume text for checking
         const buildResumeText = () => [
@@ -1322,7 +1322,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         });
 
         if (missingKeywords.length > 0) {
-          console.log('[ProfileAI] ⚠️ Missing keywords detected:', missingKeywords);
+          console.log('[ProfilleAI] ⚠️ Missing keywords detected:', missingKeywords);
 
           // INJECTION: Add missing keywords to skills
           const allSkillsFlat = flattenSkills(tailoredData.skills);
@@ -1341,7 +1341,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
               }
               currentSkillsLower.add(kw.toLowerCase());
               injectedSkills.push(kw);
-              console.log(`[ProfileAI]   → Injected "${kw}" into skills`);
+              console.log(`[ProfilleAI]   → Injected "${kw}" into skills`);
             }
           }
 
@@ -1354,21 +1354,21 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
             });
           }
         } else {
-          console.log('[ProfileAI] ✅ All required keywords present in tailored resume.');
+          console.log('[ProfilleAI] ✅ All required keywords present in tailored resume.');
         }
 
         // Final verification log
         const finalText = buildResumeText();
         const finalMissing = allRequiredKeywords.filter(kw => !finalText.includes(kw.toLowerCase()));
         if (finalMissing.length > 0) {
-          console.log('[ProfileAI] ⚠️ FINAL CHECK - still missing after injection:', finalMissing);
+          console.log('[ProfilleAI] ⚠️ FINAL CHECK - still missing after injection:', finalMissing);
         } else {
-          console.log('[ProfileAI] ✅ FINAL CHECK - all keywords confirmed present.');
+          console.log('[ProfilleAI] ✅ FINAL CHECK - all keywords confirmed present.');
         }
-        console.log('[ProfileAI] Final skills list:', tailoredData.skills);
+        console.log('[ProfilleAI] Final skills list:', tailoredData.skills);
       }
 
-      console.log('[ProfileAI] Final skills list:', tailoredData.skills);
+      console.log('[ProfilleAI] Final skills list:', tailoredData.skills);
 
       // Normalize skills: keep grouped format as skillsGrouped, flatten skills to array
       if (tailoredData.skills && !Array.isArray(tailoredData.skills) && typeof tailoredData.skills === 'object') {

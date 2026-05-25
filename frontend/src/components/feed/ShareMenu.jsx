@@ -47,7 +47,7 @@ const ShareMenu = ({ anchorEl, open, onClose, postId, postContent, authorName })
   const postUrl = `${window.location.origin}/posts/${postId}`;
   const shareText = postContent 
     ? `Check out this post by ${authorName}: "${postContent.substring(0, 100)}${postContent.length > 100 ? '...' : ''}"`
-    : `Check out this post by ${authorName} on ProfileAI`;
+    : `Check out this post by ${authorName} on ProfilleAI`;
   
   const handleCopyLink = async () => {
     try {
@@ -72,7 +72,7 @@ const ShareMenu = ({ anchorEl, open, onClose, postId, postContent, authorName })
   };
   
   const handleShareEmail = () => {
-    const subject = `Check out this post on ProfileAI`;
+    const subject = `Check out this post on ProfilleAI`;
     const body = `${shareText}\n\n${postUrl}`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     onClose();

@@ -8,7 +8,7 @@ export const TEXT = {
   PLACEHOLDER_CODE: 'Enter code',
   ERROR_INVALID_CODE: 'Please enter a valid tracking code',
   ERROR_NOT_FOUND: 'Application not found',
-  BACK_TO_HOME: 'Back to ProfileAI',
+  BACK_TO_HOME: 'Back to ProfilleAI',
   SUBMITTED_LABEL: 'Submitted',
   APPLICANT_LABEL: 'Applicant',
 } as const;

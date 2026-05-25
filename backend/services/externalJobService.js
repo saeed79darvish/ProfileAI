@@ -106,7 +106,7 @@ async function fetchRemoteOKJobs() {
   const response = await fetch(url, {
     headers: {
       'Accept': 'application/json',
-      'User-Agent': 'ProfileAI/1.0 (job-aggregator)'
+      'User-Agent': 'ProfilleAI/1.0 (job-aggregator)'
     },
     signal: AbortSignal.timeout(30000)
   });
@@ -829,7 +829,7 @@ async function fetchAmazonJobs(category = 'software-development', { pages = 5, r
     const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'ProfileAI/1.0 (job-aggregator)',
+        'User-Agent': 'ProfilleAI/1.0 (job-aggregator)',
       },
       signal: AbortSignal.timeout(30000),
     });

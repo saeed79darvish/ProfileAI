@@ -254,7 +254,7 @@ const InvitationAcceptPage = () => {
       <Card>
         <Header>
           <Logo>
-            <VerifiedIcon /> ProfileAI
+            <VerifiedIcon /> ProfilleAI
           </Logo>
           <Title>{TEXT.INVITED_TITLE}</Title>
           <Subtitle>

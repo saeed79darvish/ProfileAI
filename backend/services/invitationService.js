@@ -284,7 +284,7 @@ async function sendInvitationEmail(invitation) {
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">ProfileAI</div>
+      <div class="logo">ProfilleAI</div>
     </div>
     
     <p>Hi ${candidateName},</p>
@@ -316,7 +316,7 @@ async function sendInvitationEmail(invitation) {
       </div>
       <div class="feature">
         <span class="feature-icon">✓</span>
-        <span><strong>Or join ProfileAI:</strong> Create a full profile for more opportunities</span>
+        <span><strong>Or join ProfilleAI:</strong> Create a full profile for more opportunities</span>
       </div>
       <div class="feature">
         <span class="feature-icon">✓</span>
@@ -327,7 +327,7 @@ async function sendInvitationEmail(invitation) {
     <center>
       <a href="${screenUrl}" class="cta-button">⚡ Quick Submit (2 min) →</a>
       <br>
-      <a href="${inviteUrl}" style="display: inline-block; background: #1e293b; color: white; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 14px; margin: 12px 0;">Join ProfileAI for Full Profile →</a>
+      <a href="${inviteUrl}" style="display: inline-block; background: #1e293b; color: white; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 14px; margin: 12px 0;">Join ProfilleAI for Full Profile →</a>
     </center>
     
     <p class="expire-notice">⏰ This invitation expires on ${invitation.expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
@@ -337,7 +337,7 @@ async function sendInvitationEmail(invitation) {
       <p>
         <a href="${inviteUrl}?action=decline">Not interested? Decline this invitation</a>
       </p>
-      <p>© ${new Date().getFullYear()} ProfileAI. All rights reserved.</p>
+      <p>© ${new Date().getFullYear()} ProfilleAI. All rights reserved.</p>
     </div>
   </div>
 </body>
@@ -356,11 +356,11 @@ ${invitation.personalMessage ? `\nMessage from recruiter:\n"${invitation.persona
 
 What happens next:
 • Quick Submit (2 min): Upload your resume + answer a few questions — no signup needed
-• Or join ProfileAI: Create a full profile for more opportunities
+• Or join ProfilleAI: Create a full profile for more opportunities
 • AI-powered matching with instant feedback
 
 Quick Submit (no signup): ${screenUrl}
-Join ProfileAI (full profile): ${inviteUrl}
+Join ProfilleAI (full profile): ${inviteUrl}
 
 Accept your invitation: ${inviteUrl}
 
@@ -370,7 +370,7 @@ Not interested? Decline here: ${inviteUrl}?action=decline
 
 ---
 You received this because ${companyName} identified you as a potential candidate.
-© ${new Date().getFullYear()} ProfileAI
+© ${new Date().getFullYear()} ProfilleAI
   `;
   
   // Send the email
@@ -484,7 +484,7 @@ async function processAcceptance(invitationToken, acceptanceData) {
         jobId: invitation.jobId,
         candidateId: user.id,
         status: 'pending_screening',
-        coverLetter: `Invited by recruiter via ProfileAI`,
+        coverLetter: `Invited by recruiter via ProfilleAI`,
         screeningConsent: true,
         screeningConsentAt: new Date(),
         source: 'invitation'

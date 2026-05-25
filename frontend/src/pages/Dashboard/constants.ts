@@ -41,13 +41,13 @@ export interface ExtensionStepData {
 export const EXTENSION_STEPS_DATA: ExtensionStepData[] = [
   {
     title: 'Install the Chrome Extension',
-    description: 'Get ProfileAI for Chrome to autofill job applications across 15+ platforms with one click.',
+    description: 'Get ProfilleAI for Chrome to autofill job applications across 15+ platforms with one click.',
     detail: 'Open Chrome Web Store or load in Developer Mode from chrome://extensions.',
   },
   {
     title: 'Sign In & Sync Your Profile',
     description: 'Your skills, experience, and resume data sync instantly to the extension.',
-    detail: 'Click the extension icon and log in with your ProfileAI credentials.',
+    detail: 'Click the extension icon and log in with your ProfilleAI credentials.',
   },
   {
     title: 'One-Click Autofill Applications',

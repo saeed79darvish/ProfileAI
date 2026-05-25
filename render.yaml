@@ -6,7 +6,8 @@
 #   1) Open the Postgres shell and run: CREATE EXTENSION IF NOT EXISTS vector;
 #   2) Fill in secret env vars (marked `sync: false`) in each service's dashboard
 #   3) Open a backend shell and run: npm run init-db   (one-time, creates tables)
-#   4) Add custom domain api.profileai.pro to the backend service
+#   4) Add custom domain api.profilleai.com to the backend service
+#   5) Add custom domain profilleai.com to the frontend static site below
 #
 # Workers are commented out — uncomment when ApplyPilot / scheduled jobs ship
 # to candidates. Until then they're not needed and would just burn $14/mo.
@@ -20,6 +21,27 @@ databases:
     ipAllowList: []          # internal-network only; no public access
 
 services:
+  - type: web
+    name: profileai-web
+    runtime: static
+    plan: starter
+    rootDir: frontend
+    buildCommand: npm ci && npm run build:no-typecheck
+    staticPublishPath: build
+    autoDeployTrigger: commit
+    branch: main
+    domains:
+      - profilleai.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://api.profilleai.com/api
+      - key: VITE_GOOGLE_CLIENT_ID
+        value: 188305923693-rsil9buaanu4e77eur9tahfivp23lobq.apps.googleusercontent.com
+
   - type: web
     name: profileai-api
     runtime: node

@@ -427,7 +427,7 @@ const RecruiterCTASidebar = ({ fullName, navigate, currentUser, profileId }) => 
         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)', mt: 0.5, display: 'block' }}>
           {isLoggedInRecruiter 
             ? 'Connect with this candidate now'
-            : 'Join ProfileAI to unlock powerful recruiting tools'}
+            : 'Join ProfilleAI to unlock powerful recruiting tools'}
         </Typography>
       </Box>
       
@@ -651,7 +651,7 @@ const PublicProfile = () => {
       try {
         await navigator.share({
           title: `${profile?.user?.firstName || 'Profile'}'s Portfolio`,
-          text: `Check out this amazing profile on ProfileAI!`,
+          text: `Check out this amazing profile on ProfilleAI!`,
           url: profileUrl
         });
       } catch (err) {
@@ -943,7 +943,7 @@ const PublicProfile = () => {
                       textDecoration: 'none',
                     }}
                   >
-                    Join ProfileAI
+                    Join ProfilleAI
                   </Button>
                 )}
                 {currentUser && currentUser.id !== id && (
@@ -1262,7 +1262,7 @@ const PublicProfile = () => {
                         textDecoration: 'none',
                       }}
                     >
-                      Join ProfileAI
+                      Join ProfilleAI
                     </Button>
                   )}
                   {currentUser && currentUser.id !== id && (
@@ -1685,7 +1685,7 @@ const PublicProfile = () => {
                       '&:hover': { bgcolor: 'rgba(255,255,255,0.95)' },
                     }}
                   >
-                    Join ProfileAI
+                    Join ProfilleAI
                   </Button>
                   {portfolioUrl && (
                     <Button
@@ -1749,7 +1749,7 @@ const PublicProfile = () => {
                 © {new Date().getFullYear()} {fullName}. All rights reserved.
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.5 }}>
-                Powered by ProfileAI
+                Powered by ProfilleAI
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>

@@ -132,7 +132,7 @@ const ProfileCreation = () => {
               color: '#1a1a2e'
             }}
           >
-            ProfileAI
+            ProfilleAI
           </Typography>
         </Logo>
       </TopBar>
@@ -167,7 +167,7 @@ const ProfileCreation = () => {
               </Avatar>
               <Box sx={{ textAlign: 'left' }}>
                 <Typography sx={{ fontSize: 11.5, color: '#999', lineHeight: 1.2 }}>
-                  ProfileAI
+                  ProfilleAI
                 </Typography>
                 <Typography sx={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>
                   {TEXT.WELCOME_MESSAGE}

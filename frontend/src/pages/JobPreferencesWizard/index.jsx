@@ -711,7 +711,7 @@ const JobPreferencesWizard = () => {
               color: '#1a1a2e'
             }}
           >
-            ProfileAI
+            ProfilleAI
           </Typography>
         </Logo>
         <SkipLink onClick={handleSkip}>

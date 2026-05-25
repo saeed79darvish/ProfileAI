@@ -1570,7 +1570,7 @@ const CandidateJobs = () => {
                 </div>
                 <div>
                   <div className="job-detail-ai-title">AI Job Tools</div>
-                  <div className="job-detail-ai-subtitle">Powered by ProfileAI</div>
+                  <div className="job-detail-ai-subtitle">Powered by ProfilleAI</div>
                 </div>
               </div>
               <InlineJobAITools job={selectedJob} />

@@ -7,31 +7,31 @@ export const ROUTES = {
 export const SLIDES = [
   {
     headline: 'build an AI-enhanced profile.',
-    description: 'Upload your resume or start from scratch \u2014 ProfileAI will help you build a standout profile that you can use with the ProfileAI Extension to apply for any job or get noticed by recruiters.',
+    description: 'Upload your resume or start from scratch \u2014 ProfilleAI will help you build a standout profile that you can use with the ProfilleAI Extension to apply for any job or get noticed by recruiters.',
     emoji: '\u2728',
-    featureText: 'Have a resume? Upload it. Starting fresh? No problem \u2014 ProfileAI guides you either way.',
+    featureText: 'Have a resume? Upload it. Starting fresh? No problem \u2014 ProfilleAI guides you either way.',
     visual: 'profile'
   },
   {
     headline: 'get matched to the right jobs.',
-    description: 'ProfileAI recommends jobs based on your skills and preferences \u2014 browse, filter, and apply to roles that actually fit you.',
+    description: 'ProfilleAI recommends jobs based on your skills and preferences \u2014 browse, filter, and apply to roles that actually fit you.',
     emoji: '\uD83D\uDD0D',
-    featureText: 'Tell us your preferences and ProfileAI will surface roles that truly match your background.',
+    featureText: 'Tell us your preferences and ProfilleAI will surface roles that truly match your background.',
     visual: 'jobs'
   },
   {
     headline: 'tailor your profile for every application.',
-    description: 'Use ProfileAI to customize your profile for each job with intelligent keyword optimization \u2014 pass ATS filters and stand out.',
+    description: 'Use ProfilleAI to customize your profile for each job with intelligent keyword optimization \u2014 pass ATS filters and stand out.',
     emoji: '\uD83D\uDCDD',
-    featureText: 'ProfileAI identifies missing keywords and adapts your profile to match job requirements instantly.',
+    featureText: 'ProfilleAI identifies missing keywords and adapts your profile to match job requirements instantly.',
     visual: 'tailor'
   }
 ] as const;
 
 export const TEXT = {
-  LOGO: 'ProfileAI',
-  WELCOME: 'Welcome to ProfileAI!',
-  HEADING_PREFIX: 'ProfileAI can help you...',
+  LOGO: 'ProfilleAI',
+  WELCOME: 'Welcome to ProfilleAI!',
+  HEADING_PREFIX: 'ProfilleAI can help you...',
   GET_STARTED: 'Get Started',
   CONTINUE: 'Continue',
   SKIP: 'Skip intro',

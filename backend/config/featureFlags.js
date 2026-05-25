@@ -19,7 +19,7 @@ module.exports = {
   // toggle on per environment to expose the /feed page + backing API.
   feed: parseBool(process.env.ENABLE_FEED, false),
   // Claude Connector — exposes the /mcp endpoint (Remote MCP server) so
-  // ProfileAI can be added as a Custom Connector in Claude.ai. Off by
+  // ProfilleAI can be added as a Custom Connector in Claude.ai. Off by
   // default; enable per environment once the connector is ready to use.
   claudeConnector: parseBool(process.env.ENABLE_CLAUDE_CONNECTOR, false),
 };

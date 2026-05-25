@@ -232,7 +232,7 @@ const RecruiterOnboarding = () => {
         <Logo onClick={() => navigate('/')}>
           <AIIcon />
           <Typography sx={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.3px', color: '#1a1a2e' }}>
-            ProfileAI
+            ProfilleAI
           </Typography>
         </Logo>
       </TopBar>
@@ -264,7 +264,7 @@ const RecruiterOnboarding = () => {
                 </Avatar>
                 <Box>
                   <Typography sx={{ fontSize: 11.5, color: '#999', lineHeight: 1.2 }}>
-                    ProfileAI for Recruiters
+                    ProfilleAI for Recruiters
                   </Typography>
                   <Typography sx={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', lineHeight: 1.3 }}>
                     Welcome, {firstName}!
@@ -283,7 +283,7 @@ const RecruiterOnboarding = () => {
                       letterSpacing: '-0.5px'
                     }}
                   >
-                    ProfileAI helps you...
+                    ProfilleAI helps you...
                   </Typography>
                   <Typography
                     sx={{

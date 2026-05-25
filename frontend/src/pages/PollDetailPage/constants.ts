@@ -4,7 +4,7 @@ export const TEXT = {
   TRY_AGAIN: 'Try Again',
   POLL_NOT_FOUND: 'Poll not found',
   BACK_TO_FEED: 'Back to Feed',
-  SHARE_TITLE: 'Poll on ProfileAI',
+  SHARE_TITLE: 'Poll on ProfilleAI',
   POLL_HEADING: '📊 Poll',
   HOT_TAKE: 'Hot Take',
   CREATED_PREFIX: 'Created',

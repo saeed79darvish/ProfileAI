@@ -56,7 +56,7 @@ export const LIMITS = {
 export const LOCALSTORAGE_KEY = 'profileai_job_preferences' as const;
 
 export const TEXT = {
-  LOGO: 'ProfileAI',
+  LOGO: 'ProfilleAI',
   SKIP: 'Skip for now \u2192',
   STEP_INDUSTRY: 'What industry are you in?',
   STEP_ROLE: 'What best describes your role?',

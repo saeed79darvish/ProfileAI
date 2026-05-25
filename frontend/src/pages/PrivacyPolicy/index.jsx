@@ -54,7 +54,7 @@ const PrivacyPolicy = () => {
         </Box>
 
         <Typography variant="body1" paragraph>
-          ProfileAI ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy 
+          ProfilleAI ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy 
           explains how we collect, use, disclose, and safeguard your information when you use our 
           platform for professional profile creation and job recruitment.
         </Typography>
@@ -117,7 +117,7 @@ const PrivacyPolicy = () => {
               ⚠️ Important AI Disclosure
             </Typography>
             <Typography variant="body2">
-              ProfileAI uses OpenAI's GPT-4 and other AI models to enhance your professional profile 
+              ProfilleAI uses OpenAI's GPT-4 and other AI models to enhance your professional profile 
               and provide intelligent features. By using our AI-powered features, you acknowledge that 
               your data may be processed by these AI systems.
             </Typography>

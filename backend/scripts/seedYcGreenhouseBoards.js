@@ -57,7 +57,7 @@ const YC_COMPANIES_URL = 'https://www.ycombinator.com/companies';
 
 async function loadYcAlgoliaConfig() {
   const res = await fetch(YC_COMPANIES_URL, {
-    headers: { 'User-Agent': 'ProfileAI/1.0 (job-aggregator; +https://profileai.com)' },
+    headers: { 'User-Agent': 'ProfilleAI/1.0 (job-aggregator; +https://profileai.com)' },
     signal: AbortSignal.timeout(20000)
   });
   if (!res.ok) {
@@ -198,7 +198,7 @@ async function detectAtsForCompany(company) {
     try {
       const res = await fetch(url, {
         headers: {
-          'User-Agent': 'ProfileAI/1.0 (job-aggregator; +https://profileai.com)',
+          'User-Agent': 'ProfilleAI/1.0 (job-aggregator; +https://profileai.com)',
           'Accept': 'text/html,application/xhtml+xml',
         },
         redirect: 'follow',

@@ -732,7 +732,7 @@ const GlobalSearchDialog = ({ open, onClose, defaultCategory = 'all', initialQue
         <FooterItem><Kbd>↑↓</Kbd> navigate</FooterItem>
         <FooterItem><Kbd>↵</Kbd> select</FooterItem>
         <FooterItem><Kbd>Esc</Kbd> close</FooterItem>
-        <span style={{ marginLeft: 'auto', fontWeight: 600 }}>✦ ProfileAI</span>
+        <span style={{ marginLeft: 'auto', fontWeight: 600 }}>✦ ProfilleAI</span>
       </Footer>
     </StyledDialog>
   );

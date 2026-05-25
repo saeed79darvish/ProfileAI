@@ -327,7 +327,7 @@ const PollCard = ({ poll: initialPoll, onVote, compact = false }) => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Poll on ProfileAI',
+          title: 'Poll on ProfilleAI',
           text: shareText,
           url: shareUrl
         });

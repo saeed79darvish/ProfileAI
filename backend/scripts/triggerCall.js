@@ -125,7 +125,7 @@ You are screening candidates for the ${testJob.title} position - this is a senio
 
 Be conversational and adapt to their responses. Listen for leadership qualities, strategic thinking, and results-driven mindset.`;
 
-    const COMPANY_NAME = process.env.COMPANY_NAME || 'ProfileAI Executive Search';
+    const COMPANY_NAME = process.env.COMPANY_NAME || 'ProfilleAI Executive Search';
 
     const assistantResponse = await vapiClient.post('/assistant', {
       name: `${COMPANY_NAME} - VP Ads Screen`,

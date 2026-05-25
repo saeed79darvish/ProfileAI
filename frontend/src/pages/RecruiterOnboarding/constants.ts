@@ -8,7 +8,7 @@ export const ROUTES = {
 export const SLIDES = [
   {
     headline: 'find the perfect candidates.',
-    description: 'ProfileAI uses intelligent matching to surface the best candidates for your roles \u2014 ranked by skills, experience, and culture fit.',
+    description: 'ProfilleAI uses intelligent matching to surface the best candidates for your roles \u2014 ranked by skills, experience, and culture fit.',
     emoji: '\uD83C\uDFAF',
     featureText: 'Smart matching analyzes 50+ data points to find candidates who truly fit your requirements.',
     visual: 'smartMatch'
@@ -30,10 +30,10 @@ export const SLIDES = [
 ] as const;
 
 export const TEXT = {
-  LOGO: 'ProfileAI',
-  WELCOME_LABEL: 'ProfileAI for Recruiters',
+  LOGO: 'ProfilleAI',
+  WELCOME_LABEL: 'ProfilleAI for Recruiters',
   WELCOME_PREFIX: 'Welcome,',
-  HEADING_PREFIX: 'ProfileAI helps you...',
+  HEADING_PREFIX: 'ProfilleAI helps you...',
   GET_STARTED: 'Get Started',
   CONTINUE: 'Continue',
   SKIP: 'Skip intro',

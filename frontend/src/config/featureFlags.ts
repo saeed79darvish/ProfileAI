@@ -12,7 +12,7 @@ export const featureFlags = {
   recruiterAgentArena: parseBool(import.meta.env.VITE_ENABLE_RECRUITER_AGENT_ARENA, false),
   // Social feed (/feed) — currently disabled for launch. Toggle on per environment.
   feed: parseBool(import.meta.env.VITE_ENABLE_FEED, false),
-  // Claude Connector promo/onboarding UI ("Use ProfileAI in Claude" cards).
+  // Claude Connector promo/onboarding UI ("Use ProfilleAI in Claude" cards).
   // Backend exposure is gated separately by ENABLE_CLAUDE_CONNECTOR.
   claudeConnector: parseBool(import.meta.env.VITE_ENABLE_CLAUDE_CONNECTOR, false),
 };

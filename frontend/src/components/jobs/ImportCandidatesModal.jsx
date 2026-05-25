@@ -200,7 +200,7 @@ export default function ImportCandidatesModal({
               Invitations Sent!
             </Typography>
             <Typography variant="body1" sx={{ opacity: 0.9 }}>
-              Successfully sent {invitationStats.sent} invitation{invitationStats.sent !== 1 ? 's' : ''} to join ProfileAI
+              Successfully sent {invitationStats.sent} invitation{invitationStats.sent !== 1 ? 's' : ''} to join ProfilleAI
             </Typography>
             <Typography variant="body2" sx={{ mt: 2, opacity: 0.8 }}>
               Candidates will receive an email with instructions to create their profile
@@ -217,7 +217,7 @@ export default function ImportCandidatesModal({
               <Typography variant="body2" color="text.secondary" component="div">
                 <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
                   <li>Enter candidate email addresses below</li>
-                  <li>We'll send them an invitation to join ProfileAI</li>
+                  <li>We'll send them an invitation to join ProfilleAI</li>
                   <li>They create their profile and apply to your job</li>
                   <li>You review their applications</li>
                 </ol>

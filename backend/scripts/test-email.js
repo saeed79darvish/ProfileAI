@@ -9,15 +9,15 @@ async function testEmail() {
   
   const result = await emailService.sendEmail({
     to: 's79darvish@gmail.com',
-    subject: '✅ ProfileAI Email Test',
+    subject: '✅ ProfilleAI Email Test',
     html: `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h2>ProfileAI Email Test</h2>
+        <h2>ProfilleAI Email Test</h2>
         <p>If you received this, Gmail SMTP is working correctly!</p>
         <p>Sent at: ${new Date().toISOString()}</p>
       </div>
     `,
-    text: 'ProfileAI Email Test - Gmail SMTP is working!'
+    text: 'ProfilleAI Email Test - Gmail SMTP is working!'
   });
   
   console.log('\nResult:', result ? '✅ Email sent successfully!' : '❌ Email failed to send');

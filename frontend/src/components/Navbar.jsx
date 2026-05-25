@@ -993,9 +993,27 @@ const Navbar = () => {
     <Nav $transparent={isTransparent} $scrolled={scrolled} $isHome={isHome}>
       <Container>
         <NavContent>
-          <Logo type="button" onClick={() => go('/')} aria-label="ProfileAI home">
+          <Logo
+            type="button"
+            onClick={() => {
+              // Candidates who haven't built a profile yet shouldn't be bounced
+              // to the authenticated home/hub — it pulls /api/profiles/me and
+              // shows broken state. Send them back to the profile creation
+              // chooser instead.
+              if (
+                isAuthenticated &&
+                user?.role === 'candidate' &&
+                user?.hasProfile !== true
+              ) {
+                go('/profile/create');
+              } else {
+                go('/');
+              }
+            }}
+            aria-label="ProfilleAI home"
+          >
             <AIIcon aria-hidden="true" />
-            <LogoText>ProfileAI</LogoText>
+            <LogoText>ProfilleAI</LogoText>
           </Logo>
 
           <NavRow role="menubar" aria-label="Primary">

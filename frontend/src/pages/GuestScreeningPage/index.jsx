@@ -335,7 +335,7 @@ export default function GuestScreeningPage() {
                   <SignUpIcon />
                 </ChoiceIcon>
                 <ChoiceContent>
-                  <ChoiceTitle>Join ProfileAI</ChoiceTitle>
+                  <ChoiceTitle>Join ProfilleAI</ChoiceTitle>
                   <ChoiceDesc>
                     Create a full profile to get matched with more opportunities, 
                     AI-powered coaching, and direct recruiter connections.

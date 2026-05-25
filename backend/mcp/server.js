@@ -1,5 +1,5 @@
 /**
- * MCP server definition for ProfileAI's Claude.ai Custom Connector.
+ * MCP server definition for ProfilleAI's Claude.ai Custom Connector.
  *
  * Exposes five tools:
  *   - search_jobs           (candidates)
@@ -39,7 +39,7 @@ function consumeConnectQuota(userId) {
   }
   if (bucket.count >= CONNECT_DAILY_LIMIT) {
     const err = new Error(
-      `Daily limit reached (${CONNECT_DAILY_LIMIT} connection messages/day). Open ProfileAI to keep messaging.`,
+      `Daily limit reached (${CONNECT_DAILY_LIMIT} connection messages/day). Open ProfilleAI to keep messaging.`,
     );
     err.code = 'RATE_LIMITED';
     throw err;
@@ -73,7 +73,7 @@ function buildMcpServer(ctx) {
   // -------------------- search_jobs --------------------
   server.tool(
     'search_jobs',
-    'Search ProfileAI job postings. Use for any "find me a job", "open roles at \u2026", or "what jobs match my background" question. Returns up to 10 results with company, location, salary, and a deep link to apply (with one-click AI Resume Tailoring).',
+    'Search ProfilleAI job postings. Use for any "find me a job", "open roles at \u2026", or "what jobs match my background" question. Returns up to 10 results with company, location, salary, and a deep link to apply (with one-click AI Resume Tailoring).',
     {
       query: z
         .string()
@@ -131,9 +131,9 @@ function buildMcpServer(ctx) {
   // -------------------- get_job_details --------------------
   server.tool(
     'get_job_details',
-    'Fetch the full description, requirements, and benefits for one ProfileAI job, plus the apply link. Call after `search_jobs` to drill into a specific role.',
+    'Fetch the full description, requirements, and benefits for one ProfilleAI job, plus the apply link. Call after `search_jobs` to drill into a specific role.',
     {
-      id: z.string().uuid().describe('ProfileAI job id (UUID from `search_jobs`).'),
+      id: z.string().uuid().describe('ProfilleAI job id (UUID from `search_jobs`).'),
     },
     async ({ id }) => {
       try {
@@ -160,7 +160,7 @@ function buildMcpServer(ctx) {
   // -------------------- search_candidates (recruiters only) --------------------
   server.tool(
     'search_candidates',
-    'RECRUITERS ONLY. Search ProfileAI candidate profiles by skills, experience, location, or free text. Returns up to 10 candidates with title, top skills, AI-generated summary, and a deep link to view the full profile or reach out.',
+    'RECRUITERS ONLY. Search ProfilleAI candidate profiles by skills, experience, location, or free text. Returns up to 10 candidates with title, top skills, AI-generated summary, and a deep link to view the full profile or reach out.',
     {
       query: z.string().optional().describe('Free-text search across title, summary, skills, and name.'),
       skills: z.array(z.string()).optional().describe('List of required skills, e.g. ["React", "TypeScript"].'),
@@ -245,7 +245,7 @@ function buildMcpServer(ctx) {
   // -------------------- connect_with_user --------------------
   server.tool(
     'connect_with_user',
-    'Send a first-contact message to another ProfileAI user (a recruiter to a candidate, or a candidate to a recruiter/hiring manager). Use the recipient\u2019s user id from `search_candidates` / `search_jobs`. Limited to 20 messages per day.',
+    'Send a first-contact message to another ProfilleAI user (a recruiter to a candidate, or a candidate to a recruiter/hiring manager). Use the recipient\u2019s user id from `search_candidates` / `search_jobs`. Limited to 20 messages per day.',
     {
       recipientUserId: z
         .string()

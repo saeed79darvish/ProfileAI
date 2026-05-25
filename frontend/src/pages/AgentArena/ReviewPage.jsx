@@ -2600,13 +2600,13 @@ const ReviewPage = () => {
                           }}>Recommended</span>
                         </div>
                         <p style={{ margin: '0 0 10px', fontSize: 13, color: '#4A4763', lineHeight: 1.55 }}>
-                          Skip the copy-paste. The ProfileAI extension fills name, email, work history,
+                          Skip the copy-paste. The ProfilleAI extension fills name, email, work history,
                           links, and the AI-drafted answers directly into the company&apos;s form, in seconds.
                         </p>
                         <ol style={{ margin: '0 0 14px 18px', padding: 0, fontSize: 12.5, color: '#4A4763', lineHeight: 1.7 }}>
                           <li>Install the extension from the Chrome Web Store.</li>
                           <li>Click <b>Open application</b> below to launch the company&apos;s form.</li>
-                          <li>Tap the ProfileAI icon in your toolbar, the extension auto-fills every field.</li>
+                          <li>Tap the ProfilleAI icon in your toolbar, the extension auto-fills every field.</li>
                           <li>Upload your downloaded resume + cover letter, review, and submit.</li>
                         </ol>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

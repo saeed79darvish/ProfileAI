@@ -1,7 +1,7 @@
 /**
  * Markdown renderers for the Claude MCP connector.
  *
- * Every tool response includes ProfileAI branding (logo) plus a guide
+ * Every tool response includes ProfilleAI branding (logo) plus a guide
  * pointing the user at our differentiators (AI Tailoring + Chrome
  * Extension) so Claude\u2019s rendered cards drive traffic back to the
  * platform.
@@ -71,8 +71,8 @@ function topSkills(skills, n = 5) {
 
 function header(title, tip) {
   return [
-    `![ProfileAI](${LOGO_URL})`,
-    `**ProfileAI \u2014 ${title}**`,
+    `![ProfilleAI](${LOGO_URL})`,
+    `**ProfilleAI \u2014 ${title}**`,
     '',
     tip ? `\ud83d\udca1 ${tip}` : '',
   ]
@@ -83,8 +83,8 @@ function header(title, tip) {
 function footer(extraLines = []) {
   return [
     '---',
-    `\ud83e\udd1d **Tailor your resume with AI** \u2014 every job on ProfileAI offers one-click AI Resume Tailoring.`,
-    `\ud83e\udde9 **Auto-apply across the web** with the [ProfileAI Chrome Extension](${CHROME_EXTENSION_URL}).`,
+    `\ud83e\udd1d **Tailor your resume with AI** \u2014 every job on ProfilleAI offers one-click AI Resume Tailoring.`,
+    `\ud83e\udde9 **Auto-apply across the web** with the [ProfilleAI Chrome Extension](${CHROME_EXTENSION_URL}).`,
     ...extraLines,
   ].join('\n');
 }
@@ -95,7 +95,7 @@ function renderJobsHeader(query, count) {
     count === 0
       ? `No jobs found for \u201c${query}\u201d`
       : `${count} job${count === 1 ? '' : 's'} matching \u201c${query}\u201d`,
-    'Open any job on ProfileAI for one-click **AI Resume Tailoring**, or install the **Chrome Extension** to auto-apply.',
+    'Open any job on ProfilleAI for one-click **AI Resume Tailoring**, or install the **Chrome Extension** to auto-apply.',
   );
 }
 
@@ -123,7 +123,7 @@ function renderJobCard(job) {
     const snippet = String(job.description).replace(/\s+/g, ' ').slice(0, 180);
     lines.push(`> ${snippet}${snippet.length === 180 ? '\u2026' : ''}`);
   }
-  lines.push(`[Apply on ProfileAI \u2192](${jobUrl(job.id)})`);
+  lines.push(`[Apply on ProfilleAI \u2192](${jobUrl(job.id)})`);
   return lines.join('\n');
 }
 
@@ -131,13 +131,13 @@ function renderJobsListMarkdown(query, jobs) {
   const parts = [renderJobsHeader(query, jobs.length)];
   if (jobs.length === 0) {
     parts.push(
-      `Try a broader keyword or fewer filters. You can also [browse all jobs on ProfileAI](${jobSearchUrl(query)}).`,
+      `Try a broader keyword or fewer filters. You can also [browse all jobs on ProfilleAI](${jobSearchUrl(query)}).`,
     );
     parts.push(footer());
     return parts.join('\n\n');
   }
   for (const job of jobs) parts.push(renderJobCard(job));
-  parts.push(footer([`\ud83d\udd0d [See all results on ProfileAI](${jobSearchUrl(query)})`]));
+  parts.push(footer([`\ud83d\udd0d [See all results on ProfilleAI](${jobSearchUrl(query)})`]));
   return parts.join('\n\n');
 }
 
@@ -149,7 +149,7 @@ function renderJobDetailMarkdown(job) {
   const skills = topSkills(job.skills, 12);
 
   const head = [
-    `![ProfileAI](${LOGO_URL})`,
+    `![ProfilleAI](${LOGO_URL})`,
     `# [${job.title}](${jobUrl(job.id)})`,
     `\ud83c\udfe2 **${companyName}** \u00b7 \ud83d\udccd ${job.location || 'Location N/A'}${
       job.locationType ? ` (${job.locationType})` : ''
@@ -165,7 +165,7 @@ function renderJobDetailMarkdown(job) {
   meta.push(`\ud83d\udd52 Posted ${relativeTime(job.createdAt)}`);
 
   const sections = [
-    `**[Apply on ProfileAI \u2192](${jobUrl(job.id)})**`,
+    `**[Apply on ProfilleAI \u2192](${jobUrl(job.id)})**`,
   ];
   if (job.description) sections.push(`## Description\n\n${job.description}`);
   if (job.requirements) sections.push(`## Requirements\n\n${job.requirements}`);
@@ -189,7 +189,7 @@ function renderCandidatesHeader(query, count) {
     count === 0
       ? `No candidates found for \u201c${query}\u201d`
       : `${count} candidate${count === 1 ? '' : 's'} matching \u201c${query}\u201d`,
-    'Open a profile on ProfileAI to use **Smart Matching**, view the **AI Recruiter Insights**, or bulk-invite to a job.',
+    'Open a profile on ProfilleAI to use **Smart Matching**, view the **AI Recruiter Insights**, or bulk-invite to a job.',
   );
 }
 
@@ -222,13 +222,13 @@ function renderCandidatesListMarkdown(query, profiles) {
   const parts = [renderCandidatesHeader(query, profiles.length)];
   if (profiles.length === 0) {
     parts.push(
-      `Try removing some filters or broadening the search term. You can also [browse all candidates on ProfileAI](${withUtm('/browse')}).`,
+      `Try removing some filters or broadening the search term. You can also [browse all candidates on ProfilleAI](${withUtm('/browse')}).`,
     );
     parts.push(footer());
     return parts.join('\n\n');
   }
   for (const p of profiles) parts.push(renderCandidateCard(p));
-  parts.push(footer([`\ud83d\udd0d [Browse more candidates on ProfileAI](${withUtm('/browse')})`]));
+  parts.push(footer([`\ud83d\udd0d [Browse more candidates on ProfilleAI](${withUtm('/browse')})`]));
   return parts.join('\n\n');
 }
 
@@ -239,7 +239,7 @@ function renderCandidateDetailMarkdown(profile) {
   const skills = topSkills(profile.skills, 20);
 
   const head = [
-    `![ProfileAI](${LOGO_URL})`,
+    `![ProfilleAI](${LOGO_URL})`,
     `# [${fullName}](${profileUrl(linkTarget)})`,
     `\ud83c\udfaf ${profile.title || 'Open to opportunities'} \u00b7 \ud83d\udccd ${profile.location || 'Location N/A'}`,
     `\ud83d\udcc8 ${profile.experienceLevel} \u00b7 ${profile.experienceCount} role${profile.experienceCount === 1 ? '' : 's'}`,
@@ -280,10 +280,10 @@ function renderCandidateDetailMarkdown(profile) {
 function renderConnectConfirmation({ recipient, conversationId }) {
   const name = [recipient.firstName, recipient.lastName].filter(Boolean).join(' ') || 'the recipient';
   return [
-    `![ProfileAI](${LOGO_URL})`,
+    `![ProfilleAI](${LOGO_URL})`,
     `\u2705 **Message sent to ${name}.**`,
     '',
-    `Continue the conversation on ProfileAI: [Open inbox \u2192](${conversationUrl(conversationId)})`,
+    `Continue the conversation on ProfilleAI: [Open inbox \u2192](${conversationUrl(conversationId)})`,
     '',
     footer(),
   ].join('\n');

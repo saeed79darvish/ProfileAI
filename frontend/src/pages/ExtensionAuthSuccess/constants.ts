@@ -3,10 +3,10 @@ export const ROUTES = {
 } as const;
 
 export const TEXT = {
-  CONNECTING_TITLE: 'Connecting to ProfileAI Extension...',
+  CONNECTING_TITLE: 'Connecting to ProfilleAI Extension...',
   CONNECTING_SUBTITLE: 'Please wait while we sync your account',
   CONNECTED_TITLE: "You're Connected!",
-  EXTENSION_READY: 'Your ProfileAI extension is now ready to use.',
+  EXTENSION_READY: 'Your ProfilleAI extension is now ready to use.',
   BACK_TO_APPLICATION: '\u2190 Back to Job Application',
   SETUP_PROFILE: 'Set Up My Profile',
 } as const;

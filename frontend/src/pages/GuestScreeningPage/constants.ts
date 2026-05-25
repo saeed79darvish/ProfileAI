@@ -30,7 +30,7 @@ export const TEXT = {
   QUICK_SUBMIT_TITLE: 'Quick Submit',
   QUICK_SUBMIT_DESC: 'Upload your resume and answer a few questions. No account needed \u2014 our AI will review your profile.',
   QUICK_SUBMIT_TIME: '2\u20133 minutes',
-  JOIN_TITLE: 'Join ProfileAI',
+  JOIN_TITLE: 'Join ProfilleAI',
   JOIN_DESC: 'Create a full profile to get matched with more opportunities, AI-powered coaching, and direct recruiter connections.',
   JOIN_TIME: '5\u201310 minutes',
   BACK_TO_OPTIONS: 'Back to options',

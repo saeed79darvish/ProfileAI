@@ -348,7 +348,7 @@ const AuthLayout = ({ children }) => {
               <SparkleIcon sx={{ color: '#fff', fontSize: 18 }} />
             </Box>
             <Typography sx={{ color: 'white', fontWeight: 800, fontSize: '1.3rem', letterSpacing: '-0.5px' }}>
-              ProfileAI
+              ProfilleAI
             </Typography>
           </BrandMark>
 
@@ -412,7 +412,7 @@ const AuthLayout = ({ children }) => {
                 <SparkleIcon sx={{ color: '#fff', fontSize: 18 }} />
               </MobileBrandLogo>
               <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', letterSpacing: '-0.3px' }}>
-                ProfileAI
+                ProfilleAI
               </Typography>
             </MobileBrand>
             <Link

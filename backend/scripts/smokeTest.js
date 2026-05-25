@@ -57,7 +57,7 @@ function assert(cond, msg) {
 }
 
 (async () => {
-  console.log(`\nProfileAI smoke test against ${API}`);
+  console.log(`\nProfilleAI smoke test against ${API}`);
   console.log('─────────────────────────────────────────────────');
 
   let token;

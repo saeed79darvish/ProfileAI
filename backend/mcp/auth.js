@@ -2,7 +2,7 @@
  * MCP Bearer-token auth.
  *
  * Custom Connectors in Claude.ai support a full OAuth 2.1 flow with
- * dynamic client registration. For v1 we accept a plain ProfileAI JWT
+ * dynamic client registration. For v1 we accept a plain ProfilleAI JWT
  * in the `Authorization: Bearer <token>` header — the same token the
  * REST API already uses (see backend/middleware/auth.js).
  *
@@ -16,7 +16,7 @@ const { User } = require('../models');
 
 /**
  * Parse the Authorization header from an incoming Express request and
- * resolve it to a ProfileAI user. Returns `null` if no/invalid token —
+ * resolve it to a ProfilleAI user. Returns `null` if no/invalid token —
  * tools then decide whether to require auth or operate anonymously.
  */
 async function resolveAuthUser(req) {
@@ -44,7 +44,7 @@ async function resolveAuthUser(req) {
 function requireAuth(user) {
   if (!user) {
     const err = new Error(
-      'Sign-in required. Connect ProfileAI in Claude settings and authorize the connector.',
+      'Sign-in required. Connect ProfilleAI in Claude settings and authorize the connector.',
     );
     err.code = 'UNAUTHORIZED';
     throw err;
@@ -58,7 +58,7 @@ function requireRole(user, allowedRoles) {
   const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
   if (!roles.includes(user.role)) {
     const err = new Error(
-      `This tool is only available to ${roles.join(' / ')} accounts on ProfileAI.`,
+      `This tool is only available to ${roles.join(' / ')} accounts on ProfilleAI.`,
     );
     err.code = 'FORBIDDEN';
     throw err;

@@ -334,7 +334,7 @@ const startServer = async () => {
         brandErrors.push('RESEND_API_KEY is required when STRICT_BRAND_FROM=true');
       }
       if (!from || !domain) {
-        brandErrors.push('EMAIL_FROM must be set, e.g. "ProfileAI <no-reply@your-domain.com>"');
+        brandErrors.push('EMAIL_FROM must be set, e.g. "ProfilleAI <no-reply@your-domain.com>"');
       } else if (blockedDomains.has(domain)) {
         brandErrors.push(`EMAIL_FROM domain must be a verified custom domain, not ${domain}`);
       }

@@ -51,7 +51,7 @@ const TermsOfService = () => {
         </Box>
 
         <Alert severity="info" sx={{ mb: 4 }}>
-          Please read these Terms of Service carefully before using ProfileAI. By accessing or using 
+          Please read these Terms of Service carefully before using ProfilleAI. By accessing or using 
           our platform, you agree to be bound by these terms.
         </Alert>
 
@@ -60,7 +60,7 @@ const TermsOfService = () => {
         {/* Section 1: Acceptance of Terms */}
         <Section number="1" title="Acceptance of Terms" icon={<Gavel color="primary" />}>
           <Typography variant="body1" paragraph>
-            By accessing or using ProfileAI ("Service," "Platform," "we," "us," or "our"), you agree 
+            By accessing or using ProfilleAI ("Service," "Platform," "we," "us," or "our"), you agree 
             to be bound by these Terms of Service ("Terms"). If you do not agree to all of these Terms, 
             you may not access or use the Service.
           </Typography>
@@ -151,7 +151,7 @@ const TermsOfService = () => {
               </Typography>
             </Box>
             <Typography variant="body2">
-              ProfileAI uses artificial intelligence (including OpenAI's GPT-4 and Vapi voice AI) to 
+              ProfilleAI uses artificial intelligence (including OpenAI's GPT-4 and Vapi voice AI) to 
               enhance profiles, generate content, and conduct phone screenings. You acknowledge and 
               agree to the following regarding AI-generated content.
             </Typography>
@@ -200,7 +200,7 @@ const TermsOfService = () => {
         <Section number="4" title="Payment Terms and Refund Policy" icon={<Payment color="primary" />}>
           <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Subscription Plans</Typography>
           <Typography variant="body1" paragraph>
-            ProfileAI offers free and paid subscription plans. Paid plans ("Pro" and "Enterprise") 
+            ProfilleAI offers free and paid subscription plans. Paid plans ("Pro" and "Enterprise") 
             provide access to premium features including enhanced AI capabilities, priority support, 
             and advanced analytics.
           </Typography>
@@ -415,7 +415,7 @@ const TermsOfService = () => {
         <Section number="8" title="Additional Terms" icon={<Gavel color="primary" />}>
           <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Intellectual Property</Typography>
           <Typography variant="body1" paragraph>
-            The Service and its original content, features, and functionality are owned by ProfileAI 
+            The Service and its original content, features, and functionality are owned by ProfilleAI 
             and are protected by copyright, trademark, and other intellectual property laws. You retain 
             ownership of content you submit but grant us a license to use it for providing the Service.
           </Typography>
@@ -453,7 +453,7 @@ const TermsOfService = () => {
         {/* Footer */}
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="body2" color="text.secondary" paragraph>
-            By using ProfileAI, you acknowledge that you have read, understood, and agree to be 
+            By using ProfilleAI, you acknowledge that you have read, understood, and agree to be 
             bound by these Terms of Service.
           </Typography>
           <Typography variant="body2" color="text.secondary">

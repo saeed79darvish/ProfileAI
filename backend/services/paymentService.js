@@ -155,7 +155,7 @@ class PaymentService {
           plan_id: this.getPayPalPlanId(user.role, planType, billingCycle),
           custom_id: user.id.toString(),
           application_context: {
-            brand_name: 'ProfileAI',
+            brand_name: 'ProfilleAI',
             return_url: `${process.env.CORS_ORIGIN}/dashboard?subscription=success&provider=paypal`,
             cancel_url: `${process.env.CORS_ORIGIN}/pricing?subscription=cancelled`,
             user_action: 'SUBSCRIBE_NOW',

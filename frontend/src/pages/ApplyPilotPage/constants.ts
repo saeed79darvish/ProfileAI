@@ -19,7 +19,7 @@ export const features = [
     id: 'autofill',
     title: 'Auto-fill applications in 1 click',
     description:
-      'Stop re-entering the same information on every job application. ApplyPilot auto-fills your details from your ProfileAI profile, name, experience, education, skills, so you can focus on what actually matters.',
+      'Stop re-entering the same information on every job application. ApplyPilot auto-fills your details from your ProfilleAI profile, name, experience, education, skills, so you can focus on what actually matters.',
     cta: 'Start applying faster',
     ctaLink: '/register',
     visual: 'autofill',
