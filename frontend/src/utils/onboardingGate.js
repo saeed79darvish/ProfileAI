@@ -8,8 +8,13 @@ export const ONBOARDING_GATE_EVENT = 'profileai:onboarding-gate-blocked';
 
 // Paths the candidate is allowed to visit before finishing their profile.
 // Keep this in sync with PrivateRoute.ONBOARDING_ALLOWED_PREFIXES.
+// Plain `startsWith` so sibling paths like /profile/create-form and
+// /profile/preferences (the rest of the profile-creation flow) are
+// covered without having to list every variant.
 const ALLOWED_PREFIXES = [
   '/profile/create',
+  '/profile/create-form',
+  '/profile/preferences',
   '/onboarding',
   '/check-email',
   '/verify-email',
@@ -20,7 +25,7 @@ const ALLOWED_PREFIXES = [
 
 export function isOnboardingAllowedPath(pathname) {
   if (!pathname) return false;
-  return ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
+  return ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
 }
 
 export function shouldBlockNavigation(user, targetPath) {

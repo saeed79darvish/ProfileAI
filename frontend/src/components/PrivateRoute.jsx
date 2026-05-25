@@ -33,8 +33,11 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
   // No matter which protected route they refresh on (/profile, /jobs, /feed,
   // etc.) we route them back to the profile-creation flow so they can't get
   // stuck on a screen that depends on an existing profile.
+  // NOTE: keep in sync with utils/onboardingGate.js ALLOWED_PREFIXES.
   const ONBOARDING_ALLOWED_PREFIXES = [
     '/profile/create',
+    '/profile/create-form',
+    '/profile/preferences',
     '/onboarding',
     '/check-email',
     '/verify-email',
@@ -43,7 +46,7 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     '/logout',
   ];
   const isOnboardingAllowedPath = ONBOARDING_ALLOWED_PREFIXES.some((p) =>
-    location.pathname === p || location.pathname.startsWith(p + '/')
+    location.pathname === p || location.pathname.startsWith(p)
   );
   if (
     isAuthenticated &&
