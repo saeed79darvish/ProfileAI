@@ -31,8 +31,19 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       }
-      
-      // Validate token with the server before considering user authenticated
+
+      // Eagerly hydrate from localStorage so the UI renders immediately on
+      // hard refresh instead of showing a blank spinner while we wait for
+      // /auth/me to round-trip (which can be 30-60s on a cold Render dyno).
+      // We still re-validate with getMe() below and will clear auth if the
+      // token has been revoked.
+      if (parsedUser?.profilePicture) {
+        parsedUser.profilePicture = resolveImageUrl(parsedUser.profilePicture);
+      }
+      setUser(parsedUser);
+      setLoading(false);
+
+      // Validate token with the server in the background and refresh user data
       authAPI.getMe().then(res => {
         const freshUser = res.data;
         authDebug('getMe success', {
