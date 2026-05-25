@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { CircularProgress, Box, Paper, Typography, Button } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
+import { notifyOnboardingBlocked } from '../utils/onboardingGate';
 
 const PrivateRoute = ({ children, allowedRoles = null }) => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -50,6 +51,10 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     user?.hasProfile !== true &&
     !isOnboardingAllowedPath
   ) {
+    // Surface a toast so the user understands why they're being bounced
+    // back, instead of silently redirecting them. Fired as a side-effect
+    // (not during render) to satisfy React's rules.
+    notifyOnboardingBlocked(location.pathname);
     return <Navigate to="/profile/create" replace />;
   }
 

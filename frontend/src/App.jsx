@@ -7,6 +7,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import ImpersonationBanner from './components/ImpersonationBanner';
+import OnboardingGateBanner from './components/OnboardingGateBanner';
 import CookieConsentBanner from './components/CookieConsent';
 import ErrorBoundary from './components/ErrorBoundary';
 import { setApiNavigate } from './services/api';
@@ -215,6 +216,7 @@ function AppContent() {
         </Box>
       )}
       <ImpersonationBanner />
+      <OnboardingGateBanner />
       {!hideNavbar && <Navbar />}
       {!isOverlayMode && <CookieConsentBanner />}
       <ErrorBoundary>

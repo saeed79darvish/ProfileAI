@@ -31,6 +31,7 @@ import { messageAPI, notificationAPI } from '../services/api';
 import { featureFlags } from '../config/featureFlags';
 import GlobalSearchDialog from './GlobalSearchDialog';
 import { BP, media } from '../styles/breakpoints';
+import { shouldBlockNavigation, notifyOnboardingBlocked } from '../utils/onboardingGate';
 
 /* ------------------------------------------------------------------ */
 /* Styled primitives                                                   */
@@ -530,6 +531,19 @@ const Navbar = () => {
       role: user?.role,
       hasProfile: user?.hasProfile
     });
+    // Candidate without a finished profile is locked into the onboarding
+    // flow — surface a banner and bounce them back to /profile/create
+    // instead of letting them open random pages.
+    if (shouldBlockNavigation(user, path)) {
+      notifyOnboardingBlocked(path);
+      setDrawerOpen(false);
+      setUserMenuOpen(false);
+      setNotifOpen(false);
+      if (location.pathname !== '/profile/create') {
+        navigate('/profile/create');
+      }
+      return;
+    }
     navigate(path);
     setDrawerOpen(false);
     setUserMenuOpen(false);
