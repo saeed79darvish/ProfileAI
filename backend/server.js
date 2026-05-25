@@ -57,6 +57,8 @@ const harvestRoutes = require('./routes/harvest');
 const adminRoutes = require('./routes/admin');
 const errorHandler = require('./middleware/errorHandler');
 const { globalLimiter } = require('./middleware/rateLimiters');
+const authMiddleware = require('./middleware/auth');
+const requireVerifiedEmail = require('./middleware/requireVerifiedEmail');
 const featureFlags = require('./config/featureFlags');
 
 // Initialize the call scheduler service
@@ -226,7 +228,10 @@ app.use('/api/follows', followRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/agent-arena', agentArenaRoutes);
-app.use('/api/applypilot', applyPilotRoutes);
+// Defense in depth: ApplyPilot already runs authMiddleware at the router
+// level, but we also block unverified emails before any handler runs so
+// CLI / extension clients can't bypass the React PrivateRoute gate.
+app.use('/api/applypilot', authMiddleware, requireVerifiedEmail, applyPilotRoutes);
 app.use('/api/interviews', interviewRoutes);
 
 app.use('/api/reputation', reputationRoutes);
@@ -234,7 +239,7 @@ if (featureFlags.recruiterSurface) {
   app.use('/api/vapi', vapiWebhookRoutes);
   app.use('/api/phone-screening', phoneScreeningRoutes);
 }
-app.use('/api/notifications', notificationRoutes);
+app.use('/api/notifications', authMiddleware, requireVerifiedEmail, notificationRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/kudos', kudosRoutes);
 app.use('/api/polls', pollsRoutes);
@@ -250,7 +255,10 @@ if (featureFlags.recruiterSurface) {
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/credit-packs', creditPackRoutes);
 app.use('/api/external-applications', externalApplicationRoutes);
-app.use('/api/external-jobs', externalJobRoutes);
+// All /api/external-jobs handlers already require auth; layering the
+// verified-email gate at the mount point blocks unverified callers from
+// the candidate job-discovery surface.
+app.use('/api/external-jobs', authMiddleware, requireVerifiedEmail, externalJobRoutes);
 app.use('/api/harvest', harvestRoutes);
 app.use('/api/admin', adminRoutes);
 

@@ -11,7 +11,9 @@ import {
   LinearProgress,
   Divider,
   IconButton,
-  InputAdornment
+  InputAdornment,
+  Checkbox,
+  FormControlLabel
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -70,6 +72,7 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [fromExtension] = useState(isFromExtension());
   const referrerId = searchParams.get('ref') || null;
   const token = localStorage.getItem('token');
@@ -191,6 +194,10 @@ const Register = () => {
     const { checks } = passwordStrength;
     if (!checks.minLength || !checks.hasLowercase || !checks.hasUppercase || !checks.hasNumber || !checks.hasSpecial) {
       setError(TEXT.ERRORS.PASSWORD_REQUIREMENTS);
+      return;
+    }
+    if (!acceptedTerms) {
+      setError(TEXT.ERRORS.CONSENT_REQUIRED);
       return;
     }
 
@@ -392,20 +399,35 @@ const Register = () => {
           </Grid>
         </Grid>
 
-        {/* Terms */}
-        <Typography variant="caption" color="text.secondary" sx={termsSx}>
-          By signing up you agree to our{' '}
-          <Link component={RouterLink} to={ROUTES.TERMS} sx={termsLinkSx}>
-            {TEXT.TERMS_LINK}
-          </Link>{' '}and{' '}
-          <Link component={RouterLink} to={ROUTES.PRIVACY} sx={termsLinkSx}>
-            {TEXT.PRIVACY_LINK}
-          </Link>.
-        </Typography>
+        {/* Terms consent */}
+        <FormControlLabel
+          sx={{ alignItems: 'flex-start', mt: 1, mr: 0 }}
+          control={
+            <Checkbox
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              size="small"
+              required
+              inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
+              sx={{ pt: 0.25 }}
+            />
+          }
+          label={
+            <Typography variant="caption" color="text.secondary" sx={termsSx}>
+              I have read and agree to the{' '}
+              <Link component={RouterLink} to={ROUTES.TERMS} target="_blank" rel="noopener" sx={termsLinkSx}>
+                {TEXT.TERMS_LINK}
+              </Link>{' '}and{' '}
+              <Link component={RouterLink} to={ROUTES.PRIVACY} target="_blank" rel="noopener" sx={termsLinkSx}>
+                {TEXT.PRIVACY_LINK}
+              </Link>.
+            </Typography>
+          }
+        />
       </form>
 
       <MobileStickyFooter>
-        <GradientButton type="submit" form="register-form" fullWidth size="large" sx={submitButtonSx} disabled={loading}>
+        <GradientButton type="submit" form="register-form" fullWidth size="large" sx={submitButtonSx} disabled={loading || !acceptedTerms}>
           {loading ? TEXT.SUBMITTING : TEXT.SUBMIT}
         </GradientButton>
 

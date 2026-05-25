@@ -54,6 +54,26 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     
+    // Backend rejected the request because email is not verified.
+    // Mirror the PrivateRoute behavior and bounce the user to /check-email
+    // with a banner so HTTP clients (extension, curl, refetches that race
+    // the PrivateRoute) get the same UX as in-app navigations.
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.error === 'email_not_verified'
+    ) {
+      const target = error.response.data.redirectTo || '/check-email';
+      if (!window.location.pathname.startsWith('/check-email')) {
+        const state = { reason: 'email_not_verified', message: error.response.data.message };
+        if (_navigate) {
+          _navigate(target, { state, replace: true });
+        } else {
+          window.location.href = target;
+        }
+      }
+      return Promise.reject(error);
+    }
+
     // Only clear auth on actual 401 from protected endpoints
     // Don't clear on login/register failures (those are expected 401s for wrong password)
     if (error.response?.status === 401) {

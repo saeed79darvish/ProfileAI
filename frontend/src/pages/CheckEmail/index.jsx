@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Typography, Button, Alert, CircularProgress, TextField } from '@mui/material';
 import MarkEmailReadOutlinedIcon from '@mui/icons-material/MarkEmailReadOutlined';
 import AuthLayout from '@/components/AuthLayout';
@@ -8,6 +8,10 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const CheckEmail = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const blockedReason = location.state?.reason === 'email_not_verified'
+    ? (location.state?.message || 'Please verify your email to continue.')
+    : null;
   const { user, logout, refreshUser } = useAuth();
   const [resendStatus, setResendStatus] = useState('idle'); // 'idle' | 'sending' | 'sent' | 'error'
   const [resendError, setResendError] = useState('');
@@ -111,6 +115,12 @@ const CheckEmail = () => {
           </Box>
           . Click the link to verify your account and continue.
         </Typography>
+
+        {blockedReason && (
+          <Alert severity="warning" sx={{ mb: 2, textAlign: 'left' }}>
+            {blockedReason}
+          </Alert>
+        )}
 
         {resendStatus === 'sent' && (
           <Alert severity="success" sx={{ mb: 2, textAlign: 'left' }}>

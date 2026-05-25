@@ -33,9 +33,11 @@ export const TEXT = {
   SUBMITTING: 'Creating Account...',
   LOGIN_PROMPT: 'Already have an account?',
   LOGIN_LINK: 'Log in',
+  CONSENT_REQUIRED: 'I have read and agree to the Terms of Service and Privacy Policy.',
   ERRORS: {
     PASSWORDS_MISMATCH: 'Passwords do not match',
     PASSWORD_REQUIREMENTS: 'Password must meet all requirements: 8+ chars, uppercase, lowercase, number, special character',
+    CONSENT_REQUIRED: 'You must accept the Terms of Service and Privacy Policy to create an account.',
     REGISTRATION_FAILED: 'Registration failed. Please try again.',
     GOOGLE_FAILED: 'Google sign-in failed. Please try again.',
     GOOGLE_SIGNUP_FAILED: 'Google sign-up failed. Please try again.',

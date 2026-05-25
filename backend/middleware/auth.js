@@ -25,6 +25,14 @@ const AUTH_MIDDLEWARE_SAFE_USER_FIELDS = [
 
 const authMiddleware = async (req, res, next) => {
   try {
+    // Idempotent: if a parent router already populated req.user, skip the
+    // DB lookup. This lets us mount authMiddleware once at the app boundary
+    // (e.g. alongside requireVerifiedEmail) without doubling the cost when
+    // the inner router also declares authMiddleware per-handler.
+    if (req.user && req.userId) {
+      return next();
+    }
+
     // Get token from header
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
