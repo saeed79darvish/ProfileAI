@@ -862,15 +862,23 @@ router.get('/recommended', authMiddleware, async (req, res) => {
 
     const profile = await Profile.findOne({
       where: { userId: req.user.id },
-      attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary', 'openaiEmbedding']
+      attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary', 'openaiEmbedding', 'openaiEmbeddingUpdatedAt']
     });
     if (!profile) {
       return res.json({ jobs: [], reason: 'no_profile' });
     }
 
     // Resolve profile embedding (persisted preferred; lazy-regen as fallback).
+    // Treat embeddings older than EMBEDDING_TTL_MS as stale and regenerate so
+    // skill/title edits that bypassed the afterSave hook still get reflected.
+    const EMBEDDING_TTL_MS = 24 * 60 * 60 * 1000;
+    const embeddingAgeMs = profile.openaiEmbeddingUpdatedAt
+      ? Date.now() - new Date(profile.openaiEmbeddingUpdatedAt).getTime()
+      : Infinity;
+    const embeddingIsStale = embeddingAgeMs > EMBEDDING_TTL_MS;
+
     let profileEmbedding = null;
-    if (profile.openaiEmbedding) {
+    if (profile.openaiEmbedding && !embeddingIsStale) {
       profileEmbedding = Array.isArray(profile.openaiEmbedding)
         ? profile.openaiEmbedding
         : (typeof profile.openaiEmbedding === 'string' ? JSON.parse(profile.openaiEmbedding) : null);
@@ -893,7 +901,13 @@ router.get('/recommended', authMiddleware, async (req, res) => {
             offset: 0,
             datePosted: days <= 7 ? 'week' : (days <= 14 ? '2weeks' : 'month'),
           });
-          return result.rows || [];
+          const semanticRows = result.rows || [];
+          // Empty result here almost always means the ExternalJob corpus
+          // has no embeddings yet (the searchSimilarJobs WHERE requires
+          // embedding IS NOT NULL). Fall through to the keyword path so
+          // the rail still has content while backfill runs.
+          if (semanticRows.length > 0) return semanticRows;
+          console.warn('[Recommended] semantic search returned 0 rows — falling back to keyword ranking. Likely cause: jobs missing embeddings (run scripts/backfillJobEmbeddings.js).');
         } catch (e) {
           console.warn('[Recommended] semantic search failed, falling back:', e.message);
         }
@@ -988,9 +1002,15 @@ function buildReason(job, profileSkills) {
     }
   }
 
-  // Match strength fallback
-  if (parts.length === 0 && typeof job.relevanceScore === 'number' && job.relevanceScore >= 70) {
-    parts.push(`Strong fit (${Math.round(job.relevanceScore)}% match)`);
+  // Match strength — always surface a % when we have one, so candidates
+  // don't see the vague "Recent listing for your area" hiding a 25% fit.
+  if (typeof job.relevanceScore === 'number') {
+    const pct = Math.round(job.relevanceScore);
+    if (parts.length === 0) {
+      if (pct >= 70) parts.push(`Strong fit (${pct}% match)`);
+      else if (pct >= 40) parts.push(`${pct}% match`);
+      else if (pct > 0) parts.push(`${pct}% match — light overlap`);
+    }
   }
 
   // Recency
