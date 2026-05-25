@@ -346,7 +346,8 @@ router.get('/me', auth, async (req, res) => {
         'subscriptionStatus',
         'subscriptionExpiresAt',
         'emailVerified',
-        'emailVerifiedAt'
+        'emailVerifiedAt',
+        'profilePictureUrl'
       ]
     });
 
@@ -354,7 +355,9 @@ router.get('/me', auth, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Fetch profile picture based on role - always get most recent profile
+    // Fetch profile picture based on role - always get most recent profile.
+    // Fall back to User.profilePictureUrl (e.g. Google avatar captured during
+    // OAuth signup) when the role-specific profile row doesn't have one yet.
     let profilePicture = null;
     let hasProfile = false;
     let hasRecruiterProfile = false;
@@ -364,7 +367,11 @@ router.get('/me', auth, async (req, res) => {
         order: [['createdAt', 'DESC']],
         attributes: ['profilePicture', 'companyLogo']
       });
-      profilePicture = recruiterProfile?.profilePicture || recruiterProfile?.companyLogo || null;
+      profilePicture =
+        recruiterProfile?.profilePicture ||
+        recruiterProfile?.companyLogo ||
+        user.profilePictureUrl ||
+        null;
       hasRecruiterProfile = !!recruiterProfile;
     } else {
       const profile = await Profile.findOne({ 
@@ -372,7 +379,7 @@ router.get('/me', auth, async (req, res) => {
         order: [['createdAt', 'DESC']],
         attributes: ['profilePicture']
       });
-      profilePicture = profile?.profilePicture || null;
+      profilePicture = profile?.profilePicture || user.profilePictureUrl || null;
       hasProfile = !!profile;
     }
 
