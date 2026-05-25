@@ -22,7 +22,7 @@ const ExternalJob = sequelize.define('ExternalJob', {
     comment: 'The company board token/slug used to fetch this job'
   },
   title: {
-    type: DataTypes.STRING,
+    type: DataTypes.TEXT,
     allowNull: false
   },
   company: {
@@ -30,7 +30,7 @@ const ExternalJob = sequelize.define('ExternalJob', {
     allowNull: false
   },
   location: {
-    type: DataTypes.STRING,
+    type: DataTypes.TEXT,
     allowNull: true
   },
   locationType: {
@@ -49,7 +49,7 @@ const ExternalJob = sequelize.define('ExternalJob', {
     comment: 'entry, mid, senior, lead, executive'
   },
   department: {
-    type: DataTypes.STRING,
+    type: DataTypes.TEXT,
     allowNull: true
   },
   description: {
