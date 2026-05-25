@@ -84,7 +84,15 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
     });
 
   } catch (error) {
-    console.error('Error uploading resume:', error);
+    console.error('Error uploading resume:', {
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+      userId: req.user?.id,
+      filename: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+    });
     
     // Handle multer errors
     if (error.message === 'Only PDF and DOCX files are allowed') {
@@ -95,7 +103,12 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
       return res.status(400).json({ error: 'File size exceeds 5MB limit' });
     }
 
-    res.status(500).json({ error: 'Error processing resume' });
+    res.status(500).json({
+      error: 'Error processing resume',
+      // Surface the underlying message so the frontend / browser console
+      // shows something actionable instead of an opaque 500.
+      detail: error?.message || 'unknown'
+    });
   }
 });
 

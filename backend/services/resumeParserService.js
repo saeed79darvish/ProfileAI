@@ -10,7 +10,11 @@
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
-const pdfParse = require('pdf-parse');
+// IMPORTANT: pdf-parse@1.1.1's top-level index.js has a debug shim that
+// tries to read a bundled test fixture when `module.parent` is undefined,
+// which is the case under Render's Node 22 runtime. Requiring the inner
+// lib path directly avoids that codepath entirely.
+const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const mammoth = require('mammoth');
 
 // Import modular components
