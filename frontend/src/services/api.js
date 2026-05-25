@@ -298,15 +298,26 @@ export const resumeAPI = {
 };
 
 // Posts/Feed API
+//
+// The social feed is gated behind ENABLE_FEED on the backend. When it's
+// disabled the /api/posts/* routes aren't mounted, so they 404 — which is
+// expected, not an error. Wrap read endpoints so a 404 surfaces as an empty
+// list instead of a thrown error and a noisy console log on every Profile /
+// Dashboard / Company page render.
+const emptyPostsResponse = { data: { posts: [], pagination: { total: 0, page: 1, pages: 0 } } };
+const swallowFeed404 = (err) => {
+  if (err?.response?.status === 404) return emptyPostsResponse;
+  throw err;
+};
 export const postAPI = {
   // Get all posts with optional filtering
-  getAll: (params = {}) => api.get('/posts', { params }),
-  
+  getAll: (params = {}) => api.get('/posts', { params }).catch(swallowFeed404),
+
   // Get a single post by ID
   getById: (id) => api.get(`/posts/${id}`),
-  
+
   // Get posts by a specific user
-  getByUser: (userId, params = {}) => api.get(`/posts/user/${userId}`, { params }),
+  getByUser: (userId, params = {}) => api.get(`/posts/user/${userId}`, { params }).catch(swallowFeed404),
   
   // Create a new post
   create: (postData) => api.post('/posts', postData),
