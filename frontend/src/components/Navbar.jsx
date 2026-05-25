@@ -996,6 +996,17 @@ const Navbar = () => {
           <Logo
             type="button"
             onClick={() => {
+              // If the user is currently inside the onboarding flow, the logo
+              // must not yank them out of it — keep them on the same page.
+              const onboardingPaths = [
+                '/profile/create',
+                '/onboarding',
+                '/check-email',
+                '/verify-email',
+              ];
+              if (onboardingPaths.some(p => location.pathname.startsWith(p))) {
+                return;
+              }
               // Candidates who haven't built a profile yet shouldn't be bounced
               // to the authenticated home/hub — it pulls /api/profiles/me and
               // shows broken state. Send them back to the profile creation
