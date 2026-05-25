@@ -23,12 +23,18 @@
  *      cheap indexes and the filter is exact-equality so B-tree is the
  *      right structure.
  *
- *      We intentionally do NOT index `location` or `department` here —
- *      both are queried with `ILIKE '%...%'` which can't use a B-tree.
- *      A future improvement could add a pg_trgm GIN index on those, but
- *      it's lower-priority than the semantic path.
+ *   3. pg_trgm GIN indexes on `location`, `company`, `department`.
  *
- *   3. Composite index on (isActive, postedAt DESC) — the default sort
+ *      These three columns are filtered with `ILIKE '%...%'`, which a
+ *      B-tree can't help with (the leading wildcard prevents prefix
+ *      matching). pg_trgm's `gin_trgm_ops` builds an inverted index of
+ *      3-character trigrams so substring ILIKE queries become index
+ *      probes instead of full table scans. The corpus is small enough
+ *      that the gain is modest today, but it scales correctly as the
+ *      job count grows and removes the ILIKE columns from EXPLAIN as a
+ *      hotspot.
+ *
+ *   4. Composite index on (isActive, postedAt DESC) — the default sort
  *      key for every list request. Covers the "most recent active jobs"
  *      query path that fires when no search term is provided.
  *
@@ -51,6 +57,11 @@ async function migrate() {
     // defensive so this script can be run standalone in a fresh DB.
     await sequelize.query('CREATE EXTENSION IF NOT EXISTS vector;');
     console.log('  ✓ pgvector extension present');
+
+    // pg_trgm powers the GIN trigram indexes on ILIKE-filtered text
+    // columns (location/company/department).
+    await sequelize.query('CREATE EXTENSION IF NOT EXISTS pg_trgm;');
+    console.log('  ✓ pg_trgm extension present');
 
     // ---------- HNSW index on ExternalJobs.embedding ----------
     // Note: index creation on a large table can be slow (minutes) but
@@ -77,6 +88,21 @@ async function migrate() {
       console.log(`  ↻ ${idxName}…`);
       await sequelize.query(
         `CREATE INDEX IF NOT EXISTS "${idxName}" ON "ExternalJobs" ("${col}");`
+      );
+      console.log(`  ✓ ${idxName}`);
+    }
+
+    // ---------- pg_trgm GIN indexes for ILIKE columns ----------
+    // `location`, `company`, `department` are all filtered with
+    // ILIKE '%...%'. A trigram GIN index turns the planner's seq scan
+    // into a bitmap index scan. Index size is ~2-3x a B-tree on the
+    // same column, which is fine for these short text fields.
+    const trigramColumns = ['location', 'company', 'department'];
+    for (const col of trigramColumns) {
+      const idxName = `external_jobs_${col}_trgm_idx`;
+      console.log(`  ↻ ${idxName}…`);
+      await sequelize.query(
+        `CREATE INDEX IF NOT EXISTS "${idxName}" ON "ExternalJobs" USING gin ("${col}" gin_trgm_ops);`
       );
       console.log(`  ✓ ${idxName}`);
     }
