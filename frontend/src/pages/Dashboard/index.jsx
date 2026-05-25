@@ -74,6 +74,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAuth } from '@/contexts/AuthContext';
 import { profileAPI, tailoredProfileAPI, subscriptionAPI, postAPI, resolveImageUrl } from '@/services/api';
 import { formatDateRange } from '@/utils/dateRange';
+import { diag } from '@/utils/diagLogger';
 import ResumePreviewModal from '@/components/ResumePreviewModal';
 import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
@@ -353,6 +354,18 @@ const Dashboard = () => {
   const [onboardingMode, setOnboardingMode] = useState('full'); // 'full' | 'compact' | 'hidden'
 
   useEffect(() => {
+    diag('dashboard.mount', {
+      userId: user?.id,
+      role: user?.role,
+      hasProfile: user?.hasProfile,
+      authLoading,
+      isAuthenticated,
+    });
+    return () => diag('dashboard.unmount');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const nextTab = TAB_MAP[requestedTab];
     if (nextTab !== undefined && nextTab !== activeTab) {
       setActiveTab(nextTab);
@@ -465,6 +478,7 @@ const Dashboard = () => {
     const loadProfile = async () => {
       if (!user) {
         authDebug('skip loadProfile: no user');
+        diag('dashboard.loadProfile.skip', { reason: 'no-user' });
         setLoading(false);
         return;
       }
@@ -472,16 +486,27 @@ const Dashboard = () => {
       try {
         setLoading(true);
         authDebug('loadProfile request start', { userId: user?.id, role: user?.role });
+        diag('dashboard.loadProfile.start', { userId: user?.id, role: user?.role });
         const response = await profileAPI.getMyProfile();
         authDebug('loadProfile success', {
           hasData: !!response?.data,
           title: response?.data?.title || null
+        });
+        diag('dashboard.loadProfile.success', {
+          hasData: !!response?.data,
+          title: response?.data?.title || null,
+          profileId: response?.data?.id || null,
         });
         setProfile(response.data);
       } catch (err) {
         authDebug('loadProfile error', {
           status: err?.response?.status,
           message: err?.response?.data?.message || err?.message
+        });
+        diag('dashboard.loadProfile.error', {
+          status: err?.response?.status,
+          message: err?.response?.data?.message || err?.message,
+          code: err?.code,
         });
         if (err.response?.status === 404) {
           // Check if user has an in-progress draft before redirecting to onboarding

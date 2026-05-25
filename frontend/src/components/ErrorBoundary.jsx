@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Paper, Typography, Button, Stack } from '@mui/material';
 import { ErrorOutline as ErrorIcon, Refresh as RefreshIcon, Home as HomeIcon } from '@mui/icons-material';
+import { diag } from '../utils/diagLogger';
 
 /**
  * Top-level error boundary for catching render-time errors in lazy-loaded
@@ -21,6 +22,11 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, errorInfo) {
     // eslint-disable-next-line no-console
     console.error('[ErrorBoundary] Caught render error:', error, errorInfo);
+    diag('errorBoundary.caught', {
+      message: error?.message,
+      stack: error?.stack,
+      componentStack: errorInfo?.componentStack,
+    });
     // Persist to localStorage so prod crashes are diagnosable even when
     // the console gets cleared, filtered, or the user can't paste it back.
     try {

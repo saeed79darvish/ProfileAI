@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { authAPI, resolveImageUrl } from '../services/api';
+import { diag } from '../utils/diagLogger';
 
 const AuthContext = createContext(null);
 
@@ -24,12 +25,14 @@ export const AuthProvider = ({ children }) => {
     // Check if user is logged in
     const storedUser = localStorage.getItem('user');
     authDebug('hydrate start', { hasStoredUser: !!storedUser, hasToken: !!token });
+    diag('auth.hydrate.start', { hasStoredUser: !!storedUser, hasToken: !!token });
     if (storedUser && token) {
       let parsedUser;
       try {
         parsedUser = JSON.parse(storedUser);
       } catch {
         // Corrupt localStorage entry, clear and treat as logged out
+        diag('auth.hydrate.corruptUser');
         localStorage.removeItem('user');
         localStorage.removeItem('token');
         setToken(null);
@@ -48,6 +51,12 @@ export const AuthProvider = ({ children }) => {
       setUser(parsedUser);
       setLoading(false);
       setIsValidating(true);
+      diag('auth.hydrate.eager', {
+        userId: parsedUser?.id,
+        role: parsedUser?.role,
+        hasProfile: parsedUser?.hasProfile,
+        emailVerified: parsedUser?.emailVerified,
+      });
 
       // Validate token with the server in the background and refresh user data
       authAPI.getMe().then(res => {
@@ -57,6 +66,13 @@ export const AuthProvider = ({ children }) => {
           emailVerified: freshUser?.emailVerified,
           hasProfile: freshUser?.hasProfile,
           hasRecruiterProfile: freshUser?.hasRecruiterProfile
+        });
+        diag('auth.getMe.success', {
+          userId: freshUser?.id,
+          role: freshUser?.role,
+          hasProfile: freshUser?.hasProfile,
+          emailVerified: freshUser?.emailVerified,
+          subscriptionTier: freshUser?.subscriptionTier,
         });
         if (freshUser.profilePicture) {
           freshUser.profilePicture = resolveImageUrl(freshUser.profilePicture);
@@ -80,6 +96,12 @@ export const AuthProvider = ({ children }) => {
       }).catch((err) => {
         const status = err?.response?.status;
         authDebug('getMe failed', { status, message: err?.message });
+        diag('auth.getMe.failed', {
+          status,
+          message: err?.message,
+          code: err?.code,
+          willLogout: status === 401 || status === 403,
+        });
         // Only clear auth on a real auth rejection from the server.
         // Network errors, timeouts, 5xx, cold starts, CORS hiccups, etc.
         // are transient and must NOT log the user out — otherwise a hard
@@ -125,6 +147,7 @@ export const AuthProvider = ({ children }) => {
   // Keep in-memory auth state in sync when the API interceptor force-logs out.
   useEffect(() => {
     const handleSessionExpired = () => {
+      diag('auth.sessionExpired');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('originalToken');

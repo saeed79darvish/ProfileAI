@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { diag } from '../utils/diagLogger';
 
 // Use relative URL so requests go through the Vite proxy in development
 // and through the Cloudflare worker `/api/*` proxy in production. The
@@ -54,6 +55,12 @@ api.interceptors.response.use(
     // Network error - backend might be down, DON'T clear auth
     if (!error.response) {
       console.log('[API] Network error - backend may be down, keeping session');
+      diag('api.networkError', {
+        url: error.config?.url,
+        method: error.config?.method,
+        message: error.message,
+        code: error.code,
+      });
       return Promise.reject(error);
     }
     
@@ -106,6 +113,7 @@ api.interceptors.response.use(
       // Only force logout if it's a protected endpoint returning 401 (token expired/invalid)
       if (!isAuthEndpoint && !isAuthPage && (isGetMe || !isWithinBootGrace)) {
         console.log('[API] 401 from protected endpoint - session expired', { url, isGetMe });
+        diag('api.401.forceLogout', { url, isGetMe, sinceBoot });
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         // Notify AuthContext so in-memory auth state is cleared immediately.
@@ -119,7 +127,15 @@ api.interceptors.response.use(
         }
       } else if (!isAuthEndpoint && !isAuthPage) {
         console.log('[API] Ignoring transient 401 during boot grace window', { url });
+        diag('api.401.bootGraceIgnored', { url, sinceBoot });
       }
+    }
+    if (error.response?.status >= 500) {
+      diag('api.5xx', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+      });
     }
     return Promise.reject(error);
   }
