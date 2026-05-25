@@ -6,7 +6,7 @@ import { Lock as LockIcon } from '@mui/icons-material';
 import { notifyOnboardingBlocked } from '../utils/onboardingGate';
 
 const PrivateRoute = ({ children, allowedRoles = null }) => {
-  const { isAuthenticated, loading, user } = useAuth();
+  const { isAuthenticated, loading, isValidating, user } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -52,7 +52,12 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     isAuthenticated &&
     user?.role === 'candidate' &&
     user?.hasProfile !== true &&
-    !isOnboardingAllowedPath
+    !isOnboardingAllowedPath &&
+    // Defer the onboarding redirect while we're still revalidating the
+    // cached user via /auth/me. The localStorage snapshot may be missing
+    // `hasProfile` (older sessions, partial OAuth payload) and we don't
+    // want to bounce candidates off /profile during the validation window.
+    !isValidating
   ) {
     // Surface a toast so the user understands why they're being bounced
     // back, instead of silently redirecting them. Fired as a side-effect

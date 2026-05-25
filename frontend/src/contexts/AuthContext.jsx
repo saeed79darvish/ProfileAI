@@ -7,6 +7,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
+  // True while we've eagerly hydrated `user` from localStorage but haven't
+  // yet revalidated with /auth/me. Used by PrivateRoute to defer redirects
+  // that depend on fields (like hasProfile) that may be missing/stale in the
+  // cached user object until the background revalidation lands.
+  const [isValidating, setIsValidating] = useState(false);
   const [originalToken, setOriginalToken] = useState(localStorage.getItem('originalToken'));
   const authDebugEnabled =
     window.location.search.includes('authDebug=1') ||
@@ -42,6 +47,7 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(parsedUser);
       setLoading(false);
+      setIsValidating(true);
 
       // Validate token with the server in the background and refresh user data
       authAPI.getMe().then(res => {
@@ -80,6 +86,7 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
       }).finally(() => {
         setLoading(false);
+        setIsValidating(false);
       });
     } else {
       authDebug('hydrate skipped (missing token or user)');
@@ -316,7 +323,8 @@ export const AuthProvider = ({ children }) => {
     setToken,
     isAuthenticated: !!token,
     isImpersonating: !!originalToken || user?.isImpersonation,
-    loading
+    loading,
+    isValidating
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
