@@ -78,12 +78,15 @@ function normalizeGreenhouseJob(job, boardToken) {
     salaryPeriod: null,
     applyUrl: job.absolute_url || null,
     sourceUrl: job.absolute_url || null,
-    // Greenhouse's public board API only exposes `updated_at`, which gets
-    // bulk-stamped whenever a company edits *any* job (causing thousands of
-    // unrelated jobs to appear "posted" the same minute). It is not a real
-    // first-published date, so we deliberately store NULL and let the UI fall
-    // back to `createdAt` ("first seen by us") with a "Listed N ago" label.
-    postedAt: null,
+    // Greenhouse's public board API only exposes `updated_at` — there is no
+    // true `first_published` field. In practice `updated_at` is set when the
+    // job is posted and then again whenever the requisition is edited. It's
+    // imperfect (a stale job will look "fresh" right after an edit) but it's
+    // far better than the previous behavior of leaving postedAt NULL and
+    // having every job from a single cron sweep show the same crawl time.
+    // The UI labels this as "Posted" — for the small fraction of jobs that
+    // were recently edited, that label slightly overstates freshness.
+    postedAt: job.updated_at ? new Date(job.updated_at) : null,
     isActive: true,
     lastFetchedAt: new Date(),
     metadata: {
