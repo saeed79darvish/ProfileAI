@@ -113,7 +113,8 @@ const LogoText = styled.span`
 `;
 
 /* The single nav row that holds primary items + actions + user menu.
-   Hidden below the desktop breakpoint (where the hamburger replaces it). */
+   On tablet (640–1023px) we keep it visible but collapse to icon-only.
+   The hamburger only replaces it below 640px (mobile). */
 const NavRow = styled.div`
   display: flex;
   align-items: center;
@@ -122,7 +123,8 @@ const NavRow = styled.div`
   flex: 1;
   justify-content: flex-end;
 
-  ${media.tabletDown} { display: none; }
+  ${media.tablet} { gap: 2px; }
+  ${media.mobile} { display: none; }
 `;
 
 const NavItem = styled.button`
@@ -146,6 +148,13 @@ const NavItem = styled.button`
 
   &:hover { background: rgba(167, 139, 250, 0.15); color: #c4b5fd; }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+
+  /* Tablet: icon-only nav — hide the text label, keep the icon. */
+  ${media.tablet} {
+    padding: 8px 10px;
+    gap: 0;
+    .label { display: none; }
+  }
 `;
 
 const IconBtn = styled.button`
@@ -192,7 +201,7 @@ const Hamburger = styled.button`
   &:hover { background: rgba(167, 139, 250, 0.1); }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 
-  ${media.tabletDown} { display: inline-flex; }
+  ${media.mobile} { display: inline-flex; }
 `;
 
 /* User pill */
@@ -868,8 +877,8 @@ const Navbar = () => {
   const renderAuthCTAs = () => (
     <>
       <NavItem type="button" onClick={() => go('/login')} aria-label="Sign In">
-        <span className="label">Sign In</span>
-        <PersonIcon aria-hidden="true" fontSize="small" style={{ display: 'none' }} />
+        {/* No .label wrapper: keep visible in tablet icon-only mode too. */}
+        Sign In
       </NavItem>
       <NavItem
         type="button"
@@ -881,8 +890,7 @@ const Navbar = () => {
           fontWeight: 700,
         }}
       >
-        <span className="label">Get Started</span>
-        <RocketIcon aria-hidden="true" fontSize="small" style={{ display: 'none' }} />
+        Get Started
       </NavItem>
     </>
   );
