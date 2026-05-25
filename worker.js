@@ -33,6 +33,19 @@ export default {
     // ---- Static asset / SPA fallback ----
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404) return response;
+
+    // Only fall back to index.html for SPA navigations (HTML requests).
+    // For missing hashed assets (e.g. /assets/index-OLDHASH.js from a stale
+    // index.html in someone's cache) we MUST return the original 404 — if we
+    // returned index.html with content-type text/html the browser would
+    // refuse to execute it as a module ("Failed to load module script:
+    // Expected a JavaScript-or-Wasm module script but the server responded
+    // with a MIME type of 'text/html'"), which then crashes the whole app
+    // through the error boundary.
+    if (url.pathname.startsWith('/assets/')) return response;
+    const accept = request.headers.get('Accept') || '';
+    if (!accept.includes('text/html')) return response;
+
     url.pathname = '/index.html';
     return env.ASSETS.fetch(new Request(url.toString(), request));
   },
