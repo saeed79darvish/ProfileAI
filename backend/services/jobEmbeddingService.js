@@ -413,22 +413,45 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
   if (search) {
     if (searchEmbedding) {
-      // Even in semantic mode, the user's typed query must act as a hard
-      // filter against title / company / department — otherwise the entire
-      // corpus is admitted and merely re-ranked, so a search for
-      // "Frontend Engineer" still surfaces Data Scientist / Mainframe roles
-      // at the top. We mirror the keyword path's weight-restricted tsv check
-      // (A = title, B = company / department) and let cosine similarity
-      // rank within the narrowed set. Description-only hits are still
-      // excluded — they're noisy.
-      conditions.push(`(
-        setweight(to_tsvector('english', coalesce(ej."title", '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(ej."company", '')), 'B') ||
-        setweight(to_tsvector('english', coalesce(ej."department", '')), 'B')
-      ) @@ plainto_tsquery('english', $${bindIndex})`);
-      binds.push(search);
-      bindIndex++;
-    } else {
+      // Semantic mode: we have a vector for the search query, so cosine
+      // similarity (in scoreExpr below) already ranks by semantic
+      // relevance. The role of the typed query here is only to keep the
+      // candidate set on-topic — not to be the primary filter.
+      //
+      // We used to require an AND match against title/company/department
+      // via plainto_tsquery, which over-restricted multi-word searches:
+      //   "Software Architect" → had to contain BOTH "software" + "architect"
+      //   in title/company/dept, so "Solutions Architect", "Cloud Architect",
+      //   "Principal Architect", "Staff Engineer, Architecture" were all
+      //   excluded even though their embedding is highly similar.
+      //
+      // Switch to OR semantics on prefix-stemmed tokens: any single token
+      // hit in title/company/dept is enough. Cosine similarity then ranks
+      // within that pool, so good fits still float to the top and obvious
+      // mismatches sink. We sanitize tokens to [a-z0-9]+ so user input
+      // can't break to_tsquery syntax (single quotes / colons / parens
+      // are stripped at the JS layer; the value is also passed via a
+      // bind, not interpolated).
+      const orTokens = String(search)
+        .toLowerCase()
+        .split(/[^a-z0-9+#.]+/)
+        .map(t => t.replace(/[^a-z0-9]/g, ''))
+        .filter(t => t.length >= 2)
+        .slice(0, 8); // cap so a giant paste can't blow up the query
+
+      if (orTokens.length > 0) {
+        const tsqExpr = orTokens.map(t => `${t}:*`).join(' | ');
+        conditions.push(`(
+          setweight(to_tsvector('english', coalesce(ej."title", '')), 'A') ||
+          setweight(to_tsvector('english', coalesce(ej."company", '')), 'B') ||
+          setweight(to_tsvector('english', coalesce(ej."department", '')), 'B')
+        ) @@ to_tsquery('english', $${bindIndex})`);
+        binds.push(tsqExpr);
+        bindIndex++;
+      }
+      // If sanitization stripped everything (e.g. pure symbols), let
+      // cosine similarity handle the ranking alone — the search embedding
+      // still carries the semantic intent. else {
       // No embedding available: weighted full-text via the searchTsv
       // generated column + GIN index. Title hits rank highest (weight A),
       // company/dept mid (B), description low (C).
