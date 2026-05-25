@@ -28,6 +28,31 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     return <Navigate to="/check-email" replace />;
   }
 
+  // Candidates who haven't built a profile yet must finish onboarding first.
+  // No matter which protected route they refresh on (/profile, /jobs, /feed,
+  // etc.) we route them back to the profile-creation flow so they can't get
+  // stuck on a screen that depends on an existing profile.
+  const ONBOARDING_ALLOWED_PREFIXES = [
+    '/profile/create',
+    '/onboarding',
+    '/check-email',
+    '/verify-email',
+    '/terms',
+    '/privacy',
+    '/logout',
+  ];
+  const isOnboardingAllowedPath = ONBOARDING_ALLOWED_PREFIXES.some((p) =>
+    location.pathname === p || location.pathname.startsWith(p + '/')
+  );
+  if (
+    isAuthenticated &&
+    user?.role === 'candidate' &&
+    user?.hasProfile !== true &&
+    !isOnboardingAllowedPath
+  ) {
+    return <Navigate to="/profile/create" replace />;
+  }
+
   // Check if user has required role (admin only bypasses if 'admin' is explicitly allowed or no roles specified)
   if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
     // User is authenticated but doesn't have permission
