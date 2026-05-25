@@ -21,6 +21,21 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, errorInfo) {
     // eslint-disable-next-line no-console
     console.error('[ErrorBoundary] Caught render error:', error, errorInfo);
+    // Persist to localStorage so prod crashes are diagnosable even when
+    // the console gets cleared, filtered, or the user can't paste it back.
+    try {
+      localStorage.setItem(
+        'profileai_last_error',
+        JSON.stringify({
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+          componentStack: errorInfo?.componentStack || null,
+          url: window.location.href,
+          ts: new Date().toISOString(),
+        })
+      );
+    } catch { /* ignore quota / storage errors */ }
+    this.setState({ errorInfo });
   }
 
   handleReset = () => {
@@ -37,7 +52,9 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      const isDev = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
+      // Show the error details inline in ALL environments. Without this,
+      // prod crashes (e.g. refresh-on-/profile) are undiagnosable because
+      // the console is filtered/cleared by the time we look at it.
       return (
         <Box
           sx={{
@@ -61,7 +78,7 @@ class ErrorBoundary extends React.Component {
               We hit an unexpected error rendering this page. Try refreshing — if
               the problem persists, head back to the home page.
             </Typography>
-            {isDev && this.state.error && (
+            {this.state.error && (
               <Box
                 component="pre"
                 sx={{
@@ -69,13 +86,20 @@ class ErrorBoundary extends React.Component {
                   bgcolor: 'grey.100',
                   p: 2,
                   borderRadius: 1,
-                  fontSize: 12,
+                  fontSize: 11,
+                  lineHeight: 1.4,
                   overflowX: 'auto',
                   mb: 3,
-                  maxHeight: 200,
+                  maxHeight: 320,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
                 }}
               >
-                {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
+                {String(this.state.error?.message || this.state.error) + '\n\n' +
+                  (this.state.error?.stack || '') +
+                  (this.state.errorInfo?.componentStack
+                    ? '\n\nComponent stack:' + this.state.errorInfo.componentStack
+                    : '')}
               </Box>
             )}
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center">
