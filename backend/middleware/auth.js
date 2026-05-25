@@ -52,6 +52,15 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ error: 'Token is not valid' });
     }
 
+    // Authed responses are user-specific. Prevent ANY shared/proxy/browser
+    // caching so a different account on the same browser (or a stale 304
+    // from disk cache) can never see another user's data. Without this we
+    // observed prod sessions reading the previous user's /profiles/me body
+    // from the HTTP cache after re-login.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     req.user = user;
     req.userId = user.id;
     next();

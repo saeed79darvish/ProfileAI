@@ -944,6 +944,13 @@ Provide ONLY the enhanced bio, nothing else.`;
 // @access  Private
 router.get('/me', authMiddleware, async (req, res) => {
   try {
+    // Authed, user-specific response. Disable shared/proxy/browser caching so
+    // a different user on the same browser (or a stale 304 from disk cache)
+    // can never see another account's profile.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     const profile = await Profile.findOne({
       where: { userId: req.user.id }
     });

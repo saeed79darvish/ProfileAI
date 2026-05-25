@@ -280,7 +280,7 @@ const getProfileSlug = (user, profile) => {
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, loading: authLoading, isAuthenticated } = useAuth();
+  const { user, loading: authLoading, isAuthenticated, isValidating } = useAuth();
   const authDebugEnabled =
     window.location.search.includes('authDebug=1') ||
     localStorage.getItem('profileai_auth_debug') === '1';
@@ -454,24 +454,40 @@ const Dashboard = () => {
       role: user?.role,
       hasProfile: user?.hasProfile,
       authLoading,
+      isValidating,
       loading
     });
     if (user?.role === 'recruiter') {
       navigate('/recruiter/dashboard');
     } else if (user?.role === 'admin') {
       navigate('/admin');
-    } else if (user?.role === 'candidate' && user?.hasProfile === false) {
+    } else if (
+      user?.role === 'candidate' &&
+      user?.hasProfile === false &&
+      // Don't trust the eagerly-hydrated localStorage flag — it's commonly
+      // stale right after a fresh register+createProfile flow. Wait until
+      // the background /auth/me call confirms the user genuinely has no
+      // profile before bouncing to onboarding.
+      !isValidating
+    ) {
       authDebug('redirect candidate to onboarding (hasProfile false)');
       navigate('/onboarding');
     }
-  }, [user, navigate]);
+  }, [user, navigate, isValidating]);
 
   useEffect(() => {
-    if (!authLoading && !loading && user?.role === 'candidate' && !profile && !error) {
+    if (
+      !authLoading &&
+      !isValidating &&
+      !loading &&
+      user?.role === 'candidate' &&
+      !profile &&
+      !error
+    ) {
       authDebug('redirect candidate to onboarding (no profile loaded)');
       navigate('/onboarding');
     }
-  }, [authLoading, loading, user, profile, error, navigate]);
+  }, [authLoading, isValidating, loading, user, profile, error, navigate]);
 
   // Load profile data
   useEffect(() => {
