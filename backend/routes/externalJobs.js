@@ -360,8 +360,13 @@ router.get('/', authMiddleware, async (req, res) => {
       where.department = { [Op.iLike]: `%${department}%` };
     }
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    // Clamp pagination inputs. Without bounds a client could send
+    // `limit=999999` and OOM the API process by materializing a huge
+    // result set, or `page=0` / negative values that produce nonsense
+    // OFFSETs. 100 is more than any UI shows; 1000 pages of 100 is
+    // already 100k rows which is well beyond the corpus.
+    const pageNum = Math.max(1, Math.min(parseInt(page, 10) || 1, 1000));
+    const limitNum = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
 
     // --- Sort mode ---
     // Three user-facing modes, normalized at the top of this function:
@@ -395,13 +400,16 @@ router.get('/', authMiddleware, async (req, res) => {
                 : null);
         }
         if (!profileEmbedding) {
-          // First-time fallback: generate, persist, then use for this request.
-          try {
-            const { regenerateProfileOpenAIEmbedding } = require('../services/jobEmbeddingService');
-            profileEmbedding = await regenerateProfileOpenAIEmbedding(profile);
-          } catch (e) {
-            console.warn('[ExternalJobs] Could not generate profile embedding:', e.message);
-          }
+          // No persisted embedding yet — kick off a regen in the background
+          // and fall through to the keyword path for THIS request. We
+          // intentionally don't await: the OpenAI roundtrip is 300-800ms
+          // and would block the first /jobs paint for every legacy user.
+          // The next request (or any request after the cron warmup) will
+          // find the persisted embedding and take the semantic path.
+          const { regenerateProfileOpenAIEmbedding } = require('../services/jobEmbeddingService');
+          regenerateProfileOpenAIEmbedding(profile).catch((e) => {
+            console.warn('[ExternalJobs] background profile embedding regen failed:', e.message);
+          });
         }
       }
 

@@ -407,6 +407,15 @@ const CandidateJobs = () => {
   const [locationInput, setLocationInput] = useState(searchParams.get('location') || '');
   const pinnedJobRef = useRef(null); // Job from global search to pin at top of list
 
+  // AbortControllers for in-flight job fetches. We cancel the prior
+  // request before kicking off a new one when the user types a new
+  // search term, toggles a filter, or navigates away. Without this,
+  // a slow earlier response can land AFTER a faster newer one and
+  // overwrite the UI with stale results — and unmount setState
+  // warnings if the user navigates off the page mid-fetch.
+  const jobsAbortRef = useRef(null);
+  const externalJobsAbortRef = useRef(null);
+
   // Mobile job detail states
   const [mobileDescExpanded, setMobileDescExpanded] = useState(false);
   const [mobileGapOpen, setMobileGapOpen] = useState(false);
@@ -692,6 +701,14 @@ const CandidateJobs = () => {
   // When `append` is true (used by "Load more"), new jobs are concatenated
   // onto the existing list instead of replacing it.
   const fetchExternalJobs = useCallback(async (page = 1, { append = false } = {}) => {
+    // Cancel any prior in-flight external-jobs request. Without this,
+    // typing fast or rapidly toggling filters can race the responses
+    // and overwrite the latest results with an older one.
+    if (externalJobsAbortRef.current) {
+      externalJobsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    externalJobsAbortRef.current = controller;
     try {
       // Show the inline "loading more" spinner instead of the full skeleton
       // when appending — the existing list shouldn't disappear under the user.
@@ -717,7 +734,7 @@ const CandidateJobs = () => {
       // default 'recent') is honored. Backend defaults to 'recommended' if
       // the param is missing, so we'd otherwise silently fall back.
       if (sortMode) params.sort = sortMode;
-      const response = await externalJobAPI.getAll(params);
+      const response = await externalJobAPI.getAll(params, { signal: controller.signal });
       let fetchedExtJobs = response.data.jobs || [];
       // Prepend pinned job from search if applicable (only on first page —
       // appended pages should never re-prepend the pinned job).
@@ -772,10 +789,22 @@ const CandidateJobs = () => {
         }).catch(() => {});
       }
     } catch (error) {
+      // Axios surfaces aborted requests with code === 'ERR_CANCELED' or
+      // name === 'CanceledError'. Either way, an abort is expected here
+      // (user typed a new term / changed filters / left the page) and
+      // should NOT be logged or flip any UI state — the newer request
+      // will take it from here.
+      if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return;
       console.error('Error fetching external jobs:', error);
     } finally {
-      if (append) setLoadingMoreExternal(false);
-      else setExternalJobsLoading(false);
+      // Only flip the loading flag for the controller that owns THIS
+      // request. If a newer fetch has already replaced us, leave its
+      // loading state alone — otherwise we'd flicker the spinner off
+      // while the newer request is still in flight.
+      if (externalJobsAbortRef.current === controller) {
+        if (append) setLoadingMoreExternal(false);
+        else setExternalJobsLoading(false);
+      }
     }
   }, [debouncedSearch, debouncedFilters, isAuthenticated, sortMode]);
 
@@ -798,6 +827,11 @@ const CandidateJobs = () => {
   // in a row coalesces into a single network request. UI chips still read
   // `filters` directly so they highlight instantly.
   const fetchJobs = useCallback(async () => {
+    if (jobsAbortRef.current) {
+      jobsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    jobsAbortRef.current = controller;
     try {
       setLoading(true);
       const params = { status: 'active', limit: 20 };
@@ -815,7 +849,7 @@ const CandidateJobs = () => {
         if (sal?.min != null) params.salaryMin = sal.min;
         if (sal?.max != null) params.salaryMax = sal.max;
       }
-      const response = await jobAPI.getAll(params);
+      const response = await jobAPI.getAll(params, { signal: controller.signal });
       let fetchedJobs = response.data.jobs || response.data || [];
       // Prepend pinned job from search if applicable
       const pinned = pinnedJobRef.current;
@@ -848,9 +882,13 @@ const CandidateJobs = () => {
         }).catch(() => {});
       }
     } catch (error) {
+      // Aborts are expected — see fetchExternalJobs for the full rationale.
+      if (error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return;
       console.error('Error fetching jobs:', error);
     } finally {
-      setLoading(false);
+      if (jobsAbortRef.current === controller) {
+        setLoading(false);
+      }
     }
   }, [isAuthenticated, debouncedSearch, debouncedFilters]);
 
@@ -863,6 +901,17 @@ const CandidateJobs = () => {
   useEffect(() => {
     if (activeTab === 'saved') fetchExternalJobs();
   }, [fetchExternalJobs, activeTab]);
+
+  // Abort any in-flight job requests when the page unmounts. Prevents
+  // late responses from triggering setState on a torn-down tree (which
+  // logs a noisy React warning) and stops paying for HTTP work the user
+  // no longer cares about.
+  useEffect(() => {
+    return () => {
+      jobsAbortRef.current?.abort();
+      externalJobsAbortRef.current?.abort();
+    };
+  }, []);
 
   // Handle externalJobId query param (from global search)
   const externalJobIdParam = searchParams.get('externalJobId');

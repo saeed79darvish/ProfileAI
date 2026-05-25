@@ -20,6 +20,17 @@ const MAX_BATCH_SIZE = 100; // OpenAI batch limit for embeddings
 const profileEmbeddingCache = new Map();
 const PROFILE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+// In-memory cache for raw search-query embeddings. Without this, every
+// keystroke in the jobs search box triggers a fresh OpenAI embedding
+// call — wasteful in dollars and latency. The query text is the cache
+// key (after trim/lower-case normalization), so partial searches like
+// "fronten" → "frontend" each get their own entry but a repeat search
+// for "frontend" returns instantly. Bounded to 500 entries (FIFO
+// eviction) to keep memory predictable.
+const searchEmbeddingCache = new Map();
+const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const SEARCH_CACHE_MAX_ENTRIES = 500;
+
 // Simple hash to detect profile changes
 function hashText(text) {
   let hash = 0;
@@ -309,9 +320,23 @@ async function regenerateProfileOpenAIEmbedding(profile) {
 /**
  * Generate an embedding for a raw search query string.
  * Used to rank jobs by how well they match the user's search terms.
+ *
+ * Cached in-process for SEARCH_CACHE_TTL_MS so repeated searches for
+ * the same term don't roundtrip to OpenAI. Cache is keyed on the
+ * normalized query (trim + lower-case) so "Frontend" and "frontend "
+ * share an entry. Cache is server-wide (no userId) because the
+ * embedding is purely a function of the query text.
  */
 async function generateSearchQueryEmbedding(searchText) {
   if (!searchText || searchText.trim().length < 2) return null;
+  const normalized = searchText.trim().toLowerCase();
+  const cacheKey = `search:${normalized}`;
+
+  const cached = searchEmbeddingCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.embedding;
+  }
+
   try {
     const client = getClient();
     const response = await client.embeddings.create({
@@ -319,7 +344,22 @@ async function generateSearchQueryEmbedding(searchText) {
       input: searchText.trim(),
       dimensions: EMBEDDING_DIMENSIONS
     });
-    return response.data?.[0]?.embedding || null;
+    const embedding = response.data?.[0]?.embedding || null;
+
+    if (embedding) {
+      searchEmbeddingCache.set(cacheKey, {
+        embedding,
+        expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+      });
+      // FIFO eviction: Map preserves insertion order, so delete the
+      // oldest entry when we cross the bound. This is O(1) amortized.
+      if (searchEmbeddingCache.size > SEARCH_CACHE_MAX_ENTRIES) {
+        const firstKey = searchEmbeddingCache.keys().next().value;
+        searchEmbeddingCache.delete(firstKey);
+      }
+    }
+
+    return embedding;
   } catch (error) {
     console.error(`[JobEmbedding] Search query embedding error:`, error.message);
     return null;

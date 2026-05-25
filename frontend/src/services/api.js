@@ -481,8 +481,11 @@ export const messageAPI = {
 
 // Job API
 export const jobAPI = {
-  // Get all active jobs (public)
-  getAll: (params = {}) => api.get('/jobs', { params }),
+  // Get all active jobs (public). Accepts optional `{ signal }` for
+  // AbortController-driven cancellation — see externalJobAPI.getAll above
+  // for rationale.
+  getAll: (params = {}, { signal } = {}) =>
+    api.get('/jobs', { params, signal }),
   
   // Get job by ID
   getById: (id) => api.get(`/jobs/${id}`),
@@ -1170,8 +1173,15 @@ export const externalApplicationAPI = {
 };
 
 // External Jobs API - Jobs pulled from ATS platforms (Greenhouse, RemoteOK, Adzuna)
+//
+// `getAll` accepts an optional second argument `{ signal }` so callers can
+// cancel an in-flight request when the user types a new query, changes
+// filters, or navigates away. axios honors AbortController natively when
+// the `signal` is forwarded into the request config. Other methods don't
+// need cancellation today (they're one-shot mutations or rare lookups).
 export const externalJobAPI = {
-  getAll: (params = {}) => api.get('/external-jobs', { params }),
+  getAll: (params = {}, { signal } = {}) =>
+    api.get('/external-jobs', { params, signal }),
   getById: (id) => api.get(`/external-jobs/${id}`),
   getStats: () => api.get('/external-jobs/stats'),
   getCompanies: () => api.get('/external-jobs/companies'),

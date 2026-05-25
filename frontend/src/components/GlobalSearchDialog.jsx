@@ -516,10 +516,15 @@ const GlobalSearchDialog = ({ open, onClose, defaultCategory = 'all', initialQue
         const jobLimit = 15;
 
         // Jobs
+        // Force sort=recent to bypass the semantic ranking path on the
+        // backend. The default ('recommended') generates an OpenAI search
+        // query embedding on every request — fine for the dedicated /jobs
+        // page, but adds 300-800ms per keystroke in this instant-search
+        // dialog. Keyword + recency is the right tradeoff here.
         promises.push(
           Promise.all([
-            jobAPI.getAll({ search: query, limit: jobLimit, ...filterParams }).then(r => r.data).catch(() => ({ jobs: [], pagination: { total: 0 } })),
-            externalJobAPI.getAll({ search: query, limit: jobLimit, ...filterParams }).then(r => r.data).catch(() => ({ jobs: [], pagination: { total: 0 } })),
+            jobAPI.getAll({ search: query, limit: jobLimit, sort: 'recent', ...filterParams }).then(r => r.data).catch(() => ({ jobs: [], pagination: { total: 0 } })),
+            externalJobAPI.getAll({ search: query, limit: jobLimit, sort: 'recent', ...filterParams }).then(r => r.data).catch(() => ({ jobs: [], pagination: { total: 0 } })),
           ]).then(([platform, external]) => {
             const q = query.toLowerCase();
             const all = [
