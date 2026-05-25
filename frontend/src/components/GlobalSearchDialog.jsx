@@ -697,7 +697,7 @@ const GlobalSearchDialog = ({ open, onClose, defaultCategory = 'all', initialQue
                       <Sub>
                         {job.company || job.recruiter?.recruiterProfile?.companyName}
                         {job.location ? ` · ${job.location}` : ''}
-                        {(job.postedAt || job.createdAt) ? ` · ${getTimeAgo(job.postedAt || job.createdAt)}` : ''}
+                        {job.postedAt ? ` · ${getTimeAgo(job.postedAt)}` : ''}
                       </Sub>
                     </Info>
                     {job.matchScore && (

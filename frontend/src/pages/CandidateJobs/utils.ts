@@ -46,18 +46,17 @@ export const formatTimeAgo = (date: string | Date | null | undefined) => {
 /**
  * Formats a job's posting time with an honest label.
  * - When the source provides a real `postedAt`, shows "Posted X ago".
- * - When we only know when we first saw the job (`createdAt`), shows
- *   "Listed X ago" so we don't claim a publish date we don't have.
- *   (Greenhouse's public API is the main reason this fallback exists.)
+ * - When we only know when we first saw the job (`createdAt`), we return
+ *   an empty string. Greenhouse's public API doesn't expose a real
+ *   publish date, so every job we crawl in the same cron sweep would
+ *   otherwise share the exact same "Listed Xh ago" label — which reads
+ *   as if the company posted them all at once. Hiding the timestamp is
+ *   more truthful than substituting our crawl time.
  */
 export const formatJobPostedTime = (job: { postedAt?: string | Date | null; createdAt?: string | Date | null }) => {
   if (job?.postedAt) {
     const t = formatTimeAgo(job.postedAt);
     return t ? `Posted ${t}` : '';
-  }
-  if (job?.createdAt) {
-    const t = formatTimeAgo(job.createdAt);
-    return t ? `Listed ${t}` : '';
   }
   return '';
 };
