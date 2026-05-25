@@ -136,8 +136,15 @@ async function seed() {
       console.log('ENUM update skipped (may already exist):', e.message);
     }
 
-    // Sync tables (safe — won't drop existing data)
-    await sequelize.sync({ alter: true });
+    // Schema sync is OPT-IN. On production we manage schema via migrations
+    // (npm run init-db) — do not silently alter columns on every seed.
+    // Set SEED_ALLOW_SCHEMA_SYNC=true to enable for local/dev only.
+    if (process.env.SEED_ALLOW_SCHEMA_SYNC === 'true') {
+      console.log('SEED_ALLOW_SCHEMA_SYNC=true → running sequelize.sync({ alter: true })');
+      await sequelize.sync({ alter: true });
+    } else {
+      console.log('Skipping sequelize.sync (set SEED_ALLOW_SCHEMA_SYNC=true to enable).');
+    }
 
     let created = 0;
     let skipped = 0;
