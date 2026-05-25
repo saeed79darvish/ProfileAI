@@ -13,15 +13,21 @@ export default {
     // ---- API proxy ----
     if (url.pathname.startsWith('/api/') || url.pathname === '/api') {
       const upstream = new URL(url.pathname + url.search, BACKEND_ORIGIN);
+      const hasBody = !['GET', 'HEAD'].includes(request.method);
       // Reuse the original method, headers and body. Keep redirects manual so
       // they're passed back to the browser unchanged.
-      const proxied = new Request(upstream.toString(), {
+      // NOTE: when forwarding a streaming body in Cloudflare Workers we MUST
+      // set `duplex: 'half'`, otherwise the body is silently dropped — this
+      // was the cause of multipart/form-data uploads (resume, profile image)
+      // arriving at the backend with no file payload and returning 500.
+      const init = {
         method: request.method,
         headers: request.headers,
-        body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+        body: hasBody ? request.body : undefined,
         redirect: 'manual',
-      });
-      return fetch(proxied);
+      };
+      if (hasBody) init.duplex = 'half';
+      return fetch(new Request(upstream.toString(), init));
     }
 
     // ---- Static asset / SPA fallback ----

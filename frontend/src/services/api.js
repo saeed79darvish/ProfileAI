@@ -1,10 +1,13 @@
 import axios from 'axios';
 
-// Use relative URL to go through Vite proxy in development
+// Use relative URL so requests go through the Vite proxy in development
+// and through the Cloudflare worker `/api/*` proxy in production. The
+// previous localhost:5001 fallback for BASE_URL produced broken URLs in
+// production (https://profilleai.com:5001) — use same-origin instead.
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const BASE_URL = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL.replace('/api', '')
-  : `${window.location.protocol}//${window.location.hostname}:5001`;
+  ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
+  : (typeof window !== 'undefined' ? window.location.origin : '');
 
 // Allow a React component inside the Router to register a navigate function
 // so the 401 interceptor can do SPA navigation instead of full page reload
@@ -149,18 +152,20 @@ export const profileAPI = {
   // Search public profiles for global search
   searchPublic: (params) => api.get('/profiles', { params: { ...params, search: params.query } }),
   uploadResume: async (formData) => {
-    // Use fetch directly to avoid axios content-type issues with FormData
+    // Use fetch directly to avoid axios content-type issues with FormData.
     const token = localStorage.getItem('token');
-    const response = await fetch('/api/profiles/upload-resume', {
+    const response = await fetch(`${API_URL}/profiles/upload-resume`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
       },
+      credentials: 'include',
       body: formData
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-      throw new Error(error.error || 'Upload failed');
+      const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
+      throw new Error(message);
     }
     return { data: await response.json() };
   },
@@ -169,16 +174,18 @@ export const profileAPI = {
     const formData = new FormData();
     formData.append('image', file);
     const token = localStorage.getItem('token');
-    const response = await fetch('/api/profiles/upload-image', {
+    const response = await fetch(`${API_URL}/profiles/upload-image`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
       },
+      credentials: 'include',
       body: formData
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-      throw new Error(error.error || 'Upload failed');
+      const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
+      throw new Error(message);
     }
     return { data: await response.json() };
   },
