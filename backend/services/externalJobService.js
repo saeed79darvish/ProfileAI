@@ -10,8 +10,25 @@ function getJobEmbeddingService() {
   return jobEmbeddingService;
 }
 
-// Staleness threshold in minutes — boards older than this get re-fetched on demand
-const STALE_THRESHOLD_MINUTES = 15;
+// Staleness threshold in minutes — boards older than this get re-fetched on demand.
+// Cron worker runs full sync every 15 minutes; anything past 30 min means cron is
+// lagging or the board is new, and refreshIfStale acts as a safety net.
+const STALE_THRESHOLD_MINUTES = 30;
+
+// In-flight tracker: prevents the same board from being synced concurrently when
+// multiple user requests trigger refreshIfStale at the same time. Without this,
+// a single page load on /jobs could fan out to N parallel syncs of the same
+// board (one per row in the result set), each holding a DB connection and
+// burning event-loop time. Cleared by the syncBoard promise's finally handler.
+const _inFlightBoardSyncs = new Set();
+
+// Global concurrency cap for user-request-driven background refreshes. The cron
+// worker is the primary path for keeping data fresh; refreshIfStale is just a
+// fallback. Capping at 2 means even under burst load (e.g. 100 concurrent
+// /jobs requests hitting 6 different boards each), at most 2 boards will sync
+// at once, leaving DB pool capacity for actual user queries.
+const REFRESH_CONCURRENCY_CAP = 2;
+let _activeRefreshCount = 0;
 
 /**
  * Fetch jobs from Greenhouse Job Board API (public, no auth required)
@@ -1285,8 +1302,19 @@ async function syncAllBoards() {
 /**
  * Check if a board is stale and needs re-fetching.
  * Triggers background sync if stale but returns immediately.
+ *
+ * Guards against the pathological case (observed in prod) where a single
+ * /jobs page load fans out N parallel sync calls to the same board: each
+ * caller now goes through an in-flight Set keyed by boardToken plus a
+ * global concurrency cap, so at most REFRESH_CONCURRENCY_CAP boards can
+ * be syncing simultaneously and the same board never syncs twice at once.
  */
 function refreshIfStale(boardToken) {
+  // Cheap synchronous gates first — avoid even hitting the DB if we know
+  // we're going to bail.
+  if (_inFlightBoardSyncs.has(boardToken)) return;
+  if (_activeRefreshCount >= REFRESH_CONCURRENCY_CAP) return;
+
   ATSBoard.findOne({
     where: { boardToken, isActive: true }
   }).then(board => {
@@ -1295,12 +1323,23 @@ function refreshIfStale(boardToken) {
       ? (Date.now() - new Date(board.lastSyncAt).getTime()) / 60000
       : Infinity;
 
-    if (minutesSinceSync > STALE_THRESHOLD_MINUTES) {
-      console.log(`[ExternalJobs] Board ${board.name} is stale (${minutesSinceSync.toFixed(0)} min), refreshing...`);
-      syncBoard(board).catch(err =>
-        console.error(`[ExternalJobs] Background refresh failed for ${board.name}:`, err.message)
-      );
-    }
+    if (minutesSinceSync <= STALE_THRESHOLD_MINUTES) return;
+
+    // Re-check gates now that we've awaited the DB lookup — another
+    // request may have started syncing this board while we were waiting.
+    if (_inFlightBoardSyncs.has(boardToken)) return;
+    if (_activeRefreshCount >= REFRESH_CONCURRENCY_CAP) return;
+
+    _inFlightBoardSyncs.add(boardToken);
+    _activeRefreshCount += 1;
+    console.log(`[ExternalJobs] Board ${board.name} is stale (${minutesSinceSync.toFixed(0)} min), refreshing... [inflight=${_activeRefreshCount}/${REFRESH_CONCURRENCY_CAP}]`);
+
+    syncBoard(board)
+      .catch(err => console.error(`[ExternalJobs] Background refresh failed for ${board.name}:`, err.message))
+      .finally(() => {
+        _inFlightBoardSyncs.delete(boardToken);
+        _activeRefreshCount = Math.max(0, _activeRefreshCount - 1);
+      });
   }).catch(err => {
     console.error('[ExternalJobs] refreshIfStale error:', err.message);
   });
