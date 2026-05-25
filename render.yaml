@@ -88,6 +88,14 @@ services:
       # AI cost controls
       - key: OPENAI_JOB_MODEL
         value: gpt-4o-mini
+      # External jobs sync — run the cron inline in the API process.
+      # Cheap (single instance, no duplication risk) and avoids paying for
+      # a separate worker service. Flip to a dedicated `profileai-cron-worker`
+      # below if/when the API scales horizontally.
+      - key: ENABLE_EXTERNAL_JOBS_CRON
+        value: "true"
+      - key: RUN_CRON_INLINE
+        value: "true"
       # ───────── Secrets (set these in the Render dashboard) ─────────
       - key: JWT_SECRET
         generateValue: true   # Render generates a strong random value once
