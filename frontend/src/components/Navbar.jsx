@@ -149,11 +149,10 @@ const NavItem = styled.button`
   &:hover { background: rgba(167, 139, 250, 0.15); color: #c4b5fd; }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 
-  /* Tablet: icon-only nav — hide the text label, keep the icon. */
+  /* Tablet: keep labels visible but tighten spacing to fit. */
   ${media.tablet} {
     padding: 8px 10px;
-    gap: 0;
-    .label { display: none; }
+    font-size: 13px;
   }
 `;
 
