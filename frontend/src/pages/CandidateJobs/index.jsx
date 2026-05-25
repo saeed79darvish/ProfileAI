@@ -332,7 +332,11 @@ const CandidateJobs = () => {
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
   const [matchDialogJob, setMatchDialogJob] = useState(null);
   const [matchBreakdown, setMatchBreakdown] = useState(null);
-  const [activeTab, setActiveTab] = useState('all');
+  // Default to the Discover tab so candidates land on the populated external
+  // job corpus instead of the (typically empty) internal recruiter postings.
+  // The "All" tab only contains jobs posted directly via /api/jobs, which is
+  // 0 on a fresh deployment and made the page look broken.
+  const [activeTab, setActiveTab] = useState('external');
   const [showApplicationModal, setShowApplicationModal] = useState(false);
   const [myApplications, setMyApplications] = useState([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
