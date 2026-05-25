@@ -115,7 +115,9 @@ const Home = () => {
   // to their dashboard. This also fixes the perceived "logged out on refresh"
   // bug where hard-refreshing while at `/` rendered the public hero.
   if (isAuthenticated && user) {
-    const target = user.role === 'recruiter' ? '/recruiter/dashboard' : '/profile';
+    let target = '/profile';
+    if (user.role === 'recruiter') target = '/recruiter/dashboard';
+    else if (user.role === 'admin') target = '/admin';
     return <Navigate to={target} replace />;
   }
 
