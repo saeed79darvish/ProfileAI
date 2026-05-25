@@ -738,6 +738,14 @@ router.post('/google', async (req, res) => {
           await user.update(updates);
         } catch (dbErr) {
           if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+          const safeUpdates = { ...updates };
+          delete safeUpdates.emailVerificationToken;
+          delete safeUpdates.emailVerificationExpiresAt;
+          try {
+            await user.update(safeUpdates);
+          } catch (retryErr) {
+            if (!isSchemaDriftDbError(retryErr)) throw retryErr;
+          }
         }
       } else {
         // Create new user. Skip the email-verification round-trip entirely
@@ -820,12 +828,36 @@ router.post('/google', async (req, res) => {
         // Candidate profile is intentionally created during onboarding.
       }
     } else {
-      // Update profile picture if changed
+      // User already linked to this googleId. Refresh profile picture and,
+      // critically, auto-verify the email if Google now reports it as verified.
+      // Without this, any account created/linked before the auto-verify logic
+      // shipped (or while Google momentarily omitted email_verified) stays
+      // stuck on /check-email forever even though they can prove inbox
+      // ownership by completing the Google sign-in.
+      const updates = {};
       if (picture && user.profilePictureUrl !== picture) {
+        updates.profilePictureUrl = picture;
+      }
+      if (googleEmailVerified && !user.emailVerified) {
+        updates.emailVerified = true;
+        updates.emailVerifiedAt = new Date();
+        updates.emailVerificationToken = null;
+        updates.emailVerificationExpiresAt = null;
+      }
+      if (Object.keys(updates).length > 0) {
         try {
-          await user.update({ profilePictureUrl: picture });
+          await user.update(updates);
         } catch (dbErr) {
           if (!isSchemaDriftDbError(dbErr)) throw dbErr;
+          // Retry without optional columns that may be absent on legacy schemas.
+          const safeUpdates = { ...updates };
+          delete safeUpdates.emailVerificationToken;
+          delete safeUpdates.emailVerificationExpiresAt;
+          try {
+            await user.update(safeUpdates);
+          } catch (retryErr) {
+            if (!isSchemaDriftDbError(retryErr)) throw retryErr;
+          }
         }
       }
     }
