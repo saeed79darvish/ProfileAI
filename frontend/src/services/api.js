@@ -84,10 +84,28 @@ api.interceptors.response.use(
       const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
       const isAuthPage = window.location.pathname.includes('/login') || 
                          window.location.pathname.includes('/register');
-      
+      const isGetMe = url.includes('/auth/me');
+
+      // Hard-refresh hardening:
+      // On page boot many endpoints fire in parallel (notifications, profile,
+      // subscription usage, tailored profiles…). If ANY of them races the
+      // backend cold-start and 401s before /auth/me lands, we previously
+      // wiped auth and bounced to /login — kicking the user out on refresh.
+      //
+      // /auth/me is the authoritative session check (called by AuthContext).
+      // For other endpoints, we trust /auth/me to decide. If the token truly
+      // is expired, /auth/me will 401 too and the redirect will fire below.
+      // If /auth/me succeeds, the transient 401 from the other endpoint is
+      // ignored and the user stays signed in.
+      const bootGraceMs = 8000;
+      const sinceBoot = typeof performance !== 'undefined' && performance.now
+        ? performance.now()
+        : Number.POSITIVE_INFINITY;
+      const isWithinBootGrace = sinceBoot < bootGraceMs;
+
       // Only force logout if it's a protected endpoint returning 401 (token expired/invalid)
-      if (!isAuthEndpoint && !isAuthPage) {
-        console.log('[API] 401 from protected endpoint - session expired');
+      if (!isAuthEndpoint && !isAuthPage && (isGetMe || !isWithinBootGrace)) {
+        console.log('[API] 401 from protected endpoint - session expired', { url, isGetMe });
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         // Notify AuthContext so in-memory auth state is cleared immediately.
@@ -99,6 +117,8 @@ api.interceptors.response.use(
         } else {
           window.location.href = '/login?redirect=' + encodeURIComponent(returnPath);
         }
+      } else if (!isAuthEndpoint && !isAuthPage) {
+        console.log('[API] Ignoring transient 401 during boot grace window', { url });
       }
     }
     return Promise.reject(error);
