@@ -303,13 +303,13 @@ export const TabsContainer = styled.div`
 
 export const Tab = styled.button<{ $active?: boolean }>`
   /* Size to content with growth, never below content width. The previous
-     `flex: 1` rule combined with `white-space: nowrap` caused the active
+     'flex: 1' rule combined with 'white-space: nowrap' caused the active
      tab to clip its first character at mid widths ("iscover" instead of
      "Discover") because flex items default min-width: auto = content,
      but content here includes the inline count badge whose absolutely-
      positioned variants pushed the natural width above the cell. Pinning
-     min-width to `max-content` keeps every label legible; if the row
-     can't fit, TabsContainer's overflow-x:auto handles the scroll. */
+     min-width to 'max-content' keeps every label legible; if the row
+     cannot fit, TabsContainer overflow-x:auto handles the scroll. */
   flex: 0 1 auto;
   min-width: max-content;
   display: inline-flex;
