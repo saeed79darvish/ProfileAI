@@ -127,7 +127,13 @@ router.post('/', auth, async (req, res) => {
         companySlug: profile.companySlug
       });
     } else {
-      // Create new profile
+      // Create new profile. Seed the avatar from User.profilePictureUrl
+      // (captured during Google/GitHub OAuth sign-in) when the client
+      // didn't supply one — recruiters who SSO in get their provider
+      // photo as a default instead of a blank initials avatar.
+      if (!profileData.profilePicture && req.user?.profilePictureUrl) {
+        profileData.profilePicture = req.user.profilePictureUrl;
+      }
       profile = await RecruiterProfile.create({
         userId: req.userId,
         ...profileData

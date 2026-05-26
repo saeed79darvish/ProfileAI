@@ -1029,7 +1029,15 @@ router.post(
         // Update existing profile
         await profile.update(profileData);
       } else {
-        // Create new profile
+        // Create new profile. Seed the avatar from User.profilePictureUrl
+        // (captured during Google/GitHub OAuth sign-in) when the client
+        // didn't supply one — so users who register via SSO get their
+        // provider photo as a default on first onboarding save instead of
+        // a blank initials avatar. They can still replace it later via
+        // the normal profile edit flow.
+        if (!profileData.profilePicture && req.user?.profilePictureUrl) {
+          profileData.profilePicture = req.user.profilePictureUrl;
+        }
         profile = await Profile.create(profileData);
       }
 
