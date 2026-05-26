@@ -169,6 +169,14 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     bumpCounter('listRequests');
 
+    // Browser-side cache hint. The response is per-user (rankings differ
+    // by profile), so use `private`. 30s is short enough that fresh jobs
+    // surface quickly on hard reload but long enough that flicking between
+    // /jobs and a detail view via the back button hits the bfcache /
+    // disk cache instead of refetching. `must-revalidate` keeps stale
+    // responses from being served after the window expires.
+    res.set('Cache-Control', 'private, max-age=30, must-revalidate');
+
     // Server-side request cache. Identical (userId, search, filters, page,
     // sort) tuples reuse the prior response for 90s. Auto-invalidated on
     // every successful sync via cache.invalidatePrefix('external_jobs:').
@@ -506,9 +514,12 @@ router.get('/', authMiddleware, async (req, res) => {
             matchedSkills: intersectSkills(profileSkillSet, j.skills),
           }));
 
-          // Trigger background staleness checks
+          // Trigger background staleness checks — deferred to next tick so
+          // res.json() flushes first. Each refreshIfStale() does a DB lookup
+          // before deciding to no-op; running them inline steals DB pool
+          // slots from sibling /external-jobs requests in flight.
           const boardTokens = [...new Set(semanticJobs.map(j => j.boardToken))];
-          boardTokens.forEach(token => refreshIfStale(token));
+          setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
 
           return res.json({
             jobs: semanticJobsWithMatched,
@@ -548,9 +559,9 @@ router.get('/', authMiddleware, async (req, res) => {
       const paginatedJobs = ranked.slice(offset, offset + limitNum);
       bumpCounter('keywordFallbacks');
 
-      // Trigger background staleness checks
+      // Trigger background staleness checks — deferred (see comment above).
       const boardTokens = [...new Set(paginatedJobs.map(j => j.boardToken))];
-      boardTokens.forEach(token => refreshIfStale(token));
+      setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
 
       return res.json({
         jobs: paginatedJobs,
@@ -586,9 +597,10 @@ router.get('/', authMiddleware, async (req, res) => {
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
     });
 
-    // Trigger background staleness checks for boards in results
+    // Trigger background staleness checks for boards in results —
+    // deferred so the response flushes before DB lookups fan out.
     const boardTokens = [...new Set(jobs.map(j => j.boardToken))];
-    boardTokens.forEach(token => refreshIfStale(token));
+    setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
 
     res.json({
       jobs,
