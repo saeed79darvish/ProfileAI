@@ -1048,11 +1048,28 @@ const CandidateJobs = () => {
   useEffect(() => {
     if (!selectedJob && !pinnedJobRef.current && window.innerWidth > 1024) {
       if (activeTab === 'external' && externalJobs.length > 0) {
-        externalJobAPI.getById(externalJobs[0].id).then(response => {
-          setSelectedJob({ ...response.data, _isExternal: true });
-        }).catch(() => {
-          setSelectedJob({ ...externalJobs[0], _isExternal: true });
-        });
+        // Render the right-hand detail panel immediately from the list
+        // payload — the /external-jobs response already includes title,
+        // company, description, requirements, skills, etc. (only the
+        // heavy `descriptionHtml`, `metadata`, and `embedding` columns
+        // are excluded). Waiting on a follow-up getById here was the
+        // user-visible "detail loads slowly" — the panel sat empty
+        // until that round-trip returned.
+        //
+        // We then enrich in the background to swap plain `description`
+        // for the richer `descriptionHtml` once it arrives. The render
+        // path tolerates both shapes (see getDescriptionHtml).
+        const first = { ...externalJobs[0], _isExternal: true };
+        setSelectedJob(first);
+        externalJobAPI.getById(first.id).then(response => {
+          // Only apply enrichment if the user hasn't navigated to a
+          // different job in the meantime.
+          setSelectedJob(prev => (
+            prev?.id === first.id
+              ? { ...response.data, _isExternal: true }
+              : prev
+          ));
+        }).catch(() => {});
       } else if (jobs.length > 0) {
         setSelectedJob(jobs[0]);
       }
