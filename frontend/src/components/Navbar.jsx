@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled, { createGlobalStyle } from 'styled-components';
 import {
-  AutoAwesome as AIIcon,
   ExitToApp as LogoutIcon,
   Menu as MenuIcon,
   Close as CloseIcon,
@@ -89,27 +88,24 @@ const Logo = styled.button`
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
   cursor: pointer;
-  color: #a78bfa;
   flex-shrink: 0;
-
-  svg { font-size: 32px; }
-  ${media.tabletDown} { gap: 8px; svg { font-size: 28px; } }
-  ${media.mobile} { gap: 6px; svg { font-size: 24px; } }
 `;
 
 const LogoText = styled.span`
-  font-size: 24px;
-  font-weight: 800;
-  margin: 0;
-  background: linear-gradient(135deg, #a78bfa 0%, #c4b5fd 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-  ${media.tabletDown} { font-size: 20px; }
-  ${media.mobile} { font-size: 18px; }
+  ${media.tabletDown} { font-size: 24px; }
+  ${media.mobile} { font-size: 22px; }
+`;
+
+const LogoAccent = styled.span`
+  color: #c4b5fd;
 `;
 
 /* The single nav row that holds primary items + actions + user menu.
@@ -1023,10 +1019,9 @@ const Navbar = () => {
               // the logo silently bounce them to the home/hub.
               go('/');
             }}
-            aria-label="ProfilleAI home"
+            aria-label="profilleai home"
           >
-            <AIIcon aria-hidden="true" />
-            <LogoText>ProfilleAI</LogoText>
+            <LogoText>profille<LogoAccent>ai</LogoAccent></LogoText>
           </Logo>
 
           <NavRow role="menubar" aria-label="Primary">
