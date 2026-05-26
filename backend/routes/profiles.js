@@ -959,6 +959,22 @@ router.get('/me', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
+    // Backfill avatar from OAuth provider photo (User.profilePictureUrl)
+    // for legacy SSO accounts whose Profile row was created before we
+    // started seeding profilePicture on first save. One-shot persistence
+    // so subsequent reads are cheap and the recruiter-side serializers
+    // that read profile.profilePicture directly see the same value.
+    if (!profile.profilePicture && req.user?.profilePictureUrl) {
+      try {
+        await profile.update({ profilePicture: req.user.profilePictureUrl });
+      } catch (backfillErr) {
+        // Non-fatal: still return the avatar in the response so the UI
+        // populates immediately even if the write failed.
+        console.warn('Avatar backfill failed:', backfillErr.message);
+        profile.profilePicture = req.user.profilePictureUrl;
+      }
+    }
+
     res.json(profile);
   } catch (error) {
     console.error('Error fetching profile:', error);

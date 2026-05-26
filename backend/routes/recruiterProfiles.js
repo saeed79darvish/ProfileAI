@@ -63,6 +63,17 @@ router.get('/me', auth, async (req, res) => {
       include: [{ model: User, as: 'user', attributes: ['firstName', 'lastName', 'email'] }]
     });
 
+    // Backfill avatar from OAuth provider photo for legacy SSO accounts
+    // whose RecruiterProfile row predates the seed-on-create logic.
+    if (profile && !profile.profilePicture && req.user?.profilePictureUrl) {
+      try {
+        await profile.update({ profilePicture: req.user.profilePictureUrl });
+      } catch (backfillErr) {
+        console.warn('Recruiter avatar backfill failed:', backfillErr.message);
+        profile.profilePicture = req.user.profilePictureUrl;
+      }
+    }
+
     res.json(profile || {});
   } catch (error) {
     console.error('Error fetching recruiter profile:', error);
