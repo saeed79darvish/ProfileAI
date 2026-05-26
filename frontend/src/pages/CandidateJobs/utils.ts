@@ -44,20 +44,19 @@ export const formatTimeAgo = (date: string | Date | null | undefined) => {
 };
 
 /**
- * Formats a job's posting time with an honest label.
- * - `postedAt` (from the source ATS) → "Posted X ago".
- * - `createdAt` fallback (when we first saw the job) → "Listed X ago".
- *   Some legacy rows have no postedAt; rather than hide them, label
- *   them honestly.
+ * Formats a job's posting time with a single consistent label.
+ *
+ * We previously distinguished "Posted" (from the source ATS
+ * `postedAt`) vs. "Listed" (the `createdAt` row timestamp when we
+ * first ingested the job). In practice this was confusing — same
+ * card type, two different verbs, no user-visible distinction — so
+ * we unify on "Posted". The underlying value still prefers the real
+ * `postedAt` and only falls back to `createdAt` when the source
+ * never gave us one.
  */
 export const formatJobPostedTime = (job: { postedAt?: string | Date | null; createdAt?: string | Date | null }) => {
-  if (job?.postedAt) {
-    const t = formatTimeAgo(job.postedAt);
-    return t ? `Posted ${t}` : '';
-  }
-  if (job?.createdAt) {
-    const t = formatTimeAgo(job.createdAt);
-    return t ? `Listed ${t}` : '';
-  }
-  return '';
+  const anchor = job?.postedAt ?? job?.createdAt;
+  if (!anchor) return '';
+  const t = formatTimeAgo(anchor);
+  return t ? `Posted ${t}` : '';
 };

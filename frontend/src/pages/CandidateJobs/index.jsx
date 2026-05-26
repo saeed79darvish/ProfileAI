@@ -405,6 +405,15 @@ const CandidateJobs = () => {
   const filterTimerRef = useRef(null);
   const [openDropdown, setOpenDropdown] = useState(null);
   const [locationInput, setLocationInput] = useState(searchParams.get('location') || '');
+  // The Location popover's text input is a draft buffer (the committed
+  // value lives on `filters.location`). If `filters.location` changes
+  // through any other path — Reset, search-clear, URL deep-link,
+  // profile auto-seed — we have to push that change into the draft so
+  // the popover doesn't render a stale "San Francisco" after the chip
+  // has already been removed.
+  useEffect(() => {
+    setLocationInput(prev => (prev === (filters.location || '') ? prev : (filters.location || '')));
+  }, [filters.location]);
   const pinnedJobRef = useRef(null); // Job from global search to pin at top of list
 
   // AbortControllers for in-flight job fetches. We cancel the prior
@@ -433,6 +442,24 @@ const CandidateJobs = () => {
   // re-apply if the candidate clears it (otherwise their "remote-anywhere"
   // intent is silently overridden on every render).
   const locationAutoAppliedRef = useRef(false);
+
+  // Disclosure banner state (Fix 6.1). When the page auto-applies a role
+  // or location from the candidate's profile we surface a one-line
+  // "Personalized for you" banner with a [Show all jobs] escape hatch so
+  // the candidate understands *why* the result set is narrower than the
+  // corpus total. The state holds the *values* we seeded so we can
+  // (a) detect when the user has edited them (banner self-dismisses), and
+  // (b) restore the corpus view on demand.
+  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null });
+  // Persisted dismissal — once the candidate clicks "Show all jobs" we
+  // never auto-seed again on this browser. Read synchronously so the
+  // first-render effects can skip seeding.
+  const AUTO_SEED_DISMISS_KEY = 'jobs.autoSeedDismissed';
+  const autoSeedDismissedRef = useRef(
+    (() => {
+      try { return localStorage.getItem(AUTO_SEED_DISMISS_KEY) === '1'; } catch { return false; }
+    })()
+  );
 
   // Fetch user skills + role once on mount
   useEffect(() => {
@@ -497,6 +524,7 @@ const CandidateJobs = () => {
       if (
         profileLocationRaw &&
         !locationAutoAppliedRef.current &&
+        !autoSeedDismissedRef.current &&
         !searchParams.get('location') &&
         !searchParams.get('locationType')
       ) {
@@ -506,6 +534,7 @@ const CandidateJobs = () => {
           setLocationInput(seededLocation);
           setFilters(prev => ({ ...prev, location: seededLocation }));
           setDebouncedFilters(prev => ({ ...prev, location: seededLocation }));
+          setAutoSeeded(prev => ({ ...prev, location: seededLocation }));
           // eslint-disable-next-line no-console
           console.debug('[Jobs] Auto-applied profile location to filter:', seededLocation);
         }
@@ -522,11 +551,13 @@ const CandidateJobs = () => {
   useEffect(() => {
     if (!detectedRole) return;
     if (roleAutoAppliedRef.current) return;
+    if (autoSeedDismissedRef.current) return;
     if (searchParams.get('search')) return;
     if (searchQuery) return;
     roleAutoAppliedRef.current = true;
     setSearchQuery(detectedRole);
     setDebouncedSearch(detectedRole);
+    setAutoSeeded(prev => ({ ...prev, role: detectedRole }));
     // eslint-disable-next-line no-console
     console.debug('[Jobs] Auto-applied detected role to search:', detectedRole);
   }, [detectedRole, searchParams, searchQuery]);
@@ -678,6 +709,49 @@ const CandidateJobs = () => {
     return () => clearTimeout(searchTimerRef.current);
   }, [searchQuery]);
 
+  // Single source of truth for state → URL.
+  //
+  // Every filter / search mutation flows back into the URL so:
+  //   - hard refresh restores the exact view (URL → state effect above
+  //     hydrates the same `filters` shape on mount)
+  //   - copy/pasting the URL into a new tab reproduces the same results
+  //   - browser back/forward replays history correctly
+  //
+  // We bail out when the computed querystring matches what's already in
+  // the URL — that breaks the ping-pong with the URL→state effect, and
+  // avoids spurious history entries when other code (e.g. clearing the
+  // `externalJobId` param) calls setSearchParams.
+  //
+  // Uses `debouncedSearch` rather than `searchQuery` so we don't churn
+  // the address bar on every keystroke.
+  useEffect(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      const owned = {
+        search: debouncedSearch,
+        locationType: filters.locationType,
+        location: filters.location,
+        datePosted: filters.datePosted,
+        experienceLevel: filters.experienceLevel,
+        company: filters.company,
+        department: filters.department,
+        employmentType: filters.employmentType,
+        salary: filters.salary,
+        skills: filters.skills,
+        startup: filters.startup ? 'true' : '',
+      };
+      for (const [k, v] of Object.entries(owned)) {
+        if (v) next.set(k, String(v));
+        else next.delete(k);
+      }
+      if (next.toString() === new URLSearchParams(prev).toString()) return prev;
+      return next;
+    }, { replace: true });
+    // setSearchParams is stable across renders but we depend on it for
+    // exhaustive-deps; only `filters` and `debouncedSearch` actually
+    // drive the URL write.
+  }, [filters, debouncedSearch, setSearchParams]);
+
   // Debounce filter changes — toggling several chips in quick succession
   // coalesces into a single fetch. 250ms is enough to catch a "click chip A,
   // then chip B" sequence without making single-chip clicks feel laggy.
@@ -738,7 +812,20 @@ const CandidateJobs = () => {
       let fetchedExtJobs = response.data.jobs || [];
       // Prepend pinned job from search if applicable (only on first page —
       // appended pages should never re-prepend the pinned job).
-      if (!append) {
+      //
+      // IMPORTANT: do NOT inject the pinned job when the user has any
+      // search/filter active. The pin originates from a global-search
+      // deep-link, and the server has already applied the active filter
+      // predicates to the rest of the list. Forcing the pinned card to
+      // the top would leak a result that doesn't satisfy those filters
+      // (e.g. a remote/mid-level role showing at #1 under On-site +
+      // Entry-Level). The deep-linked job is still reachable via its
+      // /jobs/:id detail URL.
+      const hasActiveQuery = !!(
+        debouncedSearch ||
+        Object.values(debouncedFilters).some(v => v && v !== '')
+      );
+      if (!append && !hasActiveQuery) {
         const pinned = pinnedJobRef.current;
         if (pinned && pinned._isExternal) {
           fetchedExtJobs = [pinned, ...fetchedExtJobs.filter(j => j.id !== pinned.id)];
@@ -851,9 +938,16 @@ const CandidateJobs = () => {
       }
       const response = await jobAPI.getAll(params, { signal: controller.signal });
       let fetchedJobs = response.data.jobs || response.data || [];
-      // Prepend pinned job from search if applicable
+      // Prepend pinned job from search if applicable.
+      // Suppressed under any active search/filter — see the matching
+      // comment in fetchExternalJobs for the rationale (don't leak a
+      // deep-linked card past the active filter predicate).
+      const hasActiveQuery = !!(
+        debouncedSearch ||
+        Object.values(debouncedFilters).some(v => v && v !== '')
+      );
       const pinned = pinnedJobRef.current;
-      if (pinned && !pinned._isExternal) {
+      if (!hasActiveQuery && pinned && !pinned._isExternal) {
         fetchedJobs = [pinned, ...fetchedJobs.filter(j => j.id !== pinned.id)];
       }
       setJobs(fetchedJobs);
@@ -893,9 +987,10 @@ const CandidateJobs = () => {
   }, [isAuthenticated, debouncedSearch, debouncedFilters]);
 
   useEffect(() => {
-    // Saved tab needs both platform + external job lists so we can show
-    // any saved item regardless of source.
-    if (activeTab === 'all' || activeTab === 'applied' || activeTab === 'saved') fetchJobs();
+    // The Saved / Applied tabs render against the platform-jobs list
+    // (cross-referenced with savedJobs / myApplications). Discover is
+    // covered separately by fetchExternalJobs.
+    if (activeTab === 'applied' || activeTab === 'saved') fetchJobs();
   }, [fetchJobs, activeTab]);
 
   useEffect(() => {
@@ -937,7 +1032,11 @@ const CandidateJobs = () => {
       const job = response.data;
       pinnedJobRef.current = job;
       setSelectedJob(job);
-      setActiveTab('all');
+      // The dedicated 'all platform jobs' tab was removed (it was
+      // effectively always empty on a fresh deployment and offered no
+      // value over Discover). We still surface the deep-linked job in
+      // the right-hand detail panel and prepend it to the platform-jobs
+      // list so any Saved/Applied tab the user opens picks it up.
       setJobs(prev => [job, ...prev.filter(j => j.id !== job.id)]);
     }).catch(() => {});
     const newParams = new URLSearchParams(searchParams);
@@ -1073,30 +1172,27 @@ const CandidateJobs = () => {
   };
 
   const handleFilterChange = (key, value) => {
+    // State change only — the centralized state→URL sync effect above
+    // writes the new value into the address bar (with the boolean
+    // `startup` toggle serialized as 'true' / removed when off).
     setFilters(prev => ({ ...prev, [key]: value }));
     setOpenDropdown(null);
-    // Sync the new value to the URL so:
-    //   - the filter persists across reloads / shares
-    //   - the user (and us, when debugging) can see exactly what's active
-    //   - back-button restores the previous filter state
-    // String params are written as-is, the boolean `startup` toggle is
-    // written as 'true' / removed when off.
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (key === 'startup') {
-        if (value) next.set('startup', 'true'); else next.delete('startup');
-      } else if (value) {
-        next.set(key, String(value));
-      } else {
-        next.delete(key);
-      }
-      return next;
-    }, { replace: true });
   };
 
   const clearFilters = () => {
-    setFilters({ locationType: '', location: '', datePosted: '', experienceLevel: '', company: '', department: '', employmentType: '', salary: '', skills: '', startup: false });
+    // Reset every filter, the debounced mirror, the Location popover's
+    // draft input, *and* the search query. Also flips the user back to
+    // the Discover tab so a reset from Saved/Applied lands them on a
+    // populated surface rather than an empty user-scoped list. The URL
+    // sync effect picks all of this up and strips every owned param.
+    const empty = { locationType: '', location: '', datePosted: '', experienceLevel: '', company: '', department: '', employmentType: '', salary: '', skills: '', startup: false };
+    setFilters(empty);
+    setDebouncedFilters(empty);
+    setLocationInput('');
+    setSearchQuery('');
+    setDebouncedSearch('');
     setOpenDropdown(null);
+    setActiveTab('external');
   };
 
   // True if the job was posted (or first seen by us) within the last 24 hours.
@@ -1302,15 +1398,38 @@ const CandidateJobs = () => {
     return STATUS_CONFIG[status] || { bg: '#F3F4F6', color: '#6B7280', label: status };
   };
 
-  const activeJobsCount = jobs.filter(j => j.status === 'active').length;
-  const totalAvailable = activeJobsCount + (externalJobsPagination.total || 0);
-
   // Compute match level for card badges
   const getMatchLevel = (score) => {
     if (score >= 50) return 'high';
     if (score >= 25) return 'good';
     return null;
   };
+
+  // Single source of truth for what the percentage on a match badge
+  // means in words. The raw cosine-similarity score reads as "poor"
+  // to candidates when it's 52% (in their head 90+ = good fit), even
+  // though 52% pgvector similarity to their profile is actually a
+  // reasonable signal. We bucket scores into named tiers and only
+  // show the percentage when it's in territory where it reads as a
+  // strength. Below "Possible match" we suppress the badge entirely
+  // so weak signals don't drag the perceived quality of the list.
+  //
+  //   >=78  → "NN% · Excellent match"
+  //   >=65  → "NN% · Strong match"
+  //   >=50  → "Good match"           (no % — reads as middling)
+  //   >=30  → "Possible match"       (no %)
+  //   <30   → null                   (suppress badge)
+  const formatMatchBadge = (rawScore) => {
+    const pct = Math.round(rawScore || 0);
+    if (pct >= 78) return { text: `${pct}% · Excellent match`, mobile: `${pct}%`, tier: 'excellent' };
+    if (pct >= 65) return { text: `${pct}% · Strong match`,    mobile: `${pct}%`, tier: 'strong' };
+    if (pct >= 50) return { text: 'Good match',                 mobile: 'Good',    tier: 'good' };
+    if (pct >= 30) return { text: 'Possible match',             mobile: 'Maybe',   tier: 'possible' };
+    return null;
+  };
+  // Tooltip copy reused on every match badge — spelled out once here so
+  // tweaks don't drift between desktop / mobile renderings.
+  const MATCH_BADGE_TITLE = 'Score blends how closely the job’s skills and description match your profile with how recently it was posted. Click to see why.';
 
   const getMatchColor = (score) => {
     if (score >= 70) return '#027A48';
@@ -1851,7 +1970,7 @@ const CandidateJobs = () => {
                 />
                 {searchQuery && (
                   <button type="button"
-                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setDebouncedSearch(''); setSearchParams({}); }}
+                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setDebouncedSearch(''); }}
                     aria-label="Clear filter"
                     style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', color: '#98A2B3', display: 'flex', alignItems: 'center', borderRadius: '50%', flexShrink: 0 }}
                   >
@@ -1897,7 +2016,7 @@ const CandidateJobs = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setSearchQuery(''); setDebouncedSearch(''); setSearchParams({}); }}
+                    onClick={() => { setSearchQuery(''); setDebouncedSearch(''); }}
                     aria-label="Clear role filter"
                     style={{
                       background: 'none', border: 'none', padding: 0,
@@ -1914,16 +2033,21 @@ const CandidateJobs = () => {
             {/* Tabs */}
             {isAuthenticated && (
               <TabsContainer>
-                <Tab $active={activeTab === 'external'} onClick={() => setActiveTab('external')}>
+                {/* The count next to each tab label is the *total* in that
+                    bucket (corpus size for Discover, all saved jobs for
+                    Saved, all applications for Applied) — it does NOT
+                    react to the active search/filter chips. Showing the
+                    filtered count here would force a second round-trip on
+                    every chip toggle and would hide the population the
+                    user is searching across. The filtered count is
+                    displayed inline above the results list instead. */}
+                <Tab $active={activeTab === 'external'} onClick={() => setActiveTab('external')} title="Total jobs available across all sources (not affected by filters)">
                   Discover <span data-count>{externalJobsPagination.total}</span>
                 </Tab>
-                <Tab $active={activeTab === 'all'} onClick={() => setActiveTab('all')}>
-                  All <span data-count>{activeJobsCount}</span>
-                </Tab>
-                <Tab $active={activeTab === 'saved'} onClick={() => setActiveTab('saved')}>
+                <Tab $active={activeTab === 'saved'} onClick={() => setActiveTab('saved')} title="Jobs you've saved (total, not filtered)">
                   Saved <span data-count>{savedJobs.size}</span>
                 </Tab>
-                <Tab $active={activeTab === 'applied'} onClick={() => setActiveTab('applied')}>
+                <Tab $active={activeTab === 'applied'} onClick={() => setActiveTab('applied')} title="Jobs you've applied to (total, not filtered)">
                   Applied <span data-count>{myApplications.length}</span>
                 </Tab>
               </TabsContainer>
@@ -1931,7 +2055,7 @@ const CandidateJobs = () => {
 
 
             {/* ─── Filter Dropdowns ─── */}
-            {(activeTab === 'external' || activeTab === 'all') && (
+            {activeTab === 'external' && (
               <FiltersRow ref={dropdownRef}>
                 <FilterButtonsRow>
                   {/* 🚀 Startups toggle — combines HN postings, small
@@ -2198,6 +2322,75 @@ const CandidateJobs = () => {
                     always shows the best matches that were posted most
                     recently (backend 'recommended' mode = match × recency).
                     Power users can still override via ?sort= URL param. */}
+                {/* Auto-applied filter disclosure banner (Fix 6.1). Only
+                    rendered when (a) we actually seeded a role or location
+                    from the candidate's profile this session, AND (b) that
+                    seeded value is still the live filter. If the user has
+                    edited the search box / location to something else, the
+                    banner self-dismisses because the personalization is no
+                    longer in effect. */}
+                {(() => {
+                  const roleActive = autoSeeded.role && autoSeeded.role === searchQuery;
+                  const locActive = autoSeeded.location && autoSeeded.location === filters.location;
+                  if (!roleActive && !locActive) return null;
+                  const parts = [];
+                  if (roleActive) parts.push(`role: \u201C${autoSeeded.role}\u201D`);
+                  if (locActive) parts.push(`location: \u201C${autoSeeded.location}\u201D`);
+                  return (
+                    <div
+                      role="status"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        padding: '10px 14px',
+                        marginBottom: 12,
+                        background: '#F9F5FF',
+                        border: '1px solid #E9D5FF',
+                        borderRadius: 10,
+                        fontSize: 13,
+                        color: '#53389E',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <AutoAwesomeIcon style={{ fontSize: 16, color: '#7C3AED' }} />
+                        <span>
+                          <strong style={{ fontWeight: 600 }}>Personalized for you</strong>
+                          {' \u2014 we pre-filled '}
+                          {parts.join(' and ')}
+                          {' from your profile.'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Persist so future visits skip the auto-seed
+                          // entirely. The session-level refs in the
+                          // profile-fetch effect also check this key on
+                          // mount, so a hard reload won't re-seed.
+                          try { localStorage.setItem(AUTO_SEED_DISMISS_KEY, '1'); } catch {}
+                          autoSeedDismissedRef.current = true;
+                          setAutoSeeded({ role: null, location: null });
+                          clearFilters();
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #D6BBFB',
+                          color: '#6941C6',
+                          fontWeight: 600,
+                          fontSize: 12.5,
+                          padding: '6px 12px',
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Show all jobs
+                      </button>
+                    </div>
+                  );
+                })()}
                 {externalJobsPagination.total > 0 && (
                   <div style={{
                     display: 'flex',
@@ -2420,28 +2613,36 @@ const CandidateJobs = () => {
                                     <AccessTimeIcon />
                                     {formatJobPostedTime(job)}
                                   </PostedTime>
-                                  {pct > 0 && (
+                                  {(() => {
+                                    const badge = formatMatchBadge(job.relevanceScore);
+                                    if (!badge) return null;
+                                    return (
+                                      <MatchBadge
+                                        $level={matchLevel || 'default'}
+                                        onClick={(e) => handleMatchClick(e, job)}
+                                        style={{ cursor: 'pointer' }}
+                                        title={MATCH_BADGE_TITLE}
+                                      >
+                                        {badge.text}
+                                      </MatchBadge>
+                                    );
+                                  })()}
+                                </JobFooter>
+                                {/* Mobile match badge (positioned absolute top-right via CSS) */}
+                                {(() => {
+                                  const badge = formatMatchBadge(job.relevanceScore);
+                                  if (!badge) return null;
+                                  return (
                                     <MatchBadge
                                       $level={matchLevel || 'default'}
                                       onClick={(e) => handleMatchClick(e, job)}
-                                      style={{ cursor: 'pointer' }}
-                                      title="Click to see why"
+                                      className="mobile-match-badge"
+                                      title={MATCH_BADGE_TITLE}
                                     >
-                                      {pct}% match
+                                      {badge.mobile}
                                     </MatchBadge>
-                                  )}
-                                </JobFooter>
-                                {/* Mobile match badge (positioned absolute top-right via CSS) */}
-                                {pct > 0 && (
-                                  <MatchBadge
-                                    $level={matchLevel || 'default'}
-                                    onClick={(e) => handleMatchClick(e, job)}
-                                    className="mobile-match-badge"
-                                    title="Click to see why"
-                                  >
-                                    {pct}%
-                                  </MatchBadge>
-                                )}
+                                  );
+                                })()}
                                 {/* Mobile card footer: time + source | bookmark + dismiss + tailor */}
                                 <MobileCardActions>
                                   <MobileCardActionLeft>

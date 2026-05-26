@@ -302,7 +302,16 @@ export const TabsContainer = styled.div`
 `;
 
 export const Tab = styled.button<{ $active?: boolean }>`
-  flex: 1;
+  /* Size to content with growth, never below content width. The previous
+     `flex: 1` rule combined with `white-space: nowrap` caused the active
+     tab to clip its first character at mid widths ("iscover" instead of
+     "Discover") because flex items default min-width: auto = content,
+     but content here includes the inline count badge whose absolutely-
+     positioned variants pushed the natural width above the cell. Pinning
+     min-width to `max-content` keeps every label legible; if the row
+     can't fit, TabsContainer's overflow-x:auto handles the scroll. */
+  flex: 0 1 auto;
+  min-width: max-content;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1735,13 +1744,22 @@ export const ExternalJobDescriptionStyles = styled.div`
     border: 1px solid #EAECF0;
   }
 
-  /* --- AI Tools --- */
+  /* --- AI Tools ---
+     Hidden on mobile because MobileStickyFooterV2 already exposes the
+     same Tailor / Apply Pilot CTAs in a sticky footer; rendering both
+     was creating duplicate buttons and visual noise on narrow screens.
+     Desktop keeps the inline card because there is no sticky footer
+     there. */
   .job-detail-ai-tools {
     background: #F9F5FF;
     border: 1px solid #E9D5FF;
     border-radius: 12px;
     padding: 18px 20px;
     margin-bottom: 24px;
+
+    @media (max-width: 768px) {
+      display: none;
+    }
   }
 
   .job-detail-ai-header {

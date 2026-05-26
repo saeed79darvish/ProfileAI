@@ -196,7 +196,7 @@ router.get('/', authMiddleware, async (req, res) => {
     };
 
     const {
-      search,
+      search: rawSearch,
       location,
       locationType,
       employmentType,
@@ -213,6 +213,25 @@ router.get('/', authMiddleware, async (req, res) => {
       page = 1,
       limit = 20
     } = req.query;
+
+    // Sanitize the search input. The value flows into bound parameters,
+    // so SQL injection is already mitigated, but a malicious or
+    // accidentally-pasted long / HTML / control-char payload would
+    // otherwise:
+    //   - thrash the search-embedding cache (200KB cache key churn),
+    //   - cause OpenAI to reject the embedding call (8K token cap),
+    //   - render as visible markup if echoed back unsanitized in error
+    //     responses.
+    // Strip HTML-ish brackets and ASCII control bytes, normalize whitespace,
+    // and cap at 200 chars before doing anything else with the value.
+    const search = typeof rawSearch === 'string'
+      ? rawSearch
+          .replace(/<[^>]*>/g, ' ')            // strip HTML tags
+          .replace(/[\u0000-\u001F\u007F]/g, ' ') // strip ASCII control chars
+          .replace(/\s+/g, ' ')                // collapse whitespace
+          .trim()
+          .slice(0, 200)
+      : '';
 
     const where = { isActive: true };
     // Replacements bag for any literal() clauses below — Sequelize escapes
@@ -241,8 +260,15 @@ router.get('/', authMiddleware, async (req, res) => {
     //   - companyInfo.fundingStage in early-stage values.
     // Many rows have companyId = NULL (no enrichment yet), so the source
     // arm carries them. Without it the filter would return ~78 of 13k jobs.
+    //
+    // We then SUBTRACT a deny-list of known non-startups (Stripe, OpenAI,
+    // Twilio, etc.) and any company whose funding stage is late/IPO/acquired.
+    // See backend/utils/startupClassifier.js for the curated lists.
+    const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
     const wantStartup = String(startup || '').toLowerCase() === 'true';
     if (wantStartup) {
+      whereReplacements.nonStartupNames = NON_STARTUP_COMPANIES;
+      whereReplacements.nonStartupStages = NON_STARTUP_FUNDING_STAGES;
       where[Op.and] = [
         ...(where[Op.and] || []),
         literal(`(
@@ -257,6 +283,12 @@ router.get('/', authMiddleware, async (req, res) => {
                    ('pre-seed','preseed','seed','series-a','series_a','series a','series-b','series_b','series b','series-c','series_c','series c')
               )
           )
+        )`),
+        literal(`LOWER(COALESCE("ExternalJob"."company", '')) <> ALL(ARRAY[:nonStartupNames]::text[])`),
+        literal(`NOT EXISTS (
+          SELECT 1 FROM "Companies" c2
+          WHERE c2.id = "ExternalJob"."companyId"
+            AND LOWER(COALESCE(c2."fundingStage", '')) = ANY(ARRAY[:nonStartupStages]::text[])
         )`)
       ];
     }
@@ -441,6 +473,11 @@ router.get('/', authMiddleware, async (req, res) => {
             department: department || null,
             skills: skillTokens.length > 0 ? skillTokens : null,
             startup: wantStartup,
+            // Strict salary policy — jobs without a listed salary are
+            // excluded when a band is selected. Same policy as the
+            // non-semantic path below; if you change one, change both.
+            salaryMin: salaryMin || null,
+            salaryMax: salaryMax || null,
             // 'match' = pure relevance (no recency penalty), 'recommended' = match × recency.
             sortMode
           });

@@ -377,7 +377,8 @@ async function generateSearchQueryEmbedding(searchText) {
  * @returns {Object[]} - Jobs with relevanceScore (0-100)
  */
 async function searchSimilarJobs(profileEmbedding, options = {}) {
-  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, datePosted = null, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, sortMode = 'recommended' } = options;
+  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, datePosted = null, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
+  const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
 
   const conditions = [
     `ej."isActive" = true`,
@@ -522,6 +523,13 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   //   - linked Company has employeeCount < 500, OR
   //   - linked Company employeeRange is small (1-10 / 11-50 / 51-200 / 201-500), OR
   //   - linked Company has early-stage funding.
+  //
+  // AND, unconditionally:
+  //   - the company name is NOT on the curated non-startup deny-list
+  //     (Stripe, OpenAI, Anthropic, Databricks, Twilio, etc.) — these
+  //     are technically private but read as "big tech" to candidates.
+  //   - the linked Company's funding stage is NOT late/IPO/Series D+
+  //     (which would also let through unicorns the deny-list misses).
   if (startup) {
     conditions.push(`(
       ej."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack')
@@ -536,6 +544,46 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
           )
       )
     )`);
+    // Hard deny-list on company name. Bound as a text[] so PostgreSQL
+    // can hash-probe instead of evaluating a long OR chain, and so the
+    // values are properly escaped.
+    conditions.push(`LOWER(COALESCE(ej."company", '')) <> ALL($${bindIndex}::text[])`);
+    binds.push(NON_STARTUP_COMPANIES);
+    bindIndex++;
+    // Hard exclusion of late-stage / IPO / acquired companies regardless
+    // of which arm of the OR above matched. NULL fundingStage falls
+    // through (most ExternalJobs rows have no linked Company enrichment
+    // yet — those still pass the source/employee arms).
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM "Companies" c2
+      WHERE c2.id = ej."companyId"
+        AND LOWER(COALESCE(c2."fundingStage", '')) = ANY($${bindIndex}::text[])
+    )`);
+    binds.push(NON_STARTUP_FUNDING_STAGES);
+    bindIndex++;
+  }
+
+  // Salary band filter. We treat the band as an overlap test against the
+  // job's declared [salaryMin, salaryMax] range:
+  //   - user said "$200k+"  → salaryMin=200000  → job.salaryMax >= 200000
+  //   - user said "≤ $250k" → salaryMax=250000  → job.salaryMin <= 250000
+  //
+  // Strict NULL policy: jobs that don't list a salary are *excluded*
+  // from a salary-filtered result set. Lenient ("include unlisted")
+  // would silently inflate counts and let through low-paying roles the
+  // candidate is explicitly trying to filter out, which destroys trust
+  // in the count badge. If we ever change this, change it in BOTH this
+  // service AND routes/externalJobs.js so the count + result queries
+  // never diverge.
+  if (salaryMin != null && !Number.isNaN(Number(salaryMin))) {
+    conditions.push(`ej."salaryMax" IS NOT NULL AND ej."salaryMax" >= $${bindIndex}`);
+    binds.push(parseInt(salaryMin, 10));
+    bindIndex++;
+  }
+  if (salaryMax != null && !Number.isNaN(Number(salaryMax))) {
+    conditions.push(`ej."salaryMin" IS NOT NULL AND ej."salaryMin" <= $${bindIndex}`);
+    binds.push(parseInt(salaryMax, 10));
+    bindIndex++;
   }
 
   const whereClause = conditions.join(' AND ');
@@ -613,7 +661,57 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     orderExpr = `${freshnessTierExpr} DESC, ${rankScoreExpr} DESC, ${recencyOrderExpr}`;
   }
 
-  const query = `
+  // ── Two-stage retrieval for vector-ranked sort modes ──
+  // The HNSW index on ExternalJobs.embedding can only be used when ORDER BY
+  // is a *pure* cosine distance expression (`embedding <=> $1::vector`). In
+  // `recommended` and `match` modes the ORDER BY is a composite (freshness
+  // tier + rank score), which forces the planner to fall back to a sequential
+  // scan computing cosine for every matching row — on a 13k+ corpus that's
+  // hundreds of ms at best, and stacks to multi-second / Render-timeout
+  // territory under concurrent requests with filters applied.
+  //
+  // Fix: run an HNSW-indexed ANN query first to narrow to a candidate pool,
+  // then apply the composite ordering on that small set. The pool is sized
+  // generously enough that (a) pagination through ~25 pages still works and
+  // (b) freshness re-ranking has enough non-top-cosine jobs to shuffle.
+  //
+  // 'recent' bypasses this — pure date ordering uses the
+  // (isActive, postedAt DESC) composite index directly; cosine is only
+  // a tiebreaker computed on the already LIMIT-clamped result set.
+  const needsAnn = sortMode !== 'recent';
+  // POOL = max(500, (limit + offset) * 3), capped at 3000. Allows ~25
+  // pages of 20 results; cap keeps the worst case bounded.
+  const annPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 3000)`;
+
+  const query = needsAnn ? `
+    WITH ann_candidates AS (
+      SELECT ej.id
+      FROM "ExternalJobs" ej
+      WHERE ${whereClause}
+      ORDER BY ej.embedding <=> $1::vector
+      LIMIT ${annPoolExpr}
+    )
+    SELECT 
+      ej.id, ej."externalId", ej.source, ej."boardToken", ej.title, ej.company,
+      ej.location, ej."locationType", ej."employmentType", ej."experienceLevel",
+      ej.department, ej.description, ej.requirements, ej.skills,
+      ej."salaryMin", ej."salaryMax", ej."salaryCurrency", ej."salaryPeriod",
+      ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."isActive",
+      ej."lastFetchedAt", ej."createdAt", ej."updatedAt",
+      ${scoreExpr} as "relevanceScore",
+      json_build_object(
+        'id', c.id, 'name', c.name, 'slug', c.slug, 'domain', c.domain,
+        'logoUrl', c."logoUrl", 'website', c.website, 'industry', c.industry,
+        'employeeCount', c."employeeCount", 'employeeRange', c."employeeRange",
+        'fundingStage', c."fundingStage", 'headquarters', c.headquarters,
+        'linkedinUrl', c."linkedinUrl"
+      ) as "companyInfo"
+    FROM "ExternalJobs" ej
+    JOIN ann_candidates ac ON ac.id = ej.id
+    LEFT JOIN "Companies" c ON ej."companyId" = c.id
+    ORDER BY ${orderExpr}, ej."createdAt" DESC
+    LIMIT $2 OFFSET $3
+  ` : `
     SELECT 
       ej.id, ej."externalId", ej.source, ej."boardToken", ej.title, ej.company,
       ej.location, ej."locationType", ej."employmentType", ej."experienceLevel",
