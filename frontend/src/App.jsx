@@ -154,7 +154,7 @@ function AppContent() {
               <Route path="/register" element={<Register />} />
               <Route path="/signup" element={<Register />} />
               <Route path="/onboarding" element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <CandidateOnboarding />
                 </PrivateRoute>
               } />
@@ -190,7 +190,7 @@ function AppContent() {
             <Route path="/company/:slug" element={<CompanyPage />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/jobs/:id/apply" element={
-              <PrivateRoute allowedRoles={['candidate']}>
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <JobApplication />
               </PrivateRoute>
             } />
@@ -207,7 +207,7 @@ function AppContent() {
             */}
             <Route path="/jobs" element={<CandidateJobs />} />
             <Route path="/my-jobs" element={
-              <PrivateRoute allowedRoles={['candidate']}>
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <MyJobs />
               </PrivateRoute>
             } />
@@ -218,7 +218,7 @@ function AppContent() {
                 /applypilot; /agent-arena/* kept as a redirect for existing
                 links (deep-links, notifications, old bookmarks). */}
             <Route path="/applypilot/*" element={
-              <PrivateRoute allowedRoles={['candidate']}>
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <AgentArena />
               </PrivateRoute>
             } />
@@ -393,7 +393,7 @@ function AppContent() {
             <Route
               path="/profile"
               element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <Dashboard />
                 </PrivateRoute>
               }
@@ -405,7 +405,7 @@ function AppContent() {
             <Route
               path="/profile/create"
               element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <ProfileCreation />
                 </PrivateRoute>
               }
@@ -413,7 +413,7 @@ function AppContent() {
             <Route
               path="/profile/preferences"
               element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <JobPreferencesWizard />
                 </PrivateRoute>
               }
@@ -421,7 +421,7 @@ function AppContent() {
             <Route
               path="/profile/create-form"
               element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <ProfileForm />
                 </PrivateRoute>
               }
@@ -429,7 +429,7 @@ function AppContent() {
             <Route
               path="/profile/edit"
               element={
-                <PrivateRoute allowedRoles={['candidate']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <ProfileForm />
                 </PrivateRoute>
               }
