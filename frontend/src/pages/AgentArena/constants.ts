@@ -21,7 +21,14 @@ export const STATUS_MAP: Record<string, string> = {
   rejected: 'Rejected',
 };
 
-export const POLLING_INTERVAL_MS = 10000;
+// Dashboard + Review pages re-fetch on this cadence. useDashboardData
+// refetches FOUR endpoints (stats, queue, activity, status) per tick,
+// so at 10s that's 24 req/min from this page alone — enough on its own
+// to brush the globalLimiter (600 / 15min ≈ 40 req/min) once other
+// tabs (unread-count, /me, RUM) chime in. 30s is still well below the
+// scout cadence (10min) and the external-jobs cron (15min), so the UI
+// never lags reality by more than one tick.
+export const POLLING_INTERVAL_MS = 30000;
 
 /* ================================================================
    Dashboard stats

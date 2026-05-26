@@ -731,6 +731,11 @@ export const applyPilotAPI = {
   matchPreview: (criteria) =>
     api.post('/applypilot/match-preview', criteria || {}),
 
+  // Lightweight corpus health probe — used by the Setup page to tell
+  // "0 matches because criteria are strict" apart from "0 because we
+  // haven't ingested any jobs yet". Returns { total, fresh, status }.
+  corpusStatus: () => api.get('/applypilot/corpus-status'),
+
   // Provider support matrix and credentials placeholder endpoints.
   getATS: () => api.get('/applypilot/ats'),
   getCredentials: () => api.get('/applypilot/credentials'),

@@ -1500,6 +1500,20 @@ const LiveMatchesCard = ({
 }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [corpus, setCorpus] = useState(null);
+
+  // Probe corpus health once on mount. If the external-jobs sync hasn't
+  // run on this host (or hasn't run recently enough to clear the
+  // 60d/14d freshness gate), total=0 isn't about the user's criteria —
+  // it's about missing data. Show that distinction explicitly instead
+  // of telling them to relax filters they didn't get wrong.
+  useEffect(() => {
+    let cancelled = false;
+    applyPilotAPI.corpusStatus()
+      .then(res => { if (!cancelled) setCorpus(res.data); })
+      .catch(() => { if (!cancelled) setCorpus(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Debounced fetch, re-runs whenever any criterion changes. We don't
   // care about race conditions on stale responses (last-write-wins is
@@ -1556,13 +1570,34 @@ const LiveMatchesCard = ({
     ? `${countPrefix} roles narrow with your filters`
     : `${countPrefix} roles match your criteria`;
 
+  // Three states for the empty-result message:
+  //   corpus.status === 'empty'  → no jobs ingested on this host yet
+  //   corpus.status === 'stale'  → jobs exist but none within the 60d/14d
+  //                                 freshness window match-preview enforces
+  //   total === 0 (corpus ok)    → criteria genuinely too strict
+  const corpusStatus = corpus?.status;
+  const showCorpusBanner = total === 0 && (corpusStatus === 'empty' || corpusStatus === 'stale');
   const note = total === 0
-    ? 'No matching postings yet. Try adding more role titles or relaxing your filters.'
+    ? (corpusStatus === 'empty'
+        ? 'No jobs indexed yet — the job-board sync hasn\u2019t populated the corpus on this environment. Matches will appear once it runs.'
+        : corpusStatus === 'stale'
+          ? 'No fresh postings in the index. Recent jobs will appear after the next sync (every 15 min).'
+          : 'No matching postings yet. Try adding more role titles or relaxing your filters.')
     : 'Counter reflects live ExternalJob data. Only postings ApplyPilot can actually auto-submit are counted.';
 
   return (
     <>
       <AsideTitle>{title}</AsideTitle>
+      {showCorpusBanner && (
+        <CorpusBanner>
+          <b>{corpusStatus === 'empty' ? 'Job index is empty' : 'Job index is stale'}</b>
+          <span>
+            {corpusStatus === 'empty'
+              ? 'Your criteria aren\u2019t the problem — no jobs have been ingested yet. ApplyPilot will start matching as soon as the sync runs.'
+              : 'No postings within the freshness window. The next external-jobs sync will repopulate.'}
+          </span>
+        </CorpusBanner>
+      )}
       <Card>
         <CardHead>
           <span className="label">LIVE MATCHES</span>
@@ -2307,6 +2342,23 @@ const Card = styled.div`
   border-radius: 14px;
   padding: 18px 20px;
   box-shadow: 0 4px 14px rgba(23, 21, 42, 0.04);
+`;
+
+const CorpusBanner = styled.div`
+  background: #FFF7E6;
+  border: 1px solid #F2C572;
+  color: #6B4A0F;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+
+  b { color: #5A3D08; font-size: 13px; }
+  span { color: #6B4A0F; }
 `;
 
 const CardHead = styled.div`

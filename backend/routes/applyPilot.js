@@ -549,6 +549,44 @@ router.post('/pause', async (req, res) => {
   res.json({ state: cfg.state });
 });
 
+// Corpus health probe — lets the Setup page distinguish "your criteria
+// matched 0 jobs" from "we haven't ingested any jobs yet". Returns the
+// freshness window the match-preview route enforces (postedAt within
+// 60d OR lastFetchedAt within 14d) so the number is directly comparable
+// to the LIVE MATCHES counter. Cheap: two indexed COUNTs.
+router.get('/corpus-status', async (req, res) => {
+  try {
+    const now = Date.now();
+    const sixtyDaysAgo = new Date(now - 60 * 24 * 3600 * 1000);
+    const fourteenDaysAgo = new Date(now - 14 * 24 * 3600 * 1000);
+    const [total, fresh] = await Promise.all([
+      ExternalJob.count({ where: { isActive: true } }),
+      ExternalJob.count({
+        where: {
+          isActive: true,
+          [Op.or]: [
+            { postedAt: { [Op.gte]: sixtyDaysAgo } },
+            {
+              [Op.and]: [
+                { postedAt: null },
+                { lastFetchedAt: { [Op.gte]: fourteenDaysAgo } },
+              ],
+            },
+          ],
+        },
+      }),
+    ]);
+    res.json({
+      total,
+      fresh,
+      status: fresh > 0 ? 'ok' : (total > 0 ? 'stale' : 'empty'),
+    });
+  } catch (err) {
+    console.error('[applypilot] corpus-status:', err);
+    res.status(500).json({ error: 'corpus_status_failed' });
+  }
+});
+
 router.get('/status', async (req, res) => {
   const cfg = await service.getOrCreateConfig(req.userId);
   const queueCount = await ApplyPilotApplication.count({
