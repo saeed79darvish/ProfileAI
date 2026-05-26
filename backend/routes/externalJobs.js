@@ -166,6 +166,14 @@ function getCountersSnapshot() {
  * @access  Private (candidates)
  */
 router.get('/', authMiddleware, async (req, res) => {
+  // Per-stage timing for prod log triage. The user reported a 15s wait on
+  // a default /external-jobs request; without breakdown timings we can't
+  // tell whether it was the profile fetch, the ANN+rank SELECT, the
+  // COUNT(*), or one of the OpenAI embedding calls. Stamps are logged
+  // only when the total goes over a threshold so they don't spam logs.
+  const reqStartedAt = Date.now();
+  const stages = [];
+  const stamp = (label) => stages.push(`${label}=${Date.now() - reqStartedAt}ms`);
   try {
     bumpCounter('listRequests');
 
@@ -199,6 +207,17 @@ router.get('/', authMiddleware, async (req, res) => {
       // Don't cache error envelopes — only well-formed list responses.
       if (payload && Array.isArray(payload.jobs)) {
         cache.set(cacheKey, payload, 90 * 1000);
+      }
+      // Log a per-stage breakdown when a request gets visibly slow. The
+      // 1500ms threshold is high enough to skip the warm hot path (~50ms)
+      // and low enough to catch the multi-second outliers users feel.
+      const totalMs = Date.now() - reqStartedAt;
+      if (totalMs > 1500) {
+        console.warn(
+          `[ExternalJobs] slow GET / ${totalMs}ms ` +
+          `user=${req.user?.id} stages=[${stages.join(' ')}] ` +
+          `q=${JSON.stringify(req.query).slice(0, 200)}`
+        );
       }
       return originalJson(payload);
     };
@@ -422,6 +441,7 @@ router.get('/', authMiddleware, async (req, res) => {
         where: { userId: req.user.id },
         attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary', 'openaiEmbedding', 'openaiEmbeddingUpdatedAt']
       });
+      stamp('profile');
 
       // --- AI Semantic Ranking via pgvector ---
       // Prefer the persisted Profile.openaiEmbedding (regenerated on
@@ -464,6 +484,7 @@ router.get('/', authMiddleware, async (req, res) => {
           } catch (e) {
             console.warn('[ExternalJobs] Could not generate search embedding:', e.message);
           }
+          stamp('searchEmb');
         }
 
         try {
@@ -491,6 +512,7 @@ router.get('/', authMiddleware, async (req, res) => {
           });
 
           const { rows: semanticJobs, total } = semanticResult;
+          stamp('semantic');
           bumpCounter('semanticSuccesses');
 
           // If semantic search returns 0 rows it's almost always because

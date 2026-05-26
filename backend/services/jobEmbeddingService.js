@@ -31,6 +31,33 @@ const searchEmbeddingCache = new Map();
 const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const SEARCH_CACHE_MAX_ENTRIES = 500;
 
+// In-memory cache for the COUNT(*) query in searchSimilarJobs.
+//
+// The count query runs the full WHERE clause (including `embedding IS NOT
+// NULL` which has no supporting index) over the entire ExternalJobs
+// corpus — on a 13k+ row table that's the dominant cost of every cache
+// miss on /external-jobs, often dwarfing the ANN+rank SELECT itself
+// (HNSW + ann_candidates LIMIT 500 caps the latter at ~50ms).
+//
+// Crucially, the count is a function of the FILTER SET ONLY — it does
+// not depend on the calling user's profile embedding or on pagination.
+// So a single cached entry serves every user hitting the same filter
+// combo (the common "no filters, sort=recommended" hot path is the
+// extreme case: one entry serves the whole site for the TTL window).
+//
+// 60s TTL is short enough that newly synced jobs surface promptly and
+// long enough to swallow burst traffic from a logged-in user clicking
+// around. Auto-invalidated on every successful sync via
+// `cache.invalidatePrefix('external_jobs:')` in externalJobService —
+// see invalidateJobsCountCache() below, which the sync caller hits.
+const jobsCountCache = new Map();
+const JOBS_COUNT_CACHE_TTL_MS = 60 * 1000; // 60s
+const JOBS_COUNT_CACHE_MAX_ENTRIES = 200;
+
+function invalidateJobsCountCache() {
+  jobsCountCache.clear();
+}
+
 // Simple hash to detect profile changes
 function hashText(text) {
   let hash = 0;
@@ -770,6 +797,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // We wrap the SELECT in a transaction so the setting is scoped correctly
   // and rolled back automatically when the read completes.
   try {
+    const t0 = Date.now();
     const runListQuery = needsAnn
       ? sequelize.transaction(async (t) => {
           await sequelize.query(`SET LOCAL hnsw.ef_search = 200`, { transaction: t });
@@ -784,15 +812,49 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
           type: sequelize.constructor.QueryTypes.SELECT,
         });
 
-    const [results, countResult] = await Promise.all([
-      runListQuery,
-      sequelize.query(countQuery, {
-        bind: filterBinds,
-        type: sequelize.constructor.QueryTypes.SELECT
-      })
-    ]);
+    // Count cache — filter-signature keyed, user-independent. See the
+    // module-level comment on jobsCountCache for the rationale; in short,
+    // the count is the same for every user with the same filter set, and
+    // recomputing it on every request is the dominant cost here.
+    const countCacheKey = `${countWhereClause}|${JSON.stringify(filterBinds)}`;
+    const cachedCount = jobsCountCache.get(countCacheKey);
+    const countFreshEnough = cachedCount && cachedCount.expiresAt > Date.now();
+
+    const runCountQuery = countFreshEnough
+      ? Promise.resolve([{ total: cachedCount.total }])
+      : sequelize.query(countQuery, {
+          bind: filterBinds,
+          type: sequelize.constructor.QueryTypes.SELECT,
+        });
+
+    const [results, countResult] = await Promise.all([runListQuery, runCountQuery]);
+    const listMs = Date.now() - t0;
 
     const total = parseInt(countResult[0]?.total) || 0;
+
+    if (!countFreshEnough) {
+      // Cap entries to keep memory bounded; FIFO eviction is fine since
+      // hot filter combos are revisited continuously and stay warm.
+      if (jobsCountCache.size >= JOBS_COUNT_CACHE_MAX_ENTRIES) {
+        const oldest = jobsCountCache.keys().next().value;
+        if (oldest !== undefined) jobsCountCache.delete(oldest);
+      }
+      jobsCountCache.set(countCacheKey, {
+        total,
+        expiresAt: Date.now() + JOBS_COUNT_CACHE_TTL_MS,
+      });
+    }
+
+    // Log when a request gets visibly slow so we can spot regressions in
+    // prod logs. 1500ms is generous (typical good runs are 30-150ms) but
+    // catches the multi-second outliers the user actually feels.
+    if (listMs > 1500) {
+      console.warn(
+        `[JobEmbedding] slow searchSimilarJobs: ${listMs}ms ` +
+        `(needsAnn=${needsAnn}, countCached=${countFreshEnough}, ` +
+        `filters=${filterBinds.length}, search=${!!search})`
+      );
+    }
 
     return {
       rows: results.map(row => ({
@@ -823,6 +885,7 @@ module.exports = {
   generateSearchQueryEmbedding,
   regenerateProfileOpenAIEmbedding,
   searchSimilarJobs,
+  invalidateJobsCountCache,
   EMBEDDING_MODEL,
   EMBEDDING_DIMENSIONS
 };

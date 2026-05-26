@@ -1262,6 +1262,14 @@ async function syncBoard(atsBoard) {
         const cache = require('./simpleCache');
         cache.invalidatePrefix('external_jobs:');
       } catch { /* cache module is optional, never fail sync because of it */ }
+      // Also clear the per-filter count cache inside jobEmbeddingService.
+      // It's a separate Map (not the simpleCache prefix space) so it
+      // needs its own kick; otherwise newly synced jobs would sit behind
+      // a stale total for up to 60s of cached counts.
+      try {
+        const { invalidateJobsCountCache } = require('./jobEmbeddingService');
+        invalidateJobsCountCache();
+      } catch { /* same — never fail the sync because of cache plumbing */ }
     }
 
     return { success: true, created, updated, deactivated: deactivated[0] || 0, total: normalizedJobs.length };
