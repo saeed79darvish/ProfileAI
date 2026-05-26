@@ -298,7 +298,7 @@ export default function InlineJobAITools({ job }) {
 
   // Fetch profile once
   useEffect(() => {
-    if (!user || user.role !== 'candidate') { setProfileLoaded(true); return; }
+    if (!user || (user.role !== 'candidate' && user.role !== 'admin')) { setProfileLoaded(true); return; }
     
     profileAPI.getMyProfile()
       .then(res => setProfile(res.data))
@@ -569,7 +569,7 @@ export default function InlineJobAITools({ job }) {
     }
   };
 
-  if (!user || user.role !== 'candidate') return null;
+  if (!user || (user.role !== 'candidate' && user.role !== 'admin')) return null;
 
   if (!profileLoaded) return null;
 
