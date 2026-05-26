@@ -38,12 +38,15 @@ const ModalContainer = styled.div`
 const Header = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 20px 28px 16px;
   flex-shrink: 0;
 
   @media (max-width: 768px) {
-    padding: 16px 16px 12px;
+    padding: 14px 14px 10px;
+    flex-wrap: wrap;
+    row-gap: 10px;
+    column-gap: 8px;
   }
 `;
 
@@ -51,6 +54,14 @@ const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  margin-right: auto;
+
+  @media (max-width: 768px) {
+    flex: 1 1 auto;
+    gap: 10px;
+    margin-right: 0;
+  }
 `;
 
 const HeaderIcon = styled.div`
@@ -63,19 +74,44 @@ const HeaderIcon = styled.div`
   font-size: 18px;
   background: #e0e7ff;
   color: #4f46e5;
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
 `;
 
 const HeaderText = styled.div`
+  min-width: 0;
+
   h3 {
     margin: 0;
     font-size: 18px;
     font-weight: 700;
     color: #111827;
+    line-height: 1.2;
   }
   .subtitle {
     font-size: 13px;
     color: #6b7280;
     margin-top: 1px;
+  }
+
+  @media (max-width: 768px) {
+    h3 {
+      font-size: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .subtitle {
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 `;
 
@@ -85,7 +121,10 @@ const HeaderRight = styled.div`
   gap: 12px;
 
   @media (max-width: 768px) {
-    gap: 6px;
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+    gap: 8px;
   }
 `;
 
@@ -95,11 +134,16 @@ const BeforeAfterToggle = styled.div`
   background: #f3f4f6;
   padding: 3px;
   border-radius: 8px;
+
+  @media (max-width: 768px) {
+    flex: 1 1 0;
+  }
 `;
 
 const ToggleBtn = styled.button`
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   padding: 6px 14px;
   border: none;
@@ -113,6 +157,12 @@ const ToggleBtn = styled.button`
   box-shadow: ${p => (p.$active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none')};
 
   &:hover { color: #111827; }
+
+  @media (max-width: 768px) {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
 `;
 
 const CloseBtn = styled.button`
@@ -125,7 +175,13 @@ const CloseBtn = styled.button`
   font-size: 20px;
   line-height: 1;
   transition: all 0.2s;
+  flex-shrink: 0;
   &:hover { background: #f3f4f6; color: #374151; }
+
+  @media (max-width: 768px) {
+    order: 2;
+    align-self: flex-start;
+  }
 `;
 
 const Divider = styled.hr`
@@ -831,11 +887,16 @@ const TabRow = styled.div`
   background: #f3f4f6;
   padding: 3px;
   border-radius: 8px;
+
+  @media (max-width: 768px) {
+    flex: 1 1 0;
+  }
 `;
 
 const Tab = styled.button`
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 6px 14px;
   border: none;
@@ -849,6 +910,12 @@ const Tab = styled.button`
   box-shadow: ${p => (p.$active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none')};
 
   &:hover { color: #111827; }
+
+  @media (max-width: 768px) {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
 `;
 
 // === Auto-resize textarea helper ===
@@ -1274,7 +1341,12 @@ export default function ResumePreviewModal({
               <span>Generating preview...</span>
             </LoadingBox>
           ) : currentUrl ? (
-            <iframe src={currentUrl} title={showingOriginal ? 'Original Resume' : 'Tailored Resume'} />
+            <iframe
+              src={currentUrl.startsWith('blob:') || currentUrl.startsWith('data:') || /\.pdf(\?|$)/i.test(currentUrl)
+                ? `${currentUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
+                : currentUrl}
+              title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
+            />
           ) : (
             <LoadingBox><span>Preview not available</span></LoadingBox>
           )}
@@ -1471,8 +1543,8 @@ export default function ResumePreviewModal({
                 </Tab>
               </TabRow>
             )}
-            <CloseBtn onClick={onClose}>✕</CloseBtn>
           </HeaderRight>
+          <CloseBtn onClick={onClose}>✕</CloseBtn>
         </Header>
 
         <Divider />
