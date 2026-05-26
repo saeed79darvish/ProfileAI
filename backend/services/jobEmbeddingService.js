@@ -58,6 +58,108 @@ function invalidateJobsCountCache() {
   jobsCountCache.clear();
 }
 
+// Per-user cache for the data /external-jobs needs out of Profile.
+// Stores only what the ranking path consumes — the parsed embedding
+// (number[]), the lowercased skill Set, and the profile primary key
+// (needed for the legacy "no embedding yet, kick off a regen" branch).
+//
+// Why: every /external-jobs request was doing a Profile.findOne that
+// reads the openaiEmbedding pgvector column (~4KB serialized as text)
+// and then JSON.parse'd it. On warm-pool requests that's ~30-80ms; on
+// cold-connection requests it competed for the same pool slot as the
+// ANN+rank SELECT and stretched the user-visible latency. This cache
+// collapses the entire profile read to an O(1) Map.get() on hit.
+//
+// 5 min TTL with invalidation on Profile.afterSave (see model hook).
+// Embeddings are large but bounded (512 floats); 1000 users = ~2MB.
+const profileForJobsCache = new Map();
+const PROFILE_FOR_JOBS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PROFILE_FOR_JOBS_CACHE_MAX = 1000;
+
+function _parseEmbeddingValue(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return null; }
+  }
+  return null;
+}
+
+function _buildSkillSet(rawSkills) {
+  const out = new Set();
+  if (!rawSkills) return out;
+  if (Array.isArray(rawSkills)) {
+    for (const s of rawSkills) {
+      const v = (typeof s === 'string' ? s : (s?.name || '')).toLowerCase().trim();
+      if (v) out.add(v);
+    }
+  } else if (typeof rawSkills === 'object') {
+    for (const arr of Object.values(rawSkills)) {
+      if (!Array.isArray(arr)) continue;
+      for (const s of arr) {
+        const v = (typeof s === 'string' ? s : (s?.name || '')).toLowerCase().trim();
+        if (v) out.add(v);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Cached read of the per-user data the /external-jobs ranking path
+ * needs from Profile. Returns null when the user has no profile row.
+ *
+ * Shape: { profileId, hasEmbedding, profileEmbedding, skillSet }
+ *   - profileEmbedding is null when the user's openaiEmbedding hasn't
+ *     been persisted yet (legacy profiles before the column existed).
+ *     The caller decides whether to kick off a background regen and
+ *     fall through to the keyword path for the current request.
+ *   - skillSet is always a Set<string> (possibly empty).
+ *
+ * Cache is invalidated by invalidateProfileForJobsCache(userId), called
+ * from the Profile.afterSave hook whenever any embedding-relevant field
+ * changes (title, summary, skills, experience, etc.).
+ */
+async function loadProfileForJobsRanking(userId) {
+  if (!userId) return null;
+  const cached = profileForJobsCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    // LRU touch so hot users stay in the cap.
+    profileForJobsCache.delete(userId);
+    profileForJobsCache.set(userId, cached);
+    return cached.value;
+  }
+  // Lazy require to avoid the require cycle (Profile model →
+  // afterSave → this service → Profile model).
+  const { Profile } = require('../models');
+  const row = await Profile.findOne({
+    where: { userId },
+    attributes: ['id', 'skills', 'openaiEmbedding'],
+  });
+  if (!row) {
+    return null;
+  }
+  const value = {
+    profileId: row.id,
+    profileEmbedding: _parseEmbeddingValue(row.openaiEmbedding),
+    skillSet: _buildSkillSet(row.skills),
+  };
+  if (profileForJobsCache.size >= PROFILE_FOR_JOBS_CACHE_MAX) {
+    const oldest = profileForJobsCache.keys().next().value;
+    if (oldest !== undefined) profileForJobsCache.delete(oldest);
+  }
+  profileForJobsCache.set(userId, {
+    value,
+    expiresAt: Date.now() + PROFILE_FOR_JOBS_CACHE_TTL_MS,
+  });
+  return value;
+}
+
+function invalidateProfileForJobsCache(userId) {
+  if (!userId) return;
+  profileForJobsCache.delete(userId);
+}
+
 // Simple hash to detect profile changes
 function hashText(text) {
   let hash = 0;
@@ -796,21 +898,19 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // would be a no-op at best and a session-leaking config change at worst.
   // We wrap the SELECT in a transaction so the setting is scoped correctly
   // and rolled back automatically when the read completes.
+  // hnsw.ef_search is now configured per-connection via the database
+  // pool's afterConnect hook (see backend/config/database.js). We used to
+  // wrap the ANN SELECT in `sequelize.transaction()` just to scope
+  // `SET LOCAL hnsw.ef_search = 200`, which cost a BEGIN/COMMIT round-
+  // trip on every request — measurable on the /external-jobs hot path
+  // since it also locked the connection from the parallel COUNT(*).
+  // The setting is harmless when the query doesn't use HNSW.
   try {
     const t0 = Date.now();
-    const runListQuery = needsAnn
-      ? sequelize.transaction(async (t) => {
-          await sequelize.query(`SET LOCAL hnsw.ef_search = 200`, { transaction: t });
-          return sequelize.query(query, {
-            bind: binds,
-            type: sequelize.constructor.QueryTypes.SELECT,
-            transaction: t,
-          });
-        })
-      : sequelize.query(query, {
-          bind: binds,
-          type: sequelize.constructor.QueryTypes.SELECT,
-        });
+    const runListQuery = sequelize.query(query, {
+      bind: binds,
+      type: sequelize.constructor.QueryTypes.SELECT,
+    });
 
     // Count cache — filter-signature keyed, user-independent. See the
     // module-level comment on jobsCountCache for the rationale; in short,
@@ -886,6 +986,8 @@ module.exports = {
   regenerateProfileOpenAIEmbedding,
   searchSimilarJobs,
   invalidateJobsCountCache,
+  loadProfileForJobsRanking,
+  invalidateProfileForJobsCache,
   EMBEDDING_MODEL,
   EMBEDDING_DIMENSIONS
 };

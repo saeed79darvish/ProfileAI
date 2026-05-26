@@ -161,6 +161,15 @@ const Profile = sequelize.define('Profile', {
       const changed = options.fields || [];
       const relevantChange = changed.some(f => embeddingFields.includes(f));
 
+      // Invalidate the per-user /external-jobs cache (parsed embedding +
+      // skill set) so the next jobs request picks up the fresh data
+      // instead of serving stale rankings for up to 5 minutes. Safe to
+      // call even when no relevant field changed — it's just a Map.delete.
+      try {
+        const { invalidateProfileForJobsCache } = require('../services/jobEmbeddingService');
+        invalidateProfileForJobsCache(profile.userId);
+      } catch { /* service unavailable during boot — fine */ }
+
       // ── Voyage embedding (recruiter-side candidate search) ──
       // Skip if VOYAGE_API_KEY is not configured
       if (process.env.VOYAGE_API_KEY) {

@@ -5,7 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const { Op, literal } = require('sequelize');
 const { refreshIfStale } = require('../services/externalJobService');
 const { rankJobs } = require('../services/jobRelevanceService');
-const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding } = require('../services/jobEmbeddingService');
+const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -436,40 +436,32 @@ router.get('/', authMiddleware, async (req, res) => {
     // compute match scores; only 'recent' bypasses ranking entirely.
     const sortMode = normalizeSortMode(sort);
     if (sortMode !== 'recent') {
-      // Fetch candidate profile (now also reads the persisted OpenAI embedding).
-      const profile = await Profile.findOne({
-        where: { userId: req.user.id },
-        attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary', 'openaiEmbedding', 'openaiEmbeddingUpdatedAt']
-      });
+      // Cached read: skips the Profile.findOne pgvector fetch on hot path.
+      // Returns { profileId, profileEmbedding, skillSet } or null.
+      // See loadProfileForJobsRanking() in jobEmbeddingService for cache
+      // semantics; invalidated on Profile.afterSave.
+      const profileCached = await loadProfileForJobsRanking(req.user.id);
       stamp('profile');
 
       // --- AI Semantic Ranking via pgvector ---
-      // Prefer the persisted Profile.openaiEmbedding (regenerated on
-      // meaningful profile saves via the afterSave hook). Falls back to a
-      // live regen + persist if the row is missing one — this only happens
-      // for legacy profiles that haven't saved since the column was added.
-      let profileEmbedding = null;
-      if (profile) {
-        if (profile.openaiEmbedding) {
-          // Sequelize returns pgvector as a string like "[0.1,0.2,...]" —
-          // normalize back to number[] for the SQL bind in searchSimilarJobs.
-          profileEmbedding = Array.isArray(profile.openaiEmbedding)
-            ? profile.openaiEmbedding
-            : (typeof profile.openaiEmbedding === 'string'
-                ? JSON.parse(profile.openaiEmbedding)
-                : null);
-        }
-        if (!profileEmbedding) {
-          // No persisted embedding yet — kick off a regen in the background
-          // and fall through to the keyword path for THIS request. We
-          // intentionally don't await: the OpenAI roundtrip is 300-800ms
-          // and would block the first /jobs paint for every legacy user.
-          // The next request (or any request after the cron warmup) will
-          // find the persisted embedding and take the semantic path.
+      let profileEmbedding = profileCached?.profileEmbedding || null;
+      if (profileCached && !profileEmbedding) {
+        // Legacy profile without a persisted openaiEmbedding — kick off a
+        // background regen and fall through to the keyword path for THIS
+        // request. The OpenAI roundtrip is 300-800ms and would block the
+        // first /jobs paint for every legacy user. We need the full
+        // profile row for the regen, so fetch it lazily here (off the
+        // hot path — this only runs once per legacy user).
+        try {
           const { regenerateProfileOpenAIEmbedding } = require('../services/jobEmbeddingService');
-          regenerateProfileOpenAIEmbedding(profile).catch((e) => {
-            console.warn('[ExternalJobs] background profile embedding regen failed:', e.message);
-          });
+          const fullProfile = await Profile.findOne({ where: { userId: req.user.id } });
+          if (fullProfile) {
+            regenerateProfileOpenAIEmbedding(fullProfile).catch((e) => {
+              console.warn('[ExternalJobs] background profile embedding regen failed:', e.message);
+            });
+          }
+        } catch (e) {
+          console.warn('[ExternalJobs] could not schedule profile embedding regen:', e.message);
         }
       }
 
@@ -530,7 +522,7 @@ router.get('/', authMiddleware, async (req, res) => {
           // The keyword path computes this internally via rankJobs; the
           // semantic path bypasses that, so we do the intersection here in
           // JS — cheap, runs only on the 20 jobs in the page response.
-          const profileSkillSet = extractProfileSkillSet(profile);
+          const profileSkillSet = profileCached?.skillSet || new Set();
           const semanticJobsWithMatched = semanticJobs.map(j => ({
             ...j,
             matchedSkills: intersectSkills(profileSkillSet, j.skills),
@@ -560,6 +552,15 @@ router.get('/', authMiddleware, async (req, res) => {
       }
 
       // --- Fallback: keyword-based ranking ---
+      // rankJobs() needs the full Profile row (title/headline/summary/
+      // experience/etc., not just the cached embedding + skills). Fetch
+      // it lazily here — this path is rare (only hit when semantic
+      // returned 0 or failed), so we accept the extra round-trip in
+      // exchange for keeping the hot semantic path cache-only.
+      const profileForKeyword = await Profile.findOne({
+        where: { userId: req.user.id },
+        attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary']
+      });
       const POOL_SIZE = 200;
       const allJobs = await ExternalJob.findAll({
         where,
@@ -575,7 +576,7 @@ router.get('/', authMiddleware, async (req, res) => {
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
 
-      const ranked = rankJobs(allJobs, profile, { sortMode });
+      const ranked = rankJobs(allJobs, profileForKeyword, { sortMode });
       const total = ranked.length;
       const offset = (pageNum - 1) * limitNum;
       const paginatedJobs = ranked.slice(offset, offset + limitNum);
