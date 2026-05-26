@@ -448,7 +448,9 @@ const Dashboard = () => {
     ? `${window.location.origin}/profile/${getProfileSlug(user, profile)}`
     : '';
 
-  // Redirect recruiters and admins
+  // Redirect recruiters away from the candidate dashboard. Admins are
+  // allowed to view /profile so they can dogfood the candidate surface;
+  // they can still reach the admin panel from the navbar.
   useEffect(() => {
     authDebug('role redirect check', {
       role: user?.role,
@@ -459,8 +461,6 @@ const Dashboard = () => {
     });
     if (user?.role === 'recruiter') {
       navigate('/recruiter/dashboard');
-    } else if (user?.role === 'admin') {
-      navigate('/admin');
     } else if (
       user?.role === 'candidate' &&
       user?.hasProfile === false &&
