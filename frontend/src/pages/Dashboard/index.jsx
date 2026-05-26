@@ -1016,8 +1016,9 @@ const Dashboard = () => {
     return null;
   }
   
-  // Don't render candidate dashboard for non-candidates
-  if (user?.role === 'recruiter' || user?.role === 'admin') {
+  // Don't render candidate dashboard for recruiters. Admins are allowed
+  // through so they can dogfood the candidate surface (see 333e93b).
+  if (user?.role === 'recruiter') {
     return null;
   }
 
