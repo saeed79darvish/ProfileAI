@@ -65,7 +65,7 @@ const AdminPromos = lazyWithReload(() => import('./pages/AdminPromos'));
 const CandidateOnboarding = lazyWithReload(() => import('./pages/CandidateOnboarding'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
 const JobPreferencesWizard = lazyWithReload(() => import('./pages/JobPreferencesWizard'));
-const ApplyPilotPage = lazyWithReload(() => import('./pages/ApplyPilotPage'));
+const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
 
 const LazyFallback = (
@@ -94,17 +94,21 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // Routes where the Navbar should be hidden (full-screen auth layouts)
 const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
 
-// `/applypilot` is shared between the Chrome-extension marketing
-// page and the candidate auto-apply dashboard. Signed-in candidates
-// land on the in-app welcome/landing page (which adapts its primary
-// CTA to "Go to Dashboard" for users who are already set up).
+// `/applypilot` is shared between the public marketing landing page
+// and the candidate auto-apply dashboard. Signed-in candidates land
+// on the in-app welcome route (which adapts its primary CTA to
+// "Go to Dashboard"). Signed-out visitors and non-candidates see the
+// same LandingPage rendered standalone (no auth-gated sub-nav shell),
+// so the marketing hero/value-prop is consistent across both states
+// and we no longer fall back to the old standalone ApplyPilotPage
+// marketing page (since removed from this route).
 function ApplyPilotGateway() {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return LazyFallback;
   if (isAuthenticated && user?.role === 'candidate') {
     return <Navigate to="/applypilot/welcome" replace />;
   }
-  return <ApplyPilotPage />;
+  return <ApplyPilotLanding />;
 }
 
 // Legacy /agent-arena/* → /applypilot/* redirect. Preserves sub-paths
