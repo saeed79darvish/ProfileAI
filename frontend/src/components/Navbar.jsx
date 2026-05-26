@@ -520,9 +520,11 @@ const Navbar = () => {
   const navItems = useMemo(() => {
     if (!isAuthenticated) return PUBLIC_ITEMS;
     if (isRecruiter) return isAdmin ? [...ADMIN_ITEMS, ...RECRUITER_ITEMS] : RECRUITER_ITEMS;
-    return CANDIDATE_ITEMS.map((item) =>
+    const candidateItems = CANDIDATE_ITEMS.map((item) =>
       item.path === '/profile' ? { ...item, path: candidateProfilePath } : item
     );
+    // Admins without the recruiter surface flag still need access to admin pages.
+    return isAdmin ? [...ADMIN_ITEMS, ...candidateItems] : candidateItems;
   }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath]);
 
   const isActive = (path) =>
