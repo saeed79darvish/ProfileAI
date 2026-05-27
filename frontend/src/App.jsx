@@ -67,6 +67,8 @@ const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboar
 const JobPreferencesWizard = lazyWithReload(() => import('./pages/JobPreferencesWizard'));
 const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
+const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
+const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
 
 const LazyFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -153,6 +155,8 @@ function AppContent() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/signup" element={<Register />} />
+              <Route path="/check-email" element={<CheckEmail />} />
+              <Route path="/verify-email/:token" element={<VerifyEmail />} />
               <Route path="/onboarding" element={
                 <PrivateRoute allowedRoles={['candidate', 'admin']}>
                   <CandidateOnboarding />
