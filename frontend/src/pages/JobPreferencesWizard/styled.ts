@@ -311,6 +311,7 @@ export const WorkCard = styled.button`
   cursor: pointer;
   font-family: inherit;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 
   @media (max-width: 480px) {
     padding: 14px 12px;

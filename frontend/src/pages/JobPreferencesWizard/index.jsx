@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Avatar,
@@ -112,22 +112,51 @@ const StyledInput = {
   }
 };
 
+const DEFAULT_DATA = {
+  sector: '',
+  title: '',
+  experienceLevel: '',
+  employmentTypes: [],
+  // Multi-select: candidates often want both Remote and Hybrid, or any
+  // combination. 'flexible' is mutually-exclusive with the rest — selecting
+  // it means "no preference" and clears any specific picks.
+  workSetups: [],
+  location: '',
+  skills: [],
+  salaryMin: 60000,
+  availability: ''
+};
+
+// Backwards-compat: earlier builds stored workSetup as a single string.
+// Coerce any persisted value into the new array shape so a returning user
+// doesn't lose their pick.
+const normalizeData = (raw) => {
+  if (!raw || typeof raw !== 'object') return DEFAULT_DATA;
+  const merged = { ...DEFAULT_DATA, ...raw };
+  if (typeof raw.workSetup === 'string' && raw.workSetup) {
+    merged.workSetups = [raw.workSetup];
+  }
+  if (!Array.isArray(merged.workSetups)) merged.workSetups = [];
+  if (!Array.isArray(merged.employmentTypes)) merged.employmentTypes = [];
+  if (!Array.isArray(merged.skills)) merged.skills = [];
+  delete merged.workSetup;
+  return merged;
+};
+
 const JobPreferencesWizard = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [animDir, setAnimDir] = useState('right');
   const [skillSearch, setSkillSearch] = useState('');
 
-  const [data, setData] = useState({
-    sector: '',
-    title: '',
-    experienceLevel: '',
-    employmentTypes: [],
-    workSetup: '',
-    location: '',
-    skills: [],
-    salaryMin: 60000,
-    availability: ''
+  // Hydrate from localStorage so a user who refreshed or came back from
+  // the form/skip flow doesn't have to re-enter everything.
+  const [data, setData] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LOCALSTORAGE_KEY);
+      if (raw) return normalizeData(JSON.parse(raw));
+    } catch { /* corrupt JSON / private mode — fall through */ }
+    return DEFAULT_DATA;
   });
 
   // Derive titles and skills from selected sector
@@ -147,6 +176,31 @@ const JobPreferencesWizard = () => {
         : [...prev[field], item]
     }));
   }, []);
+
+  // Work setup is multi-select but 'flexible' (no preference) is mutually
+  // exclusive with the specific options. Selecting flexible clears the
+  // others; selecting any specific option clears flexible.
+  const toggleWorkSetup = useCallback((id) => {
+    setData(prev => {
+      const current = prev.workSetups || [];
+      if (current.includes(id)) {
+        return { ...prev, workSetups: current.filter(i => i !== id) };
+      }
+      if (id === 'flexible') {
+        return { ...prev, workSetups: ['flexible'] };
+      }
+      const next = current.filter(i => i !== 'flexible');
+      return { ...prev, workSetups: [...next, id] };
+    });
+  }, []);
+
+  // Persist progress to localStorage on every change so refresh / back-nav
+  // / Skip-for-now doesn't drop the user's work.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(data));
+    } catch { /* quota / private mode — ignore */ }
+  }, [data]);
 
   // Navigation
   const goNext = () => {
@@ -207,7 +261,7 @@ const JobPreferencesWizard = () => {
   const canProceed = useMemo(() => {
     switch (currentStep) {
       case 0: return data.title.trim().length > 0;
-      case 1: return data.employmentTypes.length > 0 || data.workSetup;
+      case 1: return data.employmentTypes.length > 0 || data.workSetups.length > 0;
       case 2: return true; // skills are optional
       case 3: return true;
       default: return true;
@@ -391,36 +445,58 @@ const JobPreferencesWizard = () => {
 
       {/* Work Setup */}
       <Typography
-        sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mb: 1.5, textTransform: 'uppercase' }}
+        sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mb: 0.5, textTransform: 'uppercase' }}
       >
         Preferred work arrangement
       </Typography>
+      <Typography sx={{ fontSize: 12.5, color: '#9aa0b4', mb: 1.5 }}>
+        Pick all that work for you — e.g. Remote + Hybrid.
+      </Typography>
       <WorkSetupGrid>
-        {WORK_SETUPS.map(ws => (
-          <WorkCard
-            key={ws.id}
-            $selected={data.workSetup === ws.id}
-            onClick={() => set('workSetup', ws.id)}
-          >
-            <ws.Icon />
-            <Typography
-              sx={{
-                fontWeight: 600, fontSize: 14,
-                color: data.workSetup === ws.id ? 'white' : '#1a1a2e'
-              }}
+        {WORK_SETUPS.map(ws => {
+          const selected = data.workSetups.includes(ws.id);
+          return (
+            <WorkCard
+              key={ws.id}
+              $selected={selected}
+              role="checkbox"
+              aria-checked={selected}
+              onClick={() => toggleWorkSetup(ws.id)}
             >
-              {ws.label}
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: 11.5,
-                color: data.workSetup === ws.id ? 'rgba(255,255,255,0.7)' : '#999'
-              }}
-            >
-              {ws.sub}
-            </Typography>
-          </WorkCard>
-        ))}
+              {selected && (
+                <CheckIcon
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    fontSize: 18,
+                    color: 'white',
+                    background: 'rgba(255,255,255,0.18)',
+                    borderRadius: '50%',
+                    p: '2px'
+                  }}
+                />
+              )}
+              <ws.Icon />
+              <Typography
+                sx={{
+                  fontWeight: 600, fontSize: 14,
+                  color: selected ? 'white' : '#1a1a2e'
+                }}
+              >
+                {ws.label}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: 11.5,
+                  color: selected ? 'rgba(255,255,255,0.7)' : '#999'
+                }}
+              >
+                {ws.sub}
+              </Typography>
+            </WorkCard>
+          );
+        })}
       </WorkSetupGrid>
 
       {/* Location */}
