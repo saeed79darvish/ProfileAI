@@ -9,6 +9,9 @@ export const STEPS = [
   { id: 'identity', label: 'Industry & Role' },
   { id: 'preferences', label: 'Opportunity Type' },
   { id: 'skills', label: 'Skills' },
+  { id: 'experience', label: 'Experience' },
+  { id: 'education', label: 'Education' },
+  { id: 'projects', label: 'Projects' },
   { id: 'final', label: 'Final Details' },
 ] as const;
 
@@ -39,7 +42,20 @@ export const AI_TIPS = [
   'A clear title helps recruiters find you 3x faster!',
   'Candidates who specify role type get 40% more relevant matches.',
   'Adding at least 5 skills doubles your profile visibility.',
+  'Even one role with metrics beats five vague entries.',
+  'Education matters — even bootcamps and online courses count.',
+  "No work history yet? Side projects are how new grads stand out.",
   'Complete profiles get 5x more recruiter views!',
+] as const;
+
+// Branching question on the Experience step. Lets new grads / career changers
+// skip the work-history form and jump straight to Projects + Education.
+export const CAREER_STAGES = [
+  { id: 'experienced', label: 'I have work experience', sub: 'Full-time, part-time or contract roles', icon: '💼' },
+  { id: 'internship', label: 'Only internships so far', sub: "I've done internships or co-ops", icon: '🎓' },
+  { id: 'new_grad', label: "I'm a new grad / student", sub: 'Just finished school, no full-time yet', icon: '🌱' },
+  { id: 'career_change', label: 'Changing careers', sub: 'Pivoting from a different field', icon: '🔄' },
+  { id: 'self_taught', label: 'Self-taught / bootcamp', sub: 'Learned outside traditional channels', icon: '🛠️' },
 ] as const;
 
 export const LIMITS = {
@@ -62,10 +78,14 @@ export const TEXT = {
   STEP_ROLE: 'What best describes your role?',
   STEP_OPPORTUNITY: 'What kind of opportunities?',
   STEP_SKILLS: 'What are your top skills?',
+  STEP_EXPERIENCE: 'Tell us about your work experience',
+  STEP_EDUCATION: 'Your education',
+  STEP_PROJECTS: 'Projects you\u2019ve worked on',
   STEP_FINAL: 'Almost done \u2014 a few last details',
   BUILD_PROFILE: 'Build My Profile',
   CONTINUE: 'Continue',
   BACK: 'Back',
+  SKIP_STEP: 'Skip this step',
   SEARCH_SKILLS: 'Search skills...',
   TAP_SKILLS: 'Tap skills below to add them here...',
   SALARY_UNIT: 'USD per year',

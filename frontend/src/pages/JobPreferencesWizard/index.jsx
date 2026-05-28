@@ -21,7 +21,11 @@ import {
   TuneOutlined as FlexIcon,
   CheckCircle as CheckIcon,
   Close as CloseIcon,
-  LocationOn as LocationIcon
+  LocationOn as LocationIcon,
+  Add as AddIcon,
+  DeleteOutline as DeleteIcon,
+  School as SchoolIcon,
+  Code as CodeIcon
 } from '@mui/icons-material';
 import {
   fadeIn,
@@ -55,7 +59,7 @@ import {
   NavButton,
   FinishButton
 } from './styled';
-import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS } from './constants';
+import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS, CAREER_STAGES } from './constants';
 
 const POPULAR_LOCATIONS = [
   // United States
@@ -124,8 +128,21 @@ const DEFAULT_DATA = {
   location: '',
   skills: [],
   salaryMin: 60000,
-  availability: ''
+  availability: '',
+  // New-in-v2: optional resume sections collected during the wizard so
+  // candidates of any stage (new grads, career changers, experienced)
+  // arrive at the profile form with a real starting draft.
+  careerStage: '',          // see CAREER_STAGES — gates the Experience step
+  experience: [],           // [{ title, company, startDate, endDate, description }]
+  education: [],            // [{ degree, fieldOfStudy, institution, startDate, endDate }]
+  projects: [],             // [{ title, role, description, url }]
 };
+
+// Empty entry templates kept in one place so Add buttons and migrations stay
+// in sync with whatever fields the ProfileForm expects.
+const EMPTY_EXPERIENCE = { title: '', company: '', startDate: '', endDate: '', current: false, description: '' };
+const EMPTY_EDUCATION = { degree: '', fieldOfStudy: '', institution: '', startDate: '', endDate: '' };
+const EMPTY_PROJECT = { title: '', role: '', description: '', url: '' };
 
 // Backwards-compat: earlier builds stored workSetup as a single string.
 // Coerce any persisted value into the new array shape so a returning user
@@ -139,6 +156,10 @@ const normalizeData = (raw) => {
   if (!Array.isArray(merged.workSetups)) merged.workSetups = [];
   if (!Array.isArray(merged.employmentTypes)) merged.employmentTypes = [];
   if (!Array.isArray(merged.skills)) merged.skills = [];
+  if (!Array.isArray(merged.experience)) merged.experience = [];
+  if (!Array.isArray(merged.education)) merged.education = [];
+  if (!Array.isArray(merged.projects)) merged.projects = [];
+  if (typeof merged.careerStage !== 'string') merged.careerStage = '';
   delete merged.workSetup;
   return merged;
 };
@@ -228,6 +249,18 @@ const JobPreferencesWizard = () => {
       // ignore quota / private-mode errors
     }
 
+    // Strip empty rows so the ProfileForm doesn't render a bunch of blank
+    // cards when the candidate skipped a section.
+    const cleanedExperience = (data.experience || []).filter(
+      (e) => (e.title || '').trim() || (e.company || '').trim() || (e.description || '').trim()
+    );
+    const cleanedEducation = (data.education || []).filter(
+      (e) => (e.degree || '').trim() || (e.institution || '').trim() || (e.fieldOfStudy || '').trim()
+    );
+    const cleanedProjects = (data.projects || []).filter(
+      (p) => (p.title || '').trim() || (p.description || '').trim()
+    );
+
     // Navigate to ProfileForm with pre-filled data (matching resumeData shape)
     navigate('/profile/create-form', {
       state: {
@@ -237,9 +270,9 @@ const JobPreferencesWizard = () => {
           location: data.location,
           skills: data.skills,
           summary: '',
-          experience: [],
-          education: [],
-          projects: []
+          experience: cleanedExperience,
+          education: cleanedEducation,
+          projects: cleanedProjects,
         }
       }
     });
@@ -263,10 +296,31 @@ const JobPreferencesWizard = () => {
       case 0: return data.title.trim().length > 0;
       case 1: return data.employmentTypes.length > 0 || data.workSetups.length > 0;
       case 2: return true; // skills are optional
-      case 3: return true;
+      case 3: return true; // experience optional — branched by careerStage
+      case 4: return true; // education optional
+      case 5: return true; // projects optional
+      case 6: return true;
       default: return true;
     }
   }, [currentStep, data]);
+
+  // Helpers for repeating sections — Experience / Education / Projects.
+  const addRow = useCallback((field, template) => {
+    setData(prev => ({ ...prev, [field]: [...(prev[field] || []), { ...template }] }));
+  }, []);
+  const removeRow = useCallback((field, index) => {
+    setData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).filter((_, i) => i !== index),
+    }));
+  }, []);
+  const updateRow = useCallback((field, index, key, value) => {
+    setData(prev => {
+      const next = [...(prev[field] || [])];
+      next[index] = { ...next[index], [key]: value };
+      return { ...prev, [field]: next };
+    });
+  }, []);
 
   const formatSalary = (v) => {
     if (v >= 1000) return `$${(v / 1000).toFixed(0)}k`;
@@ -636,7 +690,7 @@ const JobPreferencesWizard = () => {
   );
 
   const renderStepAvailability = () => (
-    <StepContent $dir={animDir} key="step-3">
+    <StepContent $dir={animDir} key="step-6">
       <TipBubble>
         <Avatar
           sx={{
@@ -648,7 +702,7 @@ const JobPreferencesWizard = () => {
           <AIIcon sx={{ fontSize: 16 }} />
         </Avatar>
         <Typography sx={{ fontSize: 13, color: '#555c72' }}>
-          {AI_TIPS[3]}
+          {AI_TIPS[6]}
         </Typography>
       </TipBubble>
 
@@ -763,12 +817,284 @@ const JobPreferencesWizard = () => {
     </StepContent>
   );
 
+  /* ─── NEW: Experience step ──────────────────────────────────────────
+     Branched by careerStage. Candidates pick how they describe themselves
+     first; experienced ones get an Add-Experience form, while new grads /
+     self-taught see a message nudging them to the Projects step instead.
+  */
+  const inputSx = StyledInput;
+  const showExperienceForm = ['experienced', 'internship', 'career_change'].includes(data.careerStage);
+
+  const renderStepExperience = () => (
+    <StepContent $dir={animDir} key="step-3">
+      <TipBubble>
+        <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
+          <AIIcon sx={{ fontSize: 16 }} />
+        </Avatar>
+        <Typography sx={{ fontSize: 13, color: '#555c72' }}>{AI_TIPS[3]}</Typography>
+      </TipBubble>
+
+      <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
+        Tell us about your work experience
+      </Typography>
+      <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
+        We'll use this to power the Tailor and Enhance AI features. Don't worry — you can edit everything later.
+      </Typography>
+
+      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mb: 1.5, textTransform: 'uppercase' }}>
+        Which one describes you best?
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', mb: 3 }}>
+        {CAREER_STAGES.map((cs) => (
+          <SelectionCard
+            key={cs.id}
+            $selected={data.careerStage === cs.id}
+            onClick={() => set('careerStage', cs.id)}
+          >
+            <CardIcon $selected={data.careerStage === cs.id}>{cs.icon}</CardIcon>
+            <Box>
+              <Typography sx={{ fontWeight: 600, fontSize: 14.5, color: data.careerStage === cs.id ? 'white' : '#1a1a2e' }}>
+                {cs.label}
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: data.careerStage === cs.id ? 'rgba(255,255,255,0.75)' : '#999' }}>
+                {cs.sub}
+              </Typography>
+            </Box>
+            {data.careerStage === cs.id && <CheckIcon sx={{ ml: 'auto', fontSize: 20, color: 'white' }} />}
+          </SelectionCard>
+        ))}
+      </Box>
+
+      {!data.careerStage && (
+        <Box sx={{ p: 2, borderRadius: 2, background: '#f5f3ff', border: '1px dashed #c7d2fe' }}>
+          <Typography sx={{ fontSize: 13, color: '#4338ca' }}>
+            Pick the option that fits you and we'll only show the right next step.
+          </Typography>
+        </Box>
+      )}
+
+      {!showExperienceForm && data.careerStage && (
+        <Box sx={{ p: 2, borderRadius: 2, background: '#ecfeff', border: '1px solid #a5f3fc' }}>
+          <Typography sx={{ fontSize: 13.5, color: '#0e7490', fontWeight: 600, mb: 0.5 }}>
+            Great — no work history needed.
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
+            We'll highlight your Education and Projects instead, which is exactly what hiring managers look at for {data.careerStage === 'new_grad' ? 'new grads' : 'self-taught candidates'}. Click Continue to move on.
+          </Typography>
+        </Box>
+      )}
+
+      {showExperienceForm && (
+        <>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mt: 2, mb: 1.5, textTransform: 'uppercase' }}>
+            Your roles
+          </Typography>
+          {data.experience.length === 0 ? (
+            <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
+              <WorkIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
+              <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
+                Add your most recent role first. Even one entry unlocks AI tailoring.
+              </Typography>
+              <NavButton $primary onClick={() => addRow('experience', EMPTY_EXPERIENCE)}>
+                <AddIcon /> Add experience
+              </NavButton>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {data.experience.map((exp, idx) => (
+                <Box key={idx} sx={{ p: 2, borderRadius: 2, border: '1px solid #e4e7f0', background: '#fff' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#667eea', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                      Role #{idx + 1}
+                    </Typography>
+                    <NavButton
+                      onClick={() => removeRow('experience', idx)}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
+                      aria-label="Remove role"
+                    >
+                      <DeleteIcon style={{ fontSize: 16 }} /> Remove
+                    </NavButton>
+                  </Box>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                    <TextField fullWidth size="small" placeholder="Job title (e.g. Senior Frontend Engineer)" value={exp.title} onChange={(e) => updateRow('experience', idx, 'title', e.target.value)} sx={inputSx} />
+                    <TextField fullWidth size="small" placeholder="Company" value={exp.company} onChange={(e) => updateRow('experience', idx, 'company', e.target.value)} sx={inputSx} />
+                    <TextField fullWidth size="small" placeholder="Start (e.g. Jan 2022)" value={exp.startDate} onChange={(e) => updateRow('experience', idx, 'startDate', e.target.value)} sx={inputSx} />
+                    <TextField fullWidth size="small" placeholder={exp.current ? 'Present' : 'End (e.g. Dec 2024)'} value={exp.current ? 'Present' : exp.endDate} onChange={(e) => updateRow('experience', idx, 'endDate', e.target.value)} disabled={exp.current} sx={inputSx} />
+                  </Box>
+                  <Box sx={{ mt: 1 }}>
+                    <label style={{ fontSize: 12.5, color: '#7a7f96', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!exp.current}
+                        onChange={(e) => {
+                          updateRow('experience', idx, 'current', e.target.checked);
+                          if (e.target.checked) updateRow('experience', idx, 'endDate', '');
+                        }}
+                      />
+                      I currently work here
+                    </label>
+                  </Box>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    maxRows={5}
+                    placeholder="What did you do? Highlight one or two impactful things — AI will polish later."
+                    value={exp.description}
+                    onChange={(e) => updateRow('experience', idx, 'description', e.target.value)}
+                    sx={{ ...inputSx, mt: 1.5 }}
+                  />
+                </Box>
+              ))}
+              <NavButton onClick={() => addRow('experience', EMPTY_EXPERIENCE)} style={{ alignSelf: 'flex-start' }}>
+                <AddIcon /> Add another role
+              </NavButton>
+            </Box>
+          )}
+        </>
+      )}
+    </StepContent>
+  );
+
+  const renderStepEducation = () => (
+    <StepContent $dir={animDir} key="step-4">
+      <TipBubble>
+        <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
+          <AIIcon sx={{ fontSize: 16 }} />
+        </Avatar>
+        <Typography sx={{ fontSize: 13, color: '#555c72' }}>{AI_TIPS[4]}</Typography>
+      </TipBubble>
+
+      <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
+        Your education
+      </Typography>
+      <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
+        Degree, bootcamp, certification — all of it counts. Recruiters scan for fit and credibility here.
+      </Typography>
+
+      {data.education.length === 0 ? (
+        <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
+          <SchoolIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
+          <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
+            Add a degree, bootcamp or certification. You can skip if you'd rather add it later.
+          </Typography>
+          <NavButton $primary onClick={() => addRow('education', EMPTY_EDUCATION)}>
+            <AddIcon /> Add education
+          </NavButton>
+        </Box>
+      ) : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {data.education.map((edu, idx) => (
+            <Box key={idx} sx={{ p: 2, borderRadius: 2, border: '1px solid #e4e7f0', background: '#fff' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#667eea', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Entry #{idx + 1}
+                </Typography>
+                <NavButton onClick={() => removeRow('education', idx)} style={{ padding: '4px 10px', fontSize: 12 }} aria-label="Remove education">
+                  <DeleteIcon style={{ fontSize: 16 }} /> Remove
+                </NavButton>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                <TextField fullWidth size="small" placeholder="Degree (e.g. B.S. Computer Science)" value={edu.degree} onChange={(e) => updateRow('education', idx, 'degree', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder="Field of study" value={edu.fieldOfStudy} onChange={(e) => updateRow('education', idx, 'fieldOfStudy', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder="Institution" value={edu.institution} onChange={(e) => updateRow('education', idx, 'institution', e.target.value)} sx={inputSx} />
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                  <TextField fullWidth size="small" placeholder="Start year" value={edu.startDate} onChange={(e) => updateRow('education', idx, 'startDate', e.target.value)} sx={inputSx} />
+                  <TextField fullWidth size="small" placeholder="End year" value={edu.endDate} onChange={(e) => updateRow('education', idx, 'endDate', e.target.value)} sx={inputSx} />
+                </Box>
+              </Box>
+            </Box>
+          ))}
+          <NavButton onClick={() => addRow('education', EMPTY_EDUCATION)} style={{ alignSelf: 'flex-start' }}>
+            <AddIcon /> Add another
+          </NavButton>
+        </Box>
+      )}
+    </StepContent>
+  );
+
+  const renderStepProjects = () => (
+    <StepContent $dir={animDir} key="step-5">
+      <TipBubble>
+        <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
+          <AIIcon sx={{ fontSize: 16 }} />
+        </Avatar>
+        <Typography sx={{ fontSize: 13, color: '#555c72' }}>{AI_TIPS[5]}</Typography>
+      </TipBubble>
+
+      <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
+        Projects you've worked on
+      </Typography>
+      <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
+        Side projects, school work, open source, hackathons — anything that shows what you can build.
+        {['new_grad', 'self_taught', 'career_change'].includes(data.careerStage) && (
+          <> <strong style={{ color: '#4338ca' }}>This is your spotlight if you don't have much work history yet.</strong></>
+        )}
+      </Typography>
+
+      {data.projects.length === 0 ? (
+        <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
+          <CodeIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
+          <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
+            Add at least one project to give AI something to tailor against.
+          </Typography>
+          <NavButton $primary onClick={() => addRow('projects', EMPTY_PROJECT)}>
+            <AddIcon /> Add project
+          </NavButton>
+        </Box>
+      ) : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {data.projects.map((p, idx) => (
+            <Box key={idx} sx={{ p: 2, borderRadius: 2, border: '1px solid #e4e7f0', background: '#fff' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#667eea', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Project #{idx + 1}
+                </Typography>
+                <NavButton onClick={() => removeRow('projects', idx)} style={{ padding: '4px 10px', fontSize: 12 }} aria-label="Remove project">
+                  <DeleteIcon style={{ fontSize: 16 }} /> Remove
+                </NavButton>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                <TextField fullWidth size="small" placeholder="Project title" value={p.title} onChange={(e) => updateRow('projects', idx, 'title', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder="Your role (e.g. Sole developer)" value={p.role} onChange={(e) => updateRow('projects', idx, 'role', e.target.value)} sx={inputSx} />
+              </Box>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                maxRows={5}
+                placeholder="What is it? What did you build? What was the impact?"
+                value={p.description}
+                onChange={(e) => updateRow('projects', idx, 'description', e.target.value)}
+                sx={{ ...inputSx, mt: 1.5 }}
+              />
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Link (GitHub, live demo, write-up)"
+                value={p.url}
+                onChange={(e) => updateRow('projects', idx, 'url', e.target.value)}
+                sx={{ ...inputSx, mt: 1.5 }}
+              />
+            </Box>
+          ))}
+          <NavButton onClick={() => addRow('projects', EMPTY_PROJECT)} style={{ alignSelf: 'flex-start' }}>
+            <AddIcon /> Add another project
+          </NavButton>
+        </Box>
+      )}
+    </StepContent>
+  );
+
   const renderStep = () => {
     switch (currentStep) {
       case 0: return renderStepIdentity();
       case 1: return renderStepPreferences();
       case 2: return renderStepSkills();
-      case 3: return renderStepAvailability();
+      case 3: return renderStepExperience();
+      case 4: return renderStepEducation();
+      case 5: return renderStepProjects();
+      case 6: return renderStepAvailability();
       default: return null;
     }
   };
