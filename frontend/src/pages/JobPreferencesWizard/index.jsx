@@ -1002,7 +1002,17 @@ const JobPreferencesWizard = () => {
           <SelectionCard
             key={cs.id}
             $selected={data.careerStage === cs.id}
-            onClick={() => set('careerStage', cs.id)}
+            onClick={() => {
+              set('careerStage', cs.id);
+              // Open the growth playbook immediately on every no-experience
+              // selection. The useEffect-only auto-open could miss cases
+              // where the user closed the modal earlier and picked again,
+              // or where the stage was already set from localStorage.
+              if (['new_grad', 'self_taught', 'internship', 'career_change'].includes(cs.id)) {
+                setBoostOpen(true);
+                setLastBoostStage(cs.id);
+              }
+            }}
           >
             <CardIcon $selected={data.careerStage === cs.id}>{cs.icon}</CardIcon>
             <Box>

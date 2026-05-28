@@ -2525,7 +2525,7 @@ const ProfileForm = () => {
                   error={!!fieldErrors.phone}
                   helperText={fieldErrors.phone || ''}
                   FormHelperTextProps={{ id: 'phone-error' }}
-                  placeholder="e.g., 628-231-9869"
+                  placeholder="e.g., +1 555 123 4567"
                   sx={darkTextFieldSx}
                   InputProps={{
                     startAdornment: (
