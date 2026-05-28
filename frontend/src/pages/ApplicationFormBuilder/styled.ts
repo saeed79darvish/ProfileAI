@@ -1,3 +1,4 @@
+// @ts-nocheck — styled-components transient ($) props and theme keys are dynamic; TS strict typing adds no value here.
 import styled from 'styled-components';
 
 export const PageContainer = styled.div`

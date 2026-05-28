@@ -1,3 +1,4 @@
+// @ts-nocheck — styled-components transient ($) props and theme keys are dynamic; TS strict typing adds no value here.
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import styled from 'styled-components';
 import {

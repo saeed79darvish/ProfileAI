@@ -36,7 +36,7 @@
     "react-chartjs-2": "^5.3.1",
     "react-cookie-consent": "^10.0.1",
     "react-dom": "^18.x",
-    "react-helmet-async": "^3.0.0",
+    "react-helmet-async": "^2.0.5",
     "react-router-dom": "^6.x",
     "styled-components": "^6.1.19"
   },

@@ -46,8 +46,6 @@
   },
   "include": ["src"],
   "exclude": [
-    "src/**/styled.ts",
-    "src/**/styled.tsx",
     "src/**/*.test.jsx",
     "src/**/*.test.tsx"
   ],
