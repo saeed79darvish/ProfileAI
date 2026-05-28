@@ -103,6 +103,7 @@ import { ROUTES, SOFTWARE_KEYWORDS, TECHNICAL_KEYWORDS, SOFT_SKILL_KEYWORDS, VAL
 import { stripMarkdown } from './utils';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
+import ProfileWelcomeOnboardingModal from '@/components/ProfileWelcomeOnboardingModal';
 import GapReviewDialog from '@/components/GapReviewDialog';
 import AIProcessingModal from '@/components/AIProcessingModal';
 import UpgradeModal from '@/components/UpgradeModal';
@@ -241,6 +242,8 @@ const ProfileForm = () => {
   const [enhancements, setEnhancements] = useState(null);
   const [showEnhancementDialog, setShowEnhancementDialog] = useState(false);
   const [showEnhancePrompt, setShowEnhancePrompt] = useState(false);
+  // First-time welcome modal (one-shot per user, persisted in localStorage)
+  const [showWelcome, setShowWelcome] = useState(false);
   const [expandedSections, setExpandedSections] = useState({});
   const [isExistingProfile, setIsExistingProfile] = useState(false);
   const [profileId, setProfileId] = useState(null);
@@ -629,6 +632,65 @@ const ProfileForm = () => {
       } catch (_) {}
     }
   }, [initialLoading]);
+
+  // First-time welcome: show once per user when the profile is essentially
+  // empty (no title, no experience). Skip if the user just arrived from the
+  // Resume Upload or Preferences Wizard flow (they already chose a path).
+  const welcomeStorageKey = useMemo(
+    () => `profileai_profile_welcome_seen_${user?.id || 'unknown'}`,
+    [user?.id]
+  );
+  useEffect(() => {
+    if (initialLoading) return;
+    if (location.state?.resumeData) return; // came in with a draft already
+    const isEmptyProfile =
+      !formData.title &&
+      !formData.summary &&
+      (!formData.experience || formData.experience.length === 0);
+    if (!isEmptyProfile) return;
+    try {
+      if (localStorage.getItem(welcomeStorageKey)) return;
+    } catch (_) {
+      // ignore storage errors
+    }
+    // Defer slightly so the page paint settles first.
+    const t = setTimeout(() => setShowWelcome(true), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoading, welcomeStorageKey]);
+
+  const handleWelcomeClose = useCallback(() => {
+    setShowWelcome(false);
+    try { localStorage.setItem(welcomeStorageKey, '1'); } catch (_) {}
+  }, [welcomeStorageKey]);
+
+  const handleWelcomeResumeParsed = useCallback((data) => {
+    setFormData({
+      title: data.title || '',
+      location: data.location || '',
+      phone: data.phone || '',
+      linkedinUrl: data.linkedinUrl || '',
+      githubUrl: data.githubUrl || '',
+      summary: data.summary || '',
+      skills: categorizeSkillsHelper(data.skills || []),
+      experience: data.experience || [],
+      education: data.education || [],
+      projects: data.projects || [],
+      isPublic: true,
+    });
+    setHasResumeData(true);
+    setSuccess('Resume parsed successfully! Review and edit the information below before saving.');
+    try { localStorage.setItem(welcomeStorageKey, '1'); } catch (_) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [welcomeStorageKey]);
+
+  // Scroll the Experience section into view (used by Enhance pre-flight prompt
+  // and the empty-state CTA).
+  const scrollToExperience = useCallback(() => {
+    try {
+      experienceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (_) {}
+  }, []);
 
   // Handle action from Dashboard navigation
   useEffect(() => {
@@ -2662,6 +2724,68 @@ const ProfileForm = () => {
                 Add Experience
               </Button>
             </Box>
+            {formData.experience.length === 0 && (
+              <Box
+                sx={{
+                  p: 3,
+                  borderRadius: 2,
+                  border: '1.5px dashed #c7d2fe',
+                  backgroundColor: '#f8faff',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+              >
+                <BusinessCenterIcon sx={{ fontSize: 32, color: '#6366f1' }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                  Add your first role
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 420 }}>
+                  Experience is the foundation of every AI feature — Enhance,
+                  Tailor and Tips all need at least one role to give you great
+                  results.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={handleAddExperience}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      borderRadius: 2,
+                      backgroundColor: '#4338ca',
+                      '&:hover': { backgroundColor: '#3730a3' },
+                    }}
+                  >
+                    Add experience
+                  </Button>
+                  <Button
+                    component="label"
+                    htmlFor="resume-upload-experience-empty"
+                    startIcon={<UploadFileIcon />}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      borderRadius: 2,
+                      color: '#4338ca',
+                    }}
+                  >
+                    Upload resume instead
+                    <input
+                      type="file"
+                      id="resume-upload-experience-empty"
+                      accept=".pdf,.doc,.docx"
+                      style={{ display: 'none' }}
+                      onChange={handleResumeUpload}
+                      disabled={uploadingResume}
+                    />
+                  </Button>
+                </Box>
+              </Box>
+            )}
             {formData.experience.map((exp, index) => (
               <Box key={index} sx={{ mb: 3, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -3357,6 +3481,15 @@ const ProfileForm = () => {
           onClose={() => setShowEnhancePrompt(false)}
           onEnhance={(combinedPrompt) => handleEnhanceWithAI(combinedPrompt)}
           formData={formData}
+          onGoToExperience={scrollToExperience}
+        />
+
+        {/* First-time welcome onboarding */}
+        <ProfileWelcomeOnboardingModal
+          open={showWelcome}
+          onClose={handleWelcomeClose}
+          onResumeParsed={handleWelcomeResumeParsed}
+          userName={user?.firstName || user?.name?.split(' ')?.[0]}
         />
 
         {/* Enhancement Preview Dialog */}

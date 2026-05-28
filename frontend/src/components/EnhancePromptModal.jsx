@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -8,200 +8,178 @@ import {
   TextField,
   Chip,
   IconButton,
-  Collapse,
   Select,
   MenuItem,
   FormControl,
+  Alert,
+  Collapse,
   alpha,
 } from '@mui/material';
 import {
   AutoAwesome as StarIcon,
-  RadioButtonChecked as RadioCheckedIcon,
-  Notes as NotesIcon,
-  Remove as MinusIcon,
-  ChangeHistory as TriangleIcon,
-  RadioButtonUnchecked as CircleIcon,
   Close as CloseIcon,
+  ExpandMore as ExpandMoreIcon,
+  ErrorOutline as WarnIcon,
 } from '@mui/icons-material';
 
-// ── Department options (matches backend classifier groups) ───────────────
+// ── Options ──────────────────────────────────────────────────────────────
 const DEPARTMENT_OPTIONS = [
-  { value: 'engineering', label: 'Engineering / Software Development' },
+  { value: 'engineering', label: 'Engineering / Software' },
   { value: 'sales', label: 'Sales / Marketing / Growth' },
-  { value: 'product_ops', label: 'Product Management / Operations' },
+  { value: 'product_ops', label: 'Product / Operations' },
   { value: 'design', label: 'Design / UX / Creative' },
   { value: 'people_legal', label: 'People / HR / Legal' },
-  { value: 'finance', label: 'Finance / Accounting / Data Analytics' },
+  { value: 'finance', label: 'Finance / Data Analytics' },
 ];
 
 const EXPERIENCE_LEVELS = [
-  { value: '0-2', label: '0-2 years' },
-  { value: '3-5', label: '3-5 years' },
-  { value: '6-10', label: '6-10 years' },
+  { value: '0-2', label: '0–2 years' },
+  { value: '3-5', label: '3–5 years' },
+  { value: '6-10', label: '6–10 years' },
   { value: '10+', label: '10+ years' },
 ];
 
-// ── Section definitions ──────────────────────────────────────────────────
-const SECTIONS = [
-  {
-    id: 'tone',
-    label: 'Tone & style',
-    Icon: StarIcon,
-    groups: [
-      {
-        label: 'VOICE',
-        chips: [
-          { id: 'voice_professional', text: 'Professional' },
-          { id: 'voice_executive', text: 'Executive' },
-          { id: 'voice_technical', text: 'Technical' },
-          { id: 'voice_concise', text: 'Concise' },
-        ],
-      },
-      {
-        label: 'FOCUS',
-        chips: [
-          { id: 'focus_achievement', text: 'Achievement-focused' },
-          { id: 'focus_leadership', text: 'Leadership focus' },
-          { id: 'focus_scope', text: 'Scope & scale' },
-          { id: 'focus_innovation', text: 'Innovation focus' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'summary',
-    label: 'Summary',
-    Icon: RadioCheckedIcon,
-    toggle: {
-      label: 'LENGTH',
-      stateKey: 'summaryLength',
-      options: [
-        { value: '1-2', label: '1-2 lines' },
-        { value: '3', label: '3 lines (recommended)' },
-        { value: '4-5', label: '4-5 lines (exec only)' },
-      ],
-    },
-    groups: [
-      {
-        label: 'OPTIONS',
-        chips: [
-          { id: 'summary_achievements', text: 'Add quantifiable achievements' },
-          { id: 'summary_seniority', text: 'Emphasize seniority' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'experience',
-    label: 'Experience',
-    Icon: NotesIcon,
-    toggle: {
-      label: 'BULLETS PER ROLE',
-      stateKey: 'experienceBullets',
-      options: [
-        { value: '2-3', label: '2-3' },
-        { value: '4-5', label: '4-5 (recommended)' },
-        { value: '6+', label: '6+' },
-      ],
-    },
-    groups: [
-      {
-        label: 'ENHANCEMENTS',
-        chips: [
-          { id: 'exp_metrics', text: 'Add metrics & KPIs' },
-          { id: 'exp_verbs', text: 'Strong action verbs' },
-          { id: 'exp_scope', text: 'Show scope & team size' },
-          { id: 'exp_weak', text: 'Flag weak bullets' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'skills',
-    label: 'Skills',
-    Icon: MinusIcon,
-    groups: [
-      {
-        chips: [
-          { id: 'skills_missing', text: 'Suggest missing skills' },
-          { id: 'skills_outdated', text: 'Remove outdated skills' },
-          { id: 'skills_group', text: 'Group by category' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'projects',
-    label: 'Projects',
-    Icon: TriangleIcon,
-    groups: [
-      {
-        chips: [
-          { id: 'proj_impact', text: 'Problem → solution → impact' },
-          { id: 'proj_metrics', text: 'Add impact metrics' },
-          { id: 'proj_tech', text: 'Add tech stack details' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'education',
-    label: 'Education',
-    Icon: CircleIcon,
-    groups: [
-      {
-        chips: [
-          { id: 'edu_coursework', text: 'Highlight relevant coursework' },
-          { id: 'edu_certs', text: 'Suggest certifications' },
-        ],
-      },
-    ],
-  },
+// Tone presets — single choice.
+const TONE_OPTIONS = [
+  { value: 'professional', label: 'Professional', hint: 'Clear and confident. Best for most roles.' },
+  { value: 'concise', label: 'Concise', hint: 'Short punchy bullets. Senior IC.' },
+  { value: 'executive', label: 'Executive', hint: 'Strategic and outcome-led. Leadership.' },
 ];
 
-// ── Segmented toggle control ─────────────────────────────────────────────
-const SegmentedControl = ({ options, value, onChange }) => (
-  <Box sx={{ display: 'flex', border: '1.5px solid #d1d5db', borderRadius: 2, overflow: 'hidden' }}>
-    {options.map((opt, i) => (
-      <Box
-        key={opt.value}
-        onClick={() => onChange(value === opt.value ? null : opt.value)}
-        sx={{
-          flex: 1,
-          py: 0.85,
-          px: 1,
-          textAlign: 'center',
-          cursor: 'pointer',
-          fontSize: 13,
-          fontWeight: value === opt.value ? 600 : 400,
-          color: value === opt.value ? '#15803d' : '#555',
-          backgroundColor: value === opt.value ? '#dcfce7' : 'transparent',
-          borderRight: i < options.length - 1 ? '1.5px solid #d1d5db' : 'none',
-          transition: 'all 0.15s',
-          userSelect: 'none',
-          '&:hover': { backgroundColor: value === opt.value ? '#bbf7d0' : '#f9fafb' },
-        }}
-      >
-        {opt.label}
-      </Box>
-    ))}
+// Focus chips — multi-select.
+const FOCUS_OPTIONS = [
+  { id: 'metrics', label: 'Add metrics & impact' },
+  { id: 'leadership', label: 'Emphasize leadership' },
+  { id: 'scope', label: 'Show scope & scale' },
+  { id: 'verbs', label: 'Stronger action verbs' },
+];
+
+// Sections to enhance — all on by default; deselect to skip.
+const SECTION_OPTIONS = [
+  { id: 'summary', label: 'Summary', defaultOn: true },
+  { id: 'experience', label: 'Experience', defaultOn: true },
+  { id: 'projects', label: 'Projects', defaultOn: true },
+  { id: 'skills', label: 'Skills', defaultOn: false },
+];
+
+// ── Tone segmented control ───────────────────────────────────────────────
+const ToneSelector = ({ value, onChange }) => (
+  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1 }}>
+    {TONE_OPTIONS.map((opt) => {
+      const active = value === opt.value;
+      return (
+        <Box
+          key={opt.value}
+          role="radio"
+          aria-checked={active}
+          tabIndex={0}
+          onClick={() => onChange(opt.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onChange(opt.value);
+            }
+          }}
+          sx={{
+            p: 1.25,
+            borderRadius: 2,
+            border: '1.5px solid',
+            borderColor: active ? '#6366f1' : '#e5e7eb',
+            backgroundColor: active ? alpha('#6366f1', 0.06) : '#fff',
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            textAlign: 'left',
+            '&:hover': { borderColor: active ? '#6366f1' : '#cbd5e1' },
+            '&:focus-visible': { outline: '2px solid #6366f1', outlineOffset: 2 },
+          }}
+        >
+          <Typography
+            variant="subtitle2"
+            sx={{ fontWeight: 700, fontSize: 13, color: active ? '#4338ca' : '#1e293b' }}
+          >
+            {opt.label}
+          </Typography>
+          <Typography variant="caption" sx={{ color: '#64748b', fontSize: 11.5, lineHeight: 1.35 }}>
+            {opt.hint}
+          </Typography>
+        </Box>
+      );
+    })}
   </Box>
 );
 
-const EnhancePromptModal = ({ open, onClose, onEnhance, formData }) => {
-  // ── Context fields ──
+const SelectableChip = ({ active, label, onClick }) => (
+  <Chip
+    label={label}
+    clickable
+    onClick={onClick}
+    sx={{
+      height: 32,
+      fontSize: 13,
+      fontWeight: active ? 600 : 500,
+      borderRadius: 4,
+      backgroundColor: active ? '#dcfce7' : 'transparent',
+      color: active ? '#15803d' : '#475569',
+      border: `1.5px solid ${active ? '#86efac' : '#d1d5db'}`,
+      '&:hover': {
+        backgroundColor: active ? '#bbf7d0' : '#f8fafc',
+        borderColor: active ? '#4ade80' : '#94a3b8',
+      },
+    }}
+  />
+);
+
+// ── Main modal ───────────────────────────────────────────────────────────
+const EnhancePromptModal = ({ open, onClose, onEnhance, formData, onGoToExperience }) => {
+  // Smart defaults
   const [targetRole, setTargetRole] = useState('');
-  const [experienceLevel, setExperienceLevel] = useState('6-10');
+  const [experienceLevel, setExperienceLevel] = useState('3-5');
   const [department, setDepartment] = useState('engineering');
+  const [tone, setTone] = useState('professional');
+  const [focus, setFocus] = useState(new Set(['metrics']));
+  const [sections, setSections] = useState(
+    new Set(SECTION_OPTIONS.filter((s) => s.defaultOn).map((s) => s.id))
+  );
+  const [customNote, setCustomNote] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // ── Enhancement selections ──
-  const [selected, setSelected] = useState(new Set());
-  const [summaryLength, setSummaryLength] = useState(null);
-  const [experienceBullets, setExperienceBullets] = useState(null);
-  const [expandedSections, setExpandedSections] = useState({});
+  // Pre-flight: detect missing inputs that lead to weak AI output.
+  const issues = useMemo(() => {
+    const out = [];
+    const hasExperience = (formData?.experience || []).some(
+      (e) => (e?.description || '').trim().length > 10 || (e?.title || '').trim()
+    );
+    const hasSummary = (formData?.summary || '').trim().length > 0;
+    if (!hasExperience) {
+      out.push({
+        key: 'experience',
+        severity: 'error',
+        message:
+          "Add at least one work experience before enhancing. AI rewrites what you give it — without roles to polish, results will be generic.",
+      });
+    }
+    if (!hasSummary && sections.has('summary')) {
+      out.push({
+        key: 'summary',
+        severity: 'info',
+        message:
+          "You don't have a summary yet. AI will draft one from your experience — add a rough draft first for the most accurate result.",
+      });
+    }
+    return out;
+  }, [formData?.experience, formData?.summary, sections]);
 
-  const toggleChip = (id) => {
-    setSelected((prev) => {
+  const blocking = issues.some((i) => i.severity === 'error');
+
+  // Pre-fill target role from current title on open.
+  useEffect(() => {
+    if (open && formData?.title) {
+      setTargetRole((prev) => prev || formData.title);
+    }
+  }, [open, formData?.title]);
+
+  const toggleFocus = (id) => {
+    setFocus((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -209,346 +187,300 @@ const EnhancePromptModal = ({ open, onClose, onEnhance, formData }) => {
     });
   };
 
-  const toggleSection = (id) =>
-    setExpandedSections((prev) => ({ ...prev, [id]: !prev[id] }));
-
-  // Count selections per section
-  const getSectionCount = (section) => {
-    const chipIds = section.groups.flatMap((g) => g.chips.map((c) => c.id));
-    let count = chipIds.filter((id) => selected.has(id)).length;
-    if (section.toggle) {
-      const val = section.toggle.stateKey === 'summaryLength' ? summaryLength : experienceBullets;
-      if (val) count++;
-    }
-    return count;
+  const toggleSection = (id) => {
+    setSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
-
-  const totalSelected = useMemo(() => {
-    let count = selected.size;
-    if (summaryLength) count++;
-    if (experienceBullets) count++;
-    return count;
-  }, [selected, summaryLength, experienceBullets]);
 
   const handleEnhance = () => {
+    if (blocking || sections.size === 0) return;
     const parts = [];
 
-    // Context
     if (targetRole.trim()) parts.push(`Target role: ${targetRole.trim()}`);
-    if (experienceLevel) {
-      const lvl = EXPERIENCE_LEVELS.find((l) => l.value === experienceLevel);
-      parts.push(`Experience level: ${lvl?.label || experienceLevel}`);
-    }
-    if (department) {
-      const dept = DEPARTMENT_OPTIONS.find((d) => d.value === department);
-      parts.push(`Department: ${dept?.label || department}`);
-    }
+    const lvl = EXPERIENCE_LEVELS.find((l) => l.value === experienceLevel);
+    if (lvl) parts.push(`Experience level: ${lvl.label}`);
+    const dept = DEPARTMENT_OPTIONS.find((d) => d.value === department);
+    if (dept) parts.push(`Department: ${dept.label}`);
 
-    // Chip selections
-    const allChips = SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.chips));
-    for (const chip of allChips) {
-      if (selected.has(chip.id)) parts.push(chip.text);
-    }
+    const toneOpt = TONE_OPTIONS.find((t) => t.value === tone);
+    if (toneOpt) parts.push(`Tone: ${toneOpt.label} — ${toneOpt.hint}`);
 
-    // Toggle selections
-    if (summaryLength) parts.push(`Keep the summary to ${summaryLength} lines`);
-    if (experienceBullets) parts.push(`Write ${experienceBullets} bullet points per role`);
+    const focusLabels = FOCUS_OPTIONS.filter((f) => focus.has(f.id)).map((f) => f.label);
+    if (focusLabels.length) parts.push(`Focus on: ${focusLabels.join(', ')}`);
+
+    const sectionLabels = SECTION_OPTIONS.filter((s) => sections.has(s.id)).map((s) => s.label);
+    if (sectionLabels.length) parts.push(`Sections to enhance: ${sectionLabels.join(', ')}`);
+
+    if (customNote.trim()) parts.push(`Additional instructions: ${customNote.trim()}`);
 
     onEnhance(parts.join('. '));
-    resetState();
+    handleClose(true);
   };
 
-  const resetState = () => {
-    setTargetRole('');
-    setExperienceLevel('6-10');
-    setDepartment('engineering');
-    setSelected(new Set());
-    setSummaryLength(null);
-    setExperienceBullets(null);
-    setExpandedSections({});
-  };
-
-  const handleClose = () => {
-    resetState();
+  const handleClose = (keepValues = false) => {
+    if (!keepValues) {
+      setCustomNote('');
+      setShowAdvanced(false);
+    }
     onClose();
+  };
+
+  const handleGoToExperience = () => {
+    onClose();
+    onGoToExperience?.();
   };
 
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={() => handleClose(false)}
       maxWidth="sm"
       fullWidth
       scroll="paper"
-      PaperProps={{
-        sx: { background: '#fff', borderRadius: 3, maxHeight: '85vh' },
-      }}
+      PaperProps={{ sx: { background: '#fff', borderRadius: 3, maxHeight: '90vh' } }}
     >
-      {/* ── Header ── */}
+      {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 3, pt: 2.5, pb: 1.5 }}>
         <Box
           sx={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #4338ca, #3730a3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #4338ca, #6366f1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
           }}
         >
           <StarIcon sx={{ fontSize: 22, color: '#fff' }} />
         </Box>
         <Box sx={{ flex: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a2e', lineHeight: 1.3 }}>
-            Enhance profile
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
+            Enhance with AI
           </Typography>
-          <Typography variant="body2" sx={{ color: '#888', lineHeight: 1.3 }}>
-            AI will only use your existing experience
+          <Typography variant="body2" sx={{ color: '#64748b', lineHeight: 1.3, fontSize: 13 }}>
+            A few quick choices for the best result.
           </Typography>
         </Box>
-        <IconButton onClick={handleClose} size="small" sx={{ color: '#999' }}>
+        <IconButton onClick={() => handleClose(false)} size="small" sx={{ color: '#94a3b8' }}>
           <CloseIcon fontSize="small" />
         </IconButton>
       </Box>
 
-      <DialogContent sx={{ pt: 0.5, pb: 1, px: 3 }}>
-        {/* ── TARGET ROLE & CONTEXT ── */}
-        <Box
-          sx={{
-            mb: 2.5, p: 2, borderRadius: 2.5,
-            border: '1px solid #e5e7eb', backgroundColor: '#fafafa',
-          }}
-        >
+      <DialogContent sx={{ pt: 1, pb: 1.5, px: 3 }}>
+        {/* Pre-flight issues */}
+        {issues.map((iss) => (
+          <Alert
+            key={iss.key}
+            severity={iss.severity}
+            icon={iss.severity === 'error' ? <WarnIcon fontSize="small" /> : undefined}
+            action={
+              iss.key === 'experience' && onGoToExperience ? (
+                <Button
+                  size="small"
+                  onClick={handleGoToExperience}
+                  sx={{ textTransform: 'none', fontWeight: 700 }}
+                >
+                  Add role
+                </Button>
+              ) : undefined
+            }
+            sx={{ mb: 1.5, borderRadius: 2, fontSize: 13 }}
+          >
+            {iss.message}
+          </Alert>
+        ))}
+
+        {/* Target role + level + department */}
+        <Box sx={{ mb: 2 }}>
           <Typography
             variant="overline"
-            sx={{ color: '#888', fontWeight: 600, fontSize: 11, letterSpacing: 1, mb: 1.5, display: 'block' }}
+            sx={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: 1 }}
           >
-            Target role & context
+            About the role you're targeting
           </Typography>
-
-          <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
-            {/* Target Role */}
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, fontSize: 10, letterSpacing: 0.5, mb: 0.5, display: 'block' }}>
-                TARGET ROLE
-              </Typography>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="e.g. Staff Engineer"
-                value={targetRole}
-                onChange={(e) => setTargetRole(e.target.value)}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 2, fontSize: 14, backgroundColor: '#fff',
-                    '& fieldset': { borderColor: '#d1d5db' },
-                    '&:hover fieldset': { borderColor: '#9ca3af' },
-                    '&.Mui-focused fieldset': { borderColor: '#6366f1' },
-                  },
-                }}
-              />
-            </Box>
-
-            {/* Experience Level */}
-            <Box sx={{ minWidth: 150 }}>
-              <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, fontSize: 10, letterSpacing: 0.5, mb: 0.5, display: 'block' }}>
-                EXPERIENCE LEVEL
-              </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={experienceLevel}
-                  onChange={(e) => setExperienceLevel(e.target.value)}
-                  sx={{
-                    borderRadius: 2, fontSize: 14, backgroundColor: '#fff',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#d1d5db' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#9ca3af' },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#6366f1' },
-                  }}
-                >
-                  {EXPERIENCE_LEVELS.map((lvl) => (
-                    <MenuItem key={lvl.value} value={lvl.value}>{lvl.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
+          <Box sx={{ display: 'flex', gap: 1.25, mt: 1, mb: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Target role"
+              placeholder="e.g. Senior Product Manager"
+              value={targetRole}
+              onChange={(e) => setTargetRole(e.target.value)}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 14 } }}
+            />
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <Select
+                value={experienceLevel}
+                onChange={(e) => setExperienceLevel(e.target.value)}
+                sx={{ borderRadius: 2, fontSize: 14 }}
+              >
+                {EXPERIENCE_LEVELS.map((lvl) => (
+                  <MenuItem key={lvl.value} value={lvl.value}>
+                    {lvl.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
-
-          {/* Department */}
-          <Typography variant="caption" sx={{ color: '#888', fontWeight: 600, fontSize: 10, letterSpacing: 0.5, mb: 0.5, display: 'block' }}>
-            DEPARTMENT
-          </Typography>
-          <FormControl fullWidth size="small">
+          <FormControl size="small" fullWidth>
             <Select
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
-              sx={{
-                borderRadius: 2, fontSize: 14, backgroundColor: '#fff',
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#d1d5db' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#9ca3af' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#6366f1' },
-              }}
+              sx={{ borderRadius: 2, fontSize: 14 }}
             >
               {DEPARTMENT_OPTIONS.map((d) => (
-                <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
+                <MenuItem key={d.value} value={d.value}>
+                  {d.label}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
         </Box>
 
-        {/* ── Enhancement sections ── */}
-        {SECTIONS.map((section) => {
-          const { Icon } = section;
-          const isExpanded = !!expandedSections[section.id];
-          const activeCount = getSectionCount(section);
+        {/* Tone */}
+        <Box sx={{ mb: 2 }}>
+          <Typography
+            variant="overline"
+            sx={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: 1, mb: 1, display: 'block' }}
+          >
+            Tone
+          </Typography>
+          <ToneSelector value={tone} onChange={setTone} />
+        </Box>
 
-          return (
-            <Box key={section.id} sx={{ mb: 0.5 }}>
-              {/* Section divider */}
-              <Box sx={{ borderTop: '1px solid #f0f0f0' }} />
+        {/* Focus */}
+        <Box sx={{ mb: 2 }}>
+          <Typography
+            variant="overline"
+            sx={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: 1, mb: 1, display: 'block' }}
+          >
+            What to emphasize
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.8 }}>
+            {FOCUS_OPTIONS.map((f) => (
+              <SelectableChip
+                key={f.id}
+                active={focus.has(f.id)}
+                label={f.label}
+                onClick={() => toggleFocus(f.id)}
+              />
+            ))}
+          </Box>
+        </Box>
 
-              {/* Section header */}
-              <Box
-                onClick={() => toggleSection(section.id)}
+        {/* Sections */}
+        <Box sx={{ mb: 1 }}>
+          <Typography
+            variant="overline"
+            sx={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: 1, mb: 1, display: 'block' }}
+          >
+            Sections to enhance
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.8 }}>
+            {SECTION_OPTIONS.map((s) => (
+              <SelectableChip
+                key={s.id}
+                active={sections.has(s.id)}
+                label={s.label}
+                onClick={() => toggleSection(s.id)}
+              />
+            ))}
+          </Box>
+        </Box>
+
+        {/* Advanced (custom note) */}
+        <Box sx={{ mt: 1.5 }}>
+          <Button
+            onClick={() => setShowAdvanced((v) => !v)}
+            endIcon={
+              <ExpandMoreIcon
                 sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.2,
-                  py: 1.5, cursor: 'pointer', userSelect: 'none',
-                  '&:hover': { opacity: 0.8 },
+                  transform: showAdvanced ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s',
                 }}
-              >
-                <Icon sx={{ fontSize: 20, color: '#4b5563', flexShrink: 0 }} />
-                <Typography variant="subtitle1" fontWeight={600} sx={{ flex: 1, color: '#1a1a2e', fontSize: 15 }}>
-                  {section.label}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: activeCount > 0 ? '#16a34a' : '#9ca3af',
-                    fontWeight: 500, fontSize: 12, mr: 0.5,
-                  }}
-                >
-                  {activeCount > 0 ? `${activeCount} selected` : 'none selected'}
-                </Typography>
-                <Typography sx={{ color: '#9ca3af', fontSize: 8, lineHeight: 1 }}>
-                  {isExpanded ? '▲' : '▼'}
-                </Typography>
-              </Box>
+              />
+            }
+            sx={{
+              textTransform: 'none',
+              color: '#475569',
+              fontSize: 13,
+              fontWeight: 600,
+              p: 0,
+              '&:hover': { backgroundColor: 'transparent', color: '#1e293b' },
+            }}
+          >
+            Add custom instructions (optional)
+          </Button>
+          <Collapse in={showAdvanced} timeout="auto">
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={4}
+              placeholder="e.g. Don't invent technologies. Keep bullets under 20 words. Prefer US English."
+              value={customNote}
+              onChange={(e) => setCustomNote(e.target.value)}
+              sx={{ mt: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5 } }}
+            />
+          </Collapse>
+        </Box>
 
-              {/* Section content */}
-              <Collapse in={isExpanded} timeout="auto">
-                <Box sx={{ pb: 2 }}>
-                  {/* Toggle control (summary length / bullets per role) */}
-                  {section.toggle && (
-                    <Box sx={{ mb: 1.5 }}>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: '#888', fontWeight: 600, fontSize: 10, letterSpacing: 0.5, mb: 0.8, display: 'block' }}
-                      >
-                        {section.toggle.label}
-                      </Typography>
-                      <SegmentedControl
-                        options={section.toggle.options}
-                        value={section.toggle.stateKey === 'summaryLength' ? summaryLength : experienceBullets}
-                        onChange={(val) => {
-                          if (section.toggle.stateKey === 'summaryLength') setSummaryLength(val);
-                          else setExperienceBullets(val);
-                        }}
-                      />
-                    </Box>
-                  )}
-
-                  {/* Chip groups */}
-                  {section.groups.map((group, gi) => (
-                    <Box key={gi} sx={{ mb: gi < section.groups.length - 1 ? 1.5 : 0 }}>
-                      {group.label && (
-                        <Typography
-                          variant="caption"
-                          sx={{ color: '#888', fontWeight: 600, fontSize: 10, letterSpacing: 0.5, mb: 0.8, display: 'block' }}
-                        >
-                          {group.label}
-                        </Typography>
-                      )}
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.8 }}>
-                        {group.chips.map((chip) => {
-                          const isActive = selected.has(chip.id);
-                          return (
-                            <Chip
-                              key={chip.id}
-                              label={chip.text}
-                              clickable
-                              onClick={() => toggleChip(chip.id)}
-                              sx={{
-                                height: 32, fontSize: 13, fontWeight: isActive ? 600 : 400,
-                                borderRadius: 4,
-                                backgroundColor: isActive ? '#dcfce7' : 'transparent',
-                                color: isActive ? '#16a34a' : '#555',
-                                border: `1.5px solid ${isActive ? '#86efac' : '#d1d5db'}`,
-                                transition: 'all 0.15s ease',
-                                '&:hover': {
-                                  backgroundColor: isActive ? '#bbf7d0' : '#f5f5f5',
-                                  borderColor: isActive ? '#4ade80' : '#9ca3af',
-                                },
-                              }}
-                            />
-                          );
-                        })}
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              </Collapse>
-            </Box>
-          );
-        })}
-
-        {/* ── Disclaimer ── */}
+        {/* Disclaimer */}
         <Box
           sx={{
-            mt: 2, p: 1.5, borderRadius: 2,
-            borderLeft: '3px solid #f59e0b', backgroundColor: '#fffbeb',
+            mt: 2,
+            p: 1.5,
+            borderRadius: 2,
+            borderLeft: '3px solid #f59e0b',
+            backgroundColor: '#fffbeb',
           }}
         >
           <Typography variant="body2" sx={{ color: '#78716c', fontSize: 12.5, lineHeight: 1.5 }}>
-            AI rewrites content based on the experience you've already provided.
-            We run an automatic grounding check and flag any new skills, metrics,
-            or achievements that don't appear in your source text — but please
-            review every change before saving.
+            AI only rewrites content you've provided. New facts, metrics or
+            skills that aren't in your source text are flagged for review.
           </Typography>
         </Box>
       </DialogContent>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <Box
         sx={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          px: 3, py: 2, borderTop: '1px solid #f0f0f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 1.25,
+          px: 3,
+          py: 2,
+          borderTop: '1px solid #f0f0f0',
         }}
       >
         <Button
-          onClick={handleClose}
-          sx={{
-            color: '#555', textTransform: 'none', fontWeight: 500,
-            borderRadius: 2, border: '1px solid #d1d5db', px: 3,
-            '&:hover': { backgroundColor: '#f5f5f5', borderColor: '#9ca3af' },
-          }}
+          onClick={() => handleClose(false)}
+          sx={{ color: '#475569', textTransform: 'none', fontWeight: 500, borderRadius: 2, px: 3 }}
         >
           Cancel
         </Button>
-
-        <Typography variant="body2" sx={{ color: totalSelected > 0 ? '#9ca3af' : '#ef4444', fontSize: 13 }}>
-          {totalSelected > 0
-            ? `${totalSelected} enhancement${totalSelected !== 1 ? 's' : ''} selected`
-            : 'Select at least one section to continue'}
-        </Typography>
-
         <Button
-          disabled={totalSelected === 0}
+          disabled={blocking || sections.size === 0}
           onClick={handleEnhance}
           sx={{
-            textTransform: 'none', fontWeight: 600, px: 3, borderRadius: 2,
-            backgroundColor: totalSelected > 0 ? '#1a1a2e' : '#e5e7eb',
-            color: totalSelected > 0 ? '#fff' : '#999',
-            '&:hover': { backgroundColor: '#2d2d44' },
-            '&.Mui-disabled': { backgroundColor: '#e5e7eb', color: '#999' },
+            textTransform: 'none',
+            fontWeight: 700,
+            px: 3,
+            borderRadius: 2,
+            backgroundColor: '#0f172a',
+            color: '#fff',
+            '&:hover': { backgroundColor: '#1e293b' },
+            '&.Mui-disabled': { backgroundColor: '#e5e7eb', color: '#94a3b8' },
           }}
         >
-          Enhance now
+          {blocking ? 'Add experience first' : 'Enhance now · 1 credit'}
         </Button>
       </Box>
     </Dialog>
