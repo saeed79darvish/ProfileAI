@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
   Avatar,
   Box,
+  Button,
   Typography,
   TextField,
   Autocomplete,
   Slider,
   InputAdornment,
+  Tooltip,
+  CircularProgress,
 } from '@mui/material';
 import {
   AutoAwesome as AIIcon,
@@ -25,8 +28,12 @@ import {
   Add as AddIcon,
   DeleteOutline as DeleteIcon,
   School as SchoolIcon,
-  Code as CodeIcon
+  Code as CodeIcon,
+  RocketLaunch as RocketIcon
 } from '@mui/icons-material';
+import NoExperienceBoostModal from '../../components/NoExperienceBoostModal';
+import ProjectIdeasModal from '../../components/ProjectIdeasModal';
+import { profileAPI } from '../../services/api';
 import {
   fadeIn,
   slideInRight,
@@ -136,6 +143,11 @@ const DEFAULT_DATA = {
   experience: [],           // [{ title, company, startDate, endDate, description }]
   education: [],            // [{ degree, fieldOfStudy, institution, startDate, endDate }]
   projects: [],             // [{ title, role, description, url }]
+  // Auto-discovery: candidates can hand the AI agent a single URL so it can
+  // surface their best public work and recommend projects to add. GitHub for
+  // tech roles, generic portfolio link for everyone else.
+  githubUsername: '',
+  portfolioUrl: '',
 };
 
 // Empty entry templates kept in one place so Add buttons and migrations stay
@@ -160,6 +172,8 @@ const normalizeData = (raw) => {
   if (!Array.isArray(merged.education)) merged.education = [];
   if (!Array.isArray(merged.projects)) merged.projects = [];
   if (typeof merged.careerStage !== 'string') merged.careerStage = '';
+  if (typeof merged.githubUsername !== 'string') merged.githubUsername = '';
+  if (typeof merged.portfolioUrl !== 'string') merged.portfolioUrl = '';
   delete merged.workSetup;
   return merged;
 };
@@ -169,6 +183,16 @@ const JobPreferencesWizard = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [animDir, setAnimDir] = useState('right');
   const [skillSearch, setSkillSearch] = useState('');
+  // Boost modal: auto-opens once per careerStage selection. We also track
+  // the last stage we opened for so switching back and forth doesn't spam
+  // the user with the same modal.
+  const [boostOpen, setBoostOpen] = useState(false);
+  const [ideasOpen, setIdeasOpen] = useState(false);
+  const [lastBoostStage, setLastBoostStage] = useState(null);
+  // Per-row AI draft loading flags. Keyed as `${field}-${index}` so each
+  // textarea has its own spinner / disabled state.
+  const [aiDraftKey, setAiDraftKey] = useState(null);
+  const [aiDraftError, setAiDraftError] = useState('');
 
   // Hydrate from localStorage so a user who refreshed or came back from
   // the form/skip flow doesn't have to re-enter everything.
@@ -273,6 +297,11 @@ const JobPreferencesWizard = () => {
           experience: cleanedExperience,
           education: cleanedEducation,
           projects: cleanedProjects,
+          // Passed through so the ProfileForm / agent can surface
+          // recommended projects later. Normalised to a bare username so
+          // the backend can build the GitHub API URL itself.
+          github: (data.githubUsername || '').trim().replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\/$/, ''),
+          portfolioUrl: (data.portfolioUrl || '').trim(),
         }
       }
     });
@@ -304,6 +333,27 @@ const JobPreferencesWizard = () => {
     }
   }, [currentStep, data]);
 
+  // Live profile-strength score. 7 signals × ~14% each. Used in the meter
+  // at the top of the wizard so candidates can see momentum build as they
+  // fill things in — turns a long form into a progress game.
+  const profileStrength = useMemo(() => {
+    const signals = [
+      !!data.title.trim(),                                  // role
+      !!data.sector,                                        // industry
+      data.employmentTypes.length + data.workSetups.length > 0,
+      data.skills.length >= 3,                              // some skills
+      data.experience.length > 0 || data.careerStage !== '',// stage chosen
+      data.education.length > 0,                            // education
+      data.projects.length > 0 || !!data.githubUsername || !!data.portfolioUrl,
+    ];
+    const pct = Math.round((signals.filter(Boolean).length / signals.length) * 100);
+    const tier = pct >= 85 ? { label: 'Outstanding', color: '#16a34a' }
+      : pct >= 60 ? { label: 'Strong', color: '#6366f1' }
+      : pct >= 35 ? { label: 'Building', color: '#f59e0b' }
+      : { label: 'Just starting', color: '#94a3b8' };
+    return { pct, ...tier };
+  }, [data]);
+
   // Helpers for repeating sections — Experience / Education / Projects.
   const addRow = useCallback((field, template) => {
     setData(prev => ({ ...prev, [field]: [...(prev[field] || []), { ...template }] }));
@@ -321,6 +371,73 @@ const JobPreferencesWizard = () => {
       return { ...prev, [field]: next };
     });
   }, []);
+
+  // Auto-open the growth-playbook modal the first time a user picks any of
+  // the no-traditional-experience career stages. We avoid re-opening when
+  // they toggle between the same set of stages so it never feels naggy.
+  const NO_EXP_STAGES = ['new_grad', 'self_taught', 'internship', 'career_change'];
+  useEffect(() => {
+    if (
+      NO_EXP_STAGES.includes(data.careerStage) &&
+      data.careerStage !== lastBoostStage
+    ) {
+      setBoostOpen(true);
+      setLastBoostStage(data.careerStage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.careerStage]);
+
+  /**
+   * AI Draft helper — calls /api/profiles/enhance-text to turn a one-liner
+   * into a polished bullet list. Used by both Experience and Project
+   * description textareas so candidates don't stare at a blank box.
+   *
+   * @param {'experience'|'project'} type
+   * @param {'experience'|'projects'} field  — array key in `data`
+   * @param {number} index                   — row position
+   * @param {object} ctx                     — title / company / role context
+   */
+  const draftWithAI = useCallback(async (type, field, index, ctx = {}) => {
+    const row = data[field]?.[index];
+    const text = (row?.description || '').trim();
+    if (!text || text.length < 10) {
+      setAiDraftError('Write at least 10 characters first — even a rough sentence is enough.');
+      return;
+    }
+    const key = `${field}-${index}`;
+    setAiDraftKey(key);
+    setAiDraftError('');
+    try {
+      const res = await profileAPI.enhanceText(text, type, ctx);
+      const enhanced = res?.data?.enhancedText || res?.data?.data?.enhancedText;
+      if (enhanced && typeof enhanced === 'string') {
+        updateRow(field, index, 'description', enhanced);
+      } else {
+        setAiDraftError("AI couldn't improve that — try adding more detail.");
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.response?.data?.message || 'AI draft failed. Please try again.';
+      setAiDraftError(msg);
+    } finally {
+      setAiDraftKey(null);
+    }
+  }, [data, updateRow]);
+
+  /**
+   * One-click skills baseline — picks the top N skills from the currently
+   * filtered sector map and toggles them into the selection. We dedupe so
+   * a second click doesn't remove what the user already has.
+   */
+  const suggestSkillsForRole = useCallback((count = 8) => {
+    const flat = Object.values(activeSkillMap).flat();
+    const additions = [];
+    for (const sk of flat) {
+      if (additions.length + data.skills.length >= count) break;
+      if (!data.skills.includes(sk)) additions.push(sk);
+    }
+    if (additions.length === 0) return;
+    setData(prev => ({ ...prev, skills: [...prev.skills, ...additions] }));
+  }, [activeSkillMap, data.skills]);
 
   const formatSalary = (v) => {
     if (v >= 1000) return `$${(v / 1000).toFixed(0)}k`;
@@ -649,6 +766,42 @@ const JobPreferencesWizard = () => {
         )}
       </SelectedSkillsArea>
 
+      {/* One-click baseline — picks the top sector-relevant skills the
+          candidate hasn't already added. Zero AI calls, instant value,
+          gets new grads to a "good enough" baseline in one tap. */}
+      {data.sector && data.skills.length < 5 && (
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1.5,
+            p: 1.5,
+            mb: 2,
+            borderRadius: 2,
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))',
+            border: '1px dashed rgba(99,102,241,0.4)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <AIIcon sx={{ fontSize: 18, color: '#6366f1', flexShrink: 0 }} />
+            <Typography sx={{ fontSize: 12.5, color: '#475569', fontWeight: 500 }}>
+              Don&apos;t know where to start? Add the most-requested skills for{' '}
+              <strong>{JOB_SECTORS.find(s => s.id === data.sector)?.label || 'your field'}</strong>.
+            </Typography>
+          </Box>
+          <NavButton
+            $primary
+            type="button"
+            onClick={() => suggestSkillsForRole(8)}
+            style={{ padding: '6px 12px', fontSize: 12, flexShrink: 0 }}
+          >
+            <AIIcon style={{ fontSize: 14 }} /> Auto-add top 8
+          </NavButton>
+        </Box>
+      )}
+
       {/* Search */}
       <TextField
         fullWidth
@@ -874,13 +1027,68 @@ const JobPreferencesWizard = () => {
       )}
 
       {!showExperienceForm && data.careerStage && (
-        <Box sx={{ p: 2, borderRadius: 2, background: '#ecfeff', border: '1px solid #a5f3fc' }}>
-          <Typography sx={{ fontSize: 13.5, color: '#0e7490', fontWeight: 600, mb: 0.5 }}>
-            Great — no work history needed.
-          </Typography>
-          <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
-            We'll highlight your Education and Projects instead, which is exactly what hiring managers look at for {data.careerStage === 'new_grad' ? 'new grads' : 'self-taught candidates'}. Click Continue to move on.
-          </Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Box sx={{ p: 2, borderRadius: 2, background: '#ecfeff', border: '1px solid #a5f3fc' }}>
+            <Typography sx={{ fontSize: 13.5, color: '#0e7490', fontWeight: 600, mb: 0.5 }}>
+              Great — no work history needed.
+            </Typography>
+            <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
+              We'll highlight your Education and Projects instead, which is exactly what hiring managers look at for {data.careerStage === 'new_grad' ? 'new grads' : data.careerStage === 'self_taught' ? 'self-taught candidates' : 'career changers'}. Click Continue to move on.
+            </Typography>
+          </Box>
+
+          {/* Re-open the growth playbook modal. We auto-open it once on
+              first stage selection (see useEffect above); this button lets
+              the candidate come back to it without leaving the wizard. */}
+          <Box
+            role="button"
+            tabIndex={0}
+            onClick={() => setBoostOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setBoostOpen(true);
+              }
+            }}
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)',
+              border: '1px solid #ddd6fe',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              transition: 'all 0.15s ease',
+              '&:hover': { borderColor: '#a5b4fc', boxShadow: '0 4px 12px -6px rgba(99,102,241,0.3)' },
+              '&:focus-visible': { outline: '2px solid #6366f1', outlineOffset: 2 },
+            }}
+          >
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <RocketIcon sx={{ fontSize: 18 }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 13.5, color: '#4338ca', fontWeight: 700 }}>
+                Want to gain real experience fast?
+              </Typography>
+              <Typography sx={{ fontSize: 12.5, color: '#4338ca' }}>
+                Open our 5-step growth playbook — curated paths that count as real roles.
+              </Typography>
+            </Box>
+            <ArrowIcon sx={{ color: '#6366f1', flexShrink: 0 }} />
+          </Box>
         </Box>
       )}
 
@@ -944,6 +1152,34 @@ const JobPreferencesWizard = () => {
                     onChange={(e) => updateRow('experience', idx, 'description', e.target.value)}
                     sx={{ ...inputSx, mt: 1.5 }}
                   />
+                  {/* AI Draft button — turns a one-liner into polished
+                      STAR-style bullets via the same /enhance-text endpoint
+                      the profile form uses. Disabled until 10+ chars so the
+                      backend validator doesn't reject it. */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75, gap: 1, flexWrap: 'wrap' }}>
+                    <Typography sx={{ fontSize: 11.5, color: (exp.description?.length || 0) < 10 ? '#94a3b8' : '#6366f1', fontWeight: 500 }}>
+                      {(exp.description?.length || 0) < 10
+                        ? 'Add 10+ characters to unlock AI Draft.'
+                        : 'AI rewrites as impact-driven bullets — keeps your facts.'}
+                    </Typography>
+                    <Tooltip title="Costs 1 AI credit">
+                      <span>
+                        <NavButton
+                          $primary
+                          type="button"
+                          disabled={(exp.description?.length || 0) < 10 || aiDraftKey === `experience-${idx}`}
+                          onClick={() => draftWithAI('experience', 'experience', idx, { company: exp.company, title: exp.title })}
+                          style={{ padding: '6px 12px', fontSize: 12 }}
+                        >
+                          {aiDraftKey === `experience-${idx}` ? (
+                            <><CircularProgress size={12} sx={{ color: 'inherit' }} /> Drafting…</>
+                          ) : (
+                            <><AIIcon style={{ fontSize: 14 }} /> AI Draft</>
+                          )}
+                        </NavButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </Box>
               ))}
               <NavButton onClick={() => addRow('experience', EMPTY_EXPERIENCE)} style={{ alignSelf: 'flex-start' }}>
@@ -1032,15 +1268,82 @@ const JobPreferencesWizard = () => {
         )}
       </Typography>
 
+      {/* AI agent project-discovery panel. For tech sectors we ask for a
+          GitHub username so the agent can scan public repos and recommend
+          which ones to feature. For every other sector we ask for a single
+          portfolio / Behance / Dribbble / personal-site URL it can crawl. */}
+      <Box sx={{ p: 2, mb: 2.5, borderRadius: 2, background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', border: '1px solid #ddd6fe' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+          <AIIcon sx={{ fontSize: 18, color: '#6366f1' }} />
+          <Typography sx={{ fontSize: 13.5, color: '#4338ca', fontWeight: 700 }}>
+            Let our AI agent find your best work
+          </Typography>
+        </Box>
+        {data.sector === 'tech' || ['data', 'product'].includes(data.sector) ? (
+          <>
+            <Typography sx={{ fontSize: 12.5, color: '#4338ca', mb: 1.25, lineHeight: 1.5 }}>
+              Drop your GitHub username — the agent will scan your public repos and suggest the top projects to feature (stars, recency, README quality, language match with your target role).
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="github.com/your-username  or just  your-username"
+              value={data.githubUsername}
+              onChange={(e) => set('githubUsername', e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Typography sx={{ fontSize: 13, color: '#6366f1', fontWeight: 600 }}>github.com/</Typography>
+                  </InputAdornment>
+                ),
+              }}
+              sx={inputSx}
+            />
+            <Typography sx={{ fontSize: 11.5, color: '#6366f1', mt: 0.75 }}>
+              Optional. We only read public repos — nothing is changed or committed.
+            </Typography>
+          </>
+        ) : (
+          <>
+            <Typography sx={{ fontSize: 12.5, color: '#4338ca', mb: 1.25, lineHeight: 1.5 }}>
+              Share your portfolio, personal site, Behance, Dribbble, Medium or any link that showcases your work. The agent will review it and recommend which projects to feature here.
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="https://your-portfolio.com"
+              value={data.portfolioUrl}
+              onChange={(e) => set('portfolioUrl', e.target.value)}
+              sx={inputSx}
+            />
+            <Typography sx={{ fontSize: 11.5, color: '#6366f1', mt: 0.75 }}>
+              Optional. Public pages only — the agent reads, never posts.
+            </Typography>
+          </>
+        )}
+      </Box>
+
       {data.projects.length === 0 ? (
         <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
           <CodeIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
           <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
             Add at least one project to give AI something to tailor against.
           </Typography>
-          <NavButton $primary onClick={() => addRow('projects', EMPTY_PROJECT)}>
-            <AddIcon /> Add project
-          </NavButton>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <NavButton $primary onClick={() => addRow('projects', EMPTY_PROJECT)}>
+              <AddIcon /> Add manually
+            </NavButton>
+            <NavButton
+              type="button"
+              onClick={() => setIdeasOpen(true)}
+              style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none' }}
+            >
+              <AIIcon style={{ fontSize: 14 }} /> Suggest ideas with AI
+            </NavButton>
+          </Box>
+          <Typography sx={{ fontSize: 11.5, color: '#94a3b8', mt: 1.25 }}>
+            No projects yet? AI will recommend recruiter-loved ones you can build this weekend.
+          </Typography>
         </Box>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1068,6 +1371,33 @@ const JobPreferencesWizard = () => {
                 onChange={(e) => updateRow('projects', idx, 'description', e.target.value)}
                 sx={{ ...inputSx, mt: 1.5 }}
               />
+              {/* AI Draft on project descriptions — same pattern as
+                  Experience. Helps candidates turn a rough sentence into
+                  a recruiter-friendly bullet (problem / approach / result). */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75, gap: 1, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: 11.5, color: (p.description?.length || 0) < 10 ? '#94a3b8' : '#6366f1', fontWeight: 500 }}>
+                  {(p.description?.length || 0) < 10
+                    ? 'Add 10+ characters to unlock AI Draft.'
+                    : 'AI rewrites as problem → approach → impact.'}
+                </Typography>
+                <Tooltip title="Costs 1 AI credit">
+                  <span>
+                    <NavButton
+                      $primary
+                      type="button"
+                      disabled={(p.description?.length || 0) < 10 || aiDraftKey === `projects-${idx}`}
+                      onClick={() => draftWithAI('project', 'projects', idx, { title: p.title, role: p.role })}
+                      style={{ padding: '6px 12px', fontSize: 12 }}
+                    >
+                      {aiDraftKey === `projects-${idx}` ? (
+                        <><CircularProgress size={12} sx={{ color: 'inherit' }} /> Drafting…</>
+                      ) : (
+                        <><AIIcon style={{ fontSize: 14 }} /> AI Draft</>
+                      )}
+                    </NavButton>
+                  </span>
+                </Tooltip>
+              </Box>
               <TextField
                 fullWidth
                 size="small"
@@ -1122,6 +1452,46 @@ const JobPreferencesWizard = () => {
       </TopBar>
 
       <MainContent>
+        {/* Profile-strength meter — live signal of how close they are
+            to a recruiter-ready profile. Turns "step 4 of 7" anxiety
+            into momentum. */}
+        <Box
+          sx={{
+            mb: 2.5,
+            p: 1.75,
+            borderRadius: 2,
+            border: '1px solid #e4e7f0',
+            backgroundColor: '#fff',
+            boxShadow: '0 4px 14px -10px rgba(15,23,42,0.18)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.75, gap: 1, flexWrap: 'wrap' }}>
+            <Typography sx={{ fontSize: 12, color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              Profile strength
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: profileStrength.color }}>
+                {profileStrength.label}
+              </Typography>
+              <Typography sx={{ fontSize: 12.5, color: '#94a3b8', fontWeight: 600 }}>
+                · {profileStrength.pct}%
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ position: 'relative', height: 6, borderRadius: 999, backgroundColor: '#eef2f7', overflow: 'hidden' }}>
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                width: `${profileStrength.pct}%`,
+                background: `linear-gradient(90deg, ${profileStrength.color}, ${profileStrength.color}cc)`,
+                borderRadius: 999,
+                transition: 'width 0.5s cubic-bezier(.4,0,.2,1)',
+              }}
+            />
+          </Box>
+        </Box>
+
         {/* Step indicator */}
         <StepIndicator>
           {STEPS.map((step, i) => (
@@ -1153,6 +1523,36 @@ const JobPreferencesWizard = () => {
         <WizardCard>
           {renderStep()}
 
+          {/* Inline AI error surface — only shows when an /enhance-text
+              call fails or the user clicked Draft on too-short text. */}
+          {aiDraftError && (
+            <Box
+              sx={{
+                mt: 1.5,
+                px: 1.5,
+                py: 1,
+                borderRadius: 1.5,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1,
+              }}
+            >
+              <Typography sx={{ fontSize: 12.5, color: '#b91c1c' }}>
+                {aiDraftError}
+              </Typography>
+              <Button
+                size="small"
+                onClick={() => setAiDraftError('')}
+                sx={{ textTransform: 'none', color: '#b91c1c', minWidth: 0, fontWeight: 700, fontSize: 12 }}
+              >
+                Dismiss
+              </Button>
+            </Box>
+          )}
+
           <NavRow>
             {currentStep > 0 ? (
               <NavButton onClick={goBack}>
@@ -1174,6 +1574,26 @@ const JobPreferencesWizard = () => {
           </NavRow>
         </WizardCard>
       </MainContent>
+
+      {/* Growth playbook \u2014 auto-opens once when a no-experience career
+          stage is selected, re-openable from the Experience step card. */}
+      <NoExperienceBoostModal
+        open={boostOpen}
+        onClose={() => setBoostOpen(false)}
+        careerStage={data.careerStage}
+      />
+
+      {/* AI project ideas \u2014 sector-curated recruiter-loved portfolio
+          projects. One click adds it to the projects array. */}
+      <ProjectIdeasModal
+        open={ideasOpen}
+        onClose={() => setIdeasOpen(false)}
+        sector={data.sector}
+        onAdd={(project) => {
+          setData(prev => ({ ...prev, projects: [...(prev.projects || []), project] }));
+          setIdeasOpen(false);
+        }}
+      />
     </PageContainer>
   );
 };
