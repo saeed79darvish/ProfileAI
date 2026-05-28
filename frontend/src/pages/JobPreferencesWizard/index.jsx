@@ -67,6 +67,7 @@ import {
   FinishButton
 } from './styled';
 import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS, CAREER_STAGES } from './constants';
+import { getSectorProfile } from './sectorProfiles';
 
 const POPULAR_LOCATIONS = [
   // United States
@@ -1259,7 +1260,18 @@ const JobPreferencesWizard = () => {
     </StepContent>
   );
 
-  const renderStepProjects = () => (
+  const renderStepProjects = () => {
+    // Sector-driven copy / nomenclature / portfolio input. A Lawyer
+    // sees "Matters & publications" with a state-bar link; a Designer
+    // sees "Case studies" with Behance/Dribbble; a Salesperson sees
+    // "Notable deals & playbooks" with LinkedIn. Defaults are neutral
+    // for the "no sector chosen yet" case.
+    const sp = getSectorProfile(data.sector);
+    const isGithubField = sp.portfolio.field === 'githubUsername';
+    const portfolioValue = isGithubField ? data.githubUsername : data.portfolioUrl;
+    const setPortfolio = (v) => set(sp.portfolio.field, v);
+
+    return (
     <StepContent $dir={animDir} key="step-5">
       <TipBubble>
         <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
@@ -1269,75 +1281,54 @@ const JobPreferencesWizard = () => {
       </TipBubble>
 
       <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
-        Projects you've worked on
+        {sp.projects.headline}
       </Typography>
       <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
-        Side projects, school work, open source, hackathons — anything that shows what you can build.
+        {sp.projects.blurb}
         {['new_grad', 'self_taught', 'career_change'].includes(data.careerStage) && (
           <> <strong style={{ color: '#4338ca' }}>This is your spotlight if you don't have much work history yet.</strong></>
         )}
       </Typography>
 
-      {/* AI agent project-discovery panel. For tech sectors we ask for a
-          GitHub username so the agent can scan public repos and recommend
-          which ones to feature. For every other sector we ask for a single
-          portfolio / Behance / Dribbble / personal-site URL it can crawl. */}
+      {/* Sector-aware AI-agent portfolio panel. Tech / data ask for a
+          GitHub handle; design asks for Behance/Dribbble; legal asks
+          for a bar / SSRN URL; everyone else gets a generic portfolio /
+          LinkedIn URL. All driven by sectorProfiles.ts. */}
       <Box sx={{ p: 2, mb: 2.5, borderRadius: 2, background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', border: '1px solid #ddd6fe' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
           <AIIcon sx={{ fontSize: 18, color: '#6366f1' }} />
           <Typography sx={{ fontSize: 13.5, color: '#4338ca', fontWeight: 700 }}>
-            Let our AI agent find your best work
+            {sp.agentTitle}
           </Typography>
         </Box>
-        {data.sector === 'tech' || ['data', 'product'].includes(data.sector) ? (
-          <>
-            <Typography sx={{ fontSize: 12.5, color: '#4338ca', mb: 1.25, lineHeight: 1.5 }}>
-              Drop your GitHub username — the agent will scan your public repos and suggest the top projects to feature (stars, recency, README quality, language match with your target role).
-            </Typography>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="github.com/your-username  or just  your-username"
-              value={data.githubUsername}
-              onChange={(e) => set('githubUsername', e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Typography sx={{ fontSize: 13, color: '#6366f1', fontWeight: 600 }}>github.com/</Typography>
-                  </InputAdornment>
-                ),
-              }}
-              sx={inputSx}
-            />
-            <Typography sx={{ fontSize: 11.5, color: '#6366f1', mt: 0.75 }}>
-              Optional. We only read public repos — nothing is changed or committed.
-            </Typography>
-          </>
-        ) : (
-          <>
-            <Typography sx={{ fontSize: 12.5, color: '#4338ca', mb: 1.25, lineHeight: 1.5 }}>
-              Share your portfolio, personal site, Behance, Dribbble, Medium or any link that showcases your work. The agent will review it and recommend which projects to feature here.
-            </Typography>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="https://your-portfolio.com"
-              value={data.portfolioUrl}
-              onChange={(e) => set('portfolioUrl', e.target.value)}
-              sx={inputSx}
-            />
-            <Typography sx={{ fontSize: 11.5, color: '#6366f1', mt: 0.75 }}>
-              Optional. Public pages only — the agent reads, never posts.
-            </Typography>
-          </>
-        )}
+        <Typography sx={{ fontSize: 12.5, color: '#4338ca', mb: 1.25, lineHeight: 1.5 }}>
+          {sp.agentBlurb}
+        </Typography>
+        <TextField
+          fullWidth
+          size="small"
+          placeholder={sp.portfolio.placeholder}
+          value={portfolioValue}
+          onChange={(e) => setPortfolio(e.target.value)}
+          InputProps={sp.portfolio.prefix ? {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Typography sx={{ fontSize: 13, color: '#6366f1', fontWeight: 600 }}>{sp.portfolio.prefix}</Typography>
+              </InputAdornment>
+            ),
+          } : undefined}
+          sx={inputSx}
+        />
+        <Typography sx={{ fontSize: 11.5, color: '#6366f1', mt: 0.75 }}>
+          {sp.portfolio.helper}
+        </Typography>
       </Box>
 
       {data.projects.length === 0 ? (
         <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
           <CodeIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
           <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
-            Add at least one project to give AI something to tailor against.
+            Add at least one {sp.projects.noun.toLowerCase()} to give AI something to tailor against.
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
             <NavButton $primary onClick={() => addRow('projects', EMPTY_PROJECT)}>
@@ -1352,7 +1343,7 @@ const JobPreferencesWizard = () => {
             </NavButton>
           </Box>
           <Typography sx={{ fontSize: 11.5, color: '#94a3b8', mt: 1.25 }}>
-            No projects yet? AI will recommend recruiter-loved ones you can build this weekend.
+            Nothing yet? AI will recommend recruiter-loved {sp.projects.nounPlural.toLowerCase()} you can ship this month.
           </Typography>
         </Box>
       ) : (
@@ -1361,22 +1352,22 @@ const JobPreferencesWizard = () => {
             <Box key={idx} sx={{ p: 2, borderRadius: 2, border: '1px solid #e4e7f0', background: '#fff' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                 <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#667eea', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                  Project #{idx + 1}
+                  {sp.projects.noun} #{idx + 1}
                 </Typography>
-                <NavButton onClick={() => removeRow('projects', idx)} style={{ padding: '4px 10px', fontSize: 12 }} aria-label="Remove project">
+                <NavButton onClick={() => removeRow('projects', idx)} style={{ padding: '4px 10px', fontSize: 12 }} aria-label="Remove">
                   <DeleteIcon style={{ fontSize: 16 }} /> Remove
                 </NavButton>
               </Box>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                <TextField fullWidth size="small" placeholder="Project title" value={p.title} onChange={(e) => updateRow('projects', idx, 'title', e.target.value)} sx={inputSx} />
-                <TextField fullWidth size="small" placeholder="Your role (e.g. Sole developer)" value={p.role} onChange={(e) => updateRow('projects', idx, 'role', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder={sp.projects.titlePlaceholder} value={p.title} onChange={(e) => updateRow('projects', idx, 'title', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder={sp.projects.rolePlaceholder} value={p.role} onChange={(e) => updateRow('projects', idx, 'role', e.target.value)} sx={inputSx} />
               </Box>
               <TextField
                 fullWidth
                 multiline
                 minRows={2}
                 maxRows={5}
-                placeholder="What is it? What did you build? What was the impact?"
+                placeholder={sp.projects.descriptionPlaceholder}
                 value={p.description}
                 onChange={(e) => updateRow('projects', idx, 'description', e.target.value)}
                 sx={{ ...inputSx, mt: 1.5 }}
@@ -1411,7 +1402,7 @@ const JobPreferencesWizard = () => {
               <TextField
                 fullWidth
                 size="small"
-                placeholder="Link (GitHub, live demo, write-up)"
+                placeholder={sp.projects.urlPlaceholder}
                 value={p.url}
                 onChange={(e) => updateRow('projects', idx, 'url', e.target.value)}
                 sx={{ ...inputSx, mt: 1.5 }}
@@ -1419,12 +1410,13 @@ const JobPreferencesWizard = () => {
             </Box>
           ))}
           <NavButton onClick={() => addRow('projects', EMPTY_PROJECT)} style={{ alignSelf: 'flex-start' }}>
-            <AddIcon /> Add another project
+            <AddIcon /> Add another {sp.projects.noun.toLowerCase()}
           </NavButton>
         </Box>
       )}
     </StepContent>
-  );
+    );
+  };
 
   const renderStep = () => {
     switch (currentStep) {

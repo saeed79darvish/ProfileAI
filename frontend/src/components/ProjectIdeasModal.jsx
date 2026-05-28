@@ -168,6 +168,106 @@ const IDEAS_BY_SECTOR = {
       description: 'Wrote a short industry primer on a sector (e.g. EV charging, edtech): market sizing, key players, unit economics and the top 3 risks.',
     },
   ],
+  operations: [
+    {
+      title: 'Process redesign case study',
+      effort: '1 week',
+      role: 'Operations lead',
+      description: 'Mapped an end-to-end process at a current/past role, identified the top 3 bottlenecks, redesigned it and quantified the time/cost saved.',
+    },
+    {
+      title: 'Vendor selection write-up',
+      effort: 'Weekend',
+      role: 'Program manager',
+      description: 'Built an RFP scorecard for a category (CRM, payroll, freight), evaluated 3 vendors against weighted criteria and recommended a winner with a TCO model.',
+    },
+    {
+      title: 'Cross-functional program plan',
+      effort: '2-3 days',
+      role: 'Program manager',
+      description: 'Wrote a one-page program plan for a cross-functional rollout: goals, milestones, RACI, risks and a launch checklist.',
+    },
+  ],
+  healthcare: [
+    {
+      title: 'Quality-improvement (QI) project write-up',
+      effort: '1-2 weeks',
+      role: 'Clinician / QI lead',
+      description: 'Picked a clinical metric (readmission rate, vaccination uptake, wait time), proposed an intervention with measurable goals, documented the PDSA cycles and results.',
+    },
+    {
+      title: 'Specialty certification or course',
+      effort: '2-4 weeks',
+      role: 'Clinician / allied health',
+      description: 'Completed a recognised specialty certification or CME course (e.g. ACLS, PALS, BLS, FNP modules) and documented learnings on a personal blog.',
+    },
+    {
+      title: 'Patient-education resource',
+      effort: 'Weekend',
+      role: 'Clinician / educator',
+      description: 'Authored a plain-language patient-education handout on a common condition, vetted with clinical references, and shared with a clinic or community group.',
+    },
+  ],
+  education: [
+    {
+      title: 'Curriculum unit (5 lessons)',
+      effort: '1 week',
+      role: 'Teacher / curriculum designer',
+      description: 'Designed a 5-lesson unit aligned to standards, with objectives, activities, formative assessment and a final task. Published on Teachers Pay Teachers or a personal blog.',
+    },
+    {
+      title: 'Classroom-tech pilot write-up',
+      effort: '2-3 weeks',
+      role: 'Teacher',
+      description: 'Piloted a new tool (AI assistant, formative-assessment platform) with one class, tracked engagement / grade impact, and wrote a short reflection.',
+    },
+    {
+      title: 'Conference talk or workshop',
+      effort: '2-3 days prep',
+      role: 'Educator / speaker',
+      description: 'Proposed and delivered a session at a local edcamp, district PD day or virtual unconference. Posted the slides + recording publicly.',
+    },
+  ],
+  legal: [
+    {
+      title: 'Published case note or article',
+      effort: '2-3 weeks',
+      role: 'Author',
+      description: 'Wrote and published a short case note or article on a recent decision in your practice area on SSRN, a bar journal or a personal blog. Cited and referenceable.',
+    },
+    {
+      title: 'Pro bono engagement',
+      effort: 'Ongoing',
+      role: 'Volunteer counsel',
+      description: 'Took on a pro bono matter through a clinic (immigration, expungement, housing). Document scope, hours, the outcome and a written reference from the clinic.',
+    },
+    {
+      title: 'Bar-association committee work',
+      effort: 'Ongoing',
+      role: 'Committee member',
+      description: 'Joined a state or local bar committee (young lawyers, diversity, a substantive section) and contributed to a publication, CLE or report.',
+    },
+  ],
+  hr: [
+    {
+      title: 'Hiring playbook for one role',
+      effort: 'Weekend',
+      role: 'Recruiter / HRBP',
+      description: 'Wrote a one-page hiring playbook for a specific role: ICP, sourcing channels, interview loop, scorecard rubric and a 30/60/90 onboarding plan.',
+    },
+    {
+      title: 'Onboarding redesign',
+      effort: '1 week',
+      role: 'People ops',
+      description: 'Mapped an existing onboarding flow, identified gaps with a survey, and shipped a redesign with measurable metrics (time-to-productivity, eNPS).',
+    },
+    {
+      title: 'Compensation-band research',
+      effort: 'Weekend',
+      role: 'Total rewards',
+      description: 'Benchmarked salary bands for a role family using Levels.fyi / public data, proposed a new band and modelled the budget impact.',
+    },
+  ],
 };
 
 // Generic fallback when sector has no curated list — still useful, still
