@@ -1581,6 +1581,7 @@ const JobPreferencesWizard = () => {
         open={boostOpen}
         onClose={() => setBoostOpen(false)}
         careerStage={data.careerStage}
+        onOpenProjectIdeas={() => setIdeasOpen(true)}
       />
 
       {/* AI project ideas \u2014 sector-curated recruiter-loved portfolio

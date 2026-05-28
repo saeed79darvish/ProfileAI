@@ -9,7 +9,6 @@ import {
 } from '@mui/material';
 import {
   Close as CloseIcon,
-  ArrowOutward as ExternalIcon,
   RocketLaunch as RocketIcon,
   Bolt as BoltIcon,
   Code as CodeIcon,
@@ -21,12 +20,15 @@ import {
 /**
  * Auto-opened the first time a candidate self-identifies as a new grad,
  * career changer, intern-only or self-taught learner. Frames the "no work
- * experience yet" situation as an opportunity and gives five concrete paths
- * to gain real experience now — each with a curated external destination
- * so this feels like coaching, not filler.
+ * experience yet" situation as an opportunity and gives five concrete
+ * categories of work they can do to gain real experience.
  *
- * Kept in its own file so the wizard step body stays scannable and we can
- * re-open it from any "Show growth paths" trigger.
+ * Important: we deliberately do NOT link out to external sites here.
+ * Sending a candidate to Upwork or GitHub mid-onboarding kills the flow
+ * and most never come back. Instead each card is pure guidance and the
+ * single primary CTA at the bottom keeps them in-app — handing off to
+ * the AI project-ideas modal so they can add a starter project right
+ * now, then run AI Draft on it.
  */
 
 const PATH_CARDS = [
@@ -35,54 +37,40 @@ const PATH_CARDS = [
     icon: BoltIcon,
     accent: '#6366f1',
     title: 'Freelance / contract gigs',
-    blurb: 'One paid project counts as a real role. Upwork has thousands of beginner-friendly briefs you can ship in a weekend.',
-    cta: 'Browse Upwork beginner jobs',
-    href: 'https://www.upwork.com/nx/find-work/',
+    blurb: 'One paid project counts as a real role. Even a single small brief in your field gives you a title, a client and a deliverable to talk about.',
   },
   {
     id: 'oss',
     icon: CodeIcon,
     accent: '#0ea5e9',
     title: 'Open-source contributions',
-    blurb: 'Recruiters love seeing PRs merged into real codebases. Even a docs or translation PR shows you can work in a team.',
-    cta: 'Find good-first-issues on GitHub',
-    href: 'https://github.com/topics/good-first-issue',
+    blurb: 'PRs merged into real codebases prove you can read code, follow conventions and collaborate. Docs and translation PRs count too.',
   },
   {
     id: 'volunteer',
     icon: HeartIcon,
     accent: '#ef4444',
     title: 'Volunteer for a nonprofit',
-    blurb: 'Catchafire matches your skills with nonprofits that need them. You walk away with a real client, a reference and metrics to quote.',
-    cta: 'Find a project on Catchafire',
-    href: 'https://www.catchafire.org/volunteer/',
+    blurb: 'A nonprofit project gives you a real client, a reference and metrics to quote. Walk away with proof you can deliver under constraints.',
   },
   {
     id: 'internship',
     icon: SchoolIcon,
     accent: '#f59e0b',
     title: 'Internships & apprenticeships',
-    blurb: 'Often the fastest way to convert into a full role. Many companies hire 30-60% of their interns full-time.',
-    cta: 'Search internships on LinkedIn',
-    href: 'https://www.linkedin.com/jobs/internship-jobs/',
+    blurb: 'Often the fastest way to convert into a full role — many companies hire 30–60% of their interns full-time. Even a short internship counts.',
   },
   {
     id: 'ship',
     icon: PublicIcon,
     accent: '#16a34a',
-    title: 'Ship something public',
-    blurb: 'A side project used by real people beats a perfect résumé. Post on Product Hunt or Indie Hackers and gather feedback.',
-    cta: 'See what indie makers ship',
-    href: 'https://www.indiehackers.com/products',
+    title: 'Ship a side project',
+    blurb: 'A side project used by real people beats a perfect résumé. Pick something small, finish it, share it — recruiters always ask about it.',
   },
 ];
 
-const PathCard = ({ icon: Icon, accent, title, blurb, cta, href }) => (
+const PathCard = ({ icon: Icon, accent, title, blurb }) => (
   <Box
-    component="a"
-    href={href}
-    target="_blank"
-    rel="noopener noreferrer"
     sx={{
       display: 'flex',
       gap: 1.75,
@@ -90,15 +78,10 @@ const PathCard = ({ icon: Icon, accent, title, blurb, cta, href }) => (
       borderRadius: 2,
       border: '1.5px solid #e5e7eb',
       backgroundColor: '#fff',
-      textDecoration: 'none',
-      color: 'inherit',
-      transition: 'all 0.15s ease',
-      cursor: 'pointer',
+      transition: 'border-color 0.15s ease, background-color 0.15s ease',
       '&:hover': {
         borderColor: accent,
         backgroundColor: alpha(accent, 0.04),
-        transform: 'translateY(-1px)',
-        boxShadow: `0 6px 16px -8px ${alpha(accent, 0.4)}`,
       },
     }}
   >
@@ -118,18 +101,12 @@ const PathCard = ({ icon: Icon, accent, title, blurb, cta, href }) => (
       <Icon sx={{ fontSize: 20 }} />
     </Box>
     <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.4 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
-          {title}
-        </Typography>
-      </Box>
-      <Typography variant="caption" sx={{ display: 'block', color: '#475569', fontSize: 12.5, lineHeight: 1.5, mb: 0.75 }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a', fontSize: 14, mb: 0.4 }}>
+        {title}
+      </Typography>
+      <Typography variant="caption" sx={{ display: 'block', color: '#475569', fontSize: 12.5, lineHeight: 1.5 }}>
         {blurb}
       </Typography>
-      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: accent, fontSize: 12, fontWeight: 700 }}>
-        {cta}
-        <ExternalIcon sx={{ fontSize: 14 }} />
-      </Box>
     </Box>
   </Box>
 );
@@ -141,8 +118,22 @@ const STAGE_LABELS = {
   career_change: 'career changers',
 };
 
-const NoExperienceBoostModal = ({ open, onClose, careerStage }) => {
+/**
+ * Props:
+ *   open: boolean
+ *   onClose: () => void
+ *   careerStage: string  — used to personalise the headline copy
+ *   onOpenProjectIdeas?: () => void  — optional handoff: closes this modal
+ *                                       and opens the AI project-ideas modal
+ *                                       so the candidate can take action now.
+ */
+const NoExperienceBoostModal = ({ open, onClose, careerStage, onOpenProjectIdeas }) => {
   const audienceLabel = STAGE_LABELS[careerStage] || 'candidates without much work history yet';
+
+  const handleAddProject = () => {
+    onClose?.();
+    onOpenProjectIdeas?.();
+  };
 
   return (
     <Dialog
@@ -193,7 +184,7 @@ const NoExperienceBoostModal = ({ open, onClose, careerStage }) => {
           5 ways to gain real experience — fast
         </Typography>
         <Typography variant="body2" sx={{ opacity: 0.92, fontSize: 13.5 }}>
-          These are the highest-leverage paths we recommend to {audienceLabel}. Any one of them gives you a real role you can add back to your profile and quote in interviews.
+          These are the highest-leverage paths we recommend to {audienceLabel}. Each one gives you a real role you can add to your profile and quote in interviews.
         </Typography>
       </Box>
 
@@ -203,6 +194,46 @@ const NoExperienceBoostModal = ({ open, onClose, careerStage }) => {
             <PathCard key={p.id} {...p} />
           ))}
         </Box>
+
+        {/* In-flow handoff — keeps the candidate inside the wizard. Adding
+            a starter project here is the fastest way to turn this advice
+            into something concrete on their profile right now. */}
+        {onOpenProjectIdeas && (
+          <Box
+            sx={{
+              mt: 2,
+              p: 1.75,
+              borderRadius: 2,
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))',
+              border: '1px dashed rgba(99,102,241,0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 1.5,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Typography sx={{ fontSize: 12.5, color: '#475569', fontWeight: 500, flex: 1, minWidth: 200 }}>
+              <strong style={{ color: '#4338ca' }}>Want to start right now?</strong>
+              {' '}Add a recruiter-loved starter project to your profile in one click.
+            </Typography>
+            <Button
+              onClick={handleAddProject}
+              variant="contained"
+              size="small"
+              sx={{
+                textTransform: 'none',
+                fontWeight: 700,
+                borderRadius: 1.5,
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                boxShadow: '0 2px 8px rgba(99,102,241,0.25)',
+                '&:hover': { background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' },
+              }}
+            >
+              Show me starter projects
+            </Button>
+          </Box>
+        )}
       </Box>
 
       <Box
@@ -218,7 +249,7 @@ const NoExperienceBoostModal = ({ open, onClose, careerStage }) => {
         }}
       >
         <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: 12 }}>
-          Tip: pick one and aim to ship something in the next 2 weeks.
+          Tip: pick one path and aim to ship something in the next 2 weeks.
         </Typography>
         <Button
           onClick={onClose}
