@@ -212,6 +212,6 @@ export const FOOTER_SOCIAL = ['LinkedIn', 'Twitter'] as const;
 export const FOOTER_COLUMNS = [
   { title: 'For Candidates', links: [{ label: 'My Profile', to: '/profile' }, { label: 'Community Feed', to: '/feed' }, { label: 'Network', to: '/network' }, { label: 'Pricing', to: '/pricing' }] },
   { title: 'For Recruiters', links: [{ label: 'Coming Soon', to: '/register' }] },
-  { title: 'Company', links: [{ label: 'Community Feed', to: '/feed' }, { label: 'Privacy Policy', to: '/privacy' }, { label: 'Terms of Service', to: '/terms' }, { label: 'Contact Us', href: 'mailto:support@profileai.com' }] },
+  { title: 'Company', links: [{ label: 'Blog', to: '/blog' }, { label: 'Community Feed', to: '/feed' }, { label: 'Privacy Policy', to: '/privacy' }, { label: 'Terms of Service', to: '/terms' }, { label: 'Contact Us', href: 'mailto:support@profileai.com' }] },
 ] as const;
 export const FOOTER_BOTTOM_LINKS = [{ label: 'Privacy', to: '/privacy' }, { label: 'Terms', to: '/terms' }] as const;

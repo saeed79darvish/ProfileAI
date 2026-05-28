@@ -1,1 +1,20 @@
-{}
+{
+  "name": "ProfilleAI — AI Resume Tailoring & Job Application Copilot",
+  "short_name": "ProfilleAI",
+  "description": "AI-powered career platform: tailor resumes in seconds, auto-apply to jobs, practice negotiation with AI agents, and get matched with recruiters.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b0f19",
+  "orientation": "portrait",
+  "lang": "en",
+  "categories": ["productivity", "business", "education"],
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

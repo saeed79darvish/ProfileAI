@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import SEO from '../../components/SEO';
 import {
   ElectricBolt as BoltIcon,
   Star as StarIcon,
@@ -312,6 +313,12 @@ const Pricing = () => {
 
   return (
     <PageContainer>
+      <SEO
+        title="Pricing — Free, Pro & Enterprise Plans"
+        description="Simple, transparent pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for unlimited tailoring, ApplyPilot auto-apply, and AI negotiation coaching."
+        path="/pricing"
+        keywords="ProfilleAI pricing, AI resume builder cost, ApplyPilot pricing, AI career copilot subscription"
+      />
       <ScrollToTop />
       <PromoButton onClick={() => setPromoModalOpen(true)}>
         <span className="icon"><GiftIcon /></span>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0f19"/>
+      <stop offset="55%" stop-color="#1a1f3a"/>
+      <stop offset="100%" stop-color="#3b2768"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#a06bff"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.85" cy="0.15" r="0.6">
+      <stop offset="0%" stop-color="#a06bff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#a06bff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.1" cy="0.9" r="0.55">
+      <stop offset="0%" stop-color="#667eea" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#667eea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow1)"/>
+  <rect width="1200" height="630" fill="url(#glow2)"/>
+
+  <!-- Subtle grid -->
+  <g stroke="#ffffff" stroke-opacity="0.04">
+    <path d="M0 90 H1200 M0 180 H1200 M0 270 H1200 M0 360 H1200 M0 450 H1200 M0 540 H1200"/>
+    <path d="M120 0 V630 M240 0 V630 M360 0 V630 M480 0 V630 M600 0 V630 M720 0 V630 M840 0 V630 M960 0 V630 M1080 0 V630"/>
+  </g>
+
+  <!-- Brand mark -->
+  <g transform="translate(80,80)">
+    <rect width="64" height="64" rx="16" fill="url(#accent)"/>
+    <text x="32" y="44" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="800" fill="#0b0f19" text-anchor="middle">P</text>
+    <text x="88" y="46" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="700" fill="#ffffff">ProfilleAI</text>
+  </g>
+
+  <!-- Eyebrow -->
+  <text x="80" y="260" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="600" fill="#a06bff" letter-spacing="3">AI CAREER COPILOT</text>
+
+  <!-- Headline -->
+  <text x="80" y="340" font-family="Inter, system-ui, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Tailor resumes.</text>
+  <text x="80" y="418" font-family="Inter, system-ui, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Auto-apply. <tspan fill="url(#accent)">Negotiate.</tspan></text>
+
+  <!-- Sub -->
+  <text x="80" y="478" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="500" fill="#cbd5e1">One profile. Every job. Powered by AI agents.</text>
+
+  <!-- CTA pill -->
+  <g transform="translate(80,520)">
+    <rect width="260" height="60" rx="30" fill="url(#accent)"/>
+    <text x="130" y="40" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="700" fill="#0b0f19" text-anchor="middle">profilleai.com</text>
+  </g>
+
+  <!-- Feature chips -->
+  <g font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="600" fill="#ffffff">
+    <g transform="translate(370,533)">
+      <rect width="170" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>
+      <text x="85" y="23" text-anchor="middle">AI Resume</text>
+    </g>
+    <g transform="translate(555,533)">
+      <rect width="170" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>
+      <text x="85" y="23" text-anchor="middle">ApplyPilot</text>
+    </g>
+    <g transform="translate(740,533)">
+      <rect width="210" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>
+      <text x="105" y="23" text-anchor="middle">Negotiation AI</text>
+    </g>
+  </g>
+</svg>

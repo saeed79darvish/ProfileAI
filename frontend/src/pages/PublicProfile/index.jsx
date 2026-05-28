@@ -52,6 +52,7 @@ import { profileAPI, postAPI, followAPI, messageAPI, resolveImageUrl } from '@/s
 import { formatDateRange } from '@/utils/dateRange';
 import { useAuth } from '@/contexts/AuthContext';
 import FollowButton from '@/components/FollowButton';
+import SEO from '@/components/SEO';
 import { ROUTES, LIMITS, DEFAULTS, ANIMATION } from './constants';
 
 // Icon aliases for consistency
@@ -885,6 +886,25 @@ const PublicProfile = () => {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: { xs: '80px', md: 0 } }}>
+      <SEO
+        title={`${fullName}${headline ? ` — ${headline}` : ''}`}
+        description={(bio || `${fullName}'s professional profile on ProfilleAI.`).replace(/<[^>]+>/g, '').slice(0, 200)}
+        path={`/profile/${id}`}
+        type="profile"
+        image={profileImage}
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'Person',
+          name: fullName,
+          jobTitle: headline || title || undefined,
+          description: (bio || '').replace(/<[^>]+>/g, '').slice(0, 500) || undefined,
+          image: profileImage || undefined,
+          address: location
+            ? { '@type': 'PostalAddress', addressLocality: location }
+            : undefined,
+          url: `https://www.profilleai.com/profile/${id}`,
+        }}
+      />
       {/* Sticky Header - shows on scroll */}
       <Fade in={showStickyHeader}>
         <Box

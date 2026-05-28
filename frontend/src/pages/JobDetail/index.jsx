@@ -1,6 +1,7 @@
 import React, { Component, useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Dialog, DialogContent, IconButton, Tooltip, Breadcrumbs, Typography, Skeleton } from '@mui/material';
+import SEO from '../../components/SEO';
 import {
   ErrorFallback,
   PageContainer,
@@ -383,6 +384,58 @@ const JobDetail = () => {
 
   return (
     <PageContainer>
+      <SEO
+        title={`${job.title} at ${job.company}`}
+        description={`${job.title} — ${job.company}${job.location ? ` (${job.location})` : ''}. ${(job.description || '').replace(/<[^>]+>/g, '').slice(0, 160)}`}
+        path={`/jobs/${job.id || job._id || ''}`}
+        type="article"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'JobPosting',
+          title: job.title,
+          description: (job.description || '').slice(0, 5000),
+          datePosted: job.createdAt || job.postedAt,
+          validThrough: job.expiresAt || job.validThrough,
+          employmentType: (job.employmentType || 'FULL_TIME').toUpperCase(),
+          hiringOrganization: {
+            '@type': 'Organization',
+            name: job.company,
+            sameAs: recruiterProfile?.companyWebsite,
+            logo: recruiterProfile?.companyLogo,
+          },
+          jobLocation: job.location
+            ? {
+                '@type': 'Place',
+                address: { '@type': 'PostalAddress', addressLocality: job.location },
+              }
+            : undefined,
+          jobLocationType: job.locationType === 'remote' ? 'TELECOMMUTE' : undefined,
+          applicantLocationRequirements:
+            job.locationType === 'remote'
+              ? { '@type': 'Country', name: 'Anywhere' }
+              : undefined,
+          baseSalary:
+            job.salaryMin || job.salaryMax
+              ? {
+                  '@type': 'MonetaryAmount',
+                  currency: job.salaryCurrency || 'USD',
+                  value: {
+                    '@type': 'QuantitativeValue',
+                    minValue: job.salaryMin,
+                    maxValue: job.salaryMax,
+                    unitText:
+                      job.salaryPeriod === 'yearly'
+                        ? 'YEAR'
+                        : job.salaryPeriod === 'monthly'
+                          ? 'MONTH'
+                          : 'HOUR',
+                  },
+                }
+              : undefined,
+          skills: Array.isArray(job.skills) ? job.skills.join(', ') : undefined,
+          directApply: true,
+        }}
+      />
       <Header>
         <HeaderContent>
           <BreadcrumbsWrapper>

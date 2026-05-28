@@ -69,6 +69,8 @@ const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/Landin
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
 const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
 const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
+const BlogIndex = lazyWithReload(() => import('./pages/Blog'));
+const BlogPost = lazyWithReload(() => import('./pages/Blog/BlogPost'));
 
 const LazyFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -216,6 +218,8 @@ function AppContent() {
               </PrivateRoute>
             } />
             <Route path="/pricing" element={<Pricing />} />
+            <Route path="/blog" element={<BlogIndex />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
             <Route path="/subscription/success" element={<SubscriptionSuccess />} />
             
             {/* ApplyPilot, candidate-side auto-apply. Primary route is

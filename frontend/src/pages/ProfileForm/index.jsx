@@ -66,7 +66,8 @@ import {
   GitHub as GitHubIcon,
   MoreVert as MoreVertIcon,
   Close as CloseIcon,
-  InfoOutlined as InfoOutlinedIcon
+  InfoOutlined as InfoOutlinedIcon,
+  HelpOutline as HelpIcon
 } from '@mui/icons-material';
 import {
   PageContainer,
@@ -191,6 +192,61 @@ const migrateEducationDates = (rows) =>
   };
 
 // ============ END STYLED COMPONENTS ============
+
+/**
+ * Reusable inline "Enhance with AI" button used by the Summary, Experience and
+ * Project description fields. Always rendered (no length gate) so candidates
+ * can discover the feature even when the field is empty — disabled state +
+ * helper text explain why it's not actionable yet.
+ */
+const InlineAIEnhanceButton = ({ loading, disabled, onClick, helperText, label = 'Enhance with AI' }) => (
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 1.5,
+      mt: 0.75,
+      flexWrap: 'wrap',
+    }}
+  >
+    <Typography
+      variant="caption"
+      sx={{ color: disabled ? '#94a3b8' : '#6366f1', fontSize: 11.5, fontWeight: 500 }}
+    >
+      {helperText}
+    </Typography>
+    <Button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || loading}
+      size="small"
+      startIcon={loading ? <CircularProgress size={14} sx={{ color: 'inherit' }} /> : <AIIcon sx={{ fontSize: 16 }} />}
+      sx={{
+        textTransform: 'none',
+        fontWeight: 700,
+        fontSize: 12.5,
+        px: 1.5,
+        py: 0.5,
+        borderRadius: 1.5,
+        color: '#fff',
+        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+        boxShadow: '0 2px 8px rgba(99,102,241,0.25)',
+        '&:hover': {
+          background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+          boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
+        },
+        '&.Mui-disabled': {
+          background: '#e2e8f0',
+          color: '#94a3b8',
+          boxShadow: 'none',
+        },
+      }}
+    >
+      {loading ? 'Enhancing…' : `${label} · 1 credit`}
+    </Button>
+  </Box>
+);
 
 const ProfileForm = () => {
   const navigate = useNavigate();
@@ -633,27 +689,25 @@ const ProfileForm = () => {
     }
   }, [initialLoading]);
 
-  // First-time welcome: show once per user when the profile is essentially
-  // empty (no title, no experience). Skip if the user just arrived from the
-  // Resume Upload or Preferences Wizard flow (they already chose a path).
+  // First-time welcome: show once per user when the candidate hasn't built up
+  // a real profile yet (no work experience). We DON'T suppress for wizard-sourced
+  // drafts — a wizard fills in title/skills but still leaves the candidate
+  // staring at an empty Experience section, which is when the AI tour matters
+  // most. Triggered automatically the first time, and re-openable via the
+  // "Show me how" button in the toolbar.
   const welcomeStorageKey = useMemo(
     () => `profileai_profile_welcome_seen_${user?.id || 'unknown'}`,
     [user?.id]
   );
   useEffect(() => {
     if (initialLoading) return;
-    if (location.state?.resumeData) return; // came in with a draft already
-    const isEmptyProfile =
-      !formData.title &&
-      !formData.summary &&
-      (!formData.experience || formData.experience.length === 0);
-    if (!isEmptyProfile) return;
+    const hasExperience = (formData.experience || []).length > 0;
+    if (hasExperience) return; // returning user with real content
     try {
       if (localStorage.getItem(welcomeStorageKey)) return;
     } catch (_) {
       // ignore storage errors
     }
-    // Defer slightly so the page paint settles first.
     const t = setTimeout(() => setShowWelcome(true), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1758,6 +1812,15 @@ const ProfileForm = () => {
           </Breadcrumbs>
         </AIToolsLeft>
         <AIToolsButtons>
+          <Tooltip title="Show the AI features tour again">
+            <AIButton
+              onClick={() => setShowWelcome(true)}
+              $mobileHide
+              type="button"
+            >
+              <HelpIcon /> <HideOnMobile>Show me how</HideOnMobile>
+            </AIButton>
+          </Tooltip>
           <AIButton
             as="label"
             htmlFor="resume-upload-edit"
@@ -2524,6 +2587,53 @@ const ProfileForm = () => {
                 />
               </Grid>
               <Grid item xs={12}>
+                {!formData.summary && (formData.experience?.length || 0) > 0 && (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      mb: 1.25,
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: '1px dashed #c7d2fe',
+                      backgroundColor: '#f5f3ff',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                      <AIIcon sx={{ color: '#6366f1', fontSize: 20 }} />
+                      <Typography variant="body2" sx={{ color: '#4338ca', fontSize: 12.75, fontWeight: 500 }}>
+                        Don't know what to write? AI can draft a summary using your experience and target role.
+                      </Typography>
+                    </Box>
+                    <Tooltip title="Opens Enhance with Summary selected · 1 credit">
+                      <span>
+                        <Button
+                          size="small"
+                          onClick={() => setShowEnhancePrompt(true)}
+                          disabled={!formData.title || enhancing}
+                          startIcon={<AIIcon sx={{ fontSize: 16 }} />}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            fontSize: 12.5,
+                            px: 1.5,
+                            borderRadius: 1.5,
+                            color: '#fff',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                            boxShadow: '0 2px 8px rgba(99,102,241,0.25)',
+                            '&:hover': { background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' },
+                            '&.Mui-disabled': { background: '#e2e8f0', color: '#94a3b8' },
+                          }}
+                        >
+                          Draft for me
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                )}
                 <TextField
                   fullWidth
                   multiline
@@ -2541,21 +2651,16 @@ const ProfileForm = () => {
                   placeholder="Brief overview of your experience and expertise..."
                   sx={darkTextFieldSx}
                 />
-                {formData.summary?.length >= 10 && (
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-                    <Tooltip title="AI enhance this summary · 1 credit">
-                      <IconButton
-                        size="small"
-                        sx={{ bgcolor: 'rgba(102,126,234,0.1)', '&:hover': { bgcolor: 'rgba(102,126,234,0.2)' }, borderRadius: '8px', px: 1, gap: 0.5 }}
-                        disabled={enhancingField === 'summary'}
-                        onClick={() => handleEnhanceField('summary', 'summary', formData.summary, {}, (enhanced) => setFormData(prev => ({ ...prev, summary: enhanced })), 'professional summary')}
-                      >
-                        {enhancingField === 'summary' ? <CircularProgress size={14} /> : <AIIcon fontSize="small" sx={{ color: '#667eea' }} />}
-                        <Typography variant="caption" sx={{ color: '#667eea', fontWeight: 600, fontSize: '11px' }}>Enhance</Typography>
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                )}
+                <InlineAIEnhanceButton
+                  loading={enhancingField === 'summary'}
+                  disabled={(formData.summary?.length || 0) < 10}
+                  helperText={
+                    (formData.summary?.length || 0) < 10
+                      ? 'Write a few words first, then AI will rewrite with sharper verbs and tone.'
+                      : 'Polish tone, verbs and metrics — AI keeps your facts.'
+                  }
+                  onClick={() => handleEnhanceField('summary', 'summary', formData.summary, {}, (enhanced) => setFormData(prev => ({ ...prev, summary: enhanced })), 'professional summary')}
+                />
               </Grid>
             </Grid>
           </Paper>
@@ -2605,6 +2710,54 @@ const ProfileForm = () => {
               >
                 <AddIcon />
               </IconButton>
+            </Box>
+
+            {/* AI suggest skills entry-point. Reuses the main Enhance modal which
+                already has a Skills section toggle and the right context. */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1.5,
+                mb: 2,
+                p: 1.5,
+                borderRadius: 2,
+                border: '1px dashed #c7d2fe',
+                backgroundColor: '#f5f3ff',
+                flexWrap: 'wrap',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                <AIIcon sx={{ color: '#6366f1', fontSize: 20 }} />
+                <Typography variant="body2" sx={{ color: '#4338ca', fontSize: 12.75, fontWeight: 500 }}>
+                  Not sure what to add? AI can suggest skills based on your role and experience.
+                </Typography>
+              </Box>
+              <Tooltip title={!formData.title ? 'Add a target role first' : 'Opens Enhance with Skills selected · 1 credit'}>
+                <span>
+                  <Button
+                    size="small"
+                    onClick={() => setShowEnhancePrompt(true)}
+                    disabled={!formData.title || enhancing}
+                    startIcon={<AIIcon sx={{ fontSize: 16 }} />}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      px: 1.5,
+                      borderRadius: 1.5,
+                      color: '#fff',
+                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      boxShadow: '0 2px 8px rgba(99,102,241,0.25)',
+                      '&:hover': { background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' },
+                      '&.Mui-disabled': { background: '#e2e8f0', color: '#94a3b8' },
+                    }}
+                  >
+                    Suggest with AI
+                  </Button>
+                </span>
+              </Tooltip>
             </Box>
 
             {/* Flat list of all skills, grouped by auto-category with thin labels.
@@ -2952,21 +3105,16 @@ const ProfileForm = () => {
                       helperText={`${exp.description?.length || 0}/${FIELD_LIMITS.experienceDescription}`}
                       sx={darkTextFieldSx}
                     />
-                    {exp.description?.length >= 10 && (
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-                        <Tooltip title="AI enhance this description · 1 credit">
-                          <IconButton
-                            size="small"
-                            sx={{ bgcolor: 'rgba(102,126,234,0.1)', '&:hover': { bgcolor: 'rgba(102,126,234,0.2)' }, borderRadius: '8px', px: 1, gap: 0.5 }}
-                            disabled={enhancingField === `exp-${index}`}
-                            onClick={() => handleEnhanceField(`exp-${index}`, 'experience', exp.description, { company: exp.company, title: exp.title, period: formatDateRange(exp.startDate, exp.endDate) || exp.period }, (enhanced) => handleExperienceChange(index, 'description', enhanced), `${exp.title || 'experience'} description`)}
-                          >
-                            {enhancingField === `exp-${index}` ? <CircularProgress size={14} /> : <AIIcon fontSize="small" sx={{ color: '#667eea' }} />}
-                            <Typography variant="caption" sx={{ color: '#667eea', fontWeight: 600, fontSize: '11px' }}>Enhance</Typography>
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
+                    <InlineAIEnhanceButton
+                      loading={enhancingField === `exp-${index}`}
+                      disabled={(exp.description?.length || 0) < 10}
+                      helperText={
+                        (exp.description?.length || 0) < 10
+                          ? 'Draft a sentence or two — AI will turn it into impact-driven bullets.'
+                          : 'Rewrite as STAR-style bullets with stronger verbs and metrics.'
+                      }
+                      onClick={() => handleEnhanceField(`exp-${index}`, 'experience', exp.description, { company: exp.company, title: exp.title, period: formatDateRange(exp.startDate, exp.endDate) || exp.period }, (enhanced) => handleExperienceChange(index, 'description', enhanced), `${exp.title || 'experience'} description`)}
+                    />
                   </Grid>
                   <Grid item xs={12}>
                     <TextField
@@ -3045,21 +3193,16 @@ const ProfileForm = () => {
                       helperText={`${project.description?.length || 0}/${FIELD_LIMITS.projectDescription}`}
                       sx={darkTextFieldSx}
                     />
-                    {project.description?.length >= 10 && (
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-                        <Tooltip title="AI enhance this description · 1 credit">
-                          <IconButton
-                            size="small"
-                            sx={{ bgcolor: 'rgba(102,126,234,0.1)', '&:hover': { bgcolor: 'rgba(102,126,234,0.2)' }, borderRadius: '8px', px: 1, gap: 0.5 }}
-                            disabled={enhancingField === `proj-${index}`}
-                            onClick={() => handleEnhanceField(`proj-${index}`, 'project', project.description, { title: project.title, role: project.role, technologies: project.technologies }, (enhanced) => handleProjectChange(index, 'description', enhanced), `${project.title || 'project'} description`)}
-                          >
-                            {enhancingField === `proj-${index}` ? <CircularProgress size={14} /> : <AIIcon fontSize="small" sx={{ color: '#667eea' }} />}
-                            <Typography variant="caption" sx={{ color: '#667eea', fontWeight: 600, fontSize: '11px' }}>Enhance</Typography>
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
+                    <InlineAIEnhanceButton
+                      loading={enhancingField === `proj-${index}`}
+                      disabled={(project.description?.length || 0) < 10}
+                      helperText={
+                        (project.description?.length || 0) < 10
+                          ? 'Add a quick description — AI will sharpen scope, role and outcomes.'
+                          : 'Tighten copy and highlight the technical impact.'
+                      }
+                      onClick={() => handleEnhanceField(`proj-${index}`, 'project', project.description, { title: project.title, role: project.role, technologies: project.technologies }, (enhanced) => handleProjectChange(index, 'description', enhanced), `${project.title || 'project'} description`)}
+                    />
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -3294,6 +3437,17 @@ const ProfileForm = () => {
                       onChange={(e) => handleEducationChange(index, 'description', e.target.value)}
                       placeholder="Relevant coursework, thesis, activities, or extracurriculars..."
                       sx={darkTextFieldSx}
+                    />
+                    <InlineAIEnhanceButton
+                      loading={enhancingField === `edu-${index}`}
+                      disabled={(edu.description?.length || 0) < 10}
+                      label="Polish description"
+                      helperText={
+                        (edu.description?.length || 0) < 10
+                          ? 'Add coursework, thesis or activities \u2014 AI will tighten the wording.'
+                          : 'Rewrite for clarity and recruiter-friendly tone.'
+                      }
+                      onClick={() => handleEnhanceField(`edu-${index}`, 'summary', edu.description, { degree: edu.degree, institution: edu.institution, fieldOfStudy: edu.fieldOfStudy }, (enhanced) => handleEducationChange(index, 'description', enhanced), `${edu.degree || 'education'} description`)}
                     />
                   </Grid>
                 </Grid>

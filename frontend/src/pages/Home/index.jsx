@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { featureFlags } from '../../config/featureFlags';
+import SEO from '../../components/SEO';
 import * as S from './styled';
 import {
   STATS, HERO_CHIP_LABEL, HERO_TITLE_PARTS, HERO_SUBTITLE, HERO_BUTTONS,
@@ -119,6 +120,60 @@ const Home = () => {
 
   return (
     <Box sx={S.pageContainerSx}>
+      <SEO
+        title="ProfilleAI — AI Resume Tailoring, Auto-Apply & Negotiation Coach"
+        description="Tailor your resume to any job in seconds, auto-apply with the ApplyPilot Chrome extension, and practice salary negotiation with AI agents — all from your single ProfilleAI profile."
+        path="/"
+        keywords="AI resume builder, resume tailoring, AI auto apply, ApplyPilot, AI cover letter, salary negotiation AI, AI recruiter matching, ATS resume optimizer, career copilot"
+        jsonLd={[
+          {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            name: 'ProfilleAI — AI Career Copilot',
+            url: 'https://www.profilleai.com/',
+            description:
+              'AI-powered career platform for resume tailoring, auto-apply, and salary negotiation training.',
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: [
+              {
+                '@type': 'Question',
+                name: 'What is ProfilleAI?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'ProfilleAI is an AI career copilot that tailors your resume to any job in seconds, auto-applies on your behalf through the ApplyPilot Chrome extension, and trains you to negotiate offers with AI agents.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'How does AI resume tailoring work?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'You upload your resume once. ProfilleAI parses it into a single living profile, then uses GPT-4 to rewrite the most relevant experience, skills, and summary for each job description you paste — optimized for ATS keyword matching.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Is ProfilleAI free?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Enterprise plans unlock unlimited tailoring, ApplyPilot auto-apply, AI negotiation coaching, and recruiter matching.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'What is ApplyPilot?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'ApplyPilot is the ProfilleAI Chrome extension that automatically fills out and submits job applications on your behalf across LinkedIn, Indeed, Greenhouse, Lever, Workday and most ATS platforms.',
+                },
+              },
+            ],
+          },
+        ]}
+      />
       {/* ══════════════════════════════════════════
           HERO SECTION
           ══════════════════════════════════════════ */}

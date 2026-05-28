@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useApplyPilotConfig } from '../../hooks/useApplyPilot';
 import { useAuth } from '../../contexts/AuthContext';
+import SEO from '../../components/SEO';
 
 const LandingPage = () => {
   const navigate = useNavigate();
@@ -49,6 +50,23 @@ const LandingPage = () => {
 
   return (
     <Page>
+      <SEO
+        title="ApplyPilot — AI Job Auto-Apply Chrome Extension"
+        description="ApplyPilot is the ProfilleAI Chrome extension that auto-applies to 99% of jobs on LinkedIn, Indeed, Greenhouse, Lever and Workday. You just review and approve."
+        path="/apply-pilot"
+        keywords="job auto apply, ApplyPilot, AI job application bot, auto apply LinkedIn, auto apply Indeed, Greenhouse autofill, Workday autofill, AI cover letter generator"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'SoftwareApplication',
+          name: 'ApplyPilot by ProfilleAI',
+          applicationCategory: 'BrowserApplication',
+          operatingSystem: 'Chrome',
+          url: 'https://www.profilleai.com/apply-pilot',
+          description:
+            'Chrome extension that auto-applies to jobs on your behalf across LinkedIn, Indeed, Greenhouse, Lever, and Workday.',
+          offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        }}
+      />
       {/* ── Hero ────────────────────────────────────────── */}
       <Hero>
         <HeroInner>
