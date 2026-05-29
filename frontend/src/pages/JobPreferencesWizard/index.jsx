@@ -480,12 +480,26 @@ const JobPreferencesWizard = () => {
             key={sec.id}
             $selected={data.sector === sec.id}
             onClick={() => {
+              if (data.sector === sec.id) return;
+              const prevSector = data.sector;
               set('sector', sec.id);
               // Reset title if it was from a different sector's suggestions
               if (data.title && SECTOR_TITLES[sec.id] && !SECTOR_TITLES[sec.id].includes(data.title)) {
-                // Keep custom-typed titles, only clear if it was a suggested title from another sector
                 const wasFromSuggestion = Object.values(SECTOR_TITLES).flat().includes(data.title);
                 if (wasFromSuggestion) set('title', '');
+              }
+              // Drop skills that don't belong to the new sector's catalog.
+              // Without this, a candidate who picks Tech, auto-adds 8
+              // skills, then switches to Legal still sees JavaScript /
+              // React in their selected list — which is wrong and confusing.
+              // Keep any skill that ALSO appears in the new sector (so a
+              // generic skill like "Negotiation" survives across sectors).
+              if (prevSector && data.skills.length > 0) {
+                const newCatalog = new Set(Object.values(SECTOR_SKILLS[sec.id] || {}).flat());
+                const filtered = data.skills.filter((s) => newCatalog.has(s));
+                if (filtered.length !== data.skills.length) {
+                  setData(prev => ({ ...prev, skills: filtered }));
+                }
               }
             }}
           >
