@@ -87,10 +87,35 @@ const getCategorizedSkills = (skills) => {
   return null;
 };
 
+// The body sections a candidate can reorder. Name/contact always stay pinned
+// at the top of the document and are never part of this list.
+const REORDERABLE_SECTIONS = ['summary', 'skills', 'experience', 'projects', 'education'];
+
+// Normalize a requested section order into a clean, complete sequence.
+// - Drops unknown / duplicate ids.
+// - Appends any sections the caller omitted (in default order) so a section
+//   is never silently lost from the resume.
+// - Falls back to the canonical default order when nothing valid is provided.
+const resolveSectionOrder = (order) => {
+  if (!Array.isArray(order) || order.length === 0) return [...REORDERABLE_SECTIONS];
+  const seen = new Set();
+  const result = [];
+  order.forEach((id) => {
+    if (REORDERABLE_SECTIONS.includes(id) && !seen.has(id)) {
+      seen.add(id);
+      result.push(id);
+    }
+  });
+  REORDERABLE_SECTIONS.forEach((id) => {
+    if (!seen.has(id)) result.push(id);
+  });
+  return result;
+};
+
 // ─────────────────────────────────────────────────────────────────
 // CLASSIC TEMPLATE — Traditional single-column, ATS-friendly
 // ─────────────────────────────────────────────────────────────────
-const generateClassicPDF = (profile, user, bulletStyle) => {
+const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
   const pageMargin = 50;
   const contentWidth = 595.28 - (pageMargin * 2);
   const bulletIndent = 12;
@@ -169,15 +194,18 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
       }
 
       // SUMMARY
-      if (profile.summary) {
+      const renderSummary = () => {
+        if (profile.summary) {
         sectionHeader('SUMMARY');
         doc.fontSize(9.5).fillColor('#000000').font('Helvetica');
         ensureSpace(doc.heightOfString(profile.summary, { width: contentWidth, lineGap: 1.5 }) + 10);
         doc.text(profile.summary, pageMargin, currentY, { width: contentWidth, lineGap: 1.5 });
         currentY = doc.y + 10;
-      }
+        }
+      };
 
       // SKILLS
+      const renderSkills = () => {
       const flatSkills = getFlatSkills(profile.skills);
       const catSkills = getCategorizedSkills(profile.skills);
       if (catSkills || flatSkills.length > 0) {
@@ -200,8 +228,10 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
         }
         currentY += 6;
       }
+      };
 
       // EXPERIENCE
+      const renderExperience = () => {
       (profile.experience || []).forEach((exp, i) => {
         if (i === 0) sectionHeader('EXPERIENCE');
         const company = exp.company || '';
@@ -226,8 +256,10 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
         currentY += 4;
       });
       if ((profile.experience || []).length > 0) currentY += 2;
+      };
 
       // PROJECTS
+      const renderProjects = () => {
       (profile.projects || []).forEach((project, i) => {
         if (i === 0) sectionHeader('PROJECTS');
         const name = project.title || project.name || 'Project';
@@ -245,8 +277,10 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
         renderBullets(project.description);
         currentY += 4;
       });
+      };
 
       // EDUCATION
+      const renderEducation = () => {
       (profile.education || []).forEach((edu, i) => {
         if (i === 0) sectionHeader('EDUCATION');
         ensureSpace(30);
@@ -271,6 +305,16 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
           currentY = doc.y + 6;
         }
       });
+      };
+
+      const classicRenderers = {
+        summary: renderSummary,
+        skills: renderSkills,
+        experience: renderExperience,
+        projects: renderProjects,
+        education: renderEducation,
+      };
+      resolveSectionOrder(sectionOrder).forEach((id) => classicRenderers[id] && classicRenderers[id]());
 
       doc.end();
     } catch (error) { reject(error); }
@@ -280,7 +324,7 @@ const generateClassicPDF = (profile, user, bulletStyle) => {
 // ─────────────────────────────────────────────────────────────────
 // MODERN TEMPLATE — Two-column with colored sidebar
 // ─────────────────────────────────────────────────────────────────
-const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) => {
+const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, sectionOrder) => {
   const pageWidth = 595.28;
   const pageHeight = 841.89;
   const sidebarWidth = 185;
@@ -434,6 +478,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
       }
 
       // Summary
+      const renderSummary = () => {
       if (profile.summary) {
         // Summary box with subtle background
         doc.fontSize(9.5).font('Helvetica');
@@ -445,6 +490,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
            .text(profile.summary, rightX + 10, mainY + 8, { width: rightContentWidth - 20, lineGap: 1.5 });
         mainY = doc.y + 16;
       }
+      };
 
       // Right-side section header
       const mainSection = (title) => {
@@ -458,6 +504,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
       };
 
       // Experience
+      const renderExperience = () => {
       const experiences = profile.experience || [];
       if (experiences.length > 0) {
         mainSection('EXPERIENCE');
@@ -511,8 +558,10 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
           mainY += 6;
         });
       }
+      };
 
       // Projects
+      const renderProjects = () => {
       const projects = profile.projects || [];
       if (projects.length > 0) {
         mainSection('PROJECTS');
@@ -554,6 +603,18 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
           mainY += 6;
         });
       }
+      };
+
+      // Modern keeps skills + education pinned in the sidebar; only the main
+      // column body sections (summary, experience, projects) are reorderable.
+      const modernMainRenderers = {
+        summary: renderSummary,
+        experience: renderExperience,
+        projects: renderProjects,
+      };
+      resolveSectionOrder(sectionOrder)
+        .filter((id) => modernMainRenderers[id])
+        .forEach((id) => modernMainRenderers[id]());
 
       doc.end();
     } catch (error) { reject(error); }
@@ -563,7 +624,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle) 
 // ─────────────────────────────────────────────────────────────────
 // MINIMAL TEMPLATE — Clean editorial style, centered header
 // ─────────────────────────────────────────────────────────────────
-const generateMinimalPDF = (profile, user, bulletStyle) => {
+const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
   const pageMargin = 60;
   const contentWidth = 595.28 - (pageMargin * 2);
   const bulletIndent = 14;
@@ -635,14 +696,17 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
       };
 
       // ─── PROFILE / SUMMARY ───
+      const renderSummary = () => {
       if (profile.summary) {
         sectionHeader('PROFILE');
         doc.fontSize(9.5).fillColor('#222222').font('Helvetica')
            .text(profile.summary, pageMargin, currentY, { width: contentWidth, lineGap: 2 });
         currentY = doc.y + 12;
       }
+      };
 
       // ─── SKILLS (as bordered tag chips) ───
+      const renderSkills = () => {
       const flatSkills = getFlatSkills(profile.skills);
       if (flatSkills.length > 0) {
         sectionHeader('SKILLS');
@@ -670,8 +734,10 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
         });
         currentY += chipH + 14;
       }
+      };
 
       // ─── EXPERIENCE ───
+      const renderExperience = () => {
       const experiences = profile.experience || [];
       if (experiences.length > 0) {
         sectionHeader('EXPERIENCE');
@@ -727,8 +793,10 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
           currentY += 6;
         });
       }
+      };
 
       // ─── PROJECTS ───
+      const renderProjects = () => {
       const projects = profile.projects || [];
       if (projects.length > 0) {
         sectionHeader('PROJECTS');
@@ -770,8 +838,10 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
           currentY += 6;
         });
       }
+      };
 
       // ─── EDUCATION ───
+      const renderEducation = () => {
       const educ = profile.education || [];
       if (educ.length > 0) {
         sectionHeader('EDUCATION');
@@ -803,6 +873,16 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
           }
         });
       }
+      };
+
+      const minimalRenderers = {
+        summary: renderSummary,
+        skills: renderSkills,
+        experience: renderExperience,
+        projects: renderProjects,
+        education: renderEducation,
+      };
+      resolveSectionOrder(sectionOrder).forEach((id) => minimalRenderers[id] && minimalRenderers[id]());
 
       doc.end();
     } catch (error) { reject(error); }
@@ -813,7 +893,7 @@ const generateMinimalPDF = (profile, user, bulletStyle) => {
 // CENTERED TEMPLATE — Centered header, ATS-friendly, categorized
 // skills as bulleted lines, italicized job titles.
 // ─────────────────────────────────────────────────────────────────
-const generateCenteredPDF = (profile, user, bulletStyle) => {
+const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
   const pageMargin = 54;
   const pageWidth = 595.28;
   const pageHeight = 841.89;
@@ -893,6 +973,7 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
       }
 
       // ─── SUMMARY ───
+      const renderSummary = () => {
       if (profile.summary) {
         sectionHeader('SUMMARY');
         doc.fontSize(9.5).fillColor('#000000').font('Helvetica');
@@ -900,8 +981,10 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
         doc.text(profile.summary, pageMargin, currentY, { width: contentWidth, lineGap: 1.5 });
         currentY = doc.y + 8;
       }
+      };
 
       // ─── SKILLS (categorized bullets) ───
+      const renderSkills = () => {
       const flatSkills = getFlatSkills(profile.skills);
       const catSkills = getCategorizedSkills(profile.skills);
       if (catSkills || flatSkills.length > 0) {
@@ -942,8 +1025,10 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
         }
         currentY += 6;
       }
+      };
 
       // ─── EXPERIENCE ───
+      const renderExperience = () => {
       const experiences = profile.experience || [];
       experiences.forEach((exp, i) => {
         if (i === 0) sectionHeader('EXPERIENCE');
@@ -987,8 +1072,10 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
         renderParagraphOrBullets(exp.description);
         currentY += 6;
       });
+      };
 
       // ─── PROJECTS ───
+      const renderProjects = () => {
       const projects = profile.projects || [];
       projects.forEach((project, i) => {
         if (i === 0) sectionHeader('PROJECTS');
@@ -1008,8 +1095,10 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
         renderParagraphOrBullets(project.description);
         currentY += 6;
       });
+      };
 
       // ─── EDUCATION ───
+      const renderEducation = () => {
       const educ = profile.education || [];
       educ.forEach((edu, i) => {
         if (i === 0) sectionHeader('EDUCATION');
@@ -1039,6 +1128,16 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
           currentY = doc.y + 6;
         }
       });
+      };
+
+      const centeredRenderers = {
+        summary: renderSummary,
+        skills: renderSkills,
+        experience: renderExperience,
+        projects: renderProjects,
+        education: renderEducation,
+      };
+      resolveSectionOrder(sectionOrder).forEach((id) => centeredRenderers[id] && centeredRenderers[id]());
 
       doc.end();
     } catch (error) { reject(error); }
@@ -1046,22 +1145,22 @@ const generateCenteredPDF = (profile, user, bulletStyle) => {
 };
 
 // ─── Main dispatcher ───
-const generatePDF = async (profile, user, templateId = 'professional', accentColor, bulletStyle) => {
+const generatePDF = async (profile, user, templateId = 'professional', accentColor, bulletStyle, sectionOrder) => {
   console.log(`[Resume] Generating PDF with template: ${templateId}, accent: ${accentColor || 'default'}, bullets: ${bulletStyle || 'bullets'}`);
   switch (templateId) {
     case 'modern':
-      return generateModernPDF(profile, user, accentColor || '#10b981', bulletStyle);
+      return generateModernPDF(profile, user, accentColor || '#10b981', bulletStyle, sectionOrder);
     case 'minimal':
-      return generateMinimalPDF(profile, user, bulletStyle);
+      return generateMinimalPDF(profile, user, bulletStyle, sectionOrder);
     case 'centered':
-      return generateCenteredPDF(profile, user, bulletStyle);
+      return generateCenteredPDF(profile, user, bulletStyle, sectionOrder);
     default:
-      return generateClassicPDF(profile, user, bulletStyle);
+      return generateClassicPDF(profile, user, bulletStyle, sectionOrder);
   }
 };
 
 // Generate Word Document
-const generateWord = async (profile, user, templateId = 'professional') => {
+const generateWord = async (profile, user, templateId = 'professional', sectionOrder) => {
   const template = templates[templateId] || templates.professional;
   const colors = template.colors;
   
@@ -1157,6 +1256,7 @@ const generateWord = async (profile, user, templateId = 'professional') => {
   );
 
   // Summary Section
+  const buildSummary = () => {
   if (profile.summary) {
     children.push(
       new Paragraph({
@@ -1186,8 +1286,10 @@ const generateWord = async (profile, user, templateId = 'professional') => {
       })
     );
   }
+  };
 
   // Skills Section
+  const buildSkills = () => {
   if (profile.skills && profile.skills.length > 0) {
     children.push(
       new Paragraph({
@@ -1221,8 +1323,10 @@ const generateWord = async (profile, user, templateId = 'professional') => {
       })
     );
   }
+  };
 
   // Experience Section
+  const buildExperience = () => {
   if (profile.experience && profile.experience.length > 0) {
     children.push(
       new Paragraph({
@@ -1294,8 +1398,10 @@ const generateWord = async (profile, user, templateId = 'professional') => {
       }
     });
   }
+  };
 
   // Education Section
+  const buildEducation = () => {
   if (profile.education && profile.education.length > 0) {
     children.push(
       new Paragraph({
@@ -1348,8 +1454,10 @@ const generateWord = async (profile, user, templateId = 'professional') => {
       );
     });
   }
+  };
 
   // Projects Section
+  const buildProjects = () => {
   if (profile.projects && profile.projects.length > 0) {
     children.push(
       new Paragraph({
@@ -1415,6 +1523,18 @@ const generateWord = async (profile, user, templateId = 'professional') => {
       }
     });
   }
+  };
+
+  // Build body sections in the requested order (header above + footer below
+  // stay pinned). Default order matches the original layout.
+  const wordBuilders = {
+    summary: buildSummary,
+    skills: buildSkills,
+    experience: buildExperience,
+    projects: buildProjects,
+    education: buildEducation,
+  };
+  resolveSectionOrder(sectionOrder).forEach((id) => wordBuilders[id] && wordBuilders[id]());
 
   // Footer
   children.push(

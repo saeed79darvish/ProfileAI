@@ -322,15 +322,15 @@ export const recruiterProfileAPI = {
 // Resume Download API
 export const resumeAPI = {
   getTemplates: () => api.get('/resume/templates'),
-  generate: async (format, templateId, tailoredProfileId = null, tailoredProfileData = null, accentColor = null, bulletStyle = null) => {
+  generate: async (format, templateId, tailoredProfileId = null, tailoredProfileData = null, accentColor = null, bulletStyle = null, sectionOrder = null) => {
     const response = await api.post('/resume/generate', 
-      { format, templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle },
+      { format, templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle, sectionOrder },
       { responseType: 'blob' }
     );
     return response;
   },
-  preview: (templateId, tailoredProfileId = null, tailoredProfileData = null, accentColor = null, bulletStyle = null) => 
-    api.post('/resume/preview', { templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle })
+  preview: (templateId, tailoredProfileId = null, tailoredProfileData = null, accentColor = null, bulletStyle = null, sectionOrder = null) => 
+    api.post('/resume/preview', { templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle, sectionOrder })
 };
 
 // Posts/Feed API

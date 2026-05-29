@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
+import { Reorder, useDragControls } from 'framer-motion';
 import { Dialog, CircularProgress, useMediaQuery } from '@mui/material';
 import {
   Close as CloseIcon,
   Download,
   Delete as DeleteIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  DragIndicator as DragIndicatorIcon,
+  AutoAwesome as AutoAwesomeIcon
 } from '@mui/icons-material';
 import { resumeAPI } from '../services/api';
 
@@ -20,6 +23,61 @@ const TEMPLATE_OPTIONS = [
 const ACCENT_COLORS = [
   '#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#dc2626', '#ea580c', '#d97706', '#16a34a', '#374151', '#6d28d9',
 ];
+
+// Body sections a candidate can reorder. Name + contact always stay pinned at
+// the very top of the resume and are intentionally not part of this list.
+const ALL_SECTIONS = ['summary', 'skills', 'experience', 'projects', 'education'];
+const SECTION_META = {
+  summary: { label: 'Summary', desc: 'Professional summary' },
+  skills: { label: 'Skills', desc: 'Core competencies' },
+  experience: { label: 'Experience', desc: 'Work history' },
+  projects: { label: 'Projects', desc: 'Selected work' },
+  education: { label: 'Education', desc: 'Degrees & schools' },
+};
+// In the Modern (two-column) template, Skills & Education live in the fixed
+// sidebar — only these main-column sections honor a custom order there.
+const MODERN_MAIN_SECTIONS = ['summary', 'experience', 'projects'];
+
+// Suggest the most effective section order for a candidate based on how much
+// experience they have (new grad vs seasoned) and their likely industry.
+// Returns { order, label } so the UI can explain *why* it's recommended.
+const computeSuggestedOrder = (data) => {
+  if (!data) return { order: [...ALL_SECTIONS], label: 'Standard order' };
+
+  const experiences = Array.isArray(data.experience) ? data.experience : [];
+  const realExp = experiences.filter((e) => e && (e.company || e.title || e.description));
+  const title = String(data.title || data.headline || '').toLowerCase();
+
+  // Flatten skills (object-of-arrays OR flat array) into a searchable string.
+  let skillsText = '';
+  if (Array.isArray(data.skills)) {
+    skillsText = data.skills.map((s) => (typeof s === 'string' ? s : s?.name || '')).join(' ');
+  } else if (data.skills && typeof data.skills === 'object') {
+    skillsText = Object.values(data.skills).flat().map((s) => (typeof s === 'string' ? s : s?.name || '')).join(' ');
+  }
+  const blob = `${title} ${skillsText}`.toLowerCase();
+
+  const isNewGrad =
+    realExp.length === 0 ||
+    (realExp.length <= 1 && /(intern|junior|jr\b|entry|graduate|student|trainee|new[ -]?grad|associate)/.test(title));
+
+  let industry = 'general';
+  if (/(engineer|developer|software|data|devops|programmer|frontend|back[- ]?end|full[- ]?stack|machine learning|\bml\b|\bai\b|cloud|security|sre)/.test(blob)) industry = 'tech';
+  else if (/(design|ux|ui|creative|artist|brand|motion|graphic|illustrat|product design)/.test(blob)) industry = 'creative';
+  else if (/(research|ph\.?d|professor|scientist|academic|lecturer|postdoc)/.test(blob)) industry = 'academic';
+
+  if (isNewGrad) {
+    if (industry === 'tech') return { order: ['summary', 'skills', 'projects', 'education', 'experience'], label: 'Recommended for new grads in tech' };
+    if (industry === 'creative') return { order: ['summary', 'projects', 'skills', 'education', 'experience'], label: 'Recommended for new creatives' };
+    if (industry === 'academic') return { order: ['summary', 'education', 'projects', 'skills', 'experience'], label: 'Recommended for academic / research' };
+    return { order: ['summary', 'education', 'projects', 'skills', 'experience'], label: 'Recommended for early-career candidates' };
+  }
+
+  if (industry === 'tech') return { order: ['summary', 'experience', 'skills', 'projects', 'education'], label: 'Recommended for experienced tech roles' };
+  if (industry === 'creative') return { order: ['summary', 'experience', 'projects', 'skills', 'education'], label: 'Recommended for experienced creatives' };
+  if (industry === 'academic') return { order: ['summary', 'experience', 'education', 'projects', 'skills'], label: 'Recommended for academic / research' };
+  return { order: ['summary', 'experience', 'skills', 'projects', 'education'], label: 'Recommended for experienced candidates' };
+};
 
 // === Animations ===
 const fadeIn = keyframes`
@@ -587,6 +645,142 @@ const AccentDot = styled.button`
   }
 `;
 
+// === Section order (drag-to-reorder) ===
+const SuggestBanner = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid ${p => p.$active ? '#c7d2fe' : '#e5e7eb'};
+  background: ${p => p.$active ? 'linear-gradient(135deg,#eef2ff,#faf5ff)' : 'white'};
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover { border-color: #a5b4fc; }
+
+  .spark {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${p => p.$active ? '#4f46e5' : '#eef2ff'};
+    color: ${p => p.$active ? '#fff' : '#4f46e5'};
+  }
+  .txt { min-width: 0; }
+  .title { font-size: 12.5px; font-weight: 700; color: #111827; }
+  .sub { font-size: 11px; color: #6b7280; line-height: 1.3; }
+`;
+
+const OrderGroup = styled(Reorder.Group)`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const OrderItem = styled(Reorder.Item)`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  cursor: grab;
+
+  &:active { cursor: grabbing; }
+
+  .grip {
+    display: flex;
+    align-items: center;
+    color: #9ca3af;
+    flex-shrink: 0;
+  }
+  .pos {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .meta { min-width: 0; flex: 1; }
+  .label { font-size: 13px; font-weight: 600; color: #111827; }
+  .desc { font-size: 11px; color: #9ca3af; }
+  .pinned {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #6b7280;
+    background: #f3f4f6;
+    border-radius: 6px;
+    padding: 3px 7px;
+  }
+
+  @media (max-width: 768px) {
+    padding: 12px;
+    .desc { display: none; }
+  }
+`;
+
+const OrderHint = styled.div`
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 8px;
+  line-height: 1.4;
+`;
+
+// Non-draggable row used for sections that are pinned to the Modern sidebar.
+const OrderItemStatic = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #e5e7eb;
+  background: #fafafa;
+  opacity: 0.85;
+
+  .grip { display: flex; align-items: center; color: #d1d5db; flex-shrink: 0; }
+  .meta { min-width: 0; flex: 1; }
+  .label { font-size: 13px; font-weight: 600; color: #374151; }
+  .desc { font-size: 11px; color: #9ca3af; }
+  .pinned {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #6b7280;
+    background: #eef2ff;
+    border-radius: 6px;
+    padding: 3px 7px;
+  }
+
+  @media (max-width: 768px) {
+    .desc { display: none; }
+  }
+`;
 const Footer = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -1043,6 +1237,9 @@ export default function ResumePreviewModal({
   const [originalPreviewUrl, setOriginalPreviewUrl] = useState('');
   const [bulletStyle, setBulletStyle] = useState('bullets');
   const [accentColor, setAccentColor] = useState('#0d9488');
+  const [sectionOrder, setSectionOrder] = useState(ALL_SECTIONS);
+  // The AI-suggested order for this candidate + whether it's currently applied.
+  const [suggestion, setSuggestion] = useState({ order: ALL_SECTIONS, label: 'Standard order' });
   const previewDebounceRef = useRef(null);
   const hasBothVersions = !!(tailoredProfileData && profileData);
   const isMobile = useMediaQuery('(max-width:768px)');
@@ -1072,21 +1269,26 @@ export default function ResumePreviewModal({
       }
       setPreviewMode('after');
       setOriginalPreviewUrl('');
+      // Suggest the strongest section order for this candidate and apply it so
+      // the first preview already reflects a smart, level-aware layout.
+      const suggested = computeSuggestedOrder(data);
+      setSuggestion(suggested);
+      setSectionOrder(suggested.order);
       if (preloadedPreviewUrl) {
         setPreviewUrl(preloadedPreviewUrl);
       } else {
-        loadPreview(data, 'professional');
+        loadPreview(data, 'professional', undefined, undefined, suggested.order);
       }
       if (tailoredProfileData && profileData) {
-        loadOriginalPreview(profileData, 'professional');
+        loadOriginalPreview(profileData, 'professional', undefined, undefined, suggested.order);
       }
     }
   }, [open]);
 
-  const loadPreview = useCallback(async (data, tmplId, color, bStyle) => {
+  const loadPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     setLoadingPreview(true);
     try {
-      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle);
+      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
       if (res.data?.preview) {
         setPreviewUrl(res.data.preview);
       }
@@ -1095,18 +1297,18 @@ export default function ResumePreviewModal({
     } finally {
       setLoadingPreview(false);
     }
-  }, [templateId, accentColor, bulletStyle]);
+  }, [templateId, accentColor, bulletStyle, sectionOrder]);
 
-  const loadOriginalPreview = useCallback(async (data, tmplId, color, bStyle) => {
+  const loadOriginalPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     try {
-      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle);
+      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
       if (res.data?.preview) {
         setOriginalPreviewUrl(res.data.preview);
       }
     } catch (err) {
       console.error('Original preview error:', err);
     }
-  }, [templateId, accentColor, bulletStyle]);
+  }, [templateId, accentColor, bulletStyle, sectionOrder]);
 
   const schedulePreviewUpdate = useCallback((data) => {
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
@@ -1114,6 +1316,18 @@ export default function ResumePreviewModal({
       loadPreview(data, templateId);
     }, 1200);
   }, [loadPreview, templateId]);
+
+  // Apply a section order (from drag-reorder or the suggested-order banner)
+  // and refresh the preview with a short debounce so dragging stays smooth.
+  const applySectionOrder = useCallback((order) => {
+    setSectionOrder(order);
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
+    previewDebounceRef.current = setTimeout(() => {
+      loadPreview(editData || tailoredProfileData || profileData, templateId, accentColor, bulletStyle, order);
+    }, 500);
+  }, [loadPreview, editData, tailoredProfileData, profileData, templateId, accentColor, bulletStyle]);
+
+  const isSuggestedApplied = sectionOrder.join(',') === suggestion.order.join(',');
 
   const handleTemplateChange = (tmplId) => {
     setTemplateId(tmplId);
@@ -1133,7 +1347,8 @@ export default function ResumePreviewModal({
         null,
         editData || tailoredProfileData || profileData,
         accentColor,
-        bulletStyle
+        bulletStyle,
+        sectionOrder
       );
 
       const blob = new Blob([response.data], {
@@ -1498,6 +1713,69 @@ export default function ResumePreviewModal({
             <span className="desc">Traditional list</span>
           </BulletStyleCard>
         </BulletStyleToggle>
+      </FieldGroup>
+
+      {/* Section Order */}
+      <FieldGroup>
+        <FieldLabel>Section Order</FieldLabel>
+        <SuggestBanner
+          type="button"
+          $active={isSuggestedApplied}
+          onClick={() => applySectionOrder(suggestion.order)}
+        >
+          <span className="spark"><AutoAwesomeIcon style={{ fontSize: 18 }} /></span>
+          <span className="txt">
+            <span className="title">{isSuggestedApplied ? 'Smart order applied' : 'Use suggested order'}</span>
+            <span className="sub">{suggestion.label}</span>
+          </span>
+        </SuggestBanner>
+
+        {(() => {
+          const reorderValues = isModern
+            ? sectionOrder.filter((id) => MODERN_MAIN_SECTIONS.includes(id))
+            : sectionOrder;
+          const sidebarValues = isModern
+            ? sectionOrder.filter((id) => !MODERN_MAIN_SECTIONS.includes(id))
+            : [];
+          const handleReorder = (newVals) => {
+            if (isModern) {
+              applySectionOrder([...newVals, ...sidebarValues]);
+            } else {
+              applySectionOrder(newVals);
+            }
+          };
+          return (
+            <>
+              <OrderGroup axis="y" values={reorderValues} onReorder={handleReorder}>
+                {reorderValues.map((id, idx) => (
+                  <OrderItem key={id} value={id} whileDrag={{ scale: 1.03, boxShadow: '0 8px 20px rgba(0,0,0,0.12)' }}>
+                    <span className="grip"><DragIndicatorIcon style={{ fontSize: 18 }} /></span>
+                    <span className="pos">{idx + 1}</span>
+                    <span className="meta">
+                      <span className="label">{SECTION_META[id]?.label || id}</span>
+                      <span className="desc">{SECTION_META[id]?.desc || ''}</span>
+                    </span>
+                  </OrderItem>
+                ))}
+              </OrderGroup>
+              {sidebarValues.map((id) => (
+                <OrderItemStatic key={id} style={{ marginTop: 8 }}>
+                  <span className="grip"><DragIndicatorIcon style={{ fontSize: 18 }} /></span>
+                  <span className="meta">
+                    <span className="label">{SECTION_META[id]?.label || id}</span>
+                    <span className="desc">{SECTION_META[id]?.desc || ''}</span>
+                  </span>
+                  <span className="pinned">Sidebar</span>
+                </OrderItemStatic>
+              ))}
+              <OrderHint>
+                {isModern
+                  ? 'Drag to reorder the main column. Skills & Education stay in the sidebar for this template.'
+                  : 'Drag sections to reorder how they appear on your resume. Name & contact stay at the top.'}
+              </OrderHint>
+            </>
+          );
+        })()}
       </FieldGroup>
     </RightPane>
   );

@@ -18,7 +18,7 @@ router.get('/templates', auth, async (req, res) => {
 // Generate resume (PDF or Word)
 router.post('/generate', auth, async (req, res) => {
   try {
-    const { format, templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle } = req.body;
+    const { format, templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle, sectionOrder } = req.body;
     
     // Validate format
     if (!format || !['pdf', 'word', 'docx'].includes(format.toLowerCase())) {
@@ -73,11 +73,11 @@ router.post('/generate', auth, async (req, res) => {
     const baseFilename = `${user.firstName}_${user.lastName}_Resume`.replace(/\s+/g, '_');
 
     if (format.toLowerCase() === 'pdf') {
-      buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle);
+      buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder);
       contentType = 'application/pdf';
       filename = `${baseFilename}.pdf`;
     } else {
-      buffer = await generateWord(profileData, user, templateId);
+      buffer = await generateWord(profileData, user, templateId, sectionOrder);
       contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       filename = `${baseFilename}.docx`;
     }
@@ -97,7 +97,7 @@ router.post('/generate', auth, async (req, res) => {
 // Preview resume (returns base64 for PDF preview)
 router.post('/preview', auth, async (req, res) => {
   try {
-    const { templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle } = req.body;
+    const { templateId, tailoredProfileId, tailoredProfileData, accentColor, bulletStyle, sectionOrder } = req.body;
 
     // Get user info
     const user = await User.findByPk(req.user.id);
@@ -137,7 +137,7 @@ router.post('/preview', auth, async (req, res) => {
       profileData = profile.toJSON();
     }
 
-    const buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle);
+    const buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder);
     const base64 = buffer.toString('base64');
     
     res.json({ 
