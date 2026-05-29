@@ -25,6 +25,7 @@ import {
 } from './styled';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
 import { profileAPI } from '../../services/api';
+import ResumeMagicOverlay from './ResumeMagicOverlay';
 
 /* ═══════════════════════════════════════════════
    ANIMATIONS
@@ -55,6 +56,11 @@ const ProfileCreation = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
+
+  // Drives the full-screen "AI is building your profile" experience.
+  const [parsing, setParsing] = useState(false);
+  const [parseReady, setParseReady] = useState(false);
+  const [parsedData, setParsedData] = useState(null);
 
   const triggerUpload = () => {
     if (uploading) return;
@@ -90,6 +96,9 @@ const ProfileCreation = () => {
 
     setUploading(true);
     setError('');
+    setParsing(true);
+    setParseReady(false);
+    setParsedData(null);
 
     try {
       const formData = new FormData();
@@ -98,14 +107,17 @@ const ProfileCreation = () => {
       const response = await profileAPI.uploadResume(formData);
 
       if (response.data.success) {
-        navigate(ROUTES.CREATE_FORM, {
-          state: { resumeData: response.data.data }
-        });
+        // Hand off to the magic overlay: store the data and flag it ready.
+        // The overlay finishes its animation, then navigates via onMagicFinish.
+        setParsedData(response.data.data);
+        setParseReady(true);
       } else {
+        setParsing(false);
         setError(TEXT.ERROR_PARSE);
       }
     } catch (err) {
       console.error('Error uploading resume:', err);
+      setParsing(false);
       setError(
         err.response?.data?.error ||
           TEXT.ERROR_UPLOAD
@@ -115,12 +127,25 @@ const ProfileCreation = () => {
     }
   };
 
+  const handleMagicFinish = () => {
+    navigate(ROUTES.CREATE_FORM, {
+      state: { resumeData: parsedData }
+    });
+  };
+
   const handleManualCreate = () => {
     navigate(ROUTES.PREFERENCES);
   };
 
   return (
     <PageContainer>
+      {parsing && (
+        <ResumeMagicOverlay
+          ready={parseReady}
+          data={parsedData}
+          onFinish={handleMagicFinish}
+        />
+      )}
       <TopBar>
         <Logo onClick={() => navigate(ROUTES.HOME)}>
           <AIIcon />

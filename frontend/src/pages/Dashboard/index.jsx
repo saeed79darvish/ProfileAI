@@ -168,6 +168,8 @@ import {
 import { ROUTES, ALLOWED_RESUME_TYPES, TIMINGS as DASH_TIMINGS, LIMITS, EXTENSION_STEPS_DATA } from './constants';
 import { COMPANY_LOGO_COLORS, EXTENSION_STEP_COLORS } from './styled';
 import { getGreeting } from './utils';
+import ProfileCompletionCard from './ProfileCompletionCard';
+import useProfileCompletion from '@/hooks/useProfileCompletion';
 
 // SVG illustrations for each step
 const StepIllustrations = {
@@ -447,6 +449,9 @@ const Dashboard = () => {
   const publicProfileUrl = user
     ? `${window.location.origin}/profile/${getProfileSlug(user, profile)}`
     : '';
+
+  // Shared completion scoring (same logic as the ProfileForm sidebar).
+  const completion = useProfileCompletion(profile);
 
   // Redirect recruiters away from the candidate dashboard. Admins are
   // allowed to view /profile so they can dogfood the candidate surface;
@@ -989,6 +994,11 @@ const Dashboard = () => {
   const handleEditProfile = () => {
     navigate('/profile/edit');
   };
+
+  // Deep-link from the completion checklist straight into a section editor.
+  const handleCompletionItemClick = (section) => {
+    navigate('/profile/edit', { state: { section } });
+  };
   
   // Parse skills into display format
   const getSkillCategories = () => {
@@ -1171,6 +1181,15 @@ const Dashboard = () => {
             </HeroShareStrip>
           </HeroActions>
         </ProfileHero>
+
+        {/* Profile completion checklist — progressive profiling nudge.
+            Auto-hides once the profile is 100% complete to avoid clutter. */}
+        {profile && !completion.done && (
+          <ProfileCompletionCard
+            completion={completion}
+            onItemClick={handleCompletionItemClick}
+          />
+        )}
 
 
         {/* AI Tools Card */}

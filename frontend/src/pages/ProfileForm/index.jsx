@@ -102,6 +102,8 @@ import {
 } from './styled';
 import { ROUTES, SOFTWARE_KEYWORDS, TECHNICAL_KEYWORDS, SOFT_SKILL_KEYWORDS, VALID_IMAGE_TYPES, ALLOWED_RESUME_TYPES, TIMINGS, LIMITS } from './constants';
 import { stripMarkdown } from './utils';
+import ProfileCelebration from './ProfileCelebration';
+import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
 import ProfileWelcomeOnboardingModal from '@/components/ProfileWelcomeOnboardingModal';
@@ -303,6 +305,8 @@ const ProfileForm = () => {
   const [expandedSections, setExpandedSections] = useState({});
   const [isExistingProfile, setIsExistingProfile] = useState(false);
   const [profileId, setProfileId] = useState(null);
+  // Celebration screen shown after a candidate's FIRST profile creation.
+  const [showCelebration, setShowCelebration] = useState(false);
   
   // Job tailoring states
   const [showJobTailor, setShowJobTailor] = useState(false);
@@ -767,6 +771,26 @@ const ProfileForm = () => {
     }
   }, [initialLoading, formData.title, location.state?.action]);
 
+  // Scroll to a specific section when deep-linked from the Dashboard checklist.
+  useEffect(() => {
+    const section = location.state?.section;
+    if (!section || initialLoading) return;
+    const refMap = {
+      basic: basicInfoRef,
+      experience: experienceRef,
+      skills: skillsRef,
+      education: educationRef,
+      projects: projectsRef,
+    };
+    const ref = refMap[section];
+    if (ref?.current) {
+      setActiveSection(section);
+      setTimeout(() => {
+        ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 350);
+    }
+  }, [initialLoading, location.state?.section]);
+
   // Initialize form with parsed resume data if available
   useEffect(() => {
     if (location.state && location.state.resumeData) {
@@ -1230,7 +1254,12 @@ const ProfileForm = () => {
         : '';
       setSuccess(`Profile saved successfully!${droppedMsg}`);
       setSaveToast({ open: true, message: `Profile saved${droppedMsg}` });
-      setTimeout(() => navigate('/profile'), 1500);
+      // First-time creators get a celebration + share moment; edits go straight back.
+      if (!isExistingProfile) {
+        setShowCelebration(true);
+      } else {
+        setTimeout(() => navigate('/profile'), 1500);
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save profile');
     } finally {
@@ -1685,57 +1714,11 @@ const ProfileForm = () => {
     setDraftRestored(false);
   };
 
-  // Profile completion calculation
-  // Recomputed every render via useMemo. Placeholder strings used as AI prompt
-  // seeds (e.g. "Company Name", "Period", "Degree", "Field") and obvious blanks
-  // do not count as a filled value. Returns both the score and the list of
-  // unmet checklist items so the UI can show a "what's left" tooltip.
-  const profileCompletion = useMemo(() => {
-    const PLACEHOLDER_RE = /^(field|degree|period|company\s*name|institution\s*name|role|title|n\/?a|none|null|undefined|tbd)$/i;
-    const isReal = (v) => {
-      if (v == null) return false;
-      const s = String(v).trim();
-      if (!s) return false;
-      return !PLACEHOLDER_RE.test(s);
-    };
-    const hasRealEntry = (entry, requiredKeys) =>
-      !!entry && requiredKeys.every((k) => isReal(entry[k]));
-
-    const skillCount = Object.values(formData.skills || {})
-      .flat()
-      .filter(isReal).length;
-    const validExp = (formData.experience || []).filter((e) =>
-      hasRealEntry(e, ['company', 'title']) && (isReal(e.startDate) || isReal(e.endDate))
-    );
-    const validEdu = (formData.education || []).filter((e) =>
-      hasRealEntry(e, ['institution']) && isReal(e.degree)
-    );
-    const validProj = (formData.projects || []).filter((p) =>
-      hasRealEntry(p, ['title']) && isReal(p.description)
-    );
-
-    // Each item contributes 1 point; total of 9 → ~11% per item.
-    const checklist = [
-      { key: 'title',    section: 'basic',      label: 'Add a professional title',                done: isReal(formData.title) },
-      { key: 'summary',  section: 'basic',      label: 'Write a summary (20+ characters)',        done: isReal(formData.summary) && formData.summary.trim().length >= 20 },
-      { key: 'location', section: 'basic',      label: 'Add your location',                       done: isReal(formData.location) },
-      { key: 'photo',    section: 'basic',      label: 'Upload a profile photo',                  done: !!formData.profilePicture },
-      { key: 'links',    section: 'basic',      label: 'Add a LinkedIn or GitHub link',           done: isReal(formData.linkedinUrl) || isReal(formData.githubUrl) },
-      { key: 'skills',   section: 'skills',     label: 'Add at least one skill',                  done: skillCount > 0 },
-      { key: 'exp',      section: 'experience', label: 'Add a work experience entry',             done: validExp.length > 0 },
-      { key: 'edu',      section: 'education',  label: 'Add an education entry',                  done: validEdu.length > 0 },
-      { key: 'proj',     section: 'projects',   label: 'Add a project',                           done: validProj.length > 0 },
-    ];
-    const total = checklist.length;
-    const score = checklist.filter((it) => it.done).length;
-    const perItem = 100 / total;
-    const missing = checklist
-      .filter((it) => !it.done)
-      .map((it) => ({ ...it, gainPct: Math.round(perItem) }));
-    const pct = Math.round((score / total) * 100);
-    const label = pct >= 80 ? 'Advanced' : pct >= 50 ? 'Intermediate' : 'Beginner';
-    return { pct, label, missing, total };
-  }, [formData]);
+  // Profile completion calculation. Uses the shared scorer so the Dashboard
+  // "Complete your profile" checklist and this sidebar always stay in sync.
+  // Placeholder strings used as AI prompt seeds (e.g. "Company Name", "Period",
+  // "Degree", "Field") and obvious blanks do not count as a filled value.
+  const profileCompletion = useMemo(() => computeProfileCompletion(formData), [formData]);
 
   // Per-section "has-content" status, used by the mobile pill nav status dots.
   const sectionStatus = useMemo(() => ({
@@ -1798,6 +1781,23 @@ const ProfileForm = () => {
 
   return (
     <PageContainer>
+      {showCelebration && (
+        <ProfileCelebration
+          firstName={user?.firstName || user?.name?.split(' ')?.[0] || ''}
+          completion={{ pct: profileCompletion.pct, label: profileCompletion.label }}
+          counts={{
+            skills: Object.values(formData.skills || {}).flat().filter(Boolean).length,
+            experience: (formData.experience || []).filter((e) => e && (e.company || e.title)).length,
+            education: (formData.education || []).filter((e) => e && (e.institution || e.degree)).length,
+            projects: (formData.projects || []).filter((p) => p && p.title).length,
+          }}
+          publicProfileUrl={`${window.location.origin}/profile/${user?.slug || user?.username || user?.id || ''}`}
+          onContinue={() => navigate('/profile')}
+          onViewProfile={() =>
+            window.open(`${window.location.origin}/profile/${user?.slug || user?.username || user?.id || ''}`, '_blank')
+          }
+        />
+      )}
       {/* AI Tools Bar - matches Dashboard */}
       <AIToolsBar>
         <AIToolsLeft>
