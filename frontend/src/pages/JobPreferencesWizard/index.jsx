@@ -28,10 +28,8 @@ import {
   Add as AddIcon,
   DeleteOutline as DeleteIcon,
   School as SchoolIcon,
-  Code as CodeIcon,
-  RocketLaunch as RocketIcon
+  Code as CodeIcon
 } from '@mui/icons-material';
-import NoExperienceBoostModal from '../../components/NoExperienceBoostModal';
 import ProjectIdeasModal from '../../components/ProjectIdeasModal';
 import { profileAPI } from '../../services/api';
 import {
@@ -187,9 +185,7 @@ const JobPreferencesWizard = () => {
   // Boost modal: auto-opens once per careerStage selection. We also track
   // the last stage we opened for so switching back and forth doesn't spam
   // the user with the same modal.
-  const [boostOpen, setBoostOpen] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
-  const [lastBoostStage, setLastBoostStage] = useState(null);
   // Per-row AI draft loading flags. Keyed as `${field}-${index}` so each
   // textarea has its own spinner / disabled state.
   const [aiDraftKey, setAiDraftKey] = useState(null);
@@ -372,21 +368,6 @@ const JobPreferencesWizard = () => {
       return { ...prev, [field]: next };
     });
   }, []);
-
-  // Auto-open the growth-playbook modal the first time a user picks any of
-  // the no-traditional-experience career stages. We avoid re-opening when
-  // they toggle between the same set of stages so it never feels naggy.
-  const NO_EXP_STAGES = ['new_grad', 'self_taught', 'internship', 'career_change'];
-  useEffect(() => {
-    if (
-      NO_EXP_STAGES.includes(data.careerStage) &&
-      data.careerStage !== lastBoostStage
-    ) {
-      setBoostOpen(true);
-      setLastBoostStage(data.careerStage);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.careerStage]);
 
   /**
    * AI Draft helper — calls /api/profiles/enhance-text to turn a one-liner
@@ -1024,17 +1005,7 @@ const JobPreferencesWizard = () => {
           <SelectionCard
             key={cs.id}
             $selected={data.careerStage === cs.id}
-            onClick={() => {
-              set('careerStage', cs.id);
-              // Open the growth playbook immediately on every no-experience
-              // selection. The useEffect-only auto-open could miss cases
-              // where the user closed the modal earlier and picked again,
-              // or where the stage was already set from localStorage.
-              if (['new_grad', 'self_taught', 'internship', 'career_change'].includes(cs.id)) {
-                setBoostOpen(true);
-                setLastBoostStage(cs.id);
-              }
-            }}
+            onClick={() => set('careerStage', cs.id)}
           >
             <CardIcon $selected={data.careerStage === cs.id}>{cs.icon}</CardIcon>
             <Box>
@@ -1067,59 +1038,6 @@ const JobPreferencesWizard = () => {
             <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
               We'll highlight your Education and Projects instead, which is exactly what hiring managers look at for {data.careerStage === 'new_grad' ? 'new grads' : data.careerStage === 'self_taught' ? 'self-taught candidates' : 'career changers'}. Click Continue to move on.
             </Typography>
-          </Box>
-
-          {/* Re-open the growth playbook modal. We auto-open it once on
-              first stage selection (see useEffect above); this button lets
-              the candidate come back to it without leaving the wizard. */}
-          <Box
-            role="button"
-            tabIndex={0}
-            onClick={() => setBoostOpen(true)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setBoostOpen(true);
-              }
-            }}
-            sx={{
-              p: 2,
-              borderRadius: 2,
-              cursor: 'pointer',
-              background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)',
-              border: '1px solid #ddd6fe',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
-              transition: 'all 0.15s ease',
-              '&:hover': { borderColor: '#a5b4fc', boxShadow: '0 4px 12px -6px rgba(99,102,241,0.3)' },
-              '&:focus-visible': { outline: '2px solid #6366f1', outlineOffset: 2 },
-            }}
-          >
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <RocketIcon sx={{ fontSize: 18 }} />
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: 13.5, color: '#4338ca', fontWeight: 700 }}>
-                Want to gain real experience fast?
-              </Typography>
-              <Typography sx={{ fontSize: 12.5, color: '#4338ca' }}>
-                Open our 5-step growth playbook — curated paths that count as real roles.
-              </Typography>
-            </Box>
-            <ArrowIcon sx={{ color: '#6366f1', flexShrink: 0 }} />
           </Box>
         </Box>
       )}
@@ -1597,15 +1515,6 @@ const JobPreferencesWizard = () => {
           </NavRow>
         </WizardCard>
       </MainContent>
-
-      {/* Growth playbook \u2014 auto-opens once when a no-experience career
-          stage is selected, re-openable from the Experience step card. */}
-      <NoExperienceBoostModal
-        open={boostOpen}
-        onClose={() => setBoostOpen(false)}
-        careerStage={data.careerStage}
-        onOpenProjectIdeas={() => setIdeasOpen(true)}
-      />
 
       {/* AI project ideas \u2014 sector-curated recruiter-loved portfolio
           projects. One click adds it to the projects array. */}
