@@ -52,6 +52,58 @@ export type SectorProjectsCopy = {
   urlPlaceholder: string;
 };
 
+/**
+ * Copy that drives the Experience step. Tech-flavoured words like
+ * "shipped" or "built" make sense for engineers, but a lawyer's roles are
+ * matters, a nurse's are rotations, an AE's are quotas. Each sector
+ * supplies its own vocabulary so the form sounds native.
+ */
+export type SectorExperienceCopy = {
+  /** Step headline, e.g. "Tell us about your work history" vs
+   *  "Your matters & engagements". */
+  headline: string;
+  /** Sub-blurb under the headline. */
+  blurb: string;
+  /** Singular noun for one entry, e.g. "role" / "matter" / "engagement". */
+  roleNoun: string;
+  /** Label for the company field. */
+  companyLabel: string;
+  /** Placeholder for the job-title field. */
+  titlePlaceholder: string;
+  /** Placeholder for the company field. */
+  companyPlaceholder: string;
+  /** Placeholder for the description textarea. */
+  descriptionPlaceholder: string;
+  /** Helper line under the AI Draft button — industry-specific cue
+   *  on what makes a strong description. */
+  descriptionHelper: string;
+  /** Sent to the AI Draft endpoint as `context` so GPT-4 rewrites in the
+   *  right voice (e.g. "quantify scope, jurisdiction, outcome" vs
+   *  "quantify users, revenue, latency"). */
+  aiContextHint: string;
+};
+
+export type SectorSkillsCopy = {
+  /** Step headline override. */
+  headline: string;
+  /** Sub-blurb override. */
+  blurb: string;
+  /** Label on the auto-add button. */
+  autoAddCta: string;
+};
+
+export type SectorEducationCopy = {
+  /** Step headline override. */
+  headline: string;
+  /** Sub-blurb override. */
+  blurb: string;
+  /** Optional callout above the form recommending a license / cert
+   *  candidates in this sector should include (Bar, RN, CPA, etc.). */
+  licenseHint?: string;
+  /** Placeholder for the institution field. */
+  institutionPlaceholder: string;
+};
+
 export type SectorProfile = {
   /** Friendly title for the AI-agent portfolio panel. */
   agentTitle: string;
@@ -59,6 +111,19 @@ export type SectorProfile = {
   agentBlurb: string;
   portfolio: SectorPortfolio;
   projects: SectorProjectsCopy;
+  /** Optional — falls back to neutral defaults when not set. Override per
+   *  sector whenever the default copy reads tech-flavoured or wrong. */
+  experience?: SectorExperienceCopy;
+  skills?: SectorSkillsCopy;
+  education?: SectorEducationCopy;
+};
+
+/** Same as SectorProfile but with experience/skills/education guaranteed.
+ *  This is what getSectorProfile returns — callers never have to null-check. */
+export type ResolvedSectorProfile = SectorProfile & {
+  experience: SectorExperienceCopy;
+  skills: SectorSkillsCopy;
+  education: SectorEducationCopy;
 };
 
 const DEFAULTS: SectorProfile = {
@@ -81,6 +146,29 @@ const DEFAULTS: SectorProfile = {
     rolePlaceholder: 'Your role (e.g. Lead, Sole contributor)',
     descriptionPlaceholder: 'What is it? What did you do? What was the impact?',
     urlPlaceholder: 'Link (case study, write-up, live demo)',
+  },
+  experience: {
+    headline: 'Tell us about your work experience',
+    blurb:
+      'Add the roles that matter most for your target job. Quality beats quantity — one well-described role is enough.',
+    roleNoun: 'role',
+    companyLabel: 'Company',
+    titlePlaceholder: 'e.g. Senior Manager',
+    companyPlaceholder: 'Company name',
+    descriptionPlaceholder: 'What did you own? What did you ship? What changed because of you?',
+    descriptionHelper: 'AI rewrites with crisp verbs and impact.',
+    aiContextHint:
+      'Rewrite as 2-3 punchy bullets focused on ownership and measurable outcomes. Strong action verbs. Numbers where possible.',
+  },
+  skills: {
+    headline: 'What are your top skills?',
+    blurb: 'Tap the skills you use day-to-day. Aim for 8-12.',
+    autoAddCta: 'Add the top skills employers look for',
+  },
+  education: {
+    headline: 'Your education',
+    blurb: 'Degrees, bootcamps, certifications — anything that helps a recruiter understand your background.',
+    institutionPlaceholder: 'University / institution',
   },
 };
 
@@ -106,6 +194,28 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       rolePlaceholder: 'Your role (e.g. Sole developer, Tech lead)',
       descriptionPlaceholder: 'What did you build? What stack? What was the impact?',
       urlPlaceholder: 'Link (GitHub, live demo, write-up)',
+    },
+    experience: {
+      headline: 'Tell us about your engineering experience',
+      blurb: 'Lead with scope (team size, system scale) and measurable wins (latency, revenue, reliability).',
+      roleNoun: 'role',
+      companyLabel: 'Company',
+      titlePlaceholder: 'e.g. Senior Backend Engineer',
+      companyPlaceholder: 'Company name',
+      descriptionPlaceholder: 'What did you build? Scale? Stack? Quantified impact?',
+      descriptionHelper: 'AI rewrites with strong verbs, system scale and measurable impact.',
+      aiContextHint:
+        'Rewrite as 2-3 punchy bullets. Mention systems built, stack used, scale (RPS, data volume, users), and measurable outcomes (latency cuts, uptime, cost savings, revenue lift).',
+    },
+    skills: {
+      headline: 'What languages, frameworks and tools do you use?',
+      blurb: 'Aim for 8-12 — mix languages, frameworks and infra. Recruiters search by these.',
+      autoAddCta: 'Add the top engineering skills',
+    },
+    education: {
+      headline: 'Your education & certifications',
+      blurb: 'CS degree, bootcamp, cloud certs (AWS / GCP / Azure) — anything that backs your stack.',
+      institutionPlaceholder: 'University / bootcamp',
     },
   },
 
@@ -200,6 +310,23 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       descriptionPlaceholder: 'Goal, channels, budget if any, and the result with numbers.',
       urlPlaceholder: 'Link (case study, landing page, post)',
     },
+    experience: {
+      headline: 'Tell us about your marketing roles',
+      blurb: 'Lead with the brand or product, your channel mix, and the numbers — CAC, ROAS, conversion lift, pipeline.',
+      roleNoun: 'role',
+      companyLabel: 'Company / agency / brand',
+      titlePlaceholder: 'e.g. Digital Marketing Manager',
+      companyPlaceholder: 'Company, agency or brand name',
+      descriptionPlaceholder: 'Channels owned, budget managed, programs you ran, and the measurable result.',
+      descriptionHelper: 'AI rewrites with channel mix, spend and measurable lift.',
+      aiContextHint:
+        'Rewrite as 2-3 marketing bullets. Cite channels owned (paid social, SEO, lifecycle), budget managed, programs run, and measurable lift (CAC, ROAS, conversion, pipeline contribution).',
+    },
+    skills: {
+      headline: 'Pick the marketing skills you use',
+      blurb: 'Mix channels (SEO, paid, lifecycle), tools (HubSpot, GA4) and craft (copy, brand).',
+      autoAddCta: 'Add the top marketing skills',
+    },
   },
 
   sales: {
@@ -223,6 +350,23 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       descriptionPlaceholder: 'The account, the challenge, your motion, the close — and the ACV / impact.',
       urlPlaceholder: 'Link (case study, write-up, deck)',
     },
+    experience: {
+      headline: 'Tell us about your sales experience',
+      blurb: 'Lead with quota attainment, segment, deal size and motion (outbound, inbound, expansion).',
+      roleNoun: 'role',
+      companyLabel: 'Company',
+      titlePlaceholder: 'e.g. Enterprise Account Executive',
+      companyPlaceholder: 'Company name',
+      descriptionPlaceholder: 'Quota, segment, ACV, motion, notable logos won — numbers first.',
+      descriptionHelper: 'AI rewrites with quota %, deal size and segment up front.',
+      aiContextHint:
+        'Rewrite as 2-3 sales bullets. Lead each with a number where possible: quota attainment %, ACV, pipeline generated, deals closed, segment (SMB / Mid / Ent), and notable logos.',
+    },
+    skills: {
+      headline: 'Pick the sales skills and tools you use',
+      blurb: 'Mix motion (outbound, discovery, closing) and tools (Salesforce, Outreach, Gong).',
+      autoAddCta: 'Add the top sales skills',
+    },
   },
 
   finance: {
@@ -245,6 +389,29 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       rolePlaceholder: 'Your role (e.g. Lead analyst, Senior auditor)',
       descriptionPlaceholder: 'Client / company size, scope, your role, methods used and the outcome (savings, valuation, opinion).',
       urlPlaceholder: 'Link (case study, published article)',
+    },
+    experience: {
+      headline: 'Tell us about your finance roles',
+      blurb: 'Lead with $ managed, scope (entity size, deals), models built and audit / accuracy outcomes.',
+      roleNoun: 'role',
+      companyLabel: 'Firm / company',
+      titlePlaceholder: 'e.g. Senior Financial Analyst',
+      companyPlaceholder: 'Firm or company name',
+      descriptionPlaceholder: 'Scope ($ managed, deals worked), models or audits owned, and the outcome (savings, valuation, opinion).',
+      descriptionHelper: 'AI rewrites with $ scope, model / audit owned and outcome.',
+      aiContextHint:
+        'Rewrite as 2-3 finance bullets. Cite $ managed or transacted, entity size, models / audits owned, GAAP / IFRS scope, and the outcome (cost savings, valuation, audit opinion, accuracy).',
+    },
+    skills: {
+      headline: 'Pick the finance disciplines and tools you use',
+      blurb: 'Mix disciplines (FP&A, audit, tax), software (Excel, NetSuite, SAP) and standards (GAAP, IFRS).',
+      autoAddCta: 'Add the top finance skills',
+    },
+    education: {
+      headline: 'Your education & certifications',
+      blurb: 'Degree plus certifications (CPA, CFA, ACCA) — these matter to finance recruiters.',
+      licenseHint: 'Recommended: list any active CPA, CFA, CMA or ACCA designation here.',
+      institutionPlaceholder: 'University',
     },
   },
 
@@ -292,6 +459,29 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       descriptionPlaceholder: 'Setting, your role, methods or scope, and the outcome (publication, certification, patient impact).',
       urlPlaceholder: 'Link (PubMed, journal, certificate)',
     },
+    experience: {
+      headline: 'Tell us about your clinical experience',
+      blurb: 'Lead with setting (hospital, clinic, ICU), patient population, scope and outcomes — keep PHI off the page.',
+      roleNoun: 'role',
+      companyLabel: 'Hospital / clinic / employer',
+      titlePlaceholder: 'e.g. Registered Nurse, ICU',
+      companyPlaceholder: 'Hospital, clinic or system name',
+      descriptionPlaceholder: 'Setting, patient population, scope of practice, and outcomes (quality metrics, certifications earned). No PHI.',
+      descriptionHelper: 'AI rewrites with setting, scope and quality outcomes. PHI is never included.',
+      aiContextHint:
+        'Rewrite as 2-3 clinical bullets. Cite setting (hospital, clinic, unit), patient population, scope of practice / responsibilities, certifications earned and quality outcomes (e.g. readmit rate, satisfaction scores). Never include patient identifiers.',
+    },
+    skills: {
+      headline: 'Pick your clinical skills and specialties',
+      blurb: 'Mix clinical skills (EMR, triage), specialties (ICU, oncology) and compliance (HIPAA).',
+      autoAddCta: 'Add the top clinical skills',
+    },
+    education: {
+      headline: 'Your education & licensure',
+      blurb: 'Degree, residency / fellowship, board certifications — licensure is essential for healthcare recruiters.',
+      licenseHint: 'Recommended: list your RN / NP / MD / DO / PharmD license and state(s) of practice.',
+      institutionPlaceholder: 'Medical / nursing school',
+    },
   },
 
   education: {
@@ -314,6 +504,29 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       rolePlaceholder: 'Your role (e.g. Lead teacher, Curriculum designer)',
       descriptionPlaceholder: 'Audience, what you designed or taught, and the result (scores, engagement, completion).',
       urlPlaceholder: 'Link (curriculum doc, blog post, conference talk)',
+    },
+    experience: {
+      headline: 'Tell us about your teaching experience',
+      blurb: 'Lead with subject, grade or audience, class size, and measurable student outcomes.',
+      roleNoun: 'role',
+      companyLabel: 'School / institution',
+      titlePlaceholder: 'e.g. 5th Grade Teacher',
+      companyPlaceholder: 'School or institution name',
+      descriptionPlaceholder: 'Subject / grade, class size, what you designed or taught, and the measured outcome (scores, engagement, completion).',
+      descriptionHelper: 'AI rewrites with subject, audience and measurable student outcomes.',
+      aiContextHint:
+        'Rewrite as 2-3 teaching bullets. Cite subject / grade / audience, class size, programs designed or taught, and measurable outcomes (test score gains, engagement, completion, college acceptance).',
+    },
+    skills: {
+      headline: 'Pick the teaching skills and tools you use',
+      blurb: 'Mix craft (curriculum design, classroom management) and tools (Google Classroom, Canvas).',
+      autoAddCta: 'Add the top teaching skills',
+    },
+    education: {
+      headline: 'Your education & certifications',
+      blurb: 'Degrees plus teaching credentials — state license, subject endorsements, ESL / SPED certifications.',
+      licenseHint: 'Recommended: list your teaching license, state(s) and any subject or grade endorsements.',
+      institutionPlaceholder: 'University',
     },
   },
 
@@ -338,6 +551,29 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       descriptionPlaceholder: 'Practice area, your role, scope and outcome (disposition, deal size, publication venue). Keep it public-record.',
       urlPlaceholder: 'Link (publication, opinion, case docket)',
     },
+    experience: {
+      headline: 'Tell us about your legal experience',
+      blurb: 'Lead with practice area, scope (matter size, deal value) and outcome. Never share privileged or confidential details.',
+      roleNoun: 'role',
+      companyLabel: 'Firm / employer',
+      titlePlaceholder: 'e.g. Associate Attorney',
+      companyPlaceholder: 'Firm or employer name',
+      descriptionPlaceholder: 'Practice area, scope of matters (deal value, case load), your responsibilities, and outcome — public-record only.',
+      descriptionHelper: 'AI rewrites with practice area, scope and outcome. No privileged info.',
+      aiContextHint:
+        'Rewrite as 2-3 legal bullets. Cite practice area, scope (deal value, matter count, jurisdiction), your responsibilities (drafting, negotiation, court appearances) and outcome (disposition, deal closed, opinion published). Use only public-record facts — never identify privileged clients or details.',
+    },
+    skills: {
+      headline: 'Pick your practice areas and tools',
+      blurb: 'Mix areas of practice (Corporate, IP, Litigation), skills (drafting, negotiation) and tools (Westlaw, LexisNexis).',
+      autoAddCta: 'Add the top legal skills',
+    },
+    education: {
+      headline: 'Your education & bar admission',
+      blurb: 'Law school, bar admission(s) and any LLM or specialist certifications.',
+      licenseHint: 'Recommended: list your state bar admission(s) and year admitted.',
+      institutionPlaceholder: 'Law school',
+    },
   },
 
   hr: {
@@ -361,14 +597,126 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       descriptionPlaceholder: 'Scope, who it served, what you launched, and the measured outcome (retention, NPS, time-to-hire).',
       urlPlaceholder: 'Link (case study, post, internal doc made public)',
     },
+    experience: {
+      headline: 'Tell us about your people / HR roles',
+      blurb: 'Lead with team or employee population served, programs owned and people-impact metrics.',
+      roleNoun: 'role',
+      companyLabel: 'Company',
+      titlePlaceholder: 'e.g. Senior HR Business Partner',
+      companyPlaceholder: 'Company name',
+      descriptionPlaceholder: 'Population served, programs you owned (hiring, L&D, comp), and the measured outcome (retention, time-to-hire, engagement).',
+      descriptionHelper: 'AI rewrites with population served, programs owned and people metrics.',
+      aiContextHint:
+        'Rewrite as 2-3 people / HR bullets. Cite headcount or population served, programs owned (TA, L&D, comp, ER), and measurable outcomes (retention %, time-to-hire, engagement / eNPS, hiring volume). Never disclose individual employee data.',
+    },
+    skills: {
+      headline: 'Pick your people / HR skills',
+      blurb: 'Mix craft (TA, L&D, comp, ER) and tools (Workday, Greenhouse, BambooHR).',
+      autoAddCta: 'Add the top people / HR skills',
+    },
   },
 };
 
 /**
  * Resolve a sector id to its config, falling back to neutral defaults when
  * the user hasn't picked one yet or for any sector we don't override.
+ *
+ * experience / skills / education are filled in from DEFAULTS so callers
+ * can always read `sp.experience.headline` without null-checks.
  */
-export function getSectorProfile(sectorId?: string): SectorProfile {
-  if (!sectorId) return DEFAULTS;
-  return SECTOR_PROFILES[sectorId] || DEFAULTS;
+export function getSectorProfile(sectorId?: string): ResolvedSectorProfile {
+  const base = (sectorId && SECTOR_PROFILES[sectorId]) || DEFAULTS;
+  return {
+    ...base,
+    experience: base.experience || DEFAULTS.experience!,
+    skills: base.skills || DEFAULTS.skills!,
+    education: base.education || DEFAULTS.education!,
+  };
 }
+
+/* ─── Level-aware coach copy ────────────────────────────────────────
+   The wizard's voice changes with the candidate's career stage. A new
+   grad needs reassurance and a spotlight on projects + education; a
+   senior wants efficiency and credit for impact. Keeping this in one
+   place so every step can speak the same way without scattering
+   ternaries through the JSX.
+*/
+
+export type CareerStageId =
+  | 'experienced'
+  | 'internship'
+  | 'new_grad'
+  | 'career_change'
+  | 'self_taught'
+  | '';
+
+export type StageCopy = {
+  /** Encouraging line that fronts the Projects step when the candidate
+   *  has limited work history. Empty for experienced candidates. */
+  projectsSpotlight: string;
+  /** Empty-state nudge under the "no roles yet" card on the Experience
+   *  step (only shown for stages that DO collect roles). */
+  experienceEmptyNudge: string;
+  /** Reassurance card shown on the Experience step for stages that skip
+   *  the roles form entirely (new_grad / self_taught). */
+  noWorkHistoryCalloutTitle: string;
+  noWorkHistoryCalloutBody: string;
+};
+
+const STAGE_COPY: Record<Exclude<CareerStageId, ''>, StageCopy> = {
+  experienced: {
+    projectsSpotlight: '',
+    experienceEmptyNudge:
+      'Add your most recent role first. One well-described role unlocks AI tailoring.',
+    noWorkHistoryCalloutTitle: '',
+    noWorkHistoryCalloutBody: '',
+  },
+  internship: {
+    projectsSpotlight:
+      'Internships count — include school projects too. Recruiters love seeing what you ship outside class.',
+    experienceEmptyNudge:
+      'Add your internship(s). Even a 10-week summer internship counts as real experience.',
+    noWorkHistoryCalloutTitle: '',
+    noWorkHistoryCalloutBody: '',
+  },
+  new_grad: {
+    projectsSpotlight:
+      "This is your spotlight. New grads who lead with 1–2 strong projects out-perform résumés with vague internship-only entries.",
+    experienceEmptyNudge:
+      'Skipping ahead — recruiters expect new grads to lead with Education + Projects.',
+    noWorkHistoryCalloutTitle: 'Great — no work history needed.',
+    noWorkHistoryCalloutBody:
+      "We'll spotlight your Education and Projects, which is exactly what hiring managers look at for new grads.",
+  },
+  career_change: {
+    projectsSpotlight:
+      "Projects are your bridge. One pivot project that shows you can do the new craft is worth more than 5 years in the old one.",
+    experienceEmptyNudge:
+      'Add your most recent role — even from the field you are leaving. The story matters; we will help you frame the pivot.',
+    noWorkHistoryCalloutTitle: '',
+    noWorkHistoryCalloutBody: '',
+  },
+  self_taught: {
+    projectsSpotlight:
+      "Self-taught? Projects are your résumé. Recruiters take them seriously when something is shipped and shareable.",
+    experienceEmptyNudge:
+      'No formal roles yet? Skip ahead — we will lead with Projects and any bootcamp / courses under Education.',
+    noWorkHistoryCalloutTitle: 'Great — no work history needed.',
+    noWorkHistoryCalloutBody:
+      "Recruiters know self-taught engineers, designers and marketers ship great work. We'll spotlight your Projects and learning.",
+  },
+};
+
+const EMPTY_STAGE_COPY: StageCopy = {
+  projectsSpotlight: '',
+  experienceEmptyNudge:
+    'Add your most recent role first. One well-described entry unlocks AI tailoring.',
+  noWorkHistoryCalloutTitle: '',
+  noWorkHistoryCalloutBody: '',
+};
+
+export function getStageCopy(stageId?: string): StageCopy {
+  if (!stageId || !(stageId in STAGE_COPY)) return EMPTY_STAGE_COPY;
+  return STAGE_COPY[stageId as Exclude<CareerStageId, ''>];
+}
+

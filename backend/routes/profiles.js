@@ -805,10 +805,20 @@ LENGTH LIMIT: The enhanced description MUST be 1500 characters or fewer (includi
 
 Provide ONLY the enhanced description, nothing else.`;
     } else if (type === 'experience') {
+      // Industry-specific framing hint passed by the candidate's wizard
+      // (sectorProfiles.ts → experience.aiContextHint). Lets a legal rewrite
+      // emphasise practice area + jurisdiction, a sales rewrite lead with
+      // quota %, a healthcare rewrite cite setting / population, etc. We
+      // append it AFTER the universal voice/tone rules so the no-invention
+      // and banned-word rules always win on conflict.
+      const INDUSTRY_HINT = context?.hint
+        ? `\nINDUSTRY FRAMING (sector: ${context?.sector || 'unspecified'}):\n${context.hint}\n`
+        : '';
+
       prompt = `You are rewriting a work-experience entry for a résumé. Tighten the language and surface concrete contributions—without exaggerating.
 
 ${VOICE_AND_TONE}
-
+${INDUSTRY_HINT}
 Company: ${context?.company || 'N/A'}
 Job Title: ${context?.title || 'N/A'}
 Period: ${context?.period || 'N/A'}

@@ -65,7 +65,7 @@ import {
   FinishButton
 } from './styled';
 import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS, CAREER_STAGES } from './constants';
-import { getSectorProfile } from './sectorProfiles';
+import { getSectorProfile, getStageCopy } from './sectorProfiles';
 
 const POPULAR_LOCATIONS = [
   // United States
@@ -174,6 +174,42 @@ const normalizeData = (raw) => {
   if (typeof merged.githubUsername !== 'string') merged.githubUsername = '';
   if (typeof merged.portfolioUrl !== 'string') merged.portfolioUrl = '';
   delete merged.workSetup;
+
+  // Cross-sector contamination cleanup. If the persisted sector is, say,
+  // 'marketing' but the stored skills / projects / title came from a
+  // previous 'tech' session (because the user changed industry on a fresh
+  // load and our earlier code skipped the wipe on first pick), drop the
+  // mismatched bits so the wizard never opens with a Frontend project
+  // sitting in a Campaigns step.
+  if (merged.sector && SECTOR_SKILLS[merged.sector]) {
+    const sectorSkillSet = new Set(Object.values(SECTOR_SKILLS[merged.sector]).flat());
+    if (sectorSkillSet.size > 0 && merged.skills.length > 0) {
+      const filtered = merged.skills.filter((s) => sectorSkillSet.has(s));
+      if (filtered.length !== merged.skills.length) merged.skills = filtered;
+    }
+  }
+  if (merged.sector && SECTOR_TITLES[merged.sector]) {
+    const allSectorTitles = Object.values(SECTOR_TITLES).flat();
+    if (
+      merged.title &&
+      allSectorTitles.includes(merged.title) &&
+      !SECTOR_TITLES[merged.sector].includes(merged.title)
+    ) {
+      merged.title = '';
+    }
+  }
+  // Projects are the loudest mismatch — a Frontend developer entry in a
+  // Marketing flow. Heuristic: if any project references github.com / a
+  // tech-only role keyword, and sector is not tech, drop the lot. Better
+  // to start clean than confuse the candidate.
+  if (merged.sector && merged.sector !== 'tech' && merged.projects.length > 0) {
+    const techSignal = /github\.com|frontend|backend|fullstack|full-stack|developer|engineer|react|vue|angular|node\.?js|python|django|kubernetes|docker/i;
+    const hasTechSignal = merged.projects.some(p =>
+      techSignal.test(`${p.title || ''} ${p.role || ''} ${p.description || ''} ${p.url || ''}`)
+    );
+    if (hasTechSignal) merged.projects = [];
+  }
+
   return merged;
 };
 
@@ -462,7 +498,6 @@ const JobPreferencesWizard = () => {
             $selected={data.sector === sec.id}
             onClick={() => {
               if (data.sector === sec.id) return;
-              const prevSector = data.sector;
               set('sector', sec.id);
               // Reset title if it was from a different sector's suggestions
               if (data.title && SECTOR_TITLES[sec.id] && !SECTOR_TITLES[sec.id].includes(data.title)) {
@@ -470,23 +505,24 @@ const JobPreferencesWizard = () => {
                 if (wasFromSuggestion) set('title', '');
               }
               // Drop skills that don't belong to the new sector's catalog.
-              // Without this, a candidate who picks Tech, auto-adds 8
-              // skills, then switches to Legal still sees JavaScript /
-              // React in their selected list — which is wrong and confusing.
-              // Keep any skill that ALSO appears in the new sector (so a
-              // generic skill like "Negotiation" survives across sectors).
-              if (prevSector && data.skills.length > 0) {
+              // No prevSector guard — even on the first pick of a session
+              // (when sector was '' from a fresh hydrate) the user could
+              // have inherited stale skills from a previous session, so we
+              // always re-validate against the new catalog.
+              if (data.skills.length > 0) {
                 const newCatalog = new Set(Object.values(SECTOR_SKILLS[sec.id] || {}).flat());
-                const filtered = data.skills.filter((s) => newCatalog.has(s));
-                if (filtered.length !== data.skills.length) {
-                  setData(prev => ({ ...prev, skills: filtered }));
+                if (newCatalog.size > 0) {
+                  const filtered = data.skills.filter((s) => newCatalog.has(s));
+                  if (filtered.length !== data.skills.length) {
+                    setData(prev => ({ ...prev, skills: filtered }));
+                  }
                 }
               }
               // Projects copy + nouns are sector-specific (Campaigns vs
-              // Repos vs Matters vs Deals). A "Frontend developer / React
-              // + Tailwind" project carried over into a Marketing flow
-              // makes no sense, so wipe projects on sector switch.
-              if (prevSector && (data.projects?.length || 0) > 0) {
+              // Repos vs Matters vs Deals). Always wipe on sector change
+              // so a 'Frontend developer / React + Tailwind' project never
+              // shows up in a Marketing flow.
+              if ((data.projects?.length || 0) > 0) {
                 setData(prev => ({ ...prev, projects: [] }));
               }
             }}
@@ -725,7 +761,9 @@ const JobPreferencesWizard = () => {
     </StepContent>
   );
 
-  const renderStepSkills = () => (
+  const renderStepSkills = () => {
+    const sp = getSectorProfile(data.sector);
+    return (
     <StepContent $dir={animDir} key="step-2">
       <TipBubble>
         <Avatar
@@ -745,11 +783,11 @@ const JobPreferencesWizard = () => {
       <Typography
         sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}
       >
-        What are your top skills?
+        {sp.skills.headline}
       </Typography>
       <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 2 }}>
         {data.sector
-          ? `Showing skills for ${JOB_SECTORS.find(s => s.id === data.sector)?.label || 'your field'}, you can always search for more.`
+          ? sp.skills.blurb
           : 'Select all that apply, you can always edit these later.'}
       </Typography>
 
@@ -790,7 +828,7 @@ const JobPreferencesWizard = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
             <AIIcon sx={{ fontSize: 18, color: '#6366f1', flexShrink: 0 }} />
             <Typography sx={{ fontSize: 12.5, color: '#475569', fontWeight: 500 }}>
-              Don&apos;t know where to start? Add the most-requested skills for{' '}
+              {sp.skills.autoAddCta} for{' '}
               <strong>{JOB_SECTORS.find(s => s.id === data.sector)?.label || 'your field'}</strong>.
             </Typography>
           </Box>
@@ -971,7 +1009,8 @@ const JobPreferencesWizard = () => {
         ))}
       </Box>
     </StepContent>
-  );
+    );
+  };
 
   /* ─── NEW: Experience step ──────────────────────────────────────────
      Branched by careerStage. Candidates pick how they describe themselves
@@ -981,7 +1020,9 @@ const JobPreferencesWizard = () => {
   const inputSx = StyledInput;
   const showExperienceForm = ['experienced', 'internship', 'career_change'].includes(data.careerStage);
 
-  const renderStepExperience = () => (
+  const renderStepExperience = () => {
+    const sp = getSectorProfile(data.sector);
+    return (
     <StepContent $dir={animDir} key="step-3">
       <TipBubble>
         <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
@@ -991,10 +1032,10 @@ const JobPreferencesWizard = () => {
       </TipBubble>
 
       <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
-        Tell us about your work experience
+        {sp.experience.headline}
       </Typography>
       <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
-        We'll use this to power the Tailor and Enhance AI features. Don't worry — you can edit everything later.
+        {sp.experience.blurb}
       </Typography>
 
       <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mb: 1.5, textTransform: 'uppercase' }}>
@@ -1033,10 +1074,10 @@ const JobPreferencesWizard = () => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ p: 2, borderRadius: 2, background: '#ecfeff', border: '1px solid #a5f3fc' }}>
             <Typography sx={{ fontSize: 13.5, color: '#0e7490', fontWeight: 600, mb: 0.5 }}>
-              Great — no work history needed.
+              {getStageCopy(data.careerStage).noWorkHistoryCalloutTitle || 'Great — no work history needed.'}
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
-              We'll highlight your Education and Projects instead, which is exactly what hiring managers look at for {data.careerStage === 'new_grad' ? 'new grads' : data.careerStage === 'self_taught' ? 'self-taught candidates' : 'career changers'}. Click Continue to move on.
+              {getStageCopy(data.careerStage).noWorkHistoryCalloutBody || "We'll highlight your Education and Projects instead. Click Continue to move on."}
             </Typography>
           </Box>
         </Box>
@@ -1045,16 +1086,16 @@ const JobPreferencesWizard = () => {
       {showExperienceForm && (
         <>
           <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#8b90a3', letterSpacing: 0.5, mt: 2, mb: 1.5, textTransform: 'uppercase' }}>
-            Your roles
+            Your {sp.experience.roleNoun}s
           </Typography>
           {data.experience.length === 0 ? (
             <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
               <WorkIcon sx={{ fontSize: 32, color: '#a5b4fc', mb: 1 }} />
               <Typography sx={{ fontSize: 13, color: '#7a7f96', mb: 1.5 }}>
-                Add your most recent role first. Even one entry unlocks AI tailoring.
+                {getStageCopy(data.careerStage).experienceEmptyNudge || `Add your most recent ${sp.experience.roleNoun} first. Even one entry unlocks AI tailoring.`}
               </Typography>
               <NavButton $primary onClick={() => addRow('experience', EMPTY_EXPERIENCE)}>
-                <AddIcon /> Add experience
+                <AddIcon /> Add {sp.experience.roleNoun}
               </NavButton>
             </Box>
           ) : (
@@ -1063,19 +1104,19 @@ const JobPreferencesWizard = () => {
                 <Box key={idx} sx={{ p: 2, borderRadius: 2, border: '1px solid #e4e7f0', background: '#fff' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                     <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#667eea', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                      Role #{idx + 1}
+                      {sp.experience.roleNoun} #{idx + 1}
                     </Typography>
                     <NavButton
                       onClick={() => removeRow('experience', idx)}
                       style={{ padding: '4px 10px', fontSize: 12 }}
-                      aria-label="Remove role"
+                      aria-label={`Remove ${sp.experience.roleNoun}`}
                     >
                       <DeleteIcon style={{ fontSize: 16 }} /> Remove
                     </NavButton>
                   </Box>
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                    <TextField fullWidth size="small" placeholder="Job title (e.g. Senior Frontend Engineer)" value={exp.title} onChange={(e) => updateRow('experience', idx, 'title', e.target.value)} sx={inputSx} />
-                    <TextField fullWidth size="small" placeholder="Company" value={exp.company} onChange={(e) => updateRow('experience', idx, 'company', e.target.value)} sx={inputSx} />
+                    <TextField fullWidth size="small" placeholder={sp.experience.titlePlaceholder} value={exp.title} onChange={(e) => updateRow('experience', idx, 'title', e.target.value)} sx={inputSx} />
+                    <TextField fullWidth size="small" placeholder={sp.experience.companyPlaceholder} value={exp.company} onChange={(e) => updateRow('experience', idx, 'company', e.target.value)} sx={inputSx} />
                     <TextField fullWidth size="small" placeholder="Start (e.g. Jan 2022)" value={exp.startDate} onChange={(e) => updateRow('experience', idx, 'startDate', e.target.value)} sx={inputSx} />
                     <TextField fullWidth size="small" placeholder={exp.current ? 'Present' : 'End (e.g. Dec 2024)'} value={exp.current ? 'Present' : exp.endDate} onChange={(e) => updateRow('experience', idx, 'endDate', e.target.value)} disabled={exp.current} sx={inputSx} />
                   </Box>
@@ -1097,7 +1138,7 @@ const JobPreferencesWizard = () => {
                     multiline
                     minRows={2}
                     maxRows={5}
-                    placeholder="What did you do? Highlight one or two impactful things — AI will polish later."
+                    placeholder={sp.experience.descriptionPlaceholder}
                     value={exp.description}
                     onChange={(e) => updateRow('experience', idx, 'description', e.target.value)}
                     sx={{ ...inputSx, mt: 1.5 }}
@@ -1105,12 +1146,15 @@ const JobPreferencesWizard = () => {
                   {/* AI Draft button — turns a one-liner into polished
                       STAR-style bullets via the same /enhance-text endpoint
                       the profile form uses. Disabled until 10+ chars so the
-                      backend validator doesn't reject it. */}
+                      backend validator doesn't reject it. We pass
+                      sp.experience.aiContextHint so the rewrite is voiced
+                      for the candidate's industry (latency for tech, ACV
+                      for sales, jurisdiction for legal, etc.). */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75, gap: 1, flexWrap: 'wrap' }}>
                     <Typography sx={{ fontSize: 11.5, color: (exp.description?.length || 0) < 10 ? '#94a3b8' : '#6366f1', fontWeight: 500 }}>
                       {(exp.description?.length || 0) < 10
                         ? 'Add 10+ characters to unlock AI Draft.'
-                        : 'AI rewrites as impact-driven bullets — keeps your facts.'}
+                        : sp.experience.descriptionHelper}
                     </Typography>
                     <Tooltip title="Costs 1 AI credit">
                       <span>
@@ -1118,7 +1162,7 @@ const JobPreferencesWizard = () => {
                           $primary
                           type="button"
                           disabled={(exp.description?.length || 0) < 10 || aiDraftKey === `experience-${idx}`}
-                          onClick={() => draftWithAI('experience', 'experience', idx, { company: exp.company, title: exp.title })}
+                          onClick={() => draftWithAI('experience', 'experience', idx, { company: exp.company, title: exp.title, sector: data.sector, hint: sp.experience.aiContextHint })}
                           style={{ padding: '6px 12px', fontSize: 12 }}
                         >
                           {aiDraftKey === `experience-${idx}` ? (
@@ -1133,16 +1177,19 @@ const JobPreferencesWizard = () => {
                 </Box>
               ))}
               <NavButton onClick={() => addRow('experience', EMPTY_EXPERIENCE)} style={{ alignSelf: 'flex-start' }}>
-                <AddIcon /> Add another role
+                <AddIcon /> Add another {sp.experience.roleNoun}
               </NavButton>
             </Box>
           )}
         </>
       )}
     </StepContent>
-  );
+    );
+  };
 
-  const renderStepEducation = () => (
+  const renderStepEducation = () => {
+    const sp = getSectorProfile(data.sector);
+    return (
     <StepContent $dir={animDir} key="step-4">
       <TipBubble>
         <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
@@ -1152,11 +1199,18 @@ const JobPreferencesWizard = () => {
       </TipBubble>
 
       <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
-        Your education
+        {sp.education.headline}
       </Typography>
-      <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
-        Degree, bootcamp, certification — all of it counts. Recruiters scan for fit and credibility here.
+      <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: sp.education.licenseHint ? 1.5 : 3 }}>
+        {sp.education.blurb}
       </Typography>
+      {sp.education.licenseHint && (
+        <Box sx={{ p: 1.5, mb: 2.5, borderRadius: 2, background: '#fef3c7', border: '1px solid #fde68a' }}>
+          <Typography sx={{ fontSize: 12.5, color: '#92400e' }}>
+            {sp.education.licenseHint}
+          </Typography>
+        </Box>
+      )}
 
       {data.education.length === 0 ? (
         <Box sx={{ p: 2.5, borderRadius: 2, border: '1px dashed #c7d2fe', background: '#fafbfd', textAlign: 'center' }}>
@@ -1183,7 +1237,7 @@ const JobPreferencesWizard = () => {
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
                 <TextField fullWidth size="small" placeholder="Degree (e.g. B.S. Computer Science)" value={edu.degree} onChange={(e) => updateRow('education', idx, 'degree', e.target.value)} sx={inputSx} />
                 <TextField fullWidth size="small" placeholder="Field of study" value={edu.fieldOfStudy} onChange={(e) => updateRow('education', idx, 'fieldOfStudy', e.target.value)} sx={inputSx} />
-                <TextField fullWidth size="small" placeholder="Institution" value={edu.institution} onChange={(e) => updateRow('education', idx, 'institution', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder={sp.education.institutionPlaceholder} value={edu.institution} onChange={(e) => updateRow('education', idx, 'institution', e.target.value)} sx={inputSx} />
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
                   <TextField fullWidth size="small" placeholder="Start year" value={edu.startDate} onChange={(e) => updateRow('education', idx, 'startDate', e.target.value)} sx={inputSx} />
                   <TextField fullWidth size="small" placeholder="End year" value={edu.endDate} onChange={(e) => updateRow('education', idx, 'endDate', e.target.value)} sx={inputSx} />
@@ -1197,7 +1251,8 @@ const JobPreferencesWizard = () => {
         </Box>
       )}
     </StepContent>
-  );
+    );
+  };
 
   const renderStepProjects = () => {
     // Sector-driven copy / nomenclature / portfolio input. A Lawyer
@@ -1224,8 +1279,8 @@ const JobPreferencesWizard = () => {
       </Typography>
       <Typography sx={{ fontSize: 14, color: '#7a7f96', mb: 3 }}>
         {sp.projects.blurb}
-        {['new_grad', 'self_taught', 'career_change'].includes(data.careerStage) && (
-          <> <strong style={{ color: '#4338ca' }}>This is your spotlight if you don't have much work history yet.</strong></>
+        {getStageCopy(data.careerStage).projectsSpotlight && (
+          <> <strong style={{ color: '#4338ca' }}>{getStageCopy(data.careerStage).projectsSpotlight}</strong></>
         )}
       </Typography>
 
