@@ -882,6 +882,7 @@ const JobPreferencesWizard = () => {
       </Box>
     </StepContent>
   );
+  };
 
   const renderStepAvailability = () => (
     <StepContent $dir={animDir} key="step-6">
@@ -1009,8 +1010,7 @@ const JobPreferencesWizard = () => {
         ))}
       </Box>
     </StepContent>
-    );
-  };
+  );
 
   /* ─── NEW: Experience step ──────────────────────────────────────────
      Branched by careerStage. Candidates pick how they describe themselves
