@@ -501,6 +501,13 @@ const JobPreferencesWizard = () => {
                   setData(prev => ({ ...prev, skills: filtered }));
                 }
               }
+              // Projects copy + nouns are sector-specific (Campaigns vs
+              // Repos vs Matters vs Deals). A "Frontend developer / React
+              // + Tailwind" project carried over into a Marketing flow
+              // makes no sense, so wipe projects on sector switch.
+              if (prevSector && (data.projects?.length || 0) > 0) {
+                setData(prev => ({ ...prev, projects: [] }));
+              }
             }}
           >
             {sec.icon} {sec.label}
