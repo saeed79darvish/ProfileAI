@@ -82,20 +82,15 @@ const ROUTE_META = {
   },
 };
 
-function htmlEscape(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 // Use Cloudflare's HTMLRewriter to inject route-specific meta into the
 // static SPA shell without re-parsing or buffering the body.
 function rewriteHtmlForBot(response, meta, canonicalUrl) {
-  const title = htmlEscape(meta.title);
-  const description = htmlEscape(meta.description);
-  const canonical = htmlEscape(canonicalUrl);
+  // Pass raw values: HTMLRewriter's setInnerContent (text mode) and
+  // setAttribute already HTML-escape their input. Pre-escaping here would
+  // double-encode ampersands (e.g. "&" -> "&amp;amp;").
+  const title = meta.title;
+  const description = meta.description;
+  const canonical = canonicalUrl;
 
   return new HTMLRewriter()
     .on('title', {
@@ -226,9 +221,14 @@ export default {
       });
     }
 
-    // SPA fallback for client-side routes.
-    url.pathname = '/index.html';
-    const fallback = await env.ASSETS.fetch(new Request(url.toString(), request));
+    // SPA fallback for client-side routes. Fetch the root asset ("/") rather
+    // than "/index.html": Cloudflare Static Assets' html_handling rewrites a
+    // request for "/index.html" into a 307 redirect to "/", which we would
+    // otherwise forward to the bot — causing every route to resolve to the
+    // home page's metadata. Requesting "/" returns index.html with a 200.
+    const rootUrl = new URL(url.toString());
+    rootUrl.pathname = '/';
+    const fallback = await env.ASSETS.fetch(new Request(rootUrl.toString(), request));
     let withCache = withHeaders(fallback, {
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       Pragma: 'no-cache',
