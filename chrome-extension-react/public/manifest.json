@@ -3,6 +3,7 @@
   "name": "ProfileAI - Job Application Assistant",
   "version": "1.0.0",
   "description": "AI-powered job application assistant. Autofill forms, tailor resumes, and track applications.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr0epq/vM6itT/360pSv0eLoxl1xfhAsdPyGdUp+SMcAIMBTasNWsqDbPrnl1jsOcTjczHK1lGd2Wvg2vHzpmSi1BZ9YajGF6H/uIszkz+ayeNOg+DbKegou4xNbMkePDFWk/lq1Kc5aHw4fmwNbEwYMqUNrm5g4tUJs8smbtqUPTr25GLOvQ6+ezuNc9QSiDr14cCGuYJzhUqSW+k9qyTaHPOGiaJs5l6O5LUnj8rr44Wve+ssZY3rDIO2+q3EIjs/3Uu9/qqamtLO4BFAKs8h71fDQfMSUX7xKPVpGRkfM6bE9bQL6gYXgNZKREBKb0toWTijo5CVMl92rPx1d81QIDAQAB",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -48,8 +49,8 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",
-      "https://profileai.io/*",
-      "https://*.profileai.io/*"
+      "https://profilleai.com/*",
+      "https://*.profilleai.com/*"
     ]
   },
   "web_accessible_resources": [

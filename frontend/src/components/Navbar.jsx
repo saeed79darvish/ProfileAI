@@ -21,6 +21,7 @@ import {
   CalendarMonth as CalendarIcon,
   Rocket as RocketIcon,
   Paid as PricingIcon,
+  Extension as ExtensionIcon,
   AdminPanelSettings as AdminIcon,
   LocalOffer as PromoIcon,
 } from '@mui/icons-material';
@@ -462,12 +463,14 @@ const ADMIN_ITEMS = [
 const CANDIDATE_ITEMS = [
   { label: 'My Jobs',    path: '/jobs',       Icon: WorkIcon },
   { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
+  { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
   { label: 'Profile',    path: '/profile',    Icon: PersonIcon },
 ];
 
 const PUBLIC_ITEMS = [
   { label: 'Pricing',    path: '/pricing',    Icon: PricingIcon },
   { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
+  { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
 ];
 
 /* ------------------------------------------------------------------ */

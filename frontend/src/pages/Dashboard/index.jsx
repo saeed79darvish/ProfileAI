@@ -80,6 +80,7 @@ import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
 import GapReviewDialog from '@/components/GapReviewDialog';
+import { extensionConfig } from '@/config/extension';
 
 // Icon aliases used throughout the component
 const LocationIcon = LocationOnIcon;
@@ -1191,8 +1192,64 @@ const Dashboard = () => {
           />
         )}
 
+        {/* Chrome Extension promo — educate candidates on applying anywhere */}
+        <Card
+          sx={{
+            mb: 3,
+            borderRadius: 3,
+            background: 'linear-gradient(135deg,#1e1b3a 0%,#2a1d4d 100%)',
+            border: '1px solid rgba(124,58,237,0.35)',
+            overflow: 'hidden',
+          }}
+        >
+          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap', p: { xs: 2.5, sm: 3 } }}>
+            <Box
+              sx={{
+                width: 52, height: 52, borderRadius: 2.5, flexShrink: 0,
+                background: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <ExtensionIcon sx={{ color: '#fff', fontSize: 28 }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 220 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>
+                  Apply to jobs anywhere with our Chrome extension
+                </Typography>
+                {!extensionConfig.isPublished && (
+                  <Chip label="Coming soon" size="small" sx={{ background: 'rgba(124,58,237,0.25)', color: '#c4b5fd', fontWeight: 600, height: 22 }} />
+                )}
+              </Box>
+              <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 14.5, lineHeight: 1.55 }}>
+                Autofill applications, draft AI answers to screening questions, and tailor your
+                resume on LinkedIn, Greenhouse, Workday, and any career page — without leaving the
+                job posting.
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0 }}>
+              {extensionConfig.isPublished && extensionConfig.storeUrl && (
+                <Button
+                  variant="contained"
+                  startIcon={<DownloadIcon />}
+                  onClick={() => window.open(extensionConfig.storeUrl, '_blank', 'noopener,noreferrer')}
+                  sx={{ background: 'linear-gradient(90deg,#7c3aed,#a78bfa)', fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}
+                >
+                  Add to Chrome
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                onClick={() => navigate('/extension')}
+                sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'none', whiteSpace: 'nowrap' }}
+              >
+                Learn more
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
 
-        {/* AI Tools Card */}
+
         <AIToolsCard>
           <AIToolsHeader>
             <div className="icon">

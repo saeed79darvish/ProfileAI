@@ -72,6 +72,7 @@ const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
 const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
 const BlogIndex = lazyWithReload(() => import('./pages/Blog'));
 const BlogPost = lazyWithReload(() => import('./pages/Blog/BlogPost'));
+const ExtensionPage = lazyWithReload(() => import('./pages/Extension'));
 
 const LazyFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -155,6 +156,7 @@ function AppContent() {
       <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/applypilot" element={<ApplyPilotGateway />} />
+              <Route path="/extension" element={<ExtensionPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/signup" element={<Register />} />

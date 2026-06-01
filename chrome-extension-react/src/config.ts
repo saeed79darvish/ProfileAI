@@ -2,7 +2,7 @@
 // Change these values for production deployment
 
 // Environment: 'development' | 'production'
-const ENV = 'development';
+const ENV = 'production';
 
 // URLs based on environment
 const URLS = {
@@ -11,8 +11,8 @@ const URLS = {
     API_BASE: 'http://localhost:5001/api',
   },
   production: {
-    WEB_BASE: 'https://profileai.io',
-    API_BASE: 'https://api.profileai.io/api',
+    WEB_BASE: 'https://www.profilleai.com',
+    API_BASE: 'https://api.profilleai.com/api',
   },
 };
 

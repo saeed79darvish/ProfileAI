@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.zip
+
+# Extension signing private key — NEVER commit. Keep a secure backup.
+extension-key.pem
+*.pem

@@ -15,7 +15,7 @@ export const Footer: React.FC<FooterProps> = ({ onLogout }) => {
       <button onClick={openPersonalization} className="footer-link" title="Edit your AI personalization settings">
         AI Settings
       </button>
-      <a href="https://profileai.io/help" target="_blank" rel="noopener noreferrer">
+      <a href="https://www.profilleai.com/extension" target="_blank" rel="noopener noreferrer">
         Help
       </a>
       <button onClick={onLogout}>Sign Out</button>

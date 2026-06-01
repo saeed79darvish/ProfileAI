@@ -3,12 +3,12 @@
 // Self-contained - no imports
 
 // Environment: 'development' | 'production'
-const ENV = 'development';
+const ENV = 'production';
 
 // Inline config with environment support
 const CONFIG = {
-  WEB_BASE: ENV === 'production' ? 'https://profileai.io' : 'http://localhost:3000',
-  API_BASE: ENV === 'production' ? 'https://api.profileai.io/api' : 'http://localhost:5001/api',
+  WEB_BASE: ENV === 'production' ? 'https://www.profilleai.com' : 'http://localhost:3000',
+  API_BASE: ENV === 'production' ? 'https://api.profilleai.com/api' : 'http://localhost:5001/api',
   SUPPORTED_SITES: {
     linkedin: {
       match: /linkedin\.com/,
@@ -438,7 +438,7 @@ function listenForAuthBroadcast() {
   });
   
   // Also check for auth data in localStorage on ProfileAI pages
-  if (window.location.href.includes('localhost:3000') || window.location.href.includes('profileai.io')) {
+  if (window.location.href.includes('localhost:3000') || window.location.href.includes('profilleai.com')) {
     checkLocalStorageAuth();
 
     // Proactively deliver pending resume data on the download page

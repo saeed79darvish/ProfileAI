@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { featureFlags } from '../../config/featureFlags';
+import { extensionConfig } from '../../config/extension';
 import SEO from '../../components/SEO';
 import * as S from './styled';
 import {
@@ -471,12 +472,18 @@ const Home = () => {
                 </Box>
                 <Box sx={S.applyPilotBtnWrapperSx}>
                   <Button variant="contained" size="large" startIcon={<DownloadIcon />}
-                    onClick={() => window.open('https://chrome.google.com/webstore', '_blank')}
+                    onClick={() => {
+                      if (extensionConfig.isPublished && extensionConfig.storeUrl) {
+                        window.open(extensionConfig.storeUrl, '_blank', 'noopener,noreferrer');
+                      } else {
+                        navigate('/extension'); window.scrollTo(0, 0);
+                      }
+                    }}
                     sx={S.applyPilotPrimaryBtnSx}>
                     {APPLYPILOT_CTA.primaryBtn}
                   </Button>
                   <Button variant="outlined" size="large"
-                    onClick={() => { navigate('/applypilot'); window.scrollTo(0, 0); }}
+                    onClick={() => { navigate('/extension'); window.scrollTo(0, 0); }}
                     endIcon={<ChevronRight />} sx={S.applyPilotOutlinedBtnSx}>
                     {APPLYPILOT_CTA.secondaryBtn}
                   </Button>

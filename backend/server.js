@@ -133,18 +133,23 @@ app.use(cors({
       ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : [])
     ];
 
-    // Chrome extension origins — restrict to a known extension ID in production
+    // Chrome extension origins — restrict to known extension IDs in production.
+    // CHROME_EXTENSION_ID accepts a single ID or a comma-separated list, so the
+    // unpacked dev build and the published Web Store build can both be allowed.
     if (origin.startsWith('chrome-extension://')) {
-      const allowedExtId = process.env.CHROME_EXTENSION_ID;
-      if (!isProduction || !allowedExtId) {
-        // Dev: allow any extension origin. Prod without ID: log + reject.
+      const allowedExtIds = (process.env.CHROME_EXTENSION_ID || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (!isProduction || allowedExtIds.length === 0) {
+        // Dev: allow any extension origin. Prod without IDs: log + reject.
         if (isProduction) {
           console.warn('[CORS] Rejected chrome-extension origin (CHROME_EXTENSION_ID not set):', origin);
           return callback(new Error('Not allowed by CORS'));
         }
         return callback(null, true);
       }
-      if (origin === `chrome-extension://${allowedExtId}`) {
+      if (allowedExtIds.some(id => origin === `chrome-extension://${id}`)) {
         return callback(null, true);
       }
       console.warn('[CORS] Rejected chrome-extension origin (not in allowlist):', origin);

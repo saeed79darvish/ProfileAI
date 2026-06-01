@@ -690,7 +690,7 @@ async function syncAuthFromWebApp(): Promise<boolean> {
     const webAppTabs = allTabs.filter(tab => 
       tab.url && (
         tab.url.includes('localhost:3000') ||
-        tab.url.includes('profileai.io') ||
+        tab.url.includes('profilleai.com') ||
         tab.url.includes('127.0.0.1:3000')
       )
     );

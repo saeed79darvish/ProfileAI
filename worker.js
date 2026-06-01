@@ -33,6 +33,11 @@ const ROUTE_META = {
     description:
       'ApplyPilot is the ProfilleAI Chrome extension that auto-applies to 99% of jobs on LinkedIn, Indeed, Greenhouse, Lever, and Workday. You just review and approve.',
   },
+  '/extension': {
+    title: 'ProfilleAI Chrome Extension — Apply to Any Job, Anywhere',
+    description:
+      'The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page.',
+  },
   '/applypilot': {
     title: 'ApplyPilot — AI Job Auto-Apply Chrome Extension | ProfilleAI',
     description:
@@ -145,6 +150,24 @@ function withHeaders(response, headers) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // ---- Canonical origin redirect ----
+    // Force every page request onto https://www.profilleai.com. Browsers (and
+    // especially Google Identity Services / OAuth) refuse to run on insecure
+    // http:// origins or on a non-authorized host, which surfaced as an
+    // "origin mismatch" error when mobile users landed on http://...
+    // or the bare apex domain. We exclude /api/* so non-GET API requests
+    // aren't broken by a 301 dropping their body — those are proxied below.
+    if (!url.pathname.startsWith('/api/') && url.pathname !== '/api') {
+      const canonicalHost = 'www.profilleai.com';
+      const proto = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '');
+      if (proto !== 'https' || url.hostname !== canonicalHost) {
+        url.protocol = 'https:';
+        url.hostname = canonicalHost;
+        url.port = '';
+        return Response.redirect(url.toString(), 301);
+      }
+    }
 
     // ---- API proxy ----
     if (url.pathname.startsWith('/api/') || url.pathname === '/api') {
