@@ -26,6 +26,7 @@ export const PageContainer = styled.div`
   background: #fafbfc;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 `;
 
 export const TopBar = styled.header`
@@ -56,8 +57,12 @@ export const MainContent = styled.main`
   justify-content: center;
   padding: 40px 24px;
 
+  @media (max-width: 768px) {
+    padding-bottom: 120px;
+  }
+
   @media (max-width: 480px) {
-    padding: 20px 14px;
+    padding: 20px 14px 120px;
     align-items: flex-start;
   }
 `;
@@ -373,12 +378,8 @@ export const ContinueBtn = styled.button`
 
   svg { font-size: 18px; }
 
-  @media (max-width: 480px) {
-    padding: 12px 24px;
-    font-size: 14px;
-    margin-top: 24px;
-    width: 100%;
-    justify-content: center;
+  @media (max-width: 768px) {
+    display: none;
   }
 `;
 
@@ -391,6 +392,66 @@ export const SkipLink = styled.button`
   cursor: pointer;
   margin-top: 16px;
   display: block;
+
+  &:hover { color: #667eea; }
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+/* ═══════════════════════════════════════════════
+   STICKY MOBILE ACTION BAR (Continue + Skip)
+   Mirrors the screenshot's pinned bottom CTA.
+   ═══════════════════════════════════════════════ */
+export const MobileActionBar = styled.div`
+  display: none;
+
+  @media (max-width: 768px) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-top: 1px solid #eef0f4;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.06);
+    z-index: 30;
+  }
+`;
+
+export const MobilePrimaryBtn = styled.button`
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  padding: 16px 24px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+
+  svg { font-size: 20px; }
+`;
+
+export const MobileSkip = styled.button`
+  background: none;
+  border: none;
+  color: #6b7185;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 8px;
 
   &:hover { color: #667eea; }
 `;

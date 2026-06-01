@@ -40,7 +40,10 @@ import {
   ChoiceCardMockup,
   ChoiceButton,
   ContinueBtn,
-  SkipLink
+  SkipLink,
+  MobileActionBar,
+  MobilePrimaryBtn,
+  MobileSkip
 } from './styled';
 import { ROUTES, SLIDES, TEXT, TIMINGS } from './constants';
 
@@ -487,6 +490,17 @@ const CandidateOnboarding = () => {
           )}
         </SlideContainer>
       </MainContent>
+
+      {/* Sticky mobile CTA — matches the pinned bottom bar in the design */}
+      {!isChoicePage && (
+        <MobileActionBar>
+          <MobilePrimaryBtn onClick={goNext}>
+            Continue
+            <ArrowIcon />
+          </MobilePrimaryBtn>
+          <MobileSkip onClick={skipToEnd}>Skip intro</MobileSkip>
+        </MobileActionBar>
+      )}
     </PageContainer>
   );
 };

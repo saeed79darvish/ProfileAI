@@ -11,6 +11,7 @@ export const PageContainer = styled.div`
   background: #fafbfc;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 `;
 
 export const TopBar = styled.header`

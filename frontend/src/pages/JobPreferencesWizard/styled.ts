@@ -26,6 +26,7 @@ export const PageContainer = styled.div`
   background: linear-gradient(135deg, #f5f7ff 0%, #f0f0f8 50%, #faf5ff 100%);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 `;
 
 export const TopBar = styled.header`
@@ -69,21 +70,27 @@ export const MainContent = styled.main`
   flex-direction: column;
   align-items: center;
   padding: 28px 20px 40px;
+  width: 100%;
+
+  @media (max-width: 768px) {
+    padding-bottom: 110px;
+  }
 
   @media (max-width: 480px) {
-    padding: 20px 12px 32px;
+    padding: 20px 12px 110px;
   }
 `;
 
 export const StepIndicator = styled.div`
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0;
   margin-bottom: 32px;
+  max-width: 100%;
 
   @media (max-width: 480px) {
     margin-bottom: 28px;
-    transform: scale(0.9);
   }
 `;
 
@@ -96,13 +103,20 @@ export const StepDot = styled.div`
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
+  flex-shrink: 0;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 
   @media (max-width: 480px) {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     font-size: 12px;
+  }
+
+  @media (max-width: 380px) {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
   }
 
   ${props => props.$state === 'completed' && css`
@@ -127,13 +141,19 @@ export const StepLine = styled.div`
   width: 40px;
   height: 3px;
   border-radius: 3px;
+  flex-shrink: 1;
+  min-width: 10px;
   transition: all 0.4s ease;
   background: ${props => props.$done
     ? 'linear-gradient(90deg, #667eea, #764ba2)'
     : '#e0e4ec'};
 
   @media (max-width: 480px) {
-    width: 24px;
+    width: 18px;
+  }
+
+  @media (max-width: 380px) {
+    width: 12px;
   }
 `;
 
@@ -457,15 +477,39 @@ export const NavRow = styled.div`
   padding-top: 20px;
   border-top: 1px solid #f0f1f5;
 
+  @media (max-width: 768px) {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin: 24px -36px 0;
+    padding: 14px 36px calc(14px + env(safe-area-inset-bottom, 0px));
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid #eef0f4;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.06);
+    border-radius: 0 0 18px 18px;
+  }
+
+  @media (max-width: 640px) {
+    margin-left: -20px;
+    margin-right: -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
   @media (max-width: 480px) {
-    margin-top: 24px;
-    padding-top: 16px;
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
 `;
 
 export const NavButton = styled.button`
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: ${props => props.$primary ? '12px 28px' : '12px 20px'};
   border-radius: 50px;
@@ -480,9 +524,11 @@ export const NavButton = styled.button`
   cursor: pointer;
   transition: all 0.25s;
 
-  @media (max-width: 480px) {
-    padding: ${props => props.$primary ? '10px 20px' : '10px 16px'};
-    font-size: 13.5px;
+  @media (max-width: 768px) {
+    flex: ${props => props.$primary ? '1.5' : '1'};
+    padding: ${props => props.$primary ? '14px 20px' : '14px 16px'};
+    font-size: 14px;
+    border-radius: 14px;
     gap: 6px;
   }
 
@@ -508,8 +554,8 @@ export const FinishButton = styled(NavButton)`
   padding: 14px 36px;
   font-size: 15px;
 
-  @media (max-width: 480px) {
-    padding: 12px 24px;
+  @media (max-width: 768px) {
+    padding: 14px 20px;
     font-size: 14px;
   }
 `;
