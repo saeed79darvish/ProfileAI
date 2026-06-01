@@ -292,6 +292,10 @@ const JobPreferencesWizard = () => {
     if (currentStep > 0) {
       setAnimDir('left');
       setCurrentStep(s => s - 1);
+    } else {
+      // On the first step, go back to the upload-resume / start-from-scratch
+      // choice screen.
+      navigate('/profile/create');
     }
   };
 
@@ -1550,13 +1554,9 @@ const JobPreferencesWizard = () => {
           )}
 
           <NavRow>
-            {currentStep > 0 ? (
-              <NavButton onClick={goBack}>
-                <BackIcon /> Back
-              </NavButton>
-            ) : (
-              <div />
-            )}
+            <NavButton onClick={goBack}>
+              <BackIcon /> Back
+            </NavButton>
 
             {currentStep < STEPS.length - 1 ? (
               <NavButton $primary onClick={goNext} disabled={!canProceed}>

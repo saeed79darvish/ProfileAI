@@ -478,31 +478,19 @@ export const NavRow = styled.div`
   border-top: 1px solid #f0f1f5;
 
   @media (max-width: 768px) {
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
-    z-index: 20;
-    margin: 24px -36px 0;
-    padding: 14px 36px calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    margin: 0;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
     gap: 12px;
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(8px);
     border-top: 1px solid #eef0f4;
-    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.06);
-    border-radius: 0 0 18px 18px;
-  }
-
-  @media (max-width: 640px) {
-    margin-left: -20px;
-    margin-right: -20px;
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-
-  @media (max-width: 480px) {
-    margin-left: -16px;
-    margin-right: -16px;
-    padding-left: 16px;
-    padding-right: 16px;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.08);
+    border-radius: 0;
   }
 `;
 

@@ -412,15 +412,15 @@ export const MobileActionBar = styled.div`
     flex-direction: column;
     align-items: stretch;
     gap: 6px;
-    position: sticky;
+    position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
     background: #ffffff;
     border-top: 1px solid #eef0f4;
     padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-    box-shadow: 0 -6px 24px rgba(0,0,0,0.06);
-    z-index: 30;
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.08);
+    z-index: 50;
   }
 `;
 
