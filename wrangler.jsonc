@@ -8,6 +8,12 @@
   },
   "assets": {
     "directory": "frontend/build",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // Run worker.js BEFORE serving static assets. Without this, Cloudflare
+    // serves matching files (e.g. `/` -> index.html) directly from the edge
+    // and the worker never runs, so the canonical http->https / apex->www
+    // redirect was skipped for the homepage. Running the worker first ensures
+    // the redirect applies to every request.
+    "run_worker_first": true
   }
 }

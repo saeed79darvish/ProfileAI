@@ -888,8 +888,8 @@ export default function JobAIToolsPanel({ job }) {
           </div>
         </PanelHeader>
         <NoProfileMessage>
-          <p>Create your profile first to unlock AI-powered tools for this job.</p>
-          <p><a href="/profile/edit">Create Profile →</a></p>
+          <p>Create your profile to unlock AI analytics & Resume Tailoring tools for this job and a personalized experience.</p>
+          <p><a href="/profile/create">Create Profile →</a></p>
         </NoProfileMessage>
       </PanelContainer>
     );

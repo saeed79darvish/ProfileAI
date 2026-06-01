@@ -8,9 +8,16 @@ import { ONBOARDING_GATE_EVENT } from '../utils/onboardingGate';
 const OnboardingGateBanner = () => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState(
+    'Please finish creating your profile before navigating to other pages.'
+  );
 
   useEffect(() => {
-    const handler = () => setOpen(true);
+    const handler = (event) => {
+      const customMessage = event?.detail?.message;
+      if (customMessage) setMessage(customMessage);
+      setOpen(true);
+    };
     window.addEventListener(ONBOARDING_GATE_EVENT, handler);
     return () => window.removeEventListener(ONBOARDING_GATE_EVENT, handler);
   }, []);
@@ -40,11 +47,11 @@ const OnboardingGateBanner = () => {
         sx={{ alignItems: 'center', boxShadow: 3 }}
         action={
           <Button color="inherit" size="small" onClick={handleContinue} sx={{ fontWeight: 700 }}>
-            Continue
+            Create Profile
           </Button>
         }
       >
-        Please finish creating your profile before navigating to other pages.
+        {message}
       </Alert>
     </Snackbar>
   );

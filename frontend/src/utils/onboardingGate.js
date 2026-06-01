@@ -23,9 +23,35 @@ const ALLOWED_PREFIXES = [
   '/logout',
 ];
 
+// True for the application flow (…/apply) — these stay gated so we can
+// prompt the candidate to finish their profile before applying / using AI.
+function isJobApplyPath(pathname) {
+  return (
+    !!pathname &&
+    pathname.startsWith('/jobs/') &&
+    pathname.endsWith('/apply')
+  );
+}
+
 export function isOnboardingAllowedPath(pathname) {
   if (!pathname) return false;
+  // Let profile-less candidates browse the public jobs list and individual
+  // job detail pages before creating a profile. The application flow
+  // (…/apply) stays gated so we can nudge them to finish their profile.
+  if (pathname === '/jobs' || (pathname.startsWith('/jobs/') && !isJobApplyPath(pathname))) {
+    return true;
+  }
   return ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+}
+
+// Context-aware copy for the onboarding gate banner. Applying to a job or
+// using the AI tools is what we really want a profile for, so spell out the
+// benefit instead of a generic "finish your profile" message.
+export function onboardingBlockMessageFor(pathname) {
+  if (isJobApplyPath(pathname)) {
+    return 'Create your profile to apply for this job and unlock AI analytics & Resume Tailoring tools for a personalized experience.';
+  }
+  return 'Please finish creating your profile before navigating to other pages.';
 }
 
 export function shouldBlockNavigation(user, targetPath) {
@@ -35,11 +61,13 @@ export function shouldBlockNavigation(user, targetPath) {
   return !isOnboardingAllowedPath(targetPath);
 }
 
-export function notifyOnboardingBlocked(targetPath) {
+export function notifyOnboardingBlocked(targetPath, message) {
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(
-      new CustomEvent(ONBOARDING_GATE_EVENT, { detail: { targetPath } })
+      new CustomEvent(ONBOARDING_GATE_EVENT, {
+        detail: { targetPath, message: message || onboardingBlockMessageFor(targetPath) },
+      })
     );
   } catch {
     // CustomEvent unavailable (very old browsers) — silently ignore; the
