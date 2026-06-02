@@ -76,17 +76,16 @@ services:
       # AI cost controls
       - key: OPENAI_JOB_MODEL
         value: gpt-4o-mini
-      # External jobs sync — owned by the dedicated `profileai-cron-worker`
-      # service below (NOT inline). Running the cron inline on this web
-      # instance tied sync reliability to the API process lifecycle: an OOM
-      # or deploy restart reset the 15-min interval, so full sweeps often
-      # never completed and the /jobs list went stale. The worker runs the
-      # sweep in its own process/memory. Keep these BOTH false here so the
-      # web instance never double-runs the cron.
+      # External jobs sync — runs INLINE inside this web instance so the
+      # /jobs list refreshes automatically (every 15 min) with no extra
+      # service to provision or babysit. The cron is self-healing: on every
+      # process boot it kicks an initial sweep after 10s, then continues on
+      # the 15-min schedule. syncAllBoards() has an overlap guard so a deploy
+      # restart can never double-run or wedge a sweep.
       - key: ENABLE_EXTERNAL_JOBS_CRON
-        value: "false"
+        value: "true"
       - key: RUN_CRON_INLINE
-        value: "false"
+        value: "true"
       # ───────── Secrets (set these in the Render dashboard) ─────────
       - key: JWT_SECRET
         generateValue: true   # Render generates a strong random value once
@@ -117,47 +116,48 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
 
-  # ───────── Background cron worker ─────────
-  # Owns the scheduled external-jobs sync (every 15 min) and the ApplyPilot
-  # scout. Runs in its own process so a slow/long sweep or an OOM never
-  # disrupts the API web instance, and the 15-min interval isn't reset by
-  # API deploy restarts. It needs DB access plus the same AI keys the sweep
-  # uses for embeddings + skill extraction.
-  - type: worker
-    name: profileai-cron-worker
-    runtime: node
-    plan: starter
-    region: oregon
-    rootDir: backend
-    buildCommand: npm ci
-    startCommand: npm run cron
-    autoDeploy: true
-    branch: main
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PUPPETEER_SKIP_DOWNLOAD
-        value: "true"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: profileai-db
-          property: connectionString
-      - key: DB_SSL
-        value: "false"
-      # Cron toggles — this process is the single owner of scheduled work.
-      - key: ENABLE_EXTERNAL_JOBS_CRON
-        value: "true"
-      - key: ENABLE_APPLYPILOT_SCOUT_CRON
-        value: "false"   # flip to "true" when ApplyPilot ships to candidates
-      - key: OPENAI_JOB_MODEL
-        value: gpt-4o-mini
-      # ───────── Secrets (set these in the Render dashboard) ─────────
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: VOYAGE_API_KEY
-        sync: false
+  # ───────── Background cron worker (OPTIONAL — disabled) ─────────
+  # NOTE: The external-jobs sync runs INLINE in the API web service above
+  # (ENABLE_EXTERNAL_JOBS_CRON=true / RUN_CRON_INLINE=true), so no separate
+  # worker is required for jobs to stay fresh. This dedicated worker is kept
+  # here, commented out, for when sync volume grows enough to warrant its own
+  # process. To enable: uncomment, run a Render Blueprint Sync to create it,
+  # set its secrets, then flip the API's two cron keys back to "false" so the
+  # cron isn't double-run.
+  #
+  # - type: worker
+  #   name: profileai-cron-worker
+  #   runtime: node
+  #   plan: starter
+  #   region: oregon
+  #   rootDir: backend
+  #   buildCommand: npm ci
+  #   startCommand: npm run cron
+  #   autoDeploy: true
+  #   branch: main
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: PUPPETEER_SKIP_DOWNLOAD
+  #       value: "true"
+  #     - key: DATABASE_URL
+  #       fromDatabase:
+  #         name: profileai-db
+  #         property: connectionString
+  #     - key: DB_SSL
+  #       value: "false"
+  #     - key: ENABLE_EXTERNAL_JOBS_CRON
+  #       value: "true"
+  #     - key: ENABLE_APPLYPILOT_SCOUT_CRON
+  #       value: "false"
+  #     - key: OPENAI_JOB_MODEL
+  #       value: gpt-4o-mini
+  #     - key: ANTHROPIC_API_KEY
+  #       sync: false
+  #     - key: OPENAI_API_KEY
+  #       sync: false
+  #     - key: VOYAGE_API_KEY
+  #       sync: false
 
   # ───────── Other background workers — uncomment when you need them ─────────
   #

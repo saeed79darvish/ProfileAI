@@ -878,6 +878,29 @@ router.get('/health', authMiddleware, async (req, res) => {
       raw: true
     });
 
+    // Freshness snapshot — the single most useful signal when investigating
+    // "the list isn't updating" / "24h filter is empty" reports. If
+    // `newestJobAgeMinutes` is large (e.g. thousands) and `postedLast24h` is
+    // 0, the corpus is stale and the cron sync is the culprit — NOT the
+    // filters or the ranking. Uses COALESCE(postedAt, createdAt) to mirror
+    // exactly what the list query and the datePosted filter sort/filter on.
+    const freshnessRow = await ExternalJob.sequelize.query(
+      `SELECT
+         MAX(COALESCE("postedAt", "createdAt")) AS newest,
+         COUNT(*) FILTER (WHERE COALESCE("postedAt", "createdAt") >= NOW() - INTERVAL '24 hours') AS last24h,
+         COUNT(*) FILTER (WHERE COALESCE("postedAt", "createdAt") >= NOW() - INTERVAL '7 days')  AS last7d
+       FROM "ExternalJobs"
+       WHERE "isActive" = true`,
+      { type: ExternalJob.sequelize.constructor.QueryTypes.SELECT }
+    );
+    const newest = freshnessRow[0]?.newest ? new Date(freshnessRow[0].newest) : null;
+    const freshness = {
+      newestJob: newest ? newest.toISOString() : null,
+      newestJobAgeMinutes: newest ? Math.round((Date.now() - newest.getTime()) / 60000) : null,
+      postedLast24h: parseInt(freshnessRow[0]?.last24h, 10) || 0,
+      postedLast7d: parseInt(freshnessRow[0]?.last7d, 10) || 0,
+    };
+
     const boards = await ATSBoard.findAll({
       attributes: ['id', 'name', 'platform', 'boardToken', 'isActive', 'jobCount', 'lastSyncAt', 'syncError'],
       order: [['platform', 'ASC'], ['name', 'ASC']],
@@ -906,6 +929,7 @@ router.get('/health', authMiddleware, async (req, res) => {
       corpus: {
         totalActive,
         bySource: bySource.map(r => ({ source: r.source, count: parseInt(r.count, 10) })),
+        freshness,
       },
       boards: {
         total: boards.length,
