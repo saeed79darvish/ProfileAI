@@ -812,14 +812,52 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // pages of 20 results; cap keeps the worst case bounded.
   const annPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 3000)`;
 
-  const query = needsAnn ? `
+  // Freshness-pool size for 'recommended' mode. See the UNION rationale
+  // below; sized smaller than the ANN pool since it only needs to seed the
+  // newest few hundred matching jobs into the candidate set.
+  const recencyPoolExpr = `LEAST(GREATEST(300, ($2::int + $3::int) * 2), 1500)`;
+
+  // In 'recommended' mode the final ORDER BY tiers by freshness FIRST. But
+  // the candidate CTE below only narrowed to the top-N jobs by *cosine
+  // similarity to the profile* — so a brand-new posting that isn't already
+  // among the candidate's strongest matches never enters the pool and can
+  // never reach the freshness tiers, no matter how recent it is. As the
+  // corpus grows the similarity bar to enter the top-N keeps rising, which
+  // is exactly why fresh listings stop surfacing and the list "looks
+  // stale". Fix: UNION the cosine-ANN pool with a recency pool (newest
+  // matching jobs) so genuinely-new postings are always candidates and the
+  // freshness tiering can lift them. 'match' mode keeps the pure ANN pool
+  // (relevance is the whole point there); 'recent' bypasses the CTE.
+  const unionRecency = sortMode === 'recommended';
+  const candidateCte = unionRecency
+    ? `
+    WITH ann_candidates AS (
+      (
+        SELECT ej.id
+        FROM "ExternalJobs" ej
+        WHERE ${whereClause}
+        ORDER BY ej.embedding <=> $1::vector
+        LIMIT ${annPoolExpr}
+      )
+      UNION
+      (
+        SELECT ej.id
+        FROM "ExternalJobs" ej
+        WHERE ${whereClause}
+        ORDER BY COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST
+        LIMIT ${recencyPoolExpr}
+      )
+    )`
+    : `
     WITH ann_candidates AS (
       SELECT ej.id
       FROM "ExternalJobs" ej
       WHERE ${whereClause}
       ORDER BY ej.embedding <=> $1::vector
       LIMIT ${annPoolExpr}
-    )
+    )`;
+
+  const query = needsAnn ? `${candidateCte}
     SELECT 
       ej.id, ej."externalId", ej.source, ej."boardToken", ej.title, ej.company,
       ej.location, ej."locationType", ej."employmentType", ej."experienceLevel",

@@ -30,6 +30,11 @@ const _inFlightBoardSyncs = new Set();
 const REFRESH_CONCURRENCY_CAP = 2;
 let _activeRefreshCount = 0;
 
+// Overlap guard for the full cron sweep (syncAllBoards). A sweep can exceed
+// the 15-min cron interval, so without this a second tick would start a
+// concurrent sweep. Module-scoped boolean toggled in syncAllBoards' finally.
+let _fullSyncInProgress = false;
+
 /**
  * Fetch jobs from Greenhouse Job Board API (public, no auth required)
  * API: GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true
@@ -1284,27 +1289,43 @@ async function syncBoard(atsBoard) {
  * Sync all active ATS boards
  */
 async function syncAllBoards() {
-  console.log('[ExternalJobs] Starting full sync of all active boards...');
-  const boards = await ATSBoard.findAll({ where: { isActive: true } });
-
-  if (boards.length === 0) {
-    console.log('[ExternalJobs] No active boards configured. Skipping sync.');
-    return { boardsSynced: 0, results: [] };
+  // Overlap guard. A full sweep can run longer than the 15-min cron
+  // interval (HN "Who's hiring" LLM parsing, JSearch/Amazon pagination,
+  // per-board 30s fetch timeouts all add up). Without this lock the next
+  // `*/15` tick — or a manual trigger — would start a SECOND concurrent
+  // sweep that competes for the same DB pool and double-upserts every
+  // board, which both slows the live /jobs queries and can leave the
+  // later boards starved so they "never refresh". Skip if one is running.
+  if (_fullSyncInProgress) {
+    console.warn('[ExternalJobs] Full sync already in progress — skipping this run.');
+    return { boardsSynced: 0, skipped: true, results: [] };
   }
+  _fullSyncInProgress = true;
+  try {
+    console.log('[ExternalJobs] Starting full sync of all active boards...');
+    const boards = await ATSBoard.findAll({ where: { isActive: true } });
 
-  const results = [];
-  for (const board of boards) {
-    const result = await syncBoard(board);
-    results.push({ board: board.name, ...result });
-    // Small delay between boards to be nice to APIs
-    if (boards.indexOf(board) < boards.length - 1) {
-      await sleep(1000);
+    if (boards.length === 0) {
+      console.log('[ExternalJobs] No active boards configured. Skipping sync.');
+      return { boardsSynced: 0, results: [] };
     }
-  }
 
-  const totalJobs = results.filter(r => r.success).reduce((sum, r) => sum + r.total, 0);
-  console.log(`[ExternalJobs] Full sync complete: ${results.length} boards, ${totalJobs} total jobs`);
-  return { boardsSynced: results.length, totalJobs, results };
+    const results = [];
+    for (const board of boards) {
+      const result = await syncBoard(board);
+      results.push({ board: board.name, ...result });
+      // Small delay between boards to be nice to APIs
+      if (boards.indexOf(board) < boards.length - 1) {
+        await sleep(1000);
+      }
+    }
+
+    const totalJobs = results.filter(r => r.success).reduce((sum, r) => sum + r.total, 0);
+    console.log(`[ExternalJobs] Full sync complete: ${results.length} boards, ${totalJobs} total jobs`);
+    return { boardsSynced: results.length, totalJobs, results };
+  } finally {
+    _fullSyncInProgress = false;
+  }
 }
 
 /**

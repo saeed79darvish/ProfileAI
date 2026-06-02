@@ -76,14 +76,17 @@ services:
       # AI cost controls
       - key: OPENAI_JOB_MODEL
         value: gpt-4o-mini
-      # External jobs sync — run the cron inline in the API process.
-      # Cheap (single instance, no duplication risk) and avoids paying for
-      # a separate worker service. Flip to a dedicated `profileai-cron-worker`
-      # below if/when the API scales horizontally.
+      # External jobs sync — owned by the dedicated `profileai-cron-worker`
+      # service below (NOT inline). Running the cron inline on this web
+      # instance tied sync reliability to the API process lifecycle: an OOM
+      # or deploy restart reset the 15-min interval, so full sweeps often
+      # never completed and the /jobs list went stale. The worker runs the
+      # sweep in its own process/memory. Keep these BOTH false here so the
+      # web instance never double-runs the cron.
       - key: ENABLE_EXTERNAL_JOBS_CRON
-        value: "true"
+        value: "false"
       - key: RUN_CRON_INLINE
-        value: "true"
+        value: "false"
       # ───────── Secrets (set these in the Render dashboard) ─────────
       - key: JWT_SECRET
         generateValue: true   # Render generates a strong random value once
@@ -114,7 +117,49 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
 
-  # ───────── Background workers — uncomment when you need them ─────────
+  # ───────── Background cron worker ─────────
+  # Owns the scheduled external-jobs sync (every 15 min) and the ApplyPilot
+  # scout. Runs in its own process so a slow/long sweep or an OOM never
+  # disrupts the API web instance, and the 15-min interval isn't reset by
+  # API deploy restarts. It needs DB access plus the same AI keys the sweep
+  # uses for embeddings + skill extraction.
+  - type: worker
+    name: profileai-cron-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm run cron
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: profileai-db
+          property: connectionString
+      - key: DB_SSL
+        value: "false"
+      # Cron toggles — this process is the single owner of scheduled work.
+      - key: ENABLE_EXTERNAL_JOBS_CRON
+        value: "true"
+      - key: ENABLE_APPLYPILOT_SCOUT_CRON
+        value: "false"   # flip to "true" when ApplyPilot ships to candidates
+      - key: OPENAI_JOB_MODEL
+        value: gpt-4o-mini
+      # ───────── Secrets (set these in the Render dashboard) ─────────
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+
+  # ───────── Other background workers — uncomment when you need them ─────────
   #
   # - type: worker
   #   name: profileai-submit-worker
@@ -128,15 +173,3 @@ services:
   #   envVars:
   #     - fromGroup: profileai-shared       # define an env group with all the
   #                                          # shared vars to avoid duplication
-  #
-  # - type: worker
-  #   name: profileai-cron-worker
-  #   runtime: node
-  #   plan: starter
-  #   rootDir: backend
-  #   buildCommand: npm ci
-  #   startCommand: npm run cron
-  #   autoDeploy: true
-  #   branch: main
-  #   envVars:
-  #     - fromGroup: profileai-shared
