@@ -408,6 +408,19 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('✓ Database connection established successfully');
 
+    // Idempotent, additive enum backfill. Several AI routes record usage with
+    // featureType values that were missing from enum_AIUsages_featureType,
+    // causing "invalid input value for enum" errors in prod. ALTER TYPE ...
+    // ADD VALUE IF NOT EXISTS is purely additive (never drops/renames), so
+    // it's safe to run on every boot — unlike sequelize.sync. Wrapped so a
+    // failure here can never block the server from starting.
+    try {
+      const { up: addAIUsageFeatureTypes } = require('./scripts/migrations/addAIUsageFeatureTypes');
+      await addAIUsageFeatureTypes();
+    } catch (err) {
+      console.warn('⚠️  AIUsage featureType enum backfill skipped:', err.message);
+    }
+
     // Sync models (in development only). In production we want explicit
     // migrations — silent ALTER TABLE on boot can drop or rename columns
     // unexpectedly and is unsafe on shared instances. This guard is

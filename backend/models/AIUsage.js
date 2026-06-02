@@ -23,7 +23,11 @@ const AIUsage = sequelize.define('AIUsage', {
       'cover_letter',
       'career_suggestions',
       'agent_arena',
-      'post_enhance'
+      'post_enhance',
+      'analyze_gaps',
+      'generate_answers',
+      'generate_cover_letter',
+      'job_enhance'
     ),
     allowNull: false
   },
