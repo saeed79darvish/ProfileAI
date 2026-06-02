@@ -10,20 +10,6 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: profileai
-          POSTGRES_PASSWORD: profileai
-          POSTGRES_DB: profileai_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U profileai"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
     defaults:
       run:
         working-directory: backend
@@ -34,6 +20,61 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
+
+      # Start Postgres (pgvector) manually instead of via a `services:` block.
+      # GitHub pulls service-container images before any step runs, so a
+      # transient Docker Hub outage ("context deadline exceeded") fails the
+      # whole job with no chance to retry. Pulling here lets us wrap the pull
+      # in a retry loop and fall back to a mirror, so registry flakiness no
+      # longer red-Xes CI.
+      - name: Start Postgres (pgvector) with retries
+        working-directory: .
+        run: |
+          set -e
+          IMAGE="pgvector/pgvector:pg16"
+          MIRROR="ghcr.io/pgvector/pgvector:pg16"
+          pulled=""
+          for attempt in 1 2 3 4 5; do
+            if docker pull "$IMAGE"; then pulled="$IMAGE"; break; fi
+            echo "Docker Hub pull failed (attempt $attempt). Retrying in $((attempt * 5))s..."
+            sleep $((attempt * 5))
+          done
+          if [ -z "$pulled" ]; then
+            echo "Docker Hub unreachable after retries — trying GHCR mirror..."
+            for attempt in 1 2 3; do
+              if docker pull "$MIRROR"; then pulled="$MIRROR"; break; fi
+              echo "Mirror pull failed (attempt $attempt). Retrying in $((attempt * 5))s..."
+              sleep $((attempt * 5))
+            done
+          fi
+          if [ -z "$pulled" ]; then
+            echo "✗ Could not pull a Postgres image from any registry."
+            exit 1
+          fi
+          docker run -d --name postgres \
+            -e POSTGRES_USER=profileai \
+            -e POSTGRES_PASSWORD=profileai \
+            -e POSTGRES_DB=profileai_test \
+            -p 5432:5432 \
+            --health-cmd="pg_isready -U profileai" \
+            --health-interval=5s \
+            --health-timeout=3s \
+            --health-retries=10 \
+            "$pulled"
+          echo "Waiting for Postgres to become healthy..."
+          for i in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' postgres 2>/dev/null)" = "healthy" ]; then
+              echo "✓ Postgres healthy after ${i}x5s"
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "✗ Postgres failed to become healthy"
+              docker logs postgres
+              exit 1
+            fi
+            sleep 5
+          done
+
       - name: Install
         run: npm ci
       - name: Enable pgvector extension
