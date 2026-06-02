@@ -3,7 +3,7 @@ const router = express.Router();
 const { ExternalJob, ATSBoard, Profile, Company, SavedJob } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { Op, literal } = require('sequelize');
-const { refreshIfStale } = require('../services/externalJobService');
+const { refreshIfStale, ensureCorpusFresh } = require('../services/externalJobService');
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
@@ -533,7 +533,7 @@ router.get('/', authMiddleware, async (req, res) => {
           // before deciding to no-op; running them inline steals DB pool
           // slots from sibling /external-jobs requests in flight.
           const boardTokens = [...new Set(semanticJobs.map(j => j.boardToken))];
-          setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
+          setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
 
           return res.json({
             jobs: semanticJobsWithMatched,
@@ -584,7 +584,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
       // Trigger background staleness checks — deferred (see comment above).
       const boardTokens = [...new Set(paginatedJobs.map(j => j.boardToken))];
-      setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
+      setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
 
       return res.json({
         jobs: paginatedJobs,
@@ -623,7 +623,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // Trigger background staleness checks for boards in results —
     // deferred so the response flushes before DB lookups fan out.
     const boardTokens = [...new Set(jobs.map(j => j.boardToken))];
-    setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); });
+    setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
 
     res.json({
       jobs,

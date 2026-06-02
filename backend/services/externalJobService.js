@@ -35,6 +35,83 @@ let _activeRefreshCount = 0;
 // concurrent sweep. Module-scoped boolean toggled in syncAllBoards' finally.
 let _fullSyncInProgress = false;
 
+// ───────────────────────── Corpus-level self-healing ─────────────────────────
+// refreshIfStale() only re-syncs the specific boards that already produced rows
+// in a given page response, and only if THAT board is >30 min stale. That makes
+// corpus freshness depend almost entirely on the cron sweep completing. If the
+// cron process dies / OOMs / silently errors (observed in prod: the whole
+// corpus went ~5 days stale while the 15-min cron was nominally "on"), nothing
+// self-heals and the /jobs feed freezes.
+//
+// ensureCorpusFresh() closes that gap: on a normal listing request it checks the
+// age of the NEWEST job in the corpus (cheap, cached) and, if the freshest job
+// is older than CORPUS_STALE_MINUTES, kicks a full syncAllBoards() in the
+// background. It's safe to call on every request:
+//   • The newest-job age is cached for NEWEST_AGE_CACHE_MS so we don't hit the
+//     DB on each call.
+//   • A cooldown (CORPUS_REFRESH_COOLDOWN_MS) ensures we trigger at most one full
+//     sweep per window no matter how much traffic arrives.
+//   • syncAllBoards() itself has the _fullSyncInProgress overlap guard, so even
+//     racing triggers collapse into a single sweep.
+// Net effect: as long as anyone is browsing jobs, the feed heals itself within
+// minutes even when the scheduled cron is broken — i.e. it "just works".
+const CORPUS_STALE_MINUTES = parseInt(process.env.CORPUS_STALE_MINUTES, 10) || 60;
+const CORPUS_REFRESH_COOLDOWN_MS = 10 * 60 * 1000; // at most one self-heal sweep / 10 min
+const NEWEST_AGE_CACHE_MS = 60 * 1000;             // cache newest-job age for 60s
+let _lastCorpusRefreshTrigger = 0;
+let _newestJobAgeCache = { value: null, at: 0 };
+
+async function getNewestJobAgeMinutes() {
+  const now = Date.now();
+  if (_newestJobAgeCache.value !== null && now - _newestJobAgeCache.at < NEWEST_AGE_CACHE_MS) {
+    return _newestJobAgeCache.value;
+  }
+  const [row] = await ExternalJob.sequelize.query(
+    `SELECT MAX(COALESCE("postedAt", "createdAt")) AS newest
+       FROM "ExternalJobs" WHERE "isActive" = true`,
+    { type: ExternalJob.sequelize.constructor.QueryTypes.SELECT }
+  );
+  const newest = row && row.newest ? new Date(row.newest).getTime() : null;
+  const ageMin = newest ? (now - newest) / 60000 : Infinity;
+  _newestJobAgeCache = { value: ageMin, at: now };
+  return ageMin;
+}
+
+/**
+ * Corpus-level staleness safety net. Fire-and-forget: never throws, never
+ * blocks the caller. Triggers a full background sweep if the freshest job in
+ * the corpus is older than CORPUS_STALE_MINUTES and the cooldown has elapsed.
+ */
+function ensureCorpusFresh() {
+  const now = Date.now();
+  // Cheap synchronous gates first.
+  if (_fullSyncInProgress) return;
+  if (now - _lastCorpusRefreshTrigger < CORPUS_REFRESH_COOLDOWN_MS) return;
+
+  getNewestJobAgeMinutes()
+    .then(ageMin => {
+      if (ageMin <= CORPUS_STALE_MINUTES) return;
+      // Re-check gates after the await.
+      if (_fullSyncInProgress) return;
+      if (Date.now() - _lastCorpusRefreshTrigger < CORPUS_REFRESH_COOLDOWN_MS) return;
+      _lastCorpusRefreshTrigger = Date.now();
+      console.warn(
+        `[ExternalJobs] Corpus is stale (newest job ${Number.isFinite(ageMin) ? ageMin.toFixed(0) + ' min' : 'never'} old > ${CORPUS_STALE_MINUTES} min) — triggering self-healing full sync.`
+      );
+      syncAllBoards()
+        .then(r => {
+          if (!r.skipped) {
+            // Bust the cached newest-job age so the next request sees fresh data.
+            _newestJobAgeCache = { value: null, at: 0 };
+            console.log('[ExternalJobs] Self-healing full sync complete.');
+          }
+        })
+        .catch(err => console.error('[ExternalJobs] Self-healing full sync failed:', err.message));
+    })
+    .catch(err => console.error('[ExternalJobs] ensureCorpusFresh error:', err.message));
+}
+
+
 /**
  * Fetch jobs from Greenhouse Job Board API (public, no auth required)
  * API: GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true
@@ -1491,6 +1568,7 @@ module.exports = {
   syncBoard,
   syncAllBoards,
   refreshIfStale,
+  ensureCorpusFresh,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };
