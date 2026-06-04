@@ -26,7 +26,9 @@ import {
   FormControl,
   InputLabel,
   LinearProgress,
-  Collapse
+  Collapse,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import WorkIcon from '@mui/icons-material/Work';
 import EventIcon from '@mui/icons-material/Event';
@@ -283,6 +285,8 @@ const getProfileSlug = (user, profile) => {
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user, loading: authLoading, isAuthenticated, isValidating } = useAuth();
   const authDebugEnabled =
     window.location.search.includes('authDebug=1') ||
@@ -338,6 +342,15 @@ const Dashboard = () => {
   const [gettingTips, setGettingTips] = useState(false);
   const [tips, setTips] = useState(null);
   const [showTipsDialog, setShowTipsDialog] = useState(false);
+
+  // Chrome extension promo dismissal (mobile only — extension is desktop-only)
+  const [extPromoDismissed, setExtPromoDismissed] = useState(
+    () => localStorage.getItem('profileai_ext_promo_dismissed') === '1'
+  );
+  const dismissExtPromo = () => {
+    setExtPromoDismissed(true);
+    try { localStorage.setItem('profileai_ext_promo_dismissed', '1'); } catch { /* ignore */ }
+  };
 
   // In-place Tailor state
   const [showTailorJobInput, setShowTailorJobInput] = useState(false);
@@ -1189,65 +1202,107 @@ const Dashboard = () => {
           <ProfileCompletionCard
             completion={completion}
             onItemClick={handleCompletionItemClick}
+            defaultOpen={false}
           />
         )}
 
-        {/* Chrome Extension promo — educate candidates on applying anywhere */}
-        <Card
-          sx={{
-            mb: 3,
-            borderRadius: 3,
-            background: 'linear-gradient(135deg,#1e1b3a 0%,#2a1d4d 100%)',
-            border: '1px solid rgba(124,58,237,0.35)',
-            overflow: 'hidden',
-          }}
-        >
-          <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap', p: { xs: 2.5, sm: 3 } }}>
-            <Box
+        {/* Chrome Extension promo — educate candidates on applying anywhere.
+            The extension only runs on desktop Chrome, so on mobile we show a
+            compact, dismissable note pointing users to a desktop browser. */}
+        {isMobile ? (
+          !extPromoDismissed && (
+            <Card
               sx={{
-                width: 52, height: 52, borderRadius: 2.5, flexShrink: 0,
-                background: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                mb: 3,
+                borderRadius: 2.5,
+                background: 'linear-gradient(135deg,#1e1b3a 0%,#2a1d4d 100%)',
+                border: '1px solid rgba(124,58,237,0.35)',
+                overflow: 'hidden',
               }}
             >
-              <ExtensionIcon sx={{ color: '#fff', fontSize: 28 }} />
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 220 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
-                <Typography sx={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>
-                  Apply to jobs anywhere with our Chrome extension
-                </Typography>
-                {!extensionConfig.isPublished && (
-                  <Chip label="Coming soon" size="small" sx={{ background: 'rgba(124,58,237,0.25)', color: '#c4b5fd', fontWeight: 600, height: 22 }} />
-                )}
-              </Box>
-              <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 14.5, lineHeight: 1.55 }}>
-                Autofill applications, draft AI answers to screening questions, and tailor your
-                resume on LinkedIn, Greenhouse, Workday, and any career page — without leaving the
-                job posting.
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0 }}>
-              {extensionConfig.isPublished && extensionConfig.storeUrl && (
-                <Button
-                  variant="contained"
-                  startIcon={<DownloadIcon />}
-                  onClick={() => window.open(extensionConfig.storeUrl, '_blank', 'noopener,noreferrer')}
-                  sx={{ background: 'linear-gradient(90deg,#7c3aed,#a78bfa)', fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}
+              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.75, '&:last-child': { pb: 1.75 } }}>
+                <Box
+                  sx={{
+                    width: 34, height: 34, borderRadius: 1.5, flexShrink: 0,
+                    background: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
                 >
-                  Add to Chrome
-                </Button>
-              )}
-              <Button
-                variant="outlined"
-                onClick={() => navigate('/extension')}
-                sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'none', whiteSpace: 'nowrap' }}
+                  <ExtensionIcon sx={{ color: '#fff', fontSize: 20 }} />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 13.5, color: '#fff', lineHeight: 1.3 }}>
+                    Get our Chrome extension on desktop
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 1.4 }}>
+                    Open ProfilleAI on a laptop or desktop to autofill applications and tailor your resume on any career page.
+                  </Typography>
+                </Box>
+                <IconButton
+                  size="small"
+                  aria-label="Dismiss"
+                  onClick={dismissExtPromo}
+                  sx={{ color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </CardContent>
+            </Card>
+          )
+        ) : (
+          <Card
+            sx={{
+              mb: 3,
+              borderRadius: 3,
+              background: 'linear-gradient(135deg,#1e1b3a 0%,#2a1d4d 100%)',
+              border: '1px solid rgba(124,58,237,0.35)',
+              overflow: 'hidden',
+            }}
+          >
+            <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2.5, flexWrap: 'wrap', p: { xs: 2.5, sm: 3 } }}>
+              <Box
+                sx={{
+                  width: 52, height: 52, borderRadius: 2.5, flexShrink: 0,
+                  background: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
               >
-                Learn more
-              </Button>
-            </Box>
-          </CardContent>
-        </Card>
+                <ExtensionIcon sx={{ color: '#fff', fontSize: 28 }} />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 220 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>
+                    Apply to jobs anywhere with our Chrome extension
+                  </Typography>
+                </Box>
+                <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 14.5, lineHeight: 1.55 }}>
+                  Autofill applications, draft AI answers to screening questions, and tailor your
+                  resume on LinkedIn, Greenhouse, Workday, and any career page — without leaving the
+                  job posting.
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0 }}>
+                {extensionConfig.isPublished && extensionConfig.storeUrl && (
+                  <Button
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => window.open(extensionConfig.storeUrl, '_blank', 'noopener,noreferrer')}
+                    sx={{ background: 'linear-gradient(90deg,#7c3aed,#a78bfa)', fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}
+                  >
+                    Add to Chrome
+                  </Button>
+                )}
+                <Button
+                  variant="outlined"
+                  onClick={() => navigate('/extension')}
+                  sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'none', whiteSpace: 'nowrap' }}
+                >
+                  Learn more
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        )}
 
 
         <AIToolsCard>
