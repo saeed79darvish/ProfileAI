@@ -11,6 +11,7 @@ import {
   AutoAwesome as AutoAwesomeIcon
 } from '@mui/icons-material';
 import { resumeAPI } from '../services/api';
+import PdfCanvasPreview from './PdfCanvasPreview';
 
 // === Config ===
 const TEMPLATE_OPTIONS = [
@@ -1556,12 +1557,21 @@ export default function ResumePreviewModal({
               <span>Generating preview...</span>
             </LoadingBox>
           ) : currentUrl ? (
-            <iframe
-              src={currentUrl.startsWith('blob:') || currentUrl.startsWith('data:') || /\.pdf(\?|$)/i.test(currentUrl)
-                ? `${currentUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
-                : currentUrl}
-              title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
-            />
+            isMobile ? (
+              // Mobile Safari/Chrome won't render a PDF data-URI in an <iframe>
+              // (shows blank), so rasterise the pages to <canvas> instead.
+              <PdfCanvasPreview
+                url={currentUrl}
+                title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
+              />
+            ) : (
+              <iframe
+                src={currentUrl.startsWith('blob:') || currentUrl.startsWith('data:') || /\.pdf(\?|$)/i.test(currentUrl)
+                  ? `${currentUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
+                  : currentUrl}
+                title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
+              />
+            )
           ) : (
             <LoadingBox><span>Preview not available</span></LoadingBox>
           )}
@@ -1787,7 +1797,7 @@ export default function ResumePreviewModal({
       maxWidth="lg"
       fullWidth
       fullScreen={isMobile}
-      PaperProps={{ style: { borderRadius: isMobile ? 0 : 16, overflow: 'hidden', height: isMobile ? '100vh' : '88vh', maxWidth: isMobile ? '100%' : 980 } }}
+      PaperProps={{ style: { borderRadius: isMobile ? 0 : 16, overflow: 'hidden', height: isMobile ? '100dvh' : '88vh', maxHeight: isMobile ? '100dvh' : '88vh', maxWidth: isMobile ? '100%' : 980, margin: isMobile ? 0 : undefined } }}
     >
       <ModalContainer>
         <Header>
