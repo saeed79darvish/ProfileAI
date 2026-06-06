@@ -119,6 +119,28 @@ async function up() {
     ON "ExternalJobs" USING gin ("skills" jsonb_path_ops);
   `);
 
+  // Normalize legacy/polluted employmentType values to the 5 canonical chip
+  // values (matches normalizeEmploymentType in externalJobService.js). Older
+  // ingests let raw ATS metadata through ("Regular", "Standard", "Remote",
+  // "Salary", "Pipeline", job titles, …), which made the Job Type chip
+  // exclude those jobs. Map known synonyms, NULL the rest. Idempotent: the
+  // WHERE clause skips already-canonical/NULL rows, so it's a no-op after the
+  // first boot. Small targeted UPDATE (~couple thousand rows).
+  await runStep('normalize employmentType', `
+    UPDATE "ExternalJobs"
+    SET "employmentType" = CASE
+      WHEN LOWER("employmentType") LIKE '%full%' AND LOWER("employmentType") LIKE '%time%' THEN 'full-time'
+      WHEN LOWER("employmentType") LIKE '%part%' AND LOWER("employmentType") LIKE '%time%' THEN 'part-time'
+      WHEN LOWER("employmentType") LIKE '%contract%' OR LOWER("employmentType") LIKE '%freelance%' OR LOWER("employmentType") LIKE '%contractor%' THEN 'contract'
+      WHEN LOWER("employmentType") LIKE '%intern%' THEN 'internship'
+      WHEN LOWER("employmentType") LIKE '%temp%' OR LOWER("employmentType") LIKE '%seasonal%' OR LOWER("employmentType") LIKE '%fixed term%' OR LOWER("employmentType") LIKE '%fixed-term%' THEN 'temporary'
+      WHEN LOWER(TRIM("employmentType")) IN ('regular','permanent','standard','employee','fte') THEN 'full-time'
+      ELSE NULL
+    END
+    WHERE "employmentType" IS NOT NULL
+      AND "employmentType" NOT IN ('full-time','part-time','contract','internship','temporary');
+  `);
+
   // Exact-equality chip filters.
   for (const col of ['locationType', 'employmentType', 'experienceLevel']) {
     await runStep(`b-tree ${col}`, `

@@ -20,7 +20,11 @@ const emailService = require('./emailService');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Only surface jobs that clear a minimum match so the email feels relevant.
-const MIN_RELEVANCE = 25;
+// Title is the dominant signal (see jobRelevanceService.scoreJob), so we set
+// a meaningful overall floor AND a hard title floor below — a job must be a
+// real role-type match, not just a keyword-overlap coincidence.
+const MIN_RELEVANCE = 50;
+const MIN_TITLE_MATCH = 12; // out of 45 — requires genuine role/title overlap
 const MAX_JOBS = 10;
 // How far back to pull the candidate pool from (days).
 const POOL_WINDOW_DAYS = 30;
@@ -171,7 +175,7 @@ async function buildMatchesForProfile(profile) {
   const profileSkills = extractProfileSkillSet(profile);
 
   const matches = ranked
-    .filter(j => (j.relevanceScore || 0) >= MIN_RELEVANCE)
+    .filter(j => (j.relevanceScore || 0) >= MIN_RELEVANCE && (j.titleMatch || 0) >= MIN_TITLE_MATCH)
     .slice(0, MAX_JOBS)
     .map(job => {
       const jobSkills = Array.isArray(job.skills)

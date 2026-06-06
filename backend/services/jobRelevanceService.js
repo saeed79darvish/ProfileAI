@@ -253,18 +253,26 @@ function scoreJob(job, profileData) {
     recencyBonus: 0,
   };
   
-  // --- 1. Title/Role Match (0-30 pts) ---
+  // --- 1. Title/Role Match (0-45 pts) — THE DOMINANT SIGNAL ---
+  // Title is intentionally the single most important factor: a job whose
+  // title matches the candidate's role is relevant even when the JD vocab
+  // doesn't surface every listed skill, and — crucially — a job with a
+  // mismatched title (e.g. a "Solutions Engineer" or "Designer" role for a
+  // "Frontend Engineer") must NOT rank highly just because it shares generic
+  // keywords like git/rest/api. Skills are the secondary signal below.
   const jobTitleTokens = tokenize(job.title);
   const jobTitleLower = (job.title || '').toLowerCase();
-  
-  // Compare with profile title
+
+  let titleScore = 0;
+
+  // Compare with profile title (0-22)
   if (profileTitle) {
     const profileTitleTokens = tokenize(profileTitle);
     const titleOverlap = profileTitleTokens.filter(t => jobTitleTokens.includes(t) || jobTitleLower.includes(t));
-    score += Math.min(15, (titleOverlap.length / Math.max(profileTitleTokens.length, 1)) * 15);
+    titleScore += Math.min(22, (titleOverlap.length / Math.max(profileTitleTokens.length, 1)) * 22);
   }
-  
-  // Compare with experience titles
+
+  // Compare with experience titles (0-23) — take the best-matching past role
   if (experienceTitles.length > 0) {
     let bestTitleMatch = 0;
     for (const expTitle of experienceTitles) {
@@ -273,11 +281,13 @@ function scoreJob(job, profileData) {
       const matchRatio = overlap.length / Math.max(expTokens.length, 1);
       bestTitleMatch = Math.max(bestTitleMatch, matchRatio);
     }
-    score += bestTitleMatch * 15;
+    titleScore += bestTitleMatch * 23;
   }
-  matchDetails.titleMatch = Math.round(Math.min(30, score));
-  
-  // --- 2. Skills Match (0-35 pts) ---
+  titleScore = Math.min(45, titleScore);
+  score += titleScore;
+  matchDetails.titleMatch = Math.round(titleScore);
+
+  // --- 2. Skills Match (0-30 pts) — secondary to title ---
   const jobText = [
     job.title || '',
     job.description || '',
@@ -297,10 +307,10 @@ function scoreJob(job, profileData) {
     // Calibrate to a "reasonable" core-skill count so skill-rich profiles
     // (which mine 30+ skills from their experience) aren't unfairly penalised.
     // A job description that mentions 6+ of the candidate's skills is a strong
-    // skills match and should clear the full 35 pts.
+    // skills match and should clear the full skills allotment.
     const denom = Math.min(candidateSkills.length, 6);
     const matchRatio = Math.min(1, matchDetails.matchedSkills.length / denom);
-    skillScore = Math.min(35, matchRatio * 35);
+    skillScore = Math.min(30, matchRatio * 30);
   }
 
   // Extract job-required skills that are missing from the profile
@@ -323,7 +333,7 @@ function scoreJob(job, profileData) {
   // cap around 70-75% and never clear realistic thresholds. We only
   // award this when both signals are strong, so it can't lift weak
   // matches.
-  if (matchDetails.titleMatch >= 20 && matchDetails.locationMatch >= 12) {
+  if (matchDetails.titleMatch >= 28 && matchDetails.locationMatch >= 12) {
     matchDetails.synergyBonus = 10;
     score += 10;
   } else {
@@ -369,7 +379,26 @@ function scoreJob(job, profileData) {
     score += matchDetails.recencyBonus;
   }
 
-  const finalScore = Math.round(Math.min(100, Math.max(0, score)));
+  // --- Title relevance gate ---
+  // Title is the dominant signal, so a job with essentially NO title/role
+  // overlap with the candidate must not rank as a strong match purely on
+  // shared generic keywords (git, rest, api, etc.). When the title barely
+  // matches, cap the ceiling so these roles fall below realistic relevance
+  // thresholds (and out of the daily digest / top of search) instead of
+  // landing in the 80s off skill keyword spam alone.
+  let gatedScore = score;
+  const haveTitleSignal = !!profileTitle || (experienceTitles && experienceTitles.length > 0);
+  if (haveTitleSignal) {
+    if (matchDetails.titleMatch <= 4) {
+      // No meaningful role-type overlap → hard cap.
+      gatedScore = Math.min(gatedScore, 38);
+    } else if (matchDetails.titleMatch <= 10) {
+      // Weak/partial role overlap → moderate cap.
+      gatedScore = Math.min(gatedScore, 62);
+    }
+  }
+
+  const finalScore = Math.round(Math.min(100, Math.max(0, gatedScore)));
 
   // Separate ranking score that multiplies match by a recency factor so
   // fresh-and-relevant jobs sort above stale-but-relevant. Mirrors the SQL
@@ -419,6 +448,10 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
       // WHY this job ranked highly. matchDetails.matchedSkills is the
       // intersection of profile skills × job text/skills.
       matchedSkills: Array.isArray(matchDetails?.matchedSkills) ? matchDetails.matchedSkills : [],
+      // Title/role overlap component (0-45). Exposed so callers (e.g. the
+      // daily digest) can enforce a hard title floor — title is the primary
+      // relevance signal.
+      titleMatch: matchDetails?.titleMatch || 0,
       // Recency-weighted rank score used for ordering only — not exposed to
       // the UI. Keeps relevanceScore meaning "% profile match" while the
       // top of the list still favors fresh content.
