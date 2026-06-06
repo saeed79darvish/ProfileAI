@@ -697,20 +697,18 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   //   - user said "$200k+"  → salaryMin=200000  → job.salaryMax >= 200000
   //   - user said "≤ $250k" → salaryMax=250000  → job.salaryMin <= 250000
   //
-  // Strict NULL policy: jobs that don't list a salary are *excluded*
-  // from a salary-filtered result set. Lenient ("include unlisted")
-  // would silently inflate counts and let through low-paying roles the
-  // candidate is explicitly trying to filter out, which destroys trust
-  // in the count badge. If we ever change this, change it in BOTH this
-  // service AND routes/externalJobs.js so the count + result queries
-  // never diverge.
+  // LENIENT NULL policy: only ~1.5% of the corpus lists a salary, so
+  // *excluding* unlisted-salary jobs emptied almost every salary-filtered
+  // result set. We instead INCLUDE jobs with no listed salary (NULL passes
+  // the band test). Keep this in sync with routes/externalJobs.js so the
+  // count + result queries never diverge.
   if (salaryMin != null && !Number.isNaN(Number(salaryMin))) {
-    conditions.push(`ej."salaryMax" IS NOT NULL AND ej."salaryMax" >= $${bindIndex}`);
+    conditions.push(`(ej."salaryMax" IS NULL OR ej."salaryMax" >= $${bindIndex})`);
     binds.push(parseInt(salaryMin, 10));
     bindIndex++;
   }
   if (salaryMax != null && !Number.isNaN(Number(salaryMax))) {
-    conditions.push(`ej."salaryMin" IS NOT NULL AND ej."salaryMin" <= $${bindIndex}`);
+    conditions.push(`(ej."salaryMin" IS NULL OR ej."salaryMin" <= $${bindIndex})`);
     binds.push(parseInt(salaryMax, 10));
     bindIndex++;
   }

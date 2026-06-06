@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { ExternalJob, ATSBoard, Profile, Company, SavedJob } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
 const { Op, literal } = require('sequelize');
 const { refreshIfStale, ensureCorpusFresh } = require('../services/externalJobService');
 const { rankJobs } = require('../services/jobRelevanceService');
@@ -163,9 +164,10 @@ function getCountersSnapshot() {
  * @route   GET /api/external-jobs
  * @desc    Get all active external jobs with search/filter/pagination.
  *          When sort=relevance, ranks jobs by candidate profile match.
- * @access  Private (candidates)
+ * @access  Public (anonymous visitors get recency-sorted results;
+ *          logged-in candidates additionally get profile-based ranking).
  */
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   // Per-stage timing for prod log triage. The user reported a 15s wait on
   // a default /external-jobs request; without breakdown timings we can't
   // tell whether it was the profile fetch, the ANN+rank SELECT, the
@@ -190,7 +192,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // every successful sync via cache.invalidatePrefix('external_jobs:').
     // 90s is long enough to coalesce a "navigate away + back" flow,
     // short enough that fresh-paged users see new jobs quickly.
-    const cacheKey = buildJobsListCacheKey(req.user.id, req.query);
+    const cacheKey = buildJobsListCacheKey(req.user?.id || 'anon', req.query);
     const cached = cache.get(cacheKey);
     if (cached) {
       bumpCounter('listCacheHits');
@@ -399,12 +401,24 @@ router.get('/', authMiddleware, async (req, res) => {
       where.experienceLevel = experienceLevel;
     }
 
+    // Salary band filter — LENIENT NULL policy. Only ~1.5% of the corpus
+    // lists a salary (greenhouse/ashby/lever rarely expose structured pay),
+    // so excluding unlisted-salary jobs emptied the result set for almost
+    // any band. We instead include jobs that match the band OR have no
+    // listed salary. Keep this in sync with the semantic path in
+    // jobEmbeddingService.searchSimilarJobs (same OR-NULL policy).
     if (salaryMin) {
-      where.salaryMax = { [Op.gte]: parseInt(salaryMin) };
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: [{ salaryMax: null }, { salaryMax: { [Op.gte]: parseInt(salaryMin) } }] }
+      ];
     }
 
     if (salaryMax) {
-      where.salaryMin = { [Op.lte]: parseInt(salaryMax) };
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: [{ salaryMin: null }, { salaryMin: { [Op.lte]: parseInt(salaryMax) } }] }
+      ];
     }
 
     if (company) {
@@ -434,8 +448,13 @@ router.get('/', authMiddleware, async (req, res) => {
     //   'recent'                — pure date, match only as tiebreaker.
     // For 'recommended' and 'match' we still need the profile + embedding to
     // compute match scores; only 'recent' bypasses ranking entirely.
+    //
+    // Anonymous visitors have no profile to rank against, so they always get
+    // the pure-recency path below regardless of the requested sort mode —
+    // this keeps the jobs page public (no login required to browse) while
+    // reserving profile-based ranking for signed-in candidates.
     const sortMode = normalizeSortMode(sort);
-    if (sortMode !== 'recent') {
+    if (sortMode !== 'recent' && req.user?.id) {
       // Cached read: skips the Profile.findOne pgvector fetch on hot path.
       // Returns { profileId, profileEmbedding, skillSet } or null.
       // See loadProfileForJobsRanking() in jobEmbeddingService for cache
@@ -642,9 +661,9 @@ router.get('/', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/external-jobs/stats
  * @desc    Get external jobs statistics
- * @access  Private
+ * @access  Public
  */
-router.get('/stats', authMiddleware, async (req, res) => {
+router.get('/stats', optionalAuth, async (req, res) => {
   try {
     const totalJobs = await ExternalJob.count({ where: { isActive: true } });
 
@@ -692,13 +711,13 @@ router.get('/stats', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/external-jobs/companies
  * @desc    Get list of companies with job counts
- * @access  Private
+ * @access  Public
  *
  * Cached in-memory for 10 minutes — the underlying aggregation only changes
  * when the cron sync runs, and several thousand DB rows shouldn't be
  * counted on every page load.
  */
-router.get('/companies', authMiddleware, async (req, res) => {
+router.get('/companies', optionalAuth, async (req, res) => {
   try {
     const cacheKey = 'external_jobs:companies';
     let companies = cache.get(cacheKey);
@@ -728,9 +747,9 @@ router.get('/companies', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/external-jobs/departments
  * @desc    Get list of unique departments with job counts
- * @access  Private
+ * @access  Public
  */
-router.get('/departments', authMiddleware, async (req, res) => {
+router.get('/departments', optionalAuth, async (req, res) => {
   try {
     const cacheKey = 'external_jobs:departments';
     let departments = cache.get(cacheKey);
@@ -761,9 +780,9 @@ router.get('/departments', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/external-jobs/locations
  * @desc    Get list of unique locations (cities) with job counts
- * @access  Private
+ * @access  Public
  */
-router.get('/locations', authMiddleware, async (req, res) => {
+router.get('/locations', optionalAuth, async (req, res) => {
   try {
     const cacheKey = 'external_jobs:locations';
     let locations = cache.get(cacheKey);
@@ -798,11 +817,11 @@ router.get('/locations', authMiddleware, async (req, res) => {
  *          typeahead in the candidate jobs page skill filter.
  *          Optional ?q= filter for typeahead substring match.
  *          Optional ?limit= (default 100, max 300).
- * @access  Private
+ * @access  Public
  *
  * NOTE: This route MUST be declared BEFORE the /:id route.
  */
-router.get('/skills', authMiddleware, async (req, res) => {
+router.get('/skills', optionalAuth, async (req, res) => {
   try {
     const q = (req.query.q || '').toString().trim().toLowerCase();
     const limit = Math.min(parseInt(req.query.limit, 10) || 100, 300);
@@ -1260,9 +1279,9 @@ router.delete('/:id/save', authMiddleware, async (req, res) => {
 /**
  * @route   GET /api/external-jobs/:id
  * @desc    Get a single external job with full details
- * @access  Private
+ * @access  Public
  */
-router.get('/:id', authMiddleware, async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const job = await ExternalJob.findByPk(req.params.id, {
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
