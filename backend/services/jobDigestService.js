@@ -239,8 +239,8 @@ function renderJobCard(job) {
     `<span style="display:inline-block;background:#FEF2F2;color:#B91C1C;border-radius:999px;padding:3px 10px;font-size:12px;margin:2px 4px 2px 0;">&#10005; ${escapeHtml(k)}</span>`
   ).join('');
 
-  const tailorUrl = `${FRONTEND_URL}/jobs/${encodeURIComponent(job.id)}?tailor=1&utm_source=daily_digest`;
-  const viewUrl = `${FRONTEND_URL}/jobs/${encodeURIComponent(job.id)}?utm_source=daily_digest`;
+  const tailorUrl = `${FRONTEND_URL}/jobs?externalJobId=${encodeURIComponent(job.id)}&tailor=1&utm_source=daily_digest`;
+  const viewUrl = `${FRONTEND_URL}/jobs?externalJobId=${encodeURIComponent(job.id)}&utm_source=daily_digest`;
 
   return `
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:12px;margin:0 0 16px 0;">
@@ -408,7 +408,7 @@ function renderDigestText({ user, matches, jobsScanned }) {
     lines.push(`${i + 1}. ${j.title} — ${j.company}${j.location ? ` (${j.location})` : ''}`);
     lines.push(`   Match now: ${j.nowScore}% → after tailoring: ${j.tailoredScore}%`);
     if (j.missing.length) lines.push(`   Missing keywords: ${j.missing.join(', ')}`);
-    lines.push(`   Tailor & apply: ${FRONTEND_URL}/jobs/${j.id}?tailor=1`);
+    lines.push(`   Tailor & apply: ${FRONTEND_URL}/jobs?externalJobId=${j.id}&tailor=1`);
     lines.push('');
   });
   lines.push(`View all matches: ${FRONTEND_URL}/jobs`);

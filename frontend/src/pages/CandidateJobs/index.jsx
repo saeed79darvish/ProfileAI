@@ -1015,15 +1015,29 @@ const CandidateJobs = () => {
   const externalJobIdParam = searchParams.get('externalJobId');
   useEffect(() => {
     if (!externalJobIdParam) return;
+    // When the deep link asks to tailor straight away (e.g. from the daily
+    // job-match digest email: /jobs?externalJobId=…&tailor=1), capture the
+    // flag now so we can fire the tailor action once the job is selected and
+    // the InlineJobAITools panel has mounted.
+    const wantTailor = searchParams.get('tailor') === '1';
     externalJobAPI.getById(externalJobIdParam).then(response => {
       const job = { ...response.data, _isExternal: true };
       pinnedJobRef.current = job;
       setSelectedJob(job);
       setActiveTab('external');
       setExternalJobs(prev => [job, ...prev.filter(j => j.id !== job.id)]);
+      if (wantTailor) {
+        // Give InlineJobAITools time to mount with the selected job before
+        // dispatching — mirrors the 500ms delay used by the match dialog's
+        // "Tailor Resume" button above.
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: job.id } }));
+        }, 600);
+      }
     }).catch(() => {});
     const newParams = new URLSearchParams(searchParams);
     newParams.delete('externalJobId');
+    newParams.delete('tailor');
     setSearchParams(newParams, { replace: true });
   }, [externalJobIdParam]);
 
