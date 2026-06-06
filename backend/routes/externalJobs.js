@@ -283,8 +283,10 @@ router.get('/', optionalAuth, async (req, res) => {
     // Startup filter. We don't have a single canonical "is this a startup"
     // flag, so we OR together the strongest signals we have:
     //   - source in startup-leaning boards (HN, Lever, Ashby, WeWorkRemotely,
-    //     RemoteOK, TheirStack) — these skew heavily toward startups; the
-    //     bulk of enterprise listings come through Greenhouse / Amazon / jsearch.
+    //     RemoteOK, TheirStack, Greenhouse) — these skew toward startups /
+    //     scale-ups. Greenhouse hosts the bulk of the corpus (incl. many real
+    //     startups like Linear/Vercel), so excluding it dropped ~80% of fresh
+    //     jobs from the filter; the big-co deny-list below is the guardrail.
     //   - companyInfo.employeeCount < 500 (small co), OR
     //   - companyInfo.employeeRange in early-bucket (1-10 / 11-50 / 51-200 / 201-500), OR
     //   - companyInfo.fundingStage in early-stage values.
@@ -302,7 +304,7 @@ router.get('/', optionalAuth, async (req, res) => {
       where[Op.and] = [
         ...(where[Op.and] || []),
         literal(`(
-          "ExternalJob"."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack')
+          "ExternalJob"."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack','greenhouse')
           OR EXISTS (
             SELECT 1 FROM "Companies" c
             WHERE c.id = "ExternalJob"."companyId"

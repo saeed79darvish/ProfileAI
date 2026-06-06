@@ -648,7 +648,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
   // Startup filter (mirrors routes/externalJobs.js logic). True when:
   //   - source is one of the startup-leaning boards (HN, Lever, Ashby,
-  //     WeWorkRemotely, RemoteOK, TheirStack), OR
+  //     WeWorkRemotely, RemoteOK, TheirStack, Greenhouse), OR
   //   - linked Company has employeeCount < 500, OR
   //   - linked Company employeeRange is small (1-10 / 11-50 / 51-200 / 201-500), OR
   //   - linked Company has early-stage funding.
@@ -661,7 +661,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   //     (which would also let through unicorns the deny-list misses).
   if (startup) {
     conditions.push(`(
-      ej."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack')
+      ej."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack','greenhouse')
       OR EXISTS (
         SELECT 1 FROM "Companies" c
         WHERE c.id = ej."companyId"
