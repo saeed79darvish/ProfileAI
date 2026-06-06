@@ -3,6 +3,7 @@ const router = express.Router();
 const { ExternalJob, ATSBoard, Profile, Company, SavedJob } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
+const requireVerifiedEmail = require('../middleware/requireVerifiedEmail');
 const { Op, literal } = require('sequelize');
 const { refreshIfStale, ensureCorpusFresh } = require('../services/externalJobService');
 const { rankJobs } = require('../services/jobRelevanceService');
@@ -879,7 +880,7 @@ router.get('/skills', optionalAuth, async (req, res) => {
  *
  * NOTE: This route MUST be declared BEFORE the /:id route.
  */
-router.get('/health', authMiddleware, async (req, res) => {
+router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
@@ -979,7 +980,7 @@ router.get('/health', authMiddleware, async (req, res) => {
  *
  * NOTE: This route MUST be declared BEFORE the /:id route.
  */
-router.get('/recommended', authMiddleware, async (req, res) => {
+router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 8, 20);
 
@@ -1161,7 +1162,7 @@ function toTitleCase(s) {
  * NOTE: This route MUST be declared BEFORE the /:id route, otherwise
  * Express would match "saved" as the :id parameter.
  */
-router.get('/saved', authMiddleware, async (req, res) => {
+router.get('/saved', authMiddleware, requireVerifiedEmail, async (req, res) => {
   try {
     const saves = await SavedJob.findAll({
       where: { userId: req.user.id, externalJobId: { [Op.ne]: null } },
@@ -1192,7 +1193,7 @@ router.get('/saved', authMiddleware, async (req, res) => {
  *          by the current user. Mirrors the platform /jobs/check-saved API.
  * @access  Private (Candidate)
  */
-router.post('/check-saved', authMiddleware, async (req, res) => {
+router.post('/check-saved', authMiddleware, requireVerifiedEmail, async (req, res) => {
   try {
     const { externalJobIds } = req.body;
     if (!externalJobIds || !Array.isArray(externalJobIds)) {
@@ -1222,7 +1223,7 @@ router.post('/check-saved', authMiddleware, async (req, res) => {
  * @desc    Save an external job for the current user
  * @access  Private (Candidate)
  */
-router.post('/:id/save', authMiddleware, async (req, res) => {
+router.post('/:id/save', authMiddleware, requireVerifiedEmail, async (req, res) => {
   try {
     const externalJobId = req.params.id;
 

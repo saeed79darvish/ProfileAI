@@ -260,10 +260,12 @@ if (featureFlags.recruiterSurface) {
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/credit-packs', creditPackRoutes);
 app.use('/api/external-applications', externalApplicationRoutes);
-// All /api/external-jobs handlers already require auth; layering the
-// verified-email gate at the mount point blocks unverified callers from
-// the candidate job-discovery surface.
-app.use('/api/external-jobs', authMiddleware, requireVerifiedEmail, externalJobRoutes);
+// The candidate job-discovery surface is intentionally PUBLIC so logged-out
+// visitors can browse jobs (acquisition funnel). Auth is applied per-route
+// inside the router: read/browse endpoints use optionalAuth, while
+// user-specific endpoints (/saved, /recommended, /:id/save, /check-saved,
+// /health) declare authMiddleware + requireVerifiedEmail themselves.
+app.use('/api/external-jobs', externalJobRoutes);
 app.use('/api/harvest', harvestRoutes);
 app.use('/api/admin', adminRoutes);
 
