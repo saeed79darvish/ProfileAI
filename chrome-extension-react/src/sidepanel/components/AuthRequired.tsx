@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { CONFIG } from '../../config';
+import { useWebSignIn } from './useWebSignIn';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface AuthRequiredProps {
   onAuthSync?: () => void;
+  /** Which tab to open on first render. */
+  initialTab?: AuthTab;
+  /** When provided, shows a back arrow that returns to the intro screen. */
+  onBack?: () => void;
 }
 
 type AuthTab = 'signin' | 'create';
 
-export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync }) => {
-  const [activeTab, setActiveTab] = useState<AuthTab>('signin');
+export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialTab = 'signin', onBack }) => {
+  const [activeTab, setActiveTab] = useState<AuthTab>(initialTab);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -63,6 +68,15 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync }) => {
 
   return (
     <div className="auth-required-container">
+      {onBack && (
+        <button type="button" className="auth-back" onClick={onBack}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+      )}
       {/* Logo */}
       <div className="auth-logo-mark">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -79,6 +93,15 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync }) => {
       </div>
 
       <h2 className="auth-title">Welcome Back</h2>
+
+      {/* Recommended path: sign in on ProfilleAI (supports Google + keeps the
+          web app and extension in sync for the full experience). */}
+      <GoogleSignInButton
+        onAuthSync={onAuthSync}
+        hint="Recommended — signs you in on ProfilleAI for the best experience, then syncs back here."
+      />
+
+      <div className="auth-divider"><span>or use email</span></div>
 
       {/* Tabs */}
       <div className="auth-tabs">

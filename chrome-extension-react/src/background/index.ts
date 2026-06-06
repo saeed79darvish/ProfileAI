@@ -7,6 +7,19 @@ let authToken: string | null = null;
 let currentUser: User | null = null;
 let cachedProfile: FullProfile | null = null;
 
+// Tracks an in-progress "sign in on the web app" flow started from the side
+// panel, so once auth syncs back we can close the login tab and return the
+// user to the job page they came from (with the panel still open).
+let pendingExtensionLogin: {
+  originTabId?: number;
+  originWindowId?: number;
+  loginTabId?: number;
+  /** When the sign-in flow started. We only accept an auth blob the web app
+   *  wrote AFTER this moment, so a stale prior session can't sync the wrong
+   *  user before the real login completes. */
+  startedAt: number;
+} | null = null;
+
 // Initialize on install/update
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('[ProfileAI] Extension installed/updated');
@@ -170,6 +183,27 @@ async function handleMessage(
         chrome.tabs.create({ url });
         sendResponse({ success: true });
         break;
+
+      case 'OPEN_WEB_LOGIN': {
+        // Sign-in started from the side panel. Remember the job page the user
+        // came from so we can return them there once they finish authenticating.
+        const { url: loginUrl } = message.data as { url: string };
+        try {
+          const [originTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          const loginTab = await chrome.tabs.create({ url: loginUrl });
+          pendingExtensionLogin = {
+            originTabId: originTab?.id,
+            originWindowId: originTab?.windowId,
+            loginTabId: loginTab?.id,
+            startedAt: Date.now(),
+          };
+        } catch (_) {
+          pendingExtensionLogin = null;
+          try { chrome.tabs.create({ url: loginUrl }); } catch (__) {}
+        }
+        sendResponse({ success: true });
+        break;
+      }
 
       case 'CLOSE_CURRENT_TAB':
         if (sender.tab?.id) {
@@ -494,6 +528,11 @@ async function handleMessage(
       case 'SYNC_AUTH_FROM_WEB':
         // Try to get auth from the web app
         await syncAuthFromWebApp();
+        // If this sync completed a panel-initiated web sign-in, close the login
+        // tab and return the user to the job page they started from.
+        if (authToken && pendingExtensionLogin) {
+          await finishExtensionLoginRedirect();
+        }
         sendResponse({ 
           isAuthenticated: !!authToken,
           token: authToken,
@@ -673,11 +712,38 @@ async function handleMessage(
   }
 }
 
+// After a panel-initiated web sign-in completes, close the login tab and bring
+// the user back to the job page they came from. The side panel is per-window
+// and stays open, so it simply updates to the signed-in state.
+async function finishExtensionLoginRedirect(): Promise<void> {
+  const pending = pendingExtensionLogin;
+  pendingExtensionLogin = null;
+  if (!pending) return;
+  try {
+    if (pending.loginTabId != null) {
+      try { await chrome.tabs.remove(pending.loginTabId); } catch (_) {}
+    }
+    if (pending.originTabId != null) {
+      try { await chrome.tabs.update(pending.originTabId, { active: true }); } catch (_) {}
+    }
+    if (pending.originWindowId != null) {
+      try { await chrome.windows.update(pending.originWindowId, { focused: true }); } catch (_) {}
+    }
+  } catch (_) {
+    /* best-effort — never block the auth flow on tab housekeeping */
+  }
+}
+
 // Sync auth from web app by checking localStorage in web app tabs
 async function syncAuthFromWebApp(): Promise<boolean> {
   if (authToken) return true; // Already authenticated
   
   console.log('[ProfileAI] Attempting to sync auth from web app...');
+  
+  // If a panel-initiated sign-in is in progress, only accept an auth blob the
+  // web app wrote AFTER the flow started (via the extension bridge). This stops
+  // a stale prior session from syncing the wrong user before the real login.
+  const requireFreshSince = pendingExtensionLogin?.startedAt ?? null;
   
   try {
     // Try multiple approaches:
@@ -703,25 +769,29 @@ async function syncAuthFromWebApp(): Promise<boolean> {
       try {
         console.log(`[ProfileAI] Trying tab ${tab.id}: ${tab.url}`);
         
-        // Execute script to get localStorage values
+        // Execute script to get localStorage values. When a panel sign-in is in
+        // progress we read the bridge blob (which carries a timestamp) so we can
+        // tell a fresh login apart from a stale pre-existing session.
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: () => {
             try {
               const token = localStorage.getItem('token');
               const userStr = localStorage.getItem('user');
-              console.log('[ProfileAI Injected] Reading localStorage:', { 
-                hasToken: !!token, 
-                hasUser: !!userStr,
-                tokenPreview: token ? token.substring(0, 20) + '...' : null
-              });
-              return { 
-                token, 
-                user: userStr ? JSON.parse(userStr) : null 
+              let bridge: { token?: string; user?: any; timestamp?: number } | null = null;
+              try {
+                const raw = localStorage.getItem('profileai_extension_auth');
+                if (raw) bridge = JSON.parse(raw);
+              } catch (_) { /* ignore */ }
+              return {
+                token,
+                user: userStr ? JSON.parse(userStr) : null,
+                bridgeToken: bridge?.token ?? null,
+                bridgeUser: bridge?.user ?? null,
+                bridgeTimestamp: bridge?.timestamp ?? null,
               };
             } catch (e) {
-              console.error('[ProfileAI Injected] Error:', e);
-              return { token: null, user: null, error: String(e) };
+              return { token: null, user: null, bridgeToken: null, bridgeUser: null, bridgeTimestamp: null, error: String(e) };
             }
           },
         });
@@ -730,8 +800,27 @@ async function syncAuthFromWebApp(): Promise<boolean> {
         console.log('[ProfileAI] Script result:', { 
           hasToken: !!result?.token, 
           hasUser: !!result?.user,
-          error: result?.error 
+          bridgeTimestamp: result?.bridgeTimestamp,
+          error: (result as any)?.error 
         });
+        
+        if (requireFreshSince != null) {
+          // Panel-initiated flow: only trust a bridge blob written after we
+          // started (i.e. an action the user just took on the login page).
+          if (
+            result?.bridgeToken &&
+            result?.bridgeUser &&
+            typeof result.bridgeTimestamp === 'number' &&
+            result.bridgeTimestamp >= requireFreshSince
+          ) {
+            await handleLogin(result.bridgeToken, result.bridgeUser);
+            console.log('[ProfileAI] ✓ Synced fresh auth from web sign-in');
+            return true;
+          }
+          // Otherwise keep waiting — don't fall back to the raw token, which may
+          // belong to a stale prior session.
+          continue;
+        }
         
         if (result?.token && result?.user) {
           await handleLogin(result.token, result.user);
@@ -796,6 +885,10 @@ async function loadAuthFromStorage() {
 async function handleLogin(token: string, user: User) {
   authToken = token;
   currentUser = user;
+  // Drop any profile cached for a previous account so we never show stale data
+  // for the newly signed-in user while the fresh profile loads.
+  cachedProfile = null;
+  await chrome.storage.local.remove('profile');
   await chrome.storage.local.set({ authToken: token, user });
   
   // Fetch and cache profile
@@ -1762,7 +1855,23 @@ async function fetchProfile(): Promise<FullProfile | null> {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch profile');
+      // Expired/invalid token: clear auth so the panel shows the signed-out
+      // state instead of repeatedly throwing a generic "Failed to fetch" error.
+      if (response.status === 401 || response.status === 403) {
+        console.warn('[ProfileAI] Profile fetch unauthorized — clearing stale session');
+        await handleLogout();
+        return null;
+      }
+      // 404 = this account simply has no candidate profile yet (e.g. a brand
+      // new user or a recruiter). That's a valid state, not an error — return
+      // null quietly without clearing auth or spamming the console.
+      if (response.status === 404) {
+        console.log('[ProfileAI] No profile yet for this account (404)');
+        cachedProfile = null;
+        await chrome.storage.local.remove('profile');
+        return null;
+      }
+      throw new Error(`Failed to fetch profile (HTTP ${response.status})`);
     }
 
     const data = await response.json();

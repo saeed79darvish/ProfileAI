@@ -56,6 +56,10 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [fromExtension] = useState(isFromExtension());
+  // When opened from the extension with a session already present, don't auto-
+  // sync it (that's how the wrong/stale account leaked into the extension).
+  // Instead prompt the user to confirm the account or switch.
+  const [extAccountPrompt, setExtAccountPrompt] = useState(false);
   const existingToken = localStorage.getItem(STORAGE_KEY_TOKEN);
   const authDebugEnabled =
     window.location.search.includes('authDebug=1') ||
@@ -82,16 +86,10 @@ const Login = () => {
       hasProfile: user?.hasProfile
     });
     if (user && existingToken && fromExtension) {
-      const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const extensionDest = user?.emailVerified === false
-        ? ROUTES.CHECK_EMAIL
-        : (redirectTarget || roleDest);
-      authDebug('extension auto-redirect', { extensionDest, roleDest });
-      handleExtensionAuthSuccess(
-        existingToken, user, navigate,
-        extensionDest,
-        false
-      );
+      // Don't silently sync a pre-existing session to the extension — the user
+      // may have intended to sign in as a different account. Show a confirm UI.
+      authDebug('extension existing session — prompting for account confirmation');
+      setExtAccountPrompt(true);
       return;
     }
     if (user && !fromExtension) {
@@ -177,6 +175,25 @@ const Login = () => {
     }
   };
 
+  // Confirm signing into the extension as the already-logged-in account.
+  const continueAsExisting = () => {
+    const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
+    const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+    handleExtensionAuthSuccess(existingToken, user, navigate, dest, false);
+  };
+
+  // Drop the current session so the user can sign in as a different account.
+  const useDifferentAccount = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY_TOKEN);
+      localStorage.removeItem('user');
+      localStorage.removeItem('profileai_extension_auth');
+    } catch (_) { /* ignore */ }
+    setToken?.(null);
+    setUser?.(null);
+    setExtAccountPrompt(false);
+  };
+
   // --- Render ---
   return (
     <AuthLayout>
@@ -191,6 +208,43 @@ const Login = () => {
         <Alert severity="error" sx={alertSx}>
           {error}
         </Alert>
+      )}
+
+      {extAccountPrompt && user && (
+        <Box
+          sx={{
+            mb: 2,
+            p: 2,
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'action.hover',
+          }}
+        >
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            You're already signed in as{' '}
+            <strong>
+              {[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email}
+            </strong>
+            . Continue with this account in the extension?
+          </Typography>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={continueAsExisting}
+            sx={{ mb: 1, textTransform: 'none' }}
+          >
+            Continue as {user.firstName || user.email}
+          </Button>
+          <Button
+            fullWidth
+            variant="text"
+            onClick={useDifferentAccount}
+            sx={{ textTransform: 'none' }}
+          >
+            Use a different account
+          </Button>
+        </Box>
       )}
 
       {/* Social buttons */}

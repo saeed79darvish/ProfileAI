@@ -946,6 +946,9 @@ function injectStyles() {
       display: flex;
       align-items: center;
       gap: 14px;
+      box-sizing: border-box;
+      width: 100%;
+      flex: 1 1 100%;
       background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
       border: 1px solid #ddd6fe;
       border-radius: 12px;
@@ -1419,6 +1422,20 @@ let inlineBannerState: {
 } = { analyzing: false, tailoring: false, score: null, present: [], missing: [] };
 
 function injectLinkedInBanner() {
+  // ── Disabled ──────────────────────────────────────────────────────────
+  // We no longer inject any UI directly into LinkedIn's page (the inline
+  // "Resume Match" banner or the "ProfileAI" top button). Overlaying content
+  // on LinkedIn is the part of their User Agreement (§8.2) we'd rather not
+  // lean on, and it broke whenever LinkedIn renamed its DOM. Analyze/Tailor
+  // now live entirely in our own surfaces (the floating button + side panel),
+  // which still read the single job posting the user is actively viewing.
+  //
+  // Defensively remove any stale injected nodes from older builds.
+  document.getElementById('profileai-inline-banner')?.remove();
+  document.getElementById('profileai-li-topbtn')?.remove();
+}
+
+function _deprecated_injectLinkedInBanner() {
   // Don't duplicate
   if (document.getElementById('profileai-inline-banner')) return;
   if (document.getElementById('profileai-li-topbtn')) return;
@@ -1573,28 +1590,54 @@ function doInjectMatchBanner(jobArea: HTMLElement) {
     </div>
   `;
 
-  // Find the best insertion point:
-  // 1) Right after Simplify's banner (if present)
+  // Find the best insertion point. LinkedIn churns its class names often, so we
+  // anchor by structure/text first and only fall back to class selectors.
+  //
+  // A "good" anchor is a wide, block-level element in the main job column. We
+  // insert the banner as its next sibling so it spans the full column width.
+  const insertAfter = (anchor: Element | null | undefined): boolean => {
+    if (!anchor || !anchor.parentElement) return false;
+    anchor.parentElement.insertBefore(banner, anchor.nextSibling);
+    return true;
+  };
+  const insertBeforeEl = (anchor: Element | null | undefined): boolean => {
+    if (!anchor || !anchor.parentElement) return false;
+    anchor.parentElement.insertBefore(banner, anchor);
+    return true;
+  };
+
+  // 1) Right after Simplify's banner (if present) — keep extensions grouped.
   const simplifyBanner = document.querySelector('[class*="simplify-banner"], [class*="simplify-jobs-shadow-root"], .simplify-banner');
-  if (simplifyBanner) {
-    simplifyBanner.parentElement?.insertBefore(banner, simplifyBanner.nextSibling);
+
+  // 2) After LinkedIn's "Use AI to assess how you fit" / fit-level section.
+  //    Match by class OR by the heading text so it survives class renames.
+  let fitSection: Element | null = document.querySelector(
+    '[class*="fit-level-preferences"], [class*="job-details-fit"], [class*="premium-upsell"], [class*="jobs-premium"]'
+  );
+  if (!fitSection) {
+    const headings = Array.from(document.querySelectorAll('h2, h3, .t-16, .t-bold'));
+    const fitHeading = headings.find(h => {
+      const t = h.textContent?.trim().toLowerCase() || '';
+      return t.includes('how you fit') || t.includes('assess how you');
+    });
+    // Use the nearest card/section wrapper so we land after the whole block.
+    fitSection = fitHeading?.closest('section, [class*="card"], [class*="container"]') || fitHeading?.parentElement || null;
+  }
+
+  // 3) The unified top card (Apply/Save area).
+  const topCard = document.querySelector(
+    '.jobs-unified-top-card, .job-details-jobs-unified-top-card, [class*="jobs-unified-top-card"], .top-card-layout'
+  );
+
+  if (simplifyBanner && insertAfter(simplifyBanner)) {
+    // done
+  } else if (fitSection && insertAfter(fitSection)) {
+    // done
+  } else if (topCard && insertAfter(topCard)) {
+    // done
   } else {
-    // 2) After LinkedIn Premium "Use AI to assess how you fit" section
-    const premiumSection = document.querySelector('[class*="job-details-fit-level-preferences"], [class*="premium-upsell"], [class*="jobs-premium"]');
-    if (premiumSection) {
-      premiumSection.parentElement?.insertBefore(banner, premiumSection.nextSibling);
-    } else {
-      // 3) After the Apply/Save button bar area
-      const topCard = document.querySelector(
-        '.jobs-unified-top-card, .job-details-jobs-unified-top-card, [class*="jobs-unified-top-card"], .top-card-layout'
-      );
-      if (topCard) {
-        topCard.parentElement?.insertBefore(banner, topCard.nextSibling);
-      } else {
-        // 4) Fallback: before the job description area
-        jobArea.parentElement?.insertBefore(banner, jobArea);
-      }
-    }
+    // 4) Fallback: before the job description area.
+    insertBeforeEl(jobArea);
   }
 
   // Wire up buttons
