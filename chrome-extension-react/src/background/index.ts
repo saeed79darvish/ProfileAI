@@ -23,6 +23,9 @@ interface PendingExtensionLogin {
    *  wrote AFTER this moment, so a stale prior session can't sync the wrong
    *  user before the real login completes. */
   startedAt: number;
+  /** Token present in the web app when the flow started (may be a stale prior
+   *  session). A genuine new login changes this, which is how we detect it. */
+  priorToken?: string | null;
 }
 
 const PENDING_LOGIN_KEY = 'pendingExtensionLogin';
@@ -51,6 +54,34 @@ async function setPendingLogin(pending: PendingExtensionLogin): Promise<void> {
 
 async function clearPendingLogin(): Promise<void> {
   try { await chrome.storage.local.remove(PENDING_LOGIN_KEY); } catch (_) {}
+}
+
+// Reads the ProfilleAI auth token from any open web app tab. localStorage is
+// shared per-origin, so any web app tab returns the same value. Returns null if
+// no web app tab is open or no token is stored.
+async function readWebAppToken(): Promise<string | null> {
+  try {
+    const tabs = await chrome.tabs.query({});
+    const webAppTabs = tabs.filter(tab =>
+      tab.url && (
+        tab.url.includes('localhost:3000') ||
+        tab.url.includes('profilleai.com') ||
+        tab.url.includes('127.0.0.1:3000')
+      )
+    );
+    for (const tab of webAppTabs) {
+      if (!tab.id) continue;
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => localStorage.getItem('token'),
+        });
+        const token = results[0]?.result as string | null | undefined;
+        if (token) return token;
+      } catch (_) { /* tab not scriptable */ }
+    }
+  } catch (_) { /* ignore */ }
+  return null;
 }
 
 
@@ -224,12 +255,16 @@ async function handleMessage(
         const { url: loginUrl } = message.data as { url: string };
         try {
           const [originTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          // Capture whatever session the web app currently has so we can tell a
+          // genuine new login (token changes) from a stale prior session.
+          const priorToken = await readWebAppToken();
           const loginTab = await chrome.tabs.create({ url: loginUrl });
           await setPendingLogin({
             originTabId: originTab?.id,
             originWindowId: originTab?.windowId,
             loginTabId: loginTab?.id,
             startedAt: Date.now(),
+            priorToken,
           });
         } catch (_) {
           await clearPendingLogin();
@@ -782,6 +817,19 @@ async function syncAuthFromWebApp(): Promise<boolean> {
   const pending = await getPendingLogin();
   const requireFreshSince = pending?.startedAt ?? null;
   
+  // If the user explicitly signed out of the extension, don't silently re-sync
+  // from a web app tab that's still logged in — unless they've explicitly
+  // started a new sign-in flow from the panel.
+  if (!pending) {
+    try {
+      const { extSignedOut } = await chrome.storage.local.get('extSignedOut');
+      if (extSignedOut) {
+        console.log('[ProfileAI] Skipping web sync — user signed out of extension');
+        return false;
+      }
+    } catch (_) { /* ignore */ }
+  }
+  
   try {
     // Try multiple approaches:
     
@@ -842,8 +890,21 @@ async function syncAuthFromWebApp(): Promise<boolean> {
         });
         
         if (requireFreshSince != null) {
-          // Panel-initiated flow: only trust a bridge blob written after we
-          // started (i.e. an action the user just took on the login page).
+          const priorToken = pending?.priorToken ?? null;
+
+          // Primary signal: a genuine new login changes the stored token from
+          // whatever was there when the flow started. This is bulletproof
+          // against stale/other-account sessions and bridge-blob races.
+          if (result?.token && result?.user && result.token !== priorToken) {
+            await handleLogin(result.token, result.user);
+            console.log('[ProfileAI] ✓ Synced fresh auth (token changed) from web sign-in');
+            return true;
+          }
+
+          // Secondary signal: the user explicitly confirmed the existing account
+          // ("Continue as …"), which writes a fresh bridge blob. The deployed web
+          // app no longer auto-syncs an existing session, so a bridge blob newer
+          // than the flow start always reflects a deliberate user action.
           if (
             result?.bridgeToken &&
             result?.bridgeUser &&
@@ -851,11 +912,11 @@ async function syncAuthFromWebApp(): Promise<boolean> {
             result.bridgeTimestamp >= requireFreshSince
           ) {
             await handleLogin(result.bridgeToken, result.bridgeUser);
-            console.log('[ProfileAI] ✓ Synced fresh auth from web sign-in');
+            console.log('[ProfileAI] ✓ Synced fresh auth (bridge) from web sign-in');
             return true;
           }
-          // Otherwise keep waiting — don't fall back to the raw token, which may
-          // belong to a stale prior session.
+          // Otherwise keep waiting — don't fall back to a token that matches the
+          // stale prior session.
           continue;
         }
         
@@ -925,7 +986,7 @@ async function handleLogin(token: string, user: User) {
   // Drop any profile cached for a previous account so we never show stale data
   // for the newly signed-in user while the fresh profile loads.
   cachedProfile = null;
-  await chrome.storage.local.remove('profile');
+  await chrome.storage.local.remove(['profile', 'extSignedOut']);
   await chrome.storage.local.set({ authToken: token, user });
   
   // Fetch and cache profile
@@ -974,6 +1035,10 @@ async function handleLogout() {
   authToken = null;
   currentUser = null;
   cachedProfile = null;
+  // Mark an explicit sign-out so we don't immediately re-sync from a web app
+  // tab that's still logged in. Cleared on the next explicit sign-in.
+  await chrome.storage.local.set({ extSignedOut: true });
+  await clearPendingLogin();
   await chrome.storage.local.remove(['authToken', 'user', 'profile']);
 }
 
