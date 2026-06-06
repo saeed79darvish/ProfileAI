@@ -48,6 +48,12 @@ interface TailoredResultsProps {
     certifications?: any[];
     projects?: any[];
   } | null;
+  /** Match score before tailoring (from the keyword analysis). */
+  beforeScore?: number | null;
+  /** Keywords that tailoring targeted (the previously-missing ones). */
+  addedKeywords?: string[];
+  /** Total keywords in the job, for the X/Y stat. */
+  totalKeywords?: number | null;
   onNotification: (message: string, type: 'success' | 'warning' | 'info' | 'error') => void;
   onDismiss: () => void;
 }
@@ -55,35 +61,43 @@ interface TailoredResultsProps {
 export const TailoredResults: React.FC<TailoredResultsProps> = ({
   tailoredProfile,
   profile,
+  beforeScore,
+  addedKeywords,
+  totalKeywords,
   onNotification,
   onDismiss,
 }) => {
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [showChanges, setShowChanges] = useState(false);
 
-  const matchScore = tailoredProfile.matchScore || 0;
+  const afterScore = tailoredProfile.matchScore || 0;
+  const hasBefore = typeof beforeScore === 'number' && beforeScore > 0 && beforeScore < afterScore;
+  const improvement = hasBefore ? afterScore - (beforeScore as number) : 0;
+
   const strongMatches = tailoredProfile.matchAnalysis?.strongMatches || tailoredProfile.highlights || [];
-  const gaps = tailoredProfile.matchAnalysis?.gaps || tailoredProfile.suggestions || [];
+  const gapObjects = tailoredProfile._skillGaps || [];
+  const longTermGaps = gapObjects.length > 0
+    ? gapObjects.map((g) => g.skill)
+    : (tailoredProfile.matchAnalysis?.gaps || tailoredProfile.suggestions || []);
 
-  const getScoreClass = () => {
-    if (matchScore >= 70) return 'good';
-    if (matchScore >= 50) return 'medium';
-    return 'low';
-  };
+  // Keywords added: prefer the explicitly-passed targeted list, fall back to strong matches.
+  const added = (addedKeywords && addedKeywords.length > 0 ? addedKeywords : strongMatches).filter(Boolean);
+  const changelog = tailoredProfile.changelog || [];
+  const changeCount = changelog.length || added.length;
 
-  const getScoreEmoji = () => {
-    if (matchScore >= 80) return '🔥';
-    if (matchScore >= 60) return '👍';
-    return '⚡';
-  };
+  // X/Y keywords covered after tailoring.
+  const total = totalKeywords || 0;
+  const coveredAfter = total > 0 ? Math.round((afterScore / 100) * total) : 0;
+
+  const ADDED_PREVIEW = 7;
+  const visibleAdded = added.slice(0, ADDED_PREVIEW);
+  const hiddenAdded = added.length - visibleAdded.length;
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      // Build the profile data we'll hand off to the web app's
-      // /resume/download page (which renders the same ResumePreviewModal
-      // used by the Jobs page — centered on screen, not in the side panel).
       const profileData = {
         firstName: profile?.firstName || '',
         lastName: profile?.lastName || '',
@@ -105,19 +119,13 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
         company: tailoredProfile.company,
       };
 
-      // Stash for the content script to deliver to the download page.
       await chrome.storage.local.set({ pendingResumeDownload: profileData });
 
-      // Inject the unified download modal as a fullscreen iframe overlay on
-      // the user's CURRENT tab (e.g. the LinkedIn / Greenhouse / Workday job
-      // page they are applying on). No new tab, no separate window.
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (activeTab?.id != null) {
         try {
           await chrome.tabs.sendMessage(activeTab.id, { type: 'SHOW_DOWNLOAD_OVERLAY' });
         } catch (err) {
-          // Content script not present (e.g. chrome:// page or fresh install) —
-          // fall back to opening the download page in a new tab.
           console.warn('[ProfileAI] Could not show overlay on active tab, opening tab instead', err);
           const url = `${CONFIG.WEB_BASE}/resume/download?ext=1`;
           if (chrome.tabs?.create) await chrome.tabs.create({ url, active: true });
@@ -141,7 +149,6 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
       onNotification('No summary available to copy', 'warning');
       return;
     }
-
     try {
       await navigator.clipboard.writeText(summary);
       setCopying(true);
@@ -154,171 +161,187 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
 
   return (
     <div className="panel-section tailored-results-section">
-      <div className="section-header">
-        <h4 className="section-title">✨ Tailored Resume</h4>
-        <button className="tailored-dismiss" onClick={onDismiss} title="Dismiss">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+      <button className="tailored-dismiss floating" onClick={onDismiss} title="Dismiss">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      {/* Success banner */}
+      <div className="tr-success-pill">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+          <path d="M12 0c.5 6 5.5 11 12 12-6.5 1-11.5 6-12 12-.5-6-5.5-11-12-12C6.5 11 11.5 6 12 0z" />
+        </svg>
+        Resume tailored successfully
       </div>
 
-      {/* Match Score */}
-      {matchScore > 0 && (
-        <div className="tailored-score-wrapper">
-          <div className={`tailored-score-circle ${getScoreClass()}`}>
-            <span className="tailored-score-number">{matchScore}%</span>
-            <span className="tailored-score-label">Match</span>
+      {/* Before → After */}
+      <div className="tr-scores">
+        {hasBefore && (
+          <>
+            <div className="tr-score before">
+              <span className="tr-score-num">{beforeScore}%</span>
+              <span className="tr-score-cap">Before</span>
+            </div>
+            <svg className="tr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </>
+        )}
+        <div className="tr-score after">
+          <span className="tr-score-num">{afterScore}%</span>
+          <span className="tr-score-cap">{hasBefore ? 'After tailoring' : 'Match'}</span>
+        </div>
+      </div>
+
+      {hasBefore && (
+        <div className="tr-improvement">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+          +{improvement}% match improvement
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div className="tr-stats">
+        {total > 0 && (
+          <div className="tr-stat">
+            <span className="tr-stat-num good">{coveredAfter}/{total}</span>
+            <span className="tr-stat-label">Keywords</span>
+          </div>
+        )}
+        <div className="tr-stat">
+          <span className="tr-stat-num">{changeCount}</span>
+          <span className="tr-stat-label">Changes</span>
+        </div>
+        {longTermGaps.length > 0 && (
+          <div className="tr-stat">
+            <span className="tr-stat-num warn">{longTermGaps.length}</span>
+            <span className="tr-stat-label">Gaps left</span>
+          </div>
+        )}
+        <div className="tr-stat">
+          <span className="tr-stat-num good">Safe</span>
+          <span className="tr-stat-label">Edit type</span>
+        </div>
+      </div>
+
+      {/* Keywords added */}
+      {added.length > 0 && (
+        <div className="tr-kw-group">
+          <h5 className="tr-kw-title added">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            Keywords added by tailoring
+          </h5>
+          <div className="tr-chips">
+            {visibleAdded.map((kw, i) => (
+              <span key={`${kw}-${i}`} className="kw-chip matched">{kw}</span>
+            ))}
+            {hiddenAdded > 0 && <span className="kw-chip matched muted">+{hiddenAdded} more</span>}
           </div>
         </div>
       )}
 
-      {/* Tailored For */}
-      {tailoredProfile.jobTitle && (
-        <p className="tailored-for-text">
-          {getScoreEmoji()} Tailored for <strong>{tailoredProfile.jobTitle}</strong>
-          {tailoredProfile.company && ` at ${tailoredProfile.company}`}
-        </p>
+      {/* Long-term gaps */}
+      {longTermGaps.length > 0 && (
+        <div className="tr-kw-group">
+          <h5 className="tr-kw-title gaps">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            Still missing — long-term gaps
+          </h5>
+          <div className="tr-chips">
+            {longTermGaps.slice(0, 6).map((g, i) => (
+              <span key={`${g}-${i}`} className="kw-chip gap">{g}</span>
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* Strong Matches */}
-      {strongMatches.length > 0 && (
-        <div className="tailored-highlights">
-          <h5 className="tailored-list-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      {/* Additive-only reassurance */}
+      <div className="tr-additive-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+        <span>No existing content was removed — all changes are additive only.</span>
+      </div>
+
+      {/* Actions */}
+      <button
+        className={`tr-download-btn ${downloaded ? 'done' : ''}`}
+        onClick={handleDownload}
+        disabled={downloading}
+      >
+        {downloaded ? (
+          <>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            Strong Matches
-          </h5>
-          <ul className="tailored-list success">
-            {strongMatches.slice(0, 4).map((item, i) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
+            Downloaded!
+          </>
+        ) : (
+          <>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download Tailored Resume
+          </>
+        )}
+      </button>
+
+      <button className={`tr-copy-btn ${copying ? 'copied' : ''}`} onClick={handleCopy}>
+        {copying ? (
+          <>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Copied!
+          </>
+        ) : (
+          <>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            Copy Summary
+          </>
+        )}
+      </button>
+
+      {/* What changed (expandable) */}
+      {changelog.length > 0 && (
+        <div className="tr-changes">
+          <button className="tr-changes-toggle" onClick={() => setShowChanges((s) => !s)} aria-expanded={showChanges}>
+            <span>✏️ What changed ({changelog.length} edit{changelog.length === 1 ? '' : 's'})</span>
+            <svg className={`chevron ${showChanges ? 'expanded' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {showChanges && (
+            <div className="tr-changes-list">
+              {changelog.map((entry, i) => (
+                <div key={i} className="tr-change-item">
+                  <span className={`tr-change-tag ${entry.action === 'auto_injected' ? 'auto' : 'edit'}`}>
+                    {entry.section}
+                  </span>
+                  <span className="tr-change-detail">{entry.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-
-      {/* Gaps / Learning Plan */}
-      {tailoredProfile._skillGaps && tailoredProfile._skillGaps.length > 0 ? (
-        <div className="tailored-gaps">
-          <h5 className="tailored-list-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-            </svg>
-            Learning Plan ({tailoredProfile._skillGaps.length} gaps)
-          </h5>
-          <div className="learning-plan-section">
-            {tailoredProfile._skillGaps.map((gap, i) => (
-              <div key={i} className="learning-plan-item">
-                <span className="learning-plan-skill">
-                  {gap.severity === 'critical' ? '🔴' : gap.severity === 'important' ? '🟡' : '🔵'} {gap.skill}
-                </span>
-                {gap.learningResource && (
-                  <span className="learning-plan-resource" title={gap.learningResource}>💡</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : gaps.length > 0 ? (
-        <div className="tailored-gaps">
-          <h5 className="tailored-list-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            Areas to Address
-          </h5>
-          <ul className="tailored-list warning">
-            {gaps.slice(0, 4).map((item, i) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* Changelog */}
-      {tailoredProfile.changelog && tailoredProfile.changelog.length > 0 && (
-        <div className="tailored-changelog">
-          <h5 className="tailored-list-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-            Changes Made ({tailoredProfile.changelog.length})
-          </h5>
-          <div className="changelog-list">
-            {tailoredProfile.changelog.map((entry, i) => (
-              <div key={i} className="changelog-item" style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginBottom: '4px', fontSize: '0.8rem' }}>
-                <span style={{
-                  backgroundColor: entry.action === 'auto_injected' ? '#fef3c7' : '#dbeafe',
-                  color: entry.action === 'auto_injected' ? '#92400e' : '#1e40af',
-                  padding: '1px 6px',
-                  borderRadius: '3px',
-                  fontSize: '0.7rem',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap'
-                }}>{entry.section}</span>
-                <span style={{ color: '#6b7280' }}>{entry.detail}</span>
-              </div>
-            ))}
-            <p style={{ fontSize: '0.7rem', color: '#9ca3af', fontStyle: 'italic', marginTop: '6px', marginBottom: 0 }}>
-              ✅ No existing skills were replaced — only additions
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="tailored-actions">
-        <button
-          className={`tailored-btn primary ${downloaded ? 'success' : ''}`}
-          onClick={handleDownload}
-          disabled={downloading}
-        >
-          {downloaded ? (
-            <>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>Downloaded!</span>
-            </>
-          ) : (
-            <>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>Download Tailored Resume</span>
-            </>
-          )}
-        </button>
-
-        <button
-          className={`tailored-btn secondary ${copying ? 'copied' : ''}`}
-          onClick={handleCopy}
-        >
-          {copying ? (
-            <>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>Copied!</span>
-            </>
-          ) : (
-            <>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-              <span>Copy Summary</span>
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 };

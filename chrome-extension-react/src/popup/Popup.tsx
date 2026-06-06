@@ -104,7 +104,7 @@ export const Popup: React.FC = () => {
             <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <span>ProfileAI</span>
+          <span>ProfilleAI</span>
         </div>
       </div>
 
@@ -155,7 +155,7 @@ export const Popup: React.FC = () => {
         ) : (
           <>
             <div className="welcome">
-              <h2>Welcome to ProfileAI</h2>
+              <h2>Welcome to ProfilleAI</h2>
               <p>Sign in to autofill job applications and track your progress.</p>
             </div>
             <button className="btn primary full" onClick={openOnboarding}>

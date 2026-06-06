@@ -87,7 +87,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     id: 'pin', mode: 'intro', panelState: 'default', pos: 'center',
-    greeting: 'Welcome to ProfileAI!',
+    greeting: 'Welcome to ProfilleAI!',
     headline: 'Pin the extension for quick access.',
     body: "Click the puzzle icon in your toolbar, then pin ProfileAI so it's always one click away.",
     btnText: 'Got it!',
@@ -117,7 +117,7 @@ const STEPS: Step[] = [
   {
     id: 'keyword-match', mode: 'tooltip', panelState: 'keywords', pos: 'near-panel',
     headline: '__JSX_KEYWORDS__',
-    body: 'Click "Analyze job to see match" — ProfileAI scans the job description and shows which keywords are in your profile and which are missing. Free for everyone!',
+    body: 'Click "Analyze job to see match" — ProfilleAI scans the job description and shows which keywords are in your profile and which are missing. Free for everyone!',
     btnText: 'Next',
     scrollTo: 'top',
   },
@@ -342,7 +342,7 @@ export const Onboarding: React.FC = () => {
         <div className="pin-bar"><span className="pin-d r"/><span className="pin-d y"/><span className="pin-d g"/><span className="pin-url">extensions</span></div>
         <div className="pin-body">
           <div className="pin-title">Extensions</div>
-          <div className="pin-row highlight"><div className="pin-icon">P</div><span>ProfileAI</span><span className="pin-pin">📌</span></div>
+          <div className="pin-row highlight"><div className="pin-icon">P</div><span>ProfilleAI</span><span className="pin-pin">📌</span></div>
           <div className="pin-row dim"><div className="pin-icon dim">A</div><span>AdBlock Plus</span></div>
           <div className="pin-manage">Manage Extensions</div>
         </div>
@@ -470,7 +470,7 @@ export const Onboarding: React.FC = () => {
             <div className="bg-panel">
               <div className="panel-header">
                 <svg className="panel-logo" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5Z" stroke="#8b5cf6" strokeWidth="2"/><path d="M2 17l10 5 10-5" stroke="#8b5cf6" strokeWidth="2"/><path d="M2 12l10 5 10-5" stroke="#8b5cf6" strokeWidth="2"/></svg>
-                <span className="panel-name">ProfileAI</span>
+                <span className="panel-name">ProfilleAI</span>
                 <span className="panel-refresh">↻</span>
               </div>
 
@@ -644,7 +644,7 @@ export const Onboarding: React.FC = () => {
 
               {/* ── Footer ── */}
               <div className="panel-footer">
-                <span>ProfileAI v1.0.0</span>
+                <span>ProfilleAI v1.0.0</span>
                 <span>AI Settings</span>
                 <span>Help</span>
                 <span>Sign Out</span>
@@ -710,8 +710,8 @@ export const Onboarding: React.FC = () => {
             {!auth.isAuthenticated && authPhase === 'ask' ? (
               <>
                 <div className="modal-emoji">👋</div>
-                <h2 className="modal-headline">Do you already have a ProfileAI account?</h2>
-                <p className="modal-body">If you've already created your profile on <span className="accent">profileai.com</span>, just sign in below — your profile data will sync to the extension automatically.</p>
+                <h2 className="modal-headline">Do you already have a ProfilleAI account?</h2>
+                <p className="modal-body">If you've already created your profile on <span className="accent">profilleai.com</span>, just sign in below — your profile data will sync to the extension automatically.</p>
                 <div className="auth-choice-btns">
                   <button className="btn btn-primary btn-lg" onClick={() => setAuthPhase('form')}>Yes, let me sign in</button>
                   <button className="btn btn-outline btn-lg" onClick={() => setAuthPhase('no-profile')}>No, I'm new here</button>
@@ -721,7 +721,7 @@ export const Onboarding: React.FC = () => {
               <>
                 <div className="modal-emoji">🚀</div>
                 <h2 className="modal-headline">Create your profile first — it powers everything</h2>
-                <p className="modal-body">ProfileAI uses your profile to <span className="accent">auto-fill applications</span>, <span className="accent">tailor your resume</span>, and <span className="accent">generate cover letters</span>. The more complete your profile, the better results you'll get.</p>
+                <p className="modal-body">ProfilleAI uses your profile to <span className="accent">auto-fill applications</span>, <span className="accent">tailor your resume</span>, and <span className="accent">generate cover letters</span>. The more complete your profile, the better results you'll get.</p>
                 <div className="no-profile-benefits">
                   <div className="benefit-item"><span className="benefit-icon">✦</span><span>Add your experience, skills &amp; education once</span></div>
                   <div className="benefit-item"><span className="benefit-icon">🔄</span><span>Data syncs instantly to this extension</span></div>
@@ -735,7 +735,7 @@ export const Onboarding: React.FC = () => {
               <>
                 <h2 className="modal-headline">{cur.headline}</h2>
                 <p className="modal-body">{cur.body}</p>
-                <p className="auth-sync-note">Already signed in on <span className="accent">profileai.com</span>? Your profile will sync here automatically once you sign in.</p>
+                <p className="auth-sync-note">Already signed in on <span className="accent">profilleai.com</span>? Your profile will sync here automatically once you sign in.</p>
                 <InlineAuthForm onAuthSuccess={onAuth} />
                 <button className="btn btn-ghost auth-back-link" onClick={() => setAuthPhase('ask')}>← Back</button>
               </>

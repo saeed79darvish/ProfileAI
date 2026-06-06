@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Senior Frontend Engineer — Northwind Robotics Careers</title>
+  <style>
+    :root {
+      --brand: #4f46e5;
+      --brand-dark: #3730a3;
+      --ink: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --bg: #f9fafb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+    header.site {
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      padding: 16px 0;
+    }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+    .brand-row { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--brand), #06b6d4);
+      display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px;
+    }
+    .brand-name { font-weight: 700; font-size: 18px; }
+    .brand-tag { color: var(--muted); font-size: 13px; }
+
+    .hero { background: #fff; border-bottom: 1px solid var(--line); padding: 40px 0 32px; }
+    h1.job-title { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .company-name { font-size: 16px; font-weight: 600; color: var(--brand-dark); }
+    .meta { display: flex; flex-wrap: wrap; gap: 16px; color: var(--muted); font-size: 14px; margin-top: 12px; }
+    .meta span { display: inline-flex; align-items: center; gap: 6px; }
+    .badge { background: #eef2ff; color: var(--brand-dark); border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+
+    main { padding: 32px 0 64px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 28px; margin-bottom: 24px; }
+    h2 { font-size: 18px; margin: 0 0 12px; }
+    .job-description h3 { font-size: 15px; margin: 22px 0 8px; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li { margin: 4px 0; }
+
+    form .field { margin-bottom: 18px; }
+    label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .req { color: #ef4444; }
+    input, textarea, select {
+      width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+      font-size: 14px; font-family: inherit; background: #fff;
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .submit {
+      background: var(--brand); color: #fff; border: none; border-radius: 10px;
+      padding: 13px 28px; font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .submit:hover { background: var(--brand-dark); }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <div class="container brand-row">
+      <div class="logo">N</div>
+      <div>
+        <div class="brand-name">Northwind Robotics</div>
+        <div class="brand-tag">Careers</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <div class="company-name">Northwind Robotics</div>
+      <h1 class="job-title">Senior Frontend Engineer</h1>
+      <div class="meta">
+        <span>📍 San Francisco, CA (Hybrid)</span>
+        <span>💼 Full-time</span>
+        <span>💰 $165,000 – $210,000</span>
+        <span class="badge">Engineering</span>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <div class="container">
+      <div class="card job-description">
+        <h2>About the Role</h2>
+        <p>
+          Northwind Robotics is building the next generation of warehouse automation software.
+          We're looking for a <strong>Senior Frontend Engineer</strong> to lead the development of
+          our customer-facing control dashboards. You'll work closely with product, design, and
+          backend teams to ship scalable, production-grade interfaces used by operations teams
+          around the world.
+        </p>
+
+        <h3>What you'll do</h3>
+        <ul>
+          <li>Build and maintain complex, responsive web applications using <strong>React</strong> and <strong>TypeScript</strong>.</li>
+          <li>Architect reusable component libraries and contribute to our internal design system.</li>
+          <li>Collaborate cross-functionally with design and backend engineers to deliver polished features.</li>
+          <li>Optimize application performance, accessibility, and rendering for large real-time datasets.</li>
+          <li>Mentor junior engineers and help define frontend best practices and code standards.</li>
+        </ul>
+
+        <h3>What we're looking for</h3>
+        <ul>
+          <li>5+ years of professional experience building production web applications.</li>
+          <li>Deep expertise in <strong>React</strong>, <strong>TypeScript</strong>, and modern JavaScript (ES6+).</li>
+          <li>Strong understanding of HTML, CSS, and responsive, accessible UI development.</li>
+          <li>Experience with state management, REST/GraphQL APIs, and component testing.</li>
+          <li>Familiarity with <strong>Node.js</strong> and modern build tooling (Vite, Webpack).</li>
+          <li>Excellent communication and cross-team collaboration skills.</li>
+        </ul>
+
+        <h3>Nice to have</h3>
+        <ul>
+          <li>Experience with Next.js, WebSockets, or real-time data visualization (D3.js).</li>
+          <li>Background working on design systems or component libraries at scale.</li>
+          <li>Exposure to CI/CD pipelines and frontend observability tooling.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>Apply for this position</h2>
+        <form id="application-form" onsubmit="event.preventDefault(); alert('This is a demo job page for screenshots.');">
+          <div class="row">
+            <div class="field">
+              <label for="firstName">First name <span class="req">*</span></label>
+              <input id="firstName" name="firstName" type="text" autocomplete="given-name" required />
+            </div>
+            <div class="field">
+              <label for="lastName">Last name <span class="req">*</span></label>
+              <input id="lastName" name="lastName" type="text" autocomplete="family-name" required />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="email">Email <span class="req">*</span></label>
+              <input id="email" name="email" type="email" autocomplete="email" required />
+            </div>
+            <div class="field">
+              <label for="phone">Phone</label>
+              <input id="phone" name="phone" type="tel" autocomplete="tel" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="linkedin">LinkedIn profile</label>
+              <input id="linkedin" name="linkedin" type="url" placeholder="https://linkedin.com/in/..." />
+            </div>
+            <div class="field">
+              <label for="location">Current location</label>
+              <input id="location" name="location" type="text" autocomplete="address-level2" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="resume">Resume / CV</label>
+            <input id="resume" name="resume" type="file" />
+            <div class="hint">Accepted formats: PDF, DOCX</div>
+          </div>
+
+          <div class="field">
+            <label for="why">Why do you want to work at Northwind Robotics? <span class="req">*</span></label>
+            <textarea id="why" name="why" required></textarea>
+          </div>
+
+          <div class="field">
+            <label for="experience">Describe your experience building scalable React applications. <span class="req">*</span></label>
+            <textarea id="experience" name="experience" required></textarea>
+          </div>
+
+          <div class="field">
+            <label for="start">Earliest start date</label>
+            <input id="start" name="start" type="text" placeholder="e.g. Two weeks' notice" />
+          </div>
+
+          <button class="submit" type="submit">Submit application</button>
+        </form>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

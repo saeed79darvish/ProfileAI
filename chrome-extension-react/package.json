@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "build:watch": "vite build --watch",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "package": "vite build && node -e \"const fs=require('fs');const m=JSON.parse(fs.readFileSync('dist/manifest.json','utf8'));delete m.key;fs.writeFileSync('dist/manifest.json',JSON.stringify(m,null,2));\" && cd dist && zip -r -q ../profileai-extension-v$npm_package_version.zip . -x '*.DS_Store'"
   },
   "dependencies": {
     "react": "^18.2.0",

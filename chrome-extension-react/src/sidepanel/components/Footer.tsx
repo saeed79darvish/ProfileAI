@@ -11,7 +11,7 @@ export const Footer: React.FC<FooterProps> = ({ onLogout }) => {
 
   return (
     <footer className="footer">
-      <span>ProfileAI v1.0.0</span>
+      <span>ProfilleAI v1.0.0</span>
       <button onClick={openPersonalization} className="footer-link" title="Edit your AI personalization settings">
         AI Settings
       </button>

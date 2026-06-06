@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
-import { AuthRequired } from './components/AuthRequired';
+import { SignedOut } from './components/SignedOut';
+import { ProfileSetupGuide } from './components/ProfileSetupGuide';
 import { ProfileSection } from './components/ProfileSection';
 import { JobMatchSection } from './components/JobMatchSection';
 import { QuickActions } from './components/QuickActions';
@@ -18,6 +19,7 @@ import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
+import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState } from '../types';
 
 export const SidePanel: React.FC = () => {
@@ -27,6 +29,7 @@ export const SidePanel: React.FC = () => {
     user: null,
   });
   const [profile, setProfile] = useState<FullProfile | null>(null);
+  const [lastProfile, setLastProfile] = useState<ProfileSummary | null>(null);
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [answersCount, setAnswersCount] = useState(0);
@@ -37,6 +40,9 @@ export const SidePanel: React.FC = () => {
   const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
   const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
   const [keywordAnalysis, setKeywordAnalysis] = useState<{ matchScore: number; present: string[]; missing: string[]; totalKeywords: number } | null>(null);
+  // Snapshot of the keyword analysis captured when tailoring starts, so the
+  // tailored result can show an honest before → after comparison.
+  const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   const [showTailorSettings, setShowTailorSettings] = useState(false);
@@ -57,6 +63,12 @@ export const SidePanel: React.FC = () => {
     loadAuthAndProfile();
     loadJobInfo();
     loadAnswersCount();
+
+    // Restore the returning-user summary so the reconnect screen can show
+    // before/without a fresh login.
+    chrome.storage.local.get('lastProfileSummary').then(({ lastProfileSummary }) => {
+      if (lastProfileSummary) setLastProfile(lastProfileSummary as ProfileSummary);
+    }).catch(() => {});
 
     // Recover tailoring state if the panel was closed mid-tailor.
     (async () => {
@@ -188,12 +200,21 @@ export const SidePanel: React.FC = () => {
         
         if (profileData) {
           // Merge user data into profile
-          setProfile({
+          const merged: FullProfile = {
             ...profileData,
             firstName: authData.user.firstName,
             lastName: authData.user.lastName,
             email: authData.user.email,
-          });
+          };
+          setProfile(merged);
+
+          // Persist a lightweight summary so a returning (signed-out) user gets
+          // the reconnect screen instead of a blank form.
+          const summary = buildProfileSummary(merged, authData.user);
+          if (summary) {
+            setLastProfile(summary);
+            chrome.storage.local.set({ lastProfileSummary: summary }).catch(() => {});
+          }
         }
       }
     } catch (error) {
@@ -488,6 +509,15 @@ export const SidePanel: React.FC = () => {
     setIsTailoring(true);
     showNotification('Tailoring your profile...', 'info');
 
+    // Remember the pre-tailor match so we can show before → after.
+    if (keywordAnalysis) {
+      setPreTailorSnapshot({
+        score: keywordAnalysis.matchScore,
+        missing: keywordAnalysis.missing,
+        total: keywordAnalysis.totalKeywords,
+      });
+    }
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'TAILOR_PROFILE',
@@ -523,7 +553,7 @@ export const SidePanel: React.FC = () => {
     } finally {
       setIsTailoring(false);
     }
-  }, [currentJob]);
+  }, [currentJob, keywordAnalysis]);
 
   const handleAnalyzeKeywords = useCallback(async () => {
     setIsAnalyzing(true);
@@ -623,18 +653,33 @@ export const SidePanel: React.FC = () => {
             <path d="M2 17L12 22L22 17" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M2 12L12 17L22 12" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <span>ProfileAI</span>
+          <span>ProfilleAI</span>
         </div>
       </div>
     );
   }
+
+  const profileProgress = computeProfileProgress(profile);
 
   return (
     <div className="app">
       <Header onRefresh={handleRefresh} />
       
       {!authState.isAuthenticated ? (
-        <AuthRequired onAuthSync={loadAuthAndProfile} />
+        <SignedOut
+          currentJob={currentJob}
+          lastProfile={lastProfile}
+          onAuthSync={loadAuthAndProfile}
+        />
+      ) : !profileProgress.hasMinimumProfile ? (
+        <>
+          <ProfileSetupGuide
+            profile={profile}
+            currentJob={currentJob}
+            progress={profileProgress}
+          />
+          <Footer onLogout={handleLogout} />
+        </>
       ) : (
         <>
           <div className="main-content">
@@ -645,6 +690,9 @@ export const SidePanel: React.FC = () => {
               onAnalyze={handleAnalyzeKeywords}
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
+              onTailor={handleTailor}
+              isTailoring={isTailoring || isAnalyzingGaps}
+              hasTailored={!!tailoredProfile}
             />
             
             <QuickActions 
@@ -657,17 +705,6 @@ export const SidePanel: React.FC = () => {
               isDetecting={isDetectingQuestions}
               detectedCount={detectedCount}
             />
-
-            {currentJob && (
-              <button
-                className="btn secondary small full-width-btn"
-                onClick={handleAnalyzeMatch}
-                disabled={matchLoading}
-                style={{ marginTop: 8 }}
-              >
-                {matchLoading ? 'Analyzing match…' : 'Analyze job to see match'}
-              </button>
-            )}
 
             {(isTailoring || isAnalyzingGaps) && (
               <TailoringProgress
@@ -731,6 +768,9 @@ export const SidePanel: React.FC = () => {
               <TailoredResults
                 tailoredProfile={tailoredProfile}
                 profile={profile}
+                beforeScore={preTailorSnapshot?.score ?? keywordAnalysis?.matchScore ?? null}
+                addedKeywords={preTailorSnapshot?.missing}
+                totalKeywords={preTailorSnapshot?.total ?? keywordAnalysis?.totalKeywords ?? null}
                 onNotification={showNotification}
                 onDismiss={async () => {
                   setTailoredProfile(null);
