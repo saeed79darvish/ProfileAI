@@ -65,7 +65,7 @@ const ExternalJob = sequelize.define('ExternalJob', {
     allowNull: true
   },
   skills: {
-    type: DataTypes.JSON,
+    type: DataTypes.JSONB,
     defaultValue: []
   },
   salaryMin: {

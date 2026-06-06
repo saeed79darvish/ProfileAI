@@ -91,6 +91,28 @@ async function up() {
     WHERE "isActive" = TRUE;
   `);
 
+  // The `skills` column must be jsonb (not json) for the @> containment
+  // filter, jsonb_typeof()/jsonb_array_elements_text() in /skills, and the
+  // jsonb_path_ops GIN index below to work. The model originally declared it
+  // as DataTypes.JSON → Postgres `json`, on which `@>` is undefined and
+  // jsonb_typeof() errors, so BOTH the ?skills= filter and the /skills
+  // endpoint returned HTTP 500. Convert in place (lossless for arrays of
+  // strings), guarded so it only rewrites the table the first time.
+  await runStep('skills column → jsonb', `
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'ExternalJobs'
+          AND column_name = 'skills'
+          AND data_type = 'json'
+      ) THEN
+        ALTER TABLE "ExternalJobs"
+          ALTER COLUMN "skills" TYPE jsonb USING "skills"::jsonb;
+      END IF;
+    END $$;
+  `);
+
   // GIN on skills (jsonb_path_ops) for the ?skills= @> containment filter.
   await runStep('skills GIN index', `
     CREATE INDEX IF NOT EXISTS "external_jobs_skills_gin"
