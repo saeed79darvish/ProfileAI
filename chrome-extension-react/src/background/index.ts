@@ -10,7 +10,12 @@ let cachedProfile: FullProfile | null = null;
 // Tracks an in-progress "sign in on the web app" flow started from the side
 // panel, so once auth syncs back we can close the login tab and return the
 // user to the job page they came from (with the panel still open).
-let pendingExtensionLogin: {
+//
+// IMPORTANT: MV3 service workers are terminated between events, so this state
+// must be persisted to chrome.storage — an in-memory variable would be lost by
+// the time the panel polls for the synced session, defeating the freshness
+// guard and letting a stale prior session sync the wrong user.
+interface PendingExtensionLogin {
   originTabId?: number;
   originWindowId?: number;
   loginTabId?: number;
@@ -18,7 +23,36 @@ let pendingExtensionLogin: {
    *  wrote AFTER this moment, so a stale prior session can't sync the wrong
    *  user before the real login completes. */
   startedAt: number;
-} | null = null;
+}
+
+const PENDING_LOGIN_KEY = 'pendingExtensionLogin';
+// How long a pending web sign-in stays "active". After this, we stop applying
+// the freshness guard so an abandoned flow can't block normal auth sync.
+const PENDING_LOGIN_TTL_MS = 5 * 60 * 1000;
+
+async function getPendingLogin(): Promise<PendingExtensionLogin | null> {
+  try {
+    const { [PENDING_LOGIN_KEY]: pending } = await chrome.storage.local.get(PENDING_LOGIN_KEY);
+    const p = pending as PendingExtensionLogin | undefined;
+    if (!p) return null;
+    if (Date.now() - p.startedAt > PENDING_LOGIN_TTL_MS) {
+      await clearPendingLogin();
+      return null;
+    }
+    return p;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function setPendingLogin(pending: PendingExtensionLogin): Promise<void> {
+  try { await chrome.storage.local.set({ [PENDING_LOGIN_KEY]: pending }); } catch (_) {}
+}
+
+async function clearPendingLogin(): Promise<void> {
+  try { await chrome.storage.local.remove(PENDING_LOGIN_KEY); } catch (_) {}
+}
+
 
 // Initialize on install/update
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -191,14 +225,14 @@ async function handleMessage(
         try {
           const [originTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           const loginTab = await chrome.tabs.create({ url: loginUrl });
-          pendingExtensionLogin = {
+          await setPendingLogin({
             originTabId: originTab?.id,
             originWindowId: originTab?.windowId,
             loginTabId: loginTab?.id,
             startedAt: Date.now(),
-          };
+          });
         } catch (_) {
-          pendingExtensionLogin = null;
+          await clearPendingLogin();
           try { chrome.tabs.create({ url: loginUrl }); } catch (__) {}
         }
         sendResponse({ success: true });
@@ -530,7 +564,7 @@ async function handleMessage(
         await syncAuthFromWebApp();
         // If this sync completed a panel-initiated web sign-in, close the login
         // tab and return the user to the job page they started from.
-        if (authToken && pendingExtensionLogin) {
+        if (authToken && (await getPendingLogin())) {
           await finishExtensionLoginRedirect();
         }
         sendResponse({ 
@@ -716,8 +750,8 @@ async function handleMessage(
 // the user back to the job page they came from. The side panel is per-window
 // and stays open, so it simply updates to the signed-in state.
 async function finishExtensionLoginRedirect(): Promise<void> {
-  const pending = pendingExtensionLogin;
-  pendingExtensionLogin = null;
+  const pending = await getPendingLogin();
+  await clearPendingLogin();
   if (!pending) return;
   try {
     if (pending.loginTabId != null) {
@@ -743,7 +777,10 @@ async function syncAuthFromWebApp(): Promise<boolean> {
   // If a panel-initiated sign-in is in progress, only accept an auth blob the
   // web app wrote AFTER the flow started (via the extension bridge). This stops
   // a stale prior session from syncing the wrong user before the real login.
-  const requireFreshSince = pendingExtensionLogin?.startedAt ?? null;
+  // Read from storage because the MV3 worker may have restarted since the flow
+  // began, which would otherwise drop this guard.
+  const pending = await getPendingLogin();
+  const requireFreshSince = pending?.startedAt ?? null;
   
   try {
     // Try multiple approaches:
