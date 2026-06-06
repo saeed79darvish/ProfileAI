@@ -86,6 +86,14 @@ services:
         value: "true"
       - key: RUN_CRON_INLINE
         value: "true"
+      # Daily job-match digest email — sends each candidate their top ~10
+      # matched jobs once a day (services/jobDigestService.js). Runs inline via
+      # the same RUN_CRON_INLINE path as the external-jobs sync. Schedule is
+      # server-UTC; default 08:00. Override JOB_DIGEST_CRON to retime.
+      - key: ENABLE_JOB_DIGEST_CRON
+        value: "true"
+      - key: JOB_DIGEST_CRON
+        value: "0 8 * * *"
       # ───────── Secrets (set these in the Render dashboard) ─────────
       - key: JWT_SECRET
         generateValue: true   # Render generates a strong random value once

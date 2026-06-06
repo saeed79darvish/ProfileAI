@@ -162,6 +162,35 @@ function getCountersSnapshot() {
 }
 
 /**
+ * @route   GET /api/external-jobs/digest/unsubscribe
+ * @desc    One-click unsubscribe from the daily job-match digest email.
+ *          Uses a stateless HMAC-signed token (no login required) so it
+ *          works straight from the email footer link.
+ * @access  Public
+ */
+router.get('/digest/unsubscribe', async (req, res) => {
+  try {
+    const { verifyUnsubscribeToken } = require('../services/jobDigestService');
+    const { User } = require('../models');
+    const userId = verifyUnsubscribeToken(req.query.token);
+    if (!userId) {
+      return res.status(400).send('<p>This unsubscribe link is invalid or has expired.</p>');
+    }
+    await User.update({ jobDigestOptOut: true }, { where: { id: userId } });
+    return res.send(
+      '<div style="font-family:Arial,sans-serif;max-width:480px;margin:60px auto;text-align:center;">'
+      + '<h2>You\'re unsubscribed</h2>'
+      + '<p>You will no longer receive the daily job-match email from ProfilleAI.</p>'
+      + `<p><a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/settings">Manage your preferences</a></p>`
+      + '</div>'
+    );
+  } catch (err) {
+    console.error('[JobDigest] Unsubscribe error:', err.message);
+    return res.status(500).send('<p>Something went wrong. Please try again later.</p>');
+  }
+});
+
+/**
  * @route   GET /api/external-jobs
  * @desc    Get all active external jobs with search/filter/pagination.
  *          When sort=relevance, ranks jobs by candidate profile match.

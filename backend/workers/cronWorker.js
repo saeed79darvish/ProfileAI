@@ -21,9 +21,12 @@ function startCron({ inline = false } = {}) {
   const enableApplyPilotScoutCron =
     process.env.ENABLE_APPLYPILOT_SCOUT_CRON === 'true'
     || process.env.NODE_ENV === 'production';
+  const enableJobDigestCron =
+    process.env.ENABLE_JOB_DIGEST_CRON === 'true'
+    || process.env.NODE_ENV === 'production';
 
-  if (!enableExternalJobsCron && !enableApplyPilotScoutCron) {
-    console.warn(`${tag} ⚠️  No cron tasks enabled. Set ENABLE_EXTERNAL_JOBS_CRON=true or ENABLE_APPLYPILOT_SCOUT_CRON=true.`);
+  if (!enableExternalJobsCron && !enableApplyPilotScoutCron && !enableJobDigestCron) {
+    console.warn(`${tag} ⚠️  No cron tasks enabled. Set ENABLE_EXTERNAL_JOBS_CRON=true, ENABLE_APPLYPILOT_SCOUT_CRON=true, or ENABLE_JOB_DIGEST_CRON=true.`);
     return;
   }
 
@@ -51,6 +54,19 @@ function startCron({ inline = false } = {}) {
     console.log(`${tag} ✓ ApplyPilot scout scheduled (every 10min)`);
   } else {
     console.log(`${tag} ApplyPilot scout disabled`);
+  }
+
+  if (enableJobDigestCron) {
+    const { runDailyJobDigest } = require('../services/jobDigestService');
+    // Daily at 08:00 (server timezone). Override with JOB_DIGEST_CRON if needed.
+    const schedule = process.env.JOB_DIGEST_CRON || '0 8 * * *';
+    cron.schedule(schedule, () => {
+      console.log(`${tag} Running daily job-match digest...`);
+      runDailyJobDigest().catch(err => console.error(`${tag} Job digest error:`, err.message));
+    }, { recoverMissedExecutions: false });
+    console.log(`${tag} ✓ Daily job-match digest scheduled (${schedule})`);
+  } else {
+    console.log(`${tag} Daily job-match digest disabled`);
   }
 }
 

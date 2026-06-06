@@ -423,6 +423,17 @@ const startServer = async () => {
       console.warn('⚠️  AIUsage featureType enum backfill skipped:', err.message);
     }
 
+    // Idempotent, additive column add for the daily job-match digest email's
+    // opt-out flag (Users.jobDigestOptOut). Production skips sequelize.sync,
+    // so this additive ALTER ... ADD COLUMN IF NOT EXISTS is how the column
+    // reaches prod on a git-push deploy. Wrapped so a failure can't block boot.
+    try {
+      const { up: addUserJobDigestOptOut } = require('./scripts/migrations/addUserJobDigestOptOut');
+      await addUserJobDigestOptOut();
+    } catch (err) {
+      console.warn('⚠️  Users.jobDigestOptOut column ensure skipped:', err.message);
+    }
+
     // Ensure the ExternalJobs performance schema (HNSW vector index, recency
     // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
     // These were previously only created by manual migration scripts run on

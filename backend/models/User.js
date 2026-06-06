@@ -109,6 +109,12 @@ const User = sequelize.define('User', {
   emailVerificationExpiresAt: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  jobDigestOptOut: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+    comment: 'When true, the candidate is excluded from the daily job-match digest email'
   }
 }, {
   timestamps: true,

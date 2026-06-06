@@ -19,6 +19,7 @@
     "enable-pgvector": "node scripts/enablePgvector.js",
     "backfill-embeddings": "node scripts/backfillEmbeddings.js",
     "backfill-slugs": "node scripts/backfillUserSlugs.js",
+    "send-job-digest": "node scripts/send-job-digest.js",
     "smoke": "node scripts/smokeTest.js"
   },
   "keywords": [
