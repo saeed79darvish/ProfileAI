@@ -426,7 +426,14 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     if (employmentType) {
-      where.employmentType = employmentType;
+      // LENIENT NULL policy (same rationale as the salary filter below):
+      // employmentType is sparsely/unreliably populated upstream (most
+      // greenhouse jobs expose no structured employment type), so an exact
+      // match emptied results. Include jobs that match OR have no listed type.
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: [{ employmentType: null }, { employmentType }] }
+      ];
     }
 
     if (experienceLevel) {

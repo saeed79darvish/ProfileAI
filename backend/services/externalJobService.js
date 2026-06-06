@@ -147,11 +147,13 @@ function normalizeGreenhouseJob(job, boardToken) {
   if (job.metadata) {
     for (const meta of job.metadata) {
       const name = (meta.name || '').toLowerCase();
-      if (name.includes('employment') || name.includes('type')) {
-        employmentType = normalizeEmploymentType(meta.value);
+      if (name.includes('employment') || name.includes('worker type') || name.includes('work type') || name.includes('job type') || name.includes('contract type') || name === 'type') {
+        const t = normalizeEmploymentType(meta.value);
+        if (t) employmentType = t;
       }
       if (name.includes('level') || name.includes('seniority') || name.includes('experience')) {
-        experienceLevel = normalizeExperienceLevel(meta.value);
+        const lvl = normalizeExperienceLevel(meta.value);
+        if (lvl) experienceLevel = lvl;
       }
     }
   }
@@ -1517,9 +1519,15 @@ function normalizeEmploymentType(value) {
   const v = value.toLowerCase().trim();
   if (v.includes('full') && v.includes('time')) return 'full-time';
   if (v.includes('part') && v.includes('time')) return 'part-time';
-  if (v.includes('contract') || v.includes('freelance')) return 'contract';
+  if (v.includes('contract') || v.includes('freelance') || v.includes('contractor')) return 'contract';
   if (v.includes('intern')) return 'internship';
-  return value;
+  if (v.includes('temp') || v.includes('seasonal') || v.includes('fixed term') || v.includes('fixed-term')) return 'temporary';
+  // Common ATS synonyms that effectively mean a standard full-time role.
+  if (v === 'regular' || v === 'permanent' || v === 'standard' || v === 'employee' || v === 'fte') return 'full-time';
+  // Unrecognized values (junk metadata like "Remote", "Salary", "Pipeline",
+  // job titles, etc.) must not pass through — they pollute the facet and
+  // break the Job Type filter.
+  return null;
 }
 
 function normalizeExperienceLevel(value) {

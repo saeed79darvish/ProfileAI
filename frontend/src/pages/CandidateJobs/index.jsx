@@ -369,7 +369,7 @@ const CandidateJobs = () => {
   // 'recommended'. Initialized from / synced to the ?sort= URL param.
   const [sortMode, setSortMode] = useState(() => {
     const v = searchParams.get('sort');
-    return (v === 'recent' || v === 'match' || v === 'recommended') ? v : 'recommended';
+    return (v === 'recent' || v === 'recommended') ? v : 'recommended';
   });
   const [filters, setFilters] = useState({
     locationType: searchParams.get('locationType') || '',
@@ -1291,7 +1291,6 @@ const CandidateJobs = () => {
   const SORT_OPTIONS = [
     { value: 'recommended', label: 'Recommended', shortLabel: 'Recommended' },
     { value: 'recent', label: 'Most recent', shortLabel: 'Most recent' },
-    { value: 'match', label: 'Best match', shortLabel: 'Best match' },
   ];
 
   const DATE_OPTIONS = [
@@ -1986,6 +1985,7 @@ const CandidateJobs = () => {
                     flex: 1,
                     border: 'none',
                     outline: 'none',
+                    boxShadow: 'none',
                     background: 'transparent',
                     fontSize: 14,
                     color: '#101828',
@@ -2472,9 +2472,7 @@ const CandidateJobs = () => {
                       <AccessTimeIcon style={{ fontSize: 12 }} />
                       {sortMode === 'recent'
                         ? 'Newest first'
-                        : sortMode === 'match'
-                          ? 'Best match first'
-                          : 'Freshest matches first'}
+                        : 'Freshest matches first'}
                     </div>
                   </div>
                 )}

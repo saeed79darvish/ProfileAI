@@ -550,7 +550,9 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   }
 
   if (employmentType) {
-    conditions.push(`ej."employmentType" = $${bindIndex}`);
+    // LENIENT NULL policy — mirror routes/externalJobs.js: employmentType is
+    // sparsely/unreliably populated, so match jobs with the type OR no type.
+    conditions.push(`(ej."employmentType" IS NULL OR ej."employmentType" = $${bindIndex})`);
     binds.push(employmentType);
     bindIndex++;
   }
