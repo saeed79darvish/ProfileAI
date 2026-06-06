@@ -362,12 +362,12 @@ const CandidateJobs = () => {
   // in DB" (sync misconfigured / cron disabled) from "no matches for these
   // filters" (user filtering too aggressively). Loaded once per session.
   const [corpusTotal, setCorpusTotal] = useState(null);
-  // Sort mode for the External tab list. The dropdown was removed; we
-  // default to 'recommended' (profile-aware match × recency) so the top
-  // of the page is actually relevant to the candidate's skills/title via
-  // the pgvector semantic ranking branch on the backend. Power users can
-  // still override via ?sort=recent|match|recommended URL param.
-  const [sortMode] = useState(() => {
+  // Sort mode for the External tab list. Surfaced as a "Sort" chip in the
+  // filter row so users can explicitly pick "Most recent" (pure recency,
+  // the fast no-ANN backend path) vs. "Recommended" (profile-aware
+  // match × recency via pgvector) vs. "Best match". Defaults to
+  // 'recommended'. Initialized from / synced to the ?sort= URL param.
+  const [sortMode, setSortMode] = useState(() => {
     const v = searchParams.get('sort');
     return (v === 'recent' || v === 'match' || v === 'recommended') ? v : 'recommended';
   });
@@ -739,6 +739,9 @@ const CandidateJobs = () => {
         salary: filters.salary,
         skills: filters.skills,
         startup: filters.startup ? 'true' : '',
+        // Only persist sort when it deviates from the default so a clean
+        // URL stays clean for the common case.
+        sort: sortMode && sortMode !== 'recommended' ? sortMode : '',
       };
       for (const [k, v] of Object.entries(owned)) {
         if (v) next.set(k, String(v));
@@ -1284,6 +1287,12 @@ const CandidateJobs = () => {
   }, [activeTab, corpusTotal]);
 
   const hasActiveFilters = filters.locationType || filters.location || filters.datePosted || filters.experienceLevel || filters.company || filters.department || filters.employmentType || filters.salary || filters.skills || filters.startup;
+
+  const SORT_OPTIONS = [
+    { value: 'recommended', label: 'Recommended', shortLabel: 'Recommended' },
+    { value: 'recent', label: 'Most recent', shortLabel: 'Most recent' },
+    { value: 'match', label: 'Best match', shortLabel: 'Best match' },
+  ];
 
   const DATE_OPTIONS = [
     { value: 'day', label: 'Past 24 hours', shortLabel: '24h' },
@@ -2189,6 +2198,33 @@ const CandidateJobs = () => {
                     )}
                   </div>
 
+                  {/* Sort — lets the user pick "Most recent" (pure recency,
+                      newest-first) vs. the default profile-aware
+                      "Recommended" ranking, or "Best match". */}
+                  <div style={{ position: 'relative' }}>
+                    <FilterChip
+                      $active={sortMode !== 'recommended'}
+                      onClick={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')}
+                      title="Change how jobs are ordered"
+                    >
+                      Sort · {SORT_OPTIONS.find(o => o.value === sortMode)?.shortLabel || 'Recommended'} <KeyboardArrowDownIcon style={{ fontSize: 18 }} />
+                    </FilterChip>
+                    {openDropdown === 'sort' && (
+                      <div style={dropdownMenuStyle()}>
+                        {SORT_OPTIONS.map(opt => (
+                          <button
+                            type="button"
+                            key={opt.value}
+                            style={dropdownItemStyle(sortMode === opt.value)}
+                            onClick={() => { setSortMode(opt.value); setOpenDropdown(null); }}
+                          >
+                            {opt.label} {sortMode === opt.value && '✓'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Experience */}
                   <div style={{ position: 'relative' }}>
                     <FilterChip
@@ -2434,7 +2470,11 @@ const CandidateJobs = () => {
                       }}
                     >
                       <AccessTimeIcon style={{ fontSize: 12 }} />
-                      Freshest matches first
+                      {sortMode === 'recent'
+                        ? 'Newest first'
+                        : sortMode === 'match'
+                          ? 'Best match first'
+                          : 'Freshest matches first'}
                     </div>
                   </div>
                 )}

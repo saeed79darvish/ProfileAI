@@ -421,6 +421,25 @@ const startServer = async () => {
       console.warn('⚠️  AIUsage featureType enum backfill skipped:', err.message);
     }
 
+    // Ensure the ExternalJobs performance schema (HNSW vector index, recency
+    // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
+    // These were previously only created by manual migration scripts run on
+    // the Render shell — which this git-push deploy flow never runs — so a
+    // grown corpus without the HNSW index made "recommended" page-1 requests
+    // fall back to a ~1.5s sequential cosine scan. Every statement is
+    // IF NOT EXISTS (idempotent / additive), so this is a cheap no-op once the
+    // objects exist. Run in the BACKGROUND (not awaited): a first-time index
+    // build must never delay server readiness, and a failure must never block
+    // boot.
+    (async () => {
+      try {
+        const { up: ensureExternalJobPerfSchema } = require('./scripts/migrations/ensureExternalJobPerfSchema');
+        await ensureExternalJobPerfSchema();
+      } catch (err) {
+        console.warn('⚠️  ExternalJobs performance schema ensure skipped:', err.message);
+      }
+    })();
+
     // Sync models (in development only). In production we want explicit
     // migrations — silent ALTER TABLE on boot can drop or rename columns
     // unexpectedly and is unsafe on shared instances. This guard is
