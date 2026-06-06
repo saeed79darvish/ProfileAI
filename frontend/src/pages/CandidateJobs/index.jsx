@@ -464,6 +464,20 @@ const CandidateJobs = () => {
     })()
   );
 
+  // First-fetch gate. Authenticated users with a clean (filter-less) URL get
+  // their role/location/experience pre-seeded from their profile AFTER an
+  // async getMyProfile() call. Firing the jobs fetch on mount (before seeding)
+  // wastes a slow unfiltered "recommended" request and then immediately
+  // re-fetches once the seeds land. We instead hold the initial fetch until
+  // `seedSettled` flips true (in the profile fetch's .finally). Anonymous
+  // users, deep-links (URL already has a query), and dismissed-personalization
+  // users bypass the gate and fetch immediately. See the fetch effect below.
+  const initialUrlHasQueryRef = useRef(
+    ['search', 'location', 'locationType', 'datePosted', 'experienceLevel', 'company', 'department', 'employmentType', 'salary', 'skills', 'startup']
+      .some(k => searchParams.get(k))
+  );
+  const [seedSettled, setSeedSettled] = useState(false);
+
   // Fetch user skills + role once on mount
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -509,7 +523,25 @@ const CandidateJobs = () => {
         role = tokens.join(' ');
       }
       role = role.slice(0, 80);
-      if (role) setDetectedRole(role);
+      if (role) {
+        setDetectedRole(role);
+        // Apply the role to the search box synchronously HERE (rather than
+        // deferring to the detectedRole effect below) so the very first jobs
+        // fetch already carries it. Combined with the seedSettled gate, this
+        // collapses the old "unfiltered recommended fetch → re-fetch with
+        // seeds" waterfall into a single, faster filtered request.
+        if (
+          !roleAutoAppliedRef.current &&
+          !autoSeedDismissedRef.current &&
+          !searchParams.get('search') &&
+          !searchQuery
+        ) {
+          roleAutoAppliedRef.current = true;
+          setSearchQuery(role);
+          setDebouncedSearch(role);
+          setAutoSeeded(prev => ({ ...prev, role }));
+        }
+      }
 
       // Auto-seed the LOCATION filter from the candidate's profile so the
       // first jobs page they see is geographically relevant. Only when:
@@ -570,7 +602,14 @@ const CandidateJobs = () => {
           console.debug('[Jobs] Auto-applied profile experience to filter:', level);
         }
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => {
+      // Release the first-fetch gate once profile seeding has settled (or
+      // failed). For authenticated users with a clean URL this guarantees the
+      // initial fetch runs exactly once, with the seeded role/location/
+      // experience already in place. See the seedSettled gate on the fetch
+      // effect below.
+      setSeedSettled(true);
+    });
   }, [isAuthenticated]);
 
   // Auto-seed the search box with the detected role on first load.
@@ -930,10 +969,18 @@ const CandidateJobs = () => {
   }, [debouncedSearch, debouncedFilters, isAuthenticated, sortMode]);
 
   useEffect(() => {
-    if (activeTab === 'external') {
-      fetchExternalJobs();
-    }
-  }, [activeTab, fetchExternalJobs]);
+    if (activeTab !== 'external') return;
+    // Hold the initial fetch only for the case where profile seeding WILL
+    // change the query params (authenticated + clean URL + not dismissed).
+    // Everyone else fetches immediately. Once seeding settles, seedSettled
+    // flips and this effect re-runs once with the seeded params in place.
+    const gateOpen =
+      !isAuthenticated ||
+      initialUrlHasQueryRef.current ||
+      autoSeedDismissedRef.current ||
+      seedSettled;
+    if (gateOpen) fetchExternalJobs();
+  }, [activeTab, fetchExternalJobs, isAuthenticated, seedSettled]);
 
   // Tracks whether the user has narrowed the list themselves; used by the
   // empty-state branch and any future surfaces that need to know "is this a
