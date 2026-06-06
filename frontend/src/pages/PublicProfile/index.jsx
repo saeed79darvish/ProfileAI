@@ -966,32 +966,6 @@ const PublicProfile = () => {
                     Join ProfilleAI
                   </Button>
                 )}
-                {currentUser && currentUser.id !== id && (
-                  <>
-                    <FollowButton
-                      userId={id}
-                      size="small"
-                      onFollowChange={handleFollowChange}
-                      sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-                    />
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<ChatIcon />}
-                      onClick={async () => {
-                        try {
-                          const response = await messageAPI.startConversation(id);
-                          navigate(`/messages/${response.data.conversationId}`);
-                        } catch (error) {
-                          navigate('/messages');
-                        }
-                      }}
-                      sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-                    >
-                      Message
-                    </Button>
-                  </>
-                )}
               </Box>
             </Box>
           </Container>
@@ -1284,30 +1258,6 @@ const PublicProfile = () => {
                     >
                       Join ProfilleAI
                     </Button>
-                  )}
-                  {currentUser && currentUser.id !== id && (
-                    <>
-                      <FollowButton
-                        userId={id}
-                        onFollowChange={handleFollowChange}
-                        sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 3 }}
-                      />
-                      <Button
-                        variant="outlined"
-                        startIcon={<ChatIcon />}
-                        onClick={async () => {
-                          try {
-                            const response = await messageAPI.startConversation(id);
-                            navigate(`/messages/${response.data.conversationId}`);
-                          } catch (error) {
-                            navigate('/messages');
-                          }
-                        }}
-                        sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 3 }}
-                      >
-                        Message
-                      </Button>
-                    </>
                   )}
                 </Box>
               </Box>

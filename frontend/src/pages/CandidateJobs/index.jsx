@@ -442,6 +442,9 @@ const CandidateJobs = () => {
   // re-apply if the candidate clears it (otherwise their "remote-anywhere"
   // intent is silently overridden on every render).
   const locationAutoAppliedRef = useRef(false);
+  // Same one-shot guard for the experience-level filter, inferred from the
+  // candidate's profile title/headline (e.g. "Senior …" → senior level).
+  const experienceAutoAppliedRef = useRef(false);
 
   // Disclosure banner state (Fix 6.1). When the page auto-applies a role
   // or location from the candidate's profile we surface a one-line
@@ -450,7 +453,7 @@ const CandidateJobs = () => {
   // corpus total. The state holds the *values* we seeded so we can
   // (a) detect when the user has edited them (banner self-dismisses), and
   // (b) restore the corpus view on demand.
-  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null });
+  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null, experience: null });
   // Persisted dismissal — once the candidate clicks "Show all jobs" we
   // never auto-seed again on this browser. Read synchronously so the
   // first-render effects can skip seeding.
@@ -537,6 +540,34 @@ const CandidateJobs = () => {
           setAutoSeeded(prev => ({ ...prev, location: seededLocation }));
           // eslint-disable-next-line no-console
           console.debug('[Jobs] Auto-applied profile location to filter:', seededLocation);
+        }
+      }
+
+      // Auto-seed the EXPERIENCE filter from the candidate's profile title /
+      // headline so the first feed matches their seniority. Same one-shot,
+      // never-override rules as the location seed. We only seed a *clear*
+      // signal (entry / senior / lead / executive) and deliberately skip the
+      // ambiguous "mid" default — seeding mid would silently narrow the feed
+      // for every untitled profile without the candidate ever asking for it.
+      const profileTitleRaw = String(res.data?.title || res.data?.headline || '').toLowerCase();
+      if (
+        profileTitleRaw &&
+        !experienceAutoAppliedRef.current &&
+        !autoSeedDismissedRef.current &&
+        !searchParams.get('experienceLevel')
+      ) {
+        let level = null;
+        if (/\b(junior|jr\.?|entry|associate|intern)\b/.test(profileTitleRaw)) level = 'entry';
+        else if (/\b(senior|sr\.?|staff|principal)\b/.test(profileTitleRaw)) level = 'senior';
+        else if (/\b(lead|manager)\b/.test(profileTitleRaw)) level = 'lead';
+        else if (/\b(director|vp|vice president|head of|chief|c-level)\b/.test(profileTitleRaw)) level = 'executive';
+        if (level) {
+          experienceAutoAppliedRef.current = true;
+          setFilters(prev => ({ ...prev, experienceLevel: level }));
+          setDebouncedFilters(prev => ({ ...prev, experienceLevel: level }));
+          setAutoSeeded(prev => ({ ...prev, experience: level }));
+          // eslint-disable-next-line no-console
+          console.debug('[Jobs] Auto-applied profile experience to filter:', level);
         }
       }
     }).catch(() => {});
@@ -1325,6 +1356,10 @@ const CandidateJobs = () => {
   ];
 
   const LOCATION_OPTIONS = [
+    // Empty value = no work-type constraint (remote OR hybrid OR on-site).
+    // Lets a candidate who is open to anything explicitly clear the filter
+    // from inside the dropdown instead of hunting for the chip's ✕.
+    { value: '', label: 'Flexible / Any' },
     { value: 'remote', label: 'Remote' },
     { value: 'hybrid', label: 'Hybrid' },
     { value: 'onsite', label: 'On-site' },
@@ -2399,10 +2434,15 @@ const CandidateJobs = () => {
                 {(() => {
                   const roleActive = autoSeeded.role && autoSeeded.role === searchQuery;
                   const locActive = autoSeeded.location && autoSeeded.location === filters.location;
-                  if (!roleActive && !locActive) return null;
+                  const expActive = autoSeeded.experience && autoSeeded.experience === filters.experienceLevel;
+                  if (!roleActive && !locActive && !expActive) return null;
                   const parts = [];
                   if (roleActive) parts.push(`role: \u201C${autoSeeded.role}\u201D`);
                   if (locActive) parts.push(`location: \u201C${autoSeeded.location}\u201D`);
+                  if (expActive) {
+                    const expLabel = EXPERIENCE_OPTIONS.find(o => o.value === autoSeeded.experience)?.label || autoSeeded.experience;
+                    parts.push(`experience: \u201C${expLabel}\u201D`);
+                  }
                   return (
                     <div
                       role="status"
@@ -2438,7 +2478,7 @@ const CandidateJobs = () => {
                           // mount, so a hard reload won't re-seed.
                           try { localStorage.setItem(AUTO_SEED_DISMISS_KEY, '1'); } catch {}
                           autoSeedDismissedRef.current = true;
-                          setAutoSeeded({ role: null, location: null });
+                          setAutoSeeded({ role: null, location: null, experience: null });
                           clearFilters();
                         }}
                         style={{
