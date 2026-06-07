@@ -595,9 +595,38 @@ const startServer = async () => {
         // AI tailoring with retry/backoff. In hybrid mode prep stops at
         // 'prepared' and the candidate submits manually.
         const { mountPrepWorker } = require('./workers/prepWorker');
-        mountPrepWorker().catch((err) => {
-          console.error('[prepWorker] mount failed:', err?.message || err);
-        });
+        mountPrepWorker()
+          .then(async () => {
+            // Re-enqueue orphaned 'pending' applications. A row lands in
+            // 'pending' the moment the scout creates it; the scout then
+            // enqueues a prep job. If that enqueue ever no-ops (e.g. the
+            // queue couldn't boot on a previous deploy, or the process
+            // crashed between create and enqueue), the row is stranded:
+            // the scout de-dupes against already-surfaced jobs so it will
+            // never re-enqueue it, and no worker is holding a job for it.
+            // On every boot we re-enqueue all 'pending' rows. enqueuePrep
+            // is idempotent (singletonKey prep:<appId>), so rows that
+            // already have a live queue job are not double-processed.
+            try {
+              const { ApplyPilotApplication } = require('./models');
+              const service = require('./services/applyPilotService');
+              const stranded = await ApplyPilotApplication.findAll({
+                where: { status: 'pending' },
+                attributes: ['id'],
+              });
+              if (stranded.length) {
+                await Promise.all(
+                  stranded.map((a) => service.enqueuePrep(a.id, { autoSubmitOnReady: false })),
+                );
+                console.log(`[startup] Re-enqueued ${stranded.length} stranded 'pending' application(s) for prep`);
+              }
+            } catch (reErr) {
+              console.warn('[startup] pending re-enqueue failed (non-blocking):', reErr.message);
+            }
+          })
+          .catch((err) => {
+            console.error('[prepWorker] mount failed:', err?.message || err);
+          });
       }
     });
 

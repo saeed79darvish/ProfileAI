@@ -119,6 +119,35 @@ function getBoss() {
 }
 
 /**
+ * Ensure a queue exists before we send to / work it. pg-boss v10 made
+ * queues first-class: `send()` and `work()` against a queue that was
+ * never created throw "queue {name} does not exist". Previously only the
+ * worker mount created the queue, so any enqueue that raced ahead of the
+ * worker boot (e.g. the scout firing on the very first cron tick, or the
+ * /start route in a fresh deploy) would throw and silently drop the job.
+ *
+ * createQueue is idempotent on the pg-boss side, but we also cache the
+ * names we've created so the hot enqueue path doesn't hit the DB on
+ * every call.
+ */
+const ensuredQueues = new Set();
+async function ensureQueue(queueName) {
+  if (ensuredQueues.has(queueName)) return;
+  const boss = await getBoss();
+  if (typeof boss.createQueue === 'function') {
+    try {
+      await boss.createQueue(queueName);
+    } catch (err) {
+      // Already exists / concurrent create — safe to ignore.
+      if (!/already exists|duplicate/i.test(err?.message || '')) {
+        console.warn('[queue] createQueue warning:', queueName, err?.message || err);
+      }
+    }
+  }
+  ensuredQueues.add(queueName);
+}
+
+/**
  * Enqueue a job. Thin wrapper so callers don't have to await getBoss()
  * themselves. Returns the pg-boss job id (or null if boss failed to
  * start — caller can decide whether to fail hard).
@@ -126,6 +155,8 @@ function getBoss() {
 async function enqueue(queueName, data, opts = {}) {
   try {
     const boss = await getBoss();
+    // v10: the target queue must exist before send() or it throws.
+    await ensureQueue(queueName);
     const sendOpts = {
       // Deduplicate on (queueName, singletonKey): e.g. appId means the
       // same app can't be double-enqueued while one is still pending.
@@ -162,4 +193,4 @@ async function shutdown() {
   }
 }
 
-module.exports = { getBoss, enqueue, shutdown, QUEUES };
+module.exports = { getBoss, enqueue, shutdown, ensureQueue, QUEUES };

@@ -20,7 +20,7 @@
 require('dotenv').config();
 const { Op } = require('sequelize');
 
-const { getBoss, shutdown, QUEUES, enqueue } = require('../lib/queue');
+const { getBoss, shutdown, QUEUES, enqueue, ensureQueue } = require('../lib/queue');
 const { createNotification } = require('../services/notificationService');
 const {
   ApplyPilotApplication,
@@ -190,9 +190,7 @@ async function handleJob(job) {
 
 async function mountPrepWorker() {
   const boss = await getBoss();
-  if (typeof boss.createQueue === 'function') {
-    try { await boss.createQueue(QUEUES.PREP); } catch (_) { /* already exists */ }
-  }
+  await ensureQueue(QUEUES.PREP);
   const workerId = await boss.work(
     QUEUES.PREP,
     { teamSize: 2, teamConcurrency: 1 },
