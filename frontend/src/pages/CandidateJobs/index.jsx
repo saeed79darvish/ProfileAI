@@ -365,11 +365,15 @@ const CandidateJobs = () => {
   // Sort mode for the External tab list. Surfaced as a "Sort" chip in the
   // filter row so users can explicitly pick "Most recent" (pure recency,
   // the fast no-ANN backend path) vs. "Recommended" (profile-aware
-  // match × recency via pgvector) vs. "Best match". Defaults to
-  // 'recommended'. Initialized from / synced to the ?sort= URL param.
+  // match × recency via pgvector). Defaults to 'recent' — the no-ANN path
+  // is the fastest first paint (~0.1-0.2s vs ~0.6s for the ANN recommended
+  // query), and because we already seed role/location/experience from the
+  // candidate's profile the list stays personalized via filters while
+  // sorting freshest-first. Recommended is one click away. Initialized from
+  // / synced to the ?sort= URL param.
   const [sortMode, setSortMode] = useState(() => {
     const v = searchParams.get('sort');
-    return (v === 'recent' || v === 'recommended') ? v : 'recommended';
+    return (v === 'recent' || v === 'recommended') ? v : 'recent';
   });
   const [filters, setFilters] = useState({
     locationType: searchParams.get('locationType') || '',
@@ -809,9 +813,9 @@ const CandidateJobs = () => {
         salary: filters.salary,
         skills: filters.skills,
         startup: filters.startup ? 'true' : '',
-        // Only persist sort when it deviates from the default so a clean
-        // URL stays clean for the common case.
-        sort: sortMode && sortMode !== 'recommended' ? sortMode : '',
+        // Only persist sort when it deviates from the default ('recent') so a
+        // clean URL stays clean for the common case.
+        sort: sortMode && sortMode !== 'recent' ? sortMode : '',
       };
       for (const [k, v] of Object.entries(owned)) {
         if (v) next.set(k, String(v));
@@ -1381,8 +1385,8 @@ const CandidateJobs = () => {
   const hasActiveFilters = filters.locationType || filters.location || filters.datePosted || filters.experienceLevel || filters.company || filters.department || filters.employmentType || filters.salary || filters.skills || filters.startup;
 
   const SORT_OPTIONS = [
-    { value: 'recommended', label: 'Recommended', shortLabel: 'Recommended' },
     { value: 'recent', label: 'Most recent', shortLabel: 'Most recent' },
+    { value: 'recommended', label: 'Recommended', shortLabel: 'Recommended' },
   ];
 
   const DATE_OPTIONS = [
@@ -2299,11 +2303,11 @@ const CandidateJobs = () => {
                       "Recommended" ranking, or "Best match". */}
                   <div style={{ position: 'relative' }}>
                     <FilterChip
-                      $active={sortMode !== 'recommended'}
+                      $active={sortMode !== 'recent'}
                       onClick={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')}
                       title="Change how jobs are ordered"
                     >
-                      Sort · {SORT_OPTIONS.find(o => o.value === sortMode)?.shortLabel || 'Recommended'} <KeyboardArrowDownIcon style={{ fontSize: 18 }} />
+                      Sort · {SORT_OPTIONS.find(o => o.value === sortMode)?.shortLabel || 'Most recent'} <KeyboardArrowDownIcon style={{ fontSize: 18 }} />
                     </FilterChip>
                     {openDropdown === 'sort' && (
                       <div style={dropdownMenuStyle()}>

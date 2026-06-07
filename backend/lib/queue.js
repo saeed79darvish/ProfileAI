@@ -30,6 +30,18 @@ let bossPromise = null;
 function buildConnectionString() {
   // pg-boss wants a single DSN. We can't reuse the Sequelize pool
   // because pg-boss owns its own pg client for LISTEN/NOTIFY.
+  //
+  // Prefer DATABASE_URL when present — this is the standard on managed
+  // hosts (Render, Railway, Heroku, Neon, Supabase) and is the ONLY DB
+  // config those deploys provide. Sequelize already prefers it (see
+  // config/database.js); pg-boss must match or it silently fails to
+  // boot in production (no discrete DB_* vars → throw → prep/submit
+  // workers never mount and enqueue() no-ops).
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+
+  // Fall back to discrete DB_* vars for local dev / Docker compose.
   const host = process.env.DB_HOST || 'localhost';
   const port = process.env.DB_PORT || 5432;
   const db = process.env.DB_NAME;
@@ -37,7 +49,7 @@ function buildConnectionString() {
   const password = process.env.DB_PASSWORD;
 
   if (!db || !user) {
-    throw new Error('[queue] DB_NAME and DB_USER are required to boot pg-boss');
+    throw new Error('[queue] DATABASE_URL or DB_NAME + DB_USER are required to boot pg-boss');
   }
 
   const auth = password
@@ -56,8 +68,27 @@ function getBoss() {
   if (bossPromise) return bossPromise;
 
   const connectionString = buildConnectionString();
+
+  // SSL parity with config/database.js: managed Postgres (Render external,
+  // Railway, Neon, Supabase, Heroku, RDS) terminates TLS with intermediate
+  // certs we don't bundle, so disable strict cert verification. Render's
+  // INTERNAL network URL needs no SSL (DB_SSL=false), which is the default.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const sslEnabled =
+    process.env.DB_SSL === 'true' ||
+    process.env.DB_SSL === '1' ||
+    (isProduction && process.env.DB_SSL !== 'false');
+
   const boss = new PgBoss({
     connectionString,
+    ...(sslEnabled
+      ? {
+          ssl: {
+            require: true,
+            rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
+          },
+        }
+      : {}),
     // Keep completed/failed job rows for 24h so the Review UI can show
     // failure diagnostics. pg-boss prunes older rows automatically.
     archiveCompletedAfterSeconds: 60 * 60 * 24,
