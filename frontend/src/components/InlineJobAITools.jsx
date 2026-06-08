@@ -303,135 +303,189 @@ const flattenSkills = (skills) => {
   return [];
 };
 
-/* ── LED Billboard loading animation ───────────────────────────── */
-const ledMarquee = keyframes`
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
+/* ── Modern "analyzing" loader (big-tech style) ─────────────────── */
+const shimmer = keyframes`
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
 `;
 
-const ledBlink = keyframes`
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
-  50%      { opacity: 0.25; box-shadow: none; }
+const stepIn = keyframes`
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 `;
 
-const ledScan = keyframes`
-  0%   { background-position: 0 0; }
-  100% { background-position: 24px 0; }
+const spin = keyframes`
+  to { transform: rotate(360deg); }
 `;
 
-const Billboard = styled.div`
-  position: relative;
-  border-radius: 14px;
-  padding: 26px 18px;
-  overflow: hidden;
-  background-color: #070b1f;
-  background-image:
-    radial-gradient(rgba(99, 102, 241, 0.18) 1px, transparent 1.4px);
-  background-size: 6px 6px;
-  border: 1px solid #1e293b;
-  box-shadow: inset 0 0 32px rgba(0, 0, 0, 0.6), 0 4px 18px rgba(0, 0, 0, 0.25);
-
-  /* subtle moving scan-line sheen */
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
-    background-size: 24px 100%;
-    animation: ${ledScan} 1.2s linear infinite;
-    pointer-events: none;
-  }
+const popCheck = keyframes`
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
 `;
 
-const BillboardHeader = styled.div`
+const tipFade = keyframes`
+  0%, 100% { opacity: 0; transform: translateY(4px); }
+  12%, 88% { opacity: 1; transform: translateY(0); }
+`;
+
+const AnalyzeCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 2px;
+`;
+
+const StepList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const StepRow = styled.div`
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 12px;
+  animation: ${stepIn} 0.35s ease both;
 
-  .dots {
-    display: inline-flex;
-    gap: 5px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
+  .ico {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
     border-radius: 50%;
-    color: #34d399;
-    background: currentColor;
-    animation: ${ledBlink} 1s infinite;
   }
-  .dot:nth-child(2) { animation-delay: 0.18s; color: #fbbf24; }
-  .dot:nth-child(3) { animation-delay: 0.36s; color: #f472b6; }
+
+  /* done */
+  &[data-state='done'] .ico {
+    background: #ecfdf5;
+    color: #10b981;
+  }
+  &[data-state='done'] .ico svg { animation: ${popCheck} 0.3s ease both; font-size: 16px; }
+
+  /* active */
+  &[data-state='active'] .ico {
+    border: 2px solid #e0e7ff;
+    border-top-color: #6366f1;
+    animation: ${spin} 0.7s linear infinite;
+  }
+
+  /* pending */
+  &[data-state='pending'] .ico {
+    background: #f3f4f6;
+  }
+  &[data-state='pending'] .ico::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #cbd5e1;
+  }
 
   .label {
-    font-family: 'Courier New', ui-monospace, monospace;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: #fbbf24;
-    text-shadow: 0 0 8px rgba(251, 191, 36, 0.7);
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    transition: color 0.3s;
   }
+  &[data-state='pending'] .label { color: #9ca3af; }
+  &[data-state='active'] .label { color: #4338ca; font-weight: 600; }
 `;
 
-const BillboardTrack = styled.div`
+const SkeletonWrap = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+`;
+
+const SkeletonBar = styled.div`
+  height: ${p => p.$h || 12}px;
+  width: ${p => p.$w || '100%'};
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e7ebf3 37%, #f1f5f9 63%);
+  background-size: 280% 100%;
+  animation: ${shimmer} 1.4s ease-in-out infinite;
+`;
+
+const TipBar = styled.div`
   position: relative;
-  height: 30px;
-  overflow: hidden;
-  white-space: nowrap;
-  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f5f3ff, #eef2ff);
+  border: 1px solid #ede9fe;
 
-  .scroller {
-    display: inline-flex;
-    align-items: center;
-    gap: 36px;
-    padding-left: 100%;
-    animation: ${ledMarquee} 18s linear infinite;
-    will-change: transform;
-  }
+  .tip-ico { font-size: 16px; color: #8b5cf6; flex: 0 0 auto; }
 
-  .msg {
-    font-family: 'Courier New', ui-monospace, monospace;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: #93c5fd;
-    text-shadow: 0 0 8px rgba(147, 197, 253, 0.55);
+  .tip-text {
+    font-size: 12.5px;
+    color: #5b21b6;
+    font-weight: 500;
+    animation: ${tipFade} 4s ease-in-out infinite;
   }
-  .msg .accent { color: #6ee7b7; text-shadow: 0 0 8px rgba(110, 231, 183, 0.6); }
-  .msg .warn { color: #fcd34d; text-shadow: 0 0 8px rgba(252, 211, 77, 0.6); }
+  .tip-text b { font-weight: 700; }
 `;
 
-const BILLBOARD_MESSAGES = [
-  <>🔍 <span className="accent">SCANNING</span> the job description for must-have skills…</>,
-  <>📊 Matching it against <span className="accent">YOUR PROFILE</span> &amp; experience…</>,
-  <>🎯 Flagging <span className="warn">critical · important · nice-to-have</span> gaps…</>,
-  <>💡 <span className="warn">TIP</span> — hit <span className="accent">“Tailor Resume”</span> to auto-fix every gap found here</>,
-  <>📝 <span className="warn">TIP</span> — generate a custom <span className="accent">Cover Letter</span> in one click</>,
-  <>🚀 A higher match score means recruiters notice you <span className="accent">first</span></>,
-  <>⏳ Crunching the numbers… great matches are worth the wait</>,
+const ANALYZE_STEPS = [
+  'Reading the job description',
+  'Matching against your profile',
+  'Scoring skills & experience',
+  'Preparing your match report',
+];
+
+const ANALYZE_TIPS = [
+  <>Found gaps? <b>Tailor Resume</b> auto-fixes them in one click.</>,
+  <>Generate a job-specific <b>Cover Letter</b> instantly.</>,
+  <>A higher match score helps recruiters notice you first.</>,
 ];
 
 function MatchBillboard() {
+  const [step, setStep] = useState(0);
+  const [tip, setTip] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setStep((s) => (s < ANALYZE_STEPS.length - 1 ? s + 1 : s));
+    }, 1100);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setTip((i) => (i + 1) % ANALYZE_TIPS.length), 4000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
-    <Billboard>
-      <BillboardHeader>
-        <span className="dots">
-          <span className="dot" /><span className="dot" /><span className="dot" />
-        </span>
-        <span className="label">AI&nbsp;·&nbsp;Working</span>
-      </BillboardHeader>
-      <BillboardTrack>
-        <div className="scroller">
-          {BILLBOARD_MESSAGES.map((m, i) => (
-            <span className="msg" key={i}>{m}</span>
-          ))}
-        </div>
-      </BillboardTrack>
-    </Billboard>
+    <AnalyzeCard>
+      <StepList>
+        {ANALYZE_STEPS.map((label, i) => {
+          const state = i < step ? 'done' : i === step ? 'active' : 'pending';
+          return (
+            <StepRow key={i} data-state={state} style={{ animationDelay: `${i * 60}ms` }}>
+              <span className="ico">{state === 'done' && <CheckIcon />}</span>
+              <span className="label">{label}</span>
+            </StepRow>
+          );
+        })}
+      </StepList>
+
+      <SkeletonWrap>
+        <SkeletonBar $w="40%" $h={10} />
+        <SkeletonBar $w="100%" />
+        <SkeletonBar $w="82%" />
+      </SkeletonWrap>
+
+      <TipBar>
+        <SchoolIcon className="tip-ico" />
+        <span className="tip-text" key={tip}>{ANALYZE_TIPS[tip]}</span>
+      </TipBar>
+    </AnalyzeCard>
   );
 }
 
