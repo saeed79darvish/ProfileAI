@@ -303,6 +303,138 @@ const flattenSkills = (skills) => {
   return [];
 };
 
+/* ── LED Billboard loading animation ───────────────────────────── */
+const ledMarquee = keyframes`
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+`;
+
+const ledBlink = keyframes`
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+  50%      { opacity: 0.25; box-shadow: none; }
+`;
+
+const ledScan = keyframes`
+  0%   { background-position: 0 0; }
+  100% { background-position: 24px 0; }
+`;
+
+const Billboard = styled.div`
+  position: relative;
+  border-radius: 14px;
+  padding: 26px 18px;
+  overflow: hidden;
+  background-color: #070b1f;
+  background-image:
+    radial-gradient(rgba(99, 102, 241, 0.18) 1px, transparent 1.4px);
+  background-size: 6px 6px;
+  border: 1px solid #1e293b;
+  box-shadow: inset 0 0 32px rgba(0, 0, 0, 0.6), 0 4px 18px rgba(0, 0, 0, 0.25);
+
+  /* subtle moving scan-line sheen */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
+    background-size: 24px 100%;
+    animation: ${ledScan} 1.2s linear infinite;
+    pointer-events: none;
+  }
+`;
+
+const BillboardHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+
+  .dots {
+    display: inline-flex;
+    gap: 5px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    color: #34d399;
+    background: currentColor;
+    animation: ${ledBlink} 1s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.18s; color: #fbbf24; }
+  .dot:nth-child(3) { animation-delay: 0.36s; color: #f472b6; }
+
+  .label {
+    font-family: 'Courier New', ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #fbbf24;
+    text-shadow: 0 0 8px rgba(251, 191, 36, 0.7);
+  }
+`;
+
+const BillboardTrack = styled.div`
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+
+  .scroller {
+    display: inline-flex;
+    align-items: center;
+    gap: 36px;
+    padding-left: 100%;
+    animation: ${ledMarquee} 18s linear infinite;
+    will-change: transform;
+  }
+
+  .msg {
+    font-family: 'Courier New', ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #93c5fd;
+    text-shadow: 0 0 8px rgba(147, 197, 253, 0.55);
+  }
+  .msg .accent { color: #6ee7b7; text-shadow: 0 0 8px rgba(110, 231, 183, 0.6); }
+  .msg .warn { color: #fcd34d; text-shadow: 0 0 8px rgba(252, 211, 77, 0.6); }
+`;
+
+const BILLBOARD_MESSAGES = [
+  <>🔍 <span className="accent">SCANNING</span> the job description for must-have skills…</>,
+  <>📊 Matching it against <span className="accent">YOUR PROFILE</span> &amp; experience…</>,
+  <>🎯 Flagging <span className="warn">critical · important · nice-to-have</span> gaps…</>,
+  <>💡 <span className="warn">TIP</span> — hit <span className="accent">“Tailor Resume”</span> to auto-fix every gap found here</>,
+  <>📝 <span className="warn">TIP</span> — generate a custom <span className="accent">Cover Letter</span> in one click</>,
+  <>🚀 A higher match score means recruiters notice you <span className="accent">first</span></>,
+  <>⏳ Crunching the numbers… great matches are worth the wait</>,
+];
+
+function MatchBillboard() {
+  return (
+    <Billboard>
+      <BillboardHeader>
+        <span className="dots">
+          <span className="dot" /><span className="dot" /><span className="dot" />
+        </span>
+        <span className="label">AI&nbsp;·&nbsp;Working</span>
+      </BillboardHeader>
+      <BillboardTrack>
+        <div className="scroller">
+          {BILLBOARD_MESSAGES.map((m, i) => (
+            <span className="msg" key={i}>{m}</span>
+          ))}
+        </div>
+      </BillboardTrack>
+    </Billboard>
+  );
+}
+
 /**
  * Inline AI Tools that render directly inside the CandidateJobs page
  * replacing the old navigate-to-profile buttons.
@@ -736,10 +868,7 @@ export default function InlineJobAITools({ job }) {
         </div>
         <DialogContent style={{ padding: '20px' }}>
           {gapLoading ? (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <CircularProgress size={32} sx={{ color: '#667eea' }} />
-              <div style={{ marginTop: 12, color: '#6b7280', fontSize: 14 }}>Analyzing your profile against this job...</div>
-            </div>
+            <MatchBillboard />
           ) : gapResult ? (
             <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
