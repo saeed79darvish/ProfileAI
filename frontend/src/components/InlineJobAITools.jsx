@@ -228,13 +228,71 @@ const ToneBtn = styled.button`
   &:hover { border-color: #667eea; }
 `;
 
-const NoProfileMsg = styled.div`
-  padding: 16px;
-  text-align: center;
+const NoProfileCard = styled.div`
+  padding: 18px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #faf8ff 0%, #f5f3ff 100%);
+  border: 1px solid #ece8fd;
+`;
+
+const NoProfileTitle = styled.div`
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 4px;
+`;
+
+const NoProfileSubtitle = styled.div`
+  font-size: 12.5px;
   color: #6b7280;
-  font-size: 13px;
-  
-  a { color: #667eea; font-weight: 500; text-decoration: none; &:hover { text-decoration: underline; } }
+  line-height: 1.5;
+  margin-bottom: 14px;
+`;
+
+const NoProfileToolList = styled.ul`
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+`;
+
+const NoProfileToolItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: #374151;
+
+  svg { font-size: 18px; color: #7c3aed; flex-shrink: 0; }
+  strong { font-weight: 600; color: #1f2937; }
+`;
+
+const NoProfileCta = styled.a`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35); }
+  svg { font-size: 18px; }
+`;
+
+const NoProfileHint = styled.div`
+  margin-top: 10px;
+  text-align: center;
+  font-size: 11.5px;
+  color: #9ca3af;
 `;
 
 // Normalize skills: could be string[], or { category: string[] } object
@@ -575,9 +633,35 @@ export default function InlineJobAITools({ job }) {
 
   if (!profile) {
     return (
-      <NoProfileMsg>
-        Create your <a href="/profile/edit">profile</a> first to use AI tools.
-      </NoProfileMsg>
+      <NoProfileCard>
+        <NoProfileTitle>Unlock AI tools for this job</NoProfileTitle>
+        <NoProfileSubtitle>
+          Add your profile once and ProfilleAI tailors everything to your
+          experience — no copy-pasting your resume each time.
+        </NoProfileSubtitle>
+        <NoProfileToolList>
+          <NoProfileToolItem>
+            <TailorIcon />
+            <span><strong>Tailor your resume</strong> to match this role</span>
+          </NoProfileToolItem>
+          <NoProfileToolItem>
+            <CoverLetterIcon />
+            <span><strong>Generate a cover letter</strong> in seconds</span>
+          </NoProfileToolItem>
+          <NoProfileToolItem>
+            <MatchIcon />
+            <span><strong>See your match score</strong> against the job</span>
+          </NoProfileToolItem>
+          <NoProfileToolItem>
+            <SkillGapIcon />
+            <span><strong>Spot skill gaps</strong> to close before applying</span>
+          </NoProfileToolItem>
+        </NoProfileToolList>
+        <NoProfileCta href="/profile/edit">
+          Create your profile <ArrowIcon />
+        </NoProfileCta>
+        <NoProfileHint>Takes about 2 minutes</NoProfileHint>
+      </NoProfileCard>
     );
   }
 
