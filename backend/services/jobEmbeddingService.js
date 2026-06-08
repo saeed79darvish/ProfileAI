@@ -736,20 +736,26 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     scoreExpr = `ROUND((1 - (ej.embedding <=> $1::vector)) * 100)`;
   }
 
-  // Recency factor — strong multiplicative penalty for older jobs so
-  // fresh + relevant rises to the top in 'recommended' mode. Floor at 0.5
-  // so an older job that's a perfect match isn't completely buried.
+  // Recency factor — a GENTLE multiplicative tiebreaker, not a relevance
+  // killer. In 'recommended' mode we want the strongest profile matches on
+  // top, and among comparably-relevant jobs the freshest wins. A wide band
+  // (e.g. 0.5-1.0) is destructive on these compressed cosine scores: a
+  // 24-day-old 69% frontend match would collapse to ~34 and lose to a
+  // brand-new 54% account-exec role (54 × 1.0) — the exact "random fresh
+  // jobs on top" bug. So we cap the penalty at ~10% over 30 days, which
+  // keeps a clear match advantage intact while still floating the newest
+  // job to the top among similar matches.
   //   0 days old:  factor = 1.00 (no penalty)
-  //   3 days:      factor ≈ 0.89
-  //   7 days:      factor = 0.75
-  //  14+ days:     factor = 0.50 (floor)
+  //   7 days:      factor ≈ 0.977
+  //  30 days:      factor = 0.90
+  //  30+ days:     factor = 0.90 (floor)
   // Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
   // postedAt = NULL (see normalizeGreenhouseJob comment).
   const recencyFactorExpr = `
-    GREATEST(0.5, 1.0 - LEAST(
+    GREATEST(0.9, 1.0 - LEAST(
       EXTRACT(EPOCH FROM (NOW() - COALESCE(ej."postedAt", ej."createdAt"))) / 86400.0,
-      14
-    ) / 28.0)
+      30
+    ) / 300.0)
   `.trim();
   const rankScoreExpr = `(${scoreExpr}) * ${recencyFactorExpr}`;
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
