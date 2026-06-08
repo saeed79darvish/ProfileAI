@@ -613,11 +613,13 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
       if (orTokens.length > 0) {
         const tsqExpr = orTokens.map(t => `${t}:*`).join(' | ');
-        conditions.push(`(
-          setweight(to_tsvector('english', coalesce(ej."title", '')), 'A') ||
-          setweight(to_tsvector('english', coalesce(ej."company", '')), 'B') ||
-          setweight(to_tsvector('english', coalesce(ej."department", '')), 'B')
-        ) @@ to_tsquery('english', $${bindIndex})`);
+        // Require an A (title) or B (company/dept) weight hit on the
+        // STORED searchTsv column, excluding description-only (C) matches.
+        // ts_rank_cd with weight array {D,C,B,A} = {0,0,1,1} scores
+        // description matches at 0, so `> 0` drops them. Reading the
+        // precomputed column avoids the per-row tsvector rebuild that was
+        // a query-time hotspot.
+        conditions.push(`ts_rank_cd('{0,0,1,1}', ej."searchTsv", to_tsquery('english', $${bindIndex})) > 0`);
         binds.push(tsqExpr);
         bindIndex++;
       }

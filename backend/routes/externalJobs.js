@@ -382,14 +382,16 @@ router.get('/', optionalAuth, async (req, res) => {
         // department) weights only. Description-only hits (weight C) are
         // rejected — a Workplace Operations JD that mentions "frontend"
         // in its body must NOT match a "Frontend Engineer" search.
-        // We re-build a weight-restricted tsvector inline and check it
-        // against the same query. This runs only on the already-narrowed
-        // GIN result set, so it stays cheap.
-        literal(`(
-          setweight(to_tsvector('english', coalesce("ExternalJob"."title", '')), 'A') ||
-          setweight(to_tsvector('english', coalesce("ExternalJob"."company", '')), 'B') ||
-          setweight(to_tsvector('english', coalesce("ExternalJob"."department", '')), 'B')
-        ) @@ plainto_tsquery('english', :tsQuery)`)
+        //
+        // ts_rank_cd reads the STORED searchTsv column with a custom
+        // weight array {D,C,B,A} = {0,0,1,1}: description (C) contributes
+        // 0, so a description-only match scores 0 and the `> 0` filter
+        // drops it, while any title (A) or company/dept (B) hit scores
+        // above 0 and passes. Reading the precomputed column avoids the
+        // per-row tsvector rebuild that was timing the query out (~15s →
+        // 500) on large result sets, since findAndCountAll re-ran that
+        // rebuild for the COUNT pass across all 13k+ jobs too.
+        literal(`ts_rank_cd('{0,0,1,1}', "ExternalJob"."searchTsv", plainto_tsquery('english', :tsQuery)) > 0`)
       ];
     }
 
