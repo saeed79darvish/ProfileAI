@@ -426,7 +426,12 @@ function scoreJob(job, profileData) {
  * Returns jobs with `relevanceScore` attached, sorted by score DESC then postedAt DESC.
  */
 function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
-  if (!profile) return jobs.map(j => ({ ...j, relevanceScore: 0 }));
+  // No profile (e.g. a freshly-registered user who hasn't built one yet):
+  // return jobs unranked. Convert Sequelize instances to plain objects first
+  // — spreading a model instance copies internal circular refs (include/
+  // parent), which makes res.json() throw "Converting circular structure to
+  // JSON" and 500s the whole jobs page.
+  if (!profile) return jobs.map(j => ({ ...(j.toJSON ? j.toJSON() : j), relevanceScore: 0 }));
   
   // Pre-compute profile data once
   const candidateSkills = extractSkills(profile);
