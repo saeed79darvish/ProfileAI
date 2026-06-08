@@ -365,15 +365,14 @@ const CandidateJobs = () => {
   // Sort mode for the External tab list. Surfaced as a "Sort" chip in the
   // filter row so users can explicitly pick "Most recent" (pure recency,
   // the fast no-ANN backend path) vs. "Recommended" (profile-aware
-  // match × recency via pgvector). Defaults to 'recent' — the no-ANN path
-  // is the fastest first paint (~0.1-0.2s vs ~0.6s for the ANN recommended
-  // query), and because we already seed role/location/experience from the
-  // candidate's profile the list stays personalized via filters while
-  // sorting freshest-first. Recommended is one click away. Initialized from
-  // / synced to the ?sort= URL param.
+  // match × recency via pgvector). Defaults to 'recommended' — candidates
+  // should see jobs relevant to their profile first, not just the freshest
+  // (which surfaced unrelated roles). The recommended path uses an
+  // HNSW-indexed two-stage ANN query so it stays fast (~0.2s warm).
+  // Initialized from / synced to the ?sort= URL param.
   const [sortMode, setSortMode] = useState(() => {
     const v = searchParams.get('sort');
-    return (v === 'recent' || v === 'recommended') ? v : 'recent';
+    return (v === 'recent' || v === 'recommended') ? v : 'recommended';
   });
   const [filters, setFilters] = useState({
     locationType: searchParams.get('locationType') || '',

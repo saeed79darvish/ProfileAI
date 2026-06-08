@@ -752,30 +752,8 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const rankScoreExpr = `(${scoreExpr}) * ${recencyFactorExpr}`;
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
 
-  // Freshness buckets — in Recommended mode we tier jobs by recency so the
-  // candidate sees the newest matches first while still seeing older,
-  // still-relevant jobs below. Within each bucket we sort by match score
-  // so the most relevant fresh job is always at the very top.
-  //
-  //   tier 3: posted in the last hour      (brand-new)
-  //   tier 2: posted in the last 24 hours  (today)
-  //   tier 1: posted in the last 7 days    (this week)
-  //   tier 0: everything else              (still surfaced, up to ~1 month+)
-  //
-  // Using a single CASE expression lets PostgreSQL order by it as the
-  // primary key and the index on postedAt keeps this cheap.
-  const freshnessTierExpr = `
-    CASE
-      WHEN COALESCE(ej."postedAt", ej."createdAt") > NOW() - INTERVAL '1 hour'  THEN 3
-      WHEN COALESCE(ej."postedAt", ej."createdAt") > NOW() - INTERVAL '24 hours' THEN 2
-      WHEN COALESCE(ej."postedAt", ej."createdAt") > NOW() - INTERVAL '7 days'   THEN 1
-      ELSE 0
-    END
-  `.trim();
-
   // ORDER BY differs by sort mode:
-  //   recommended → freshness tier first (last hour → last day → last week →
-  //                 older), then match × recency within each tier
+  //   recommended → relevance-first (match × recency rank score)
   //   match       → match score, recency tiebreak
   //   recent      → recency, match tiebreak
   let orderExpr;
@@ -784,10 +762,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): tier by freshness, then by match × recency.
-    // Older jobs (1 month+) still surface in the bottom tier so the
-    // candidate isn't starved of results when fresh listings are thin.
-    orderExpr = `${freshnessTierExpr} DESC, ${rankScoreExpr} DESC, ${recencyOrderExpr}`;
+    // recommended (default): RELEVANCE-FIRST. Order by the rank score
+    // (match × recency multiplier 0.5-1.0) so the most relevant jobs always
+    // rise to the top, with fresher jobs winning among similarly-relevant
+    // ones. We deliberately do NOT tier by a hard freshness bucket first —
+    // doing so let brand-new but unrelated postings outrank an older perfect
+    // match (e.g. a Designer role posted an hour ago beating a Frontend
+    // Engineer match from last week). The recency multiplier inside
+    // rankScoreExpr keeps fresh-and-relevant on top without burying relevance.
+    orderExpr = `${rankScoreExpr} DESC, ${recencyOrderExpr}`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
