@@ -736,32 +736,23 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     scoreExpr = `ROUND((1 - (ej.embedding <=> $1::vector)) * 100)`;
   }
 
-  // Recency factor — a GENTLE multiplicative tiebreaker, not a relevance
-  // killer. In 'recommended' mode we want the strongest profile matches on
-  // top, and among comparably-relevant jobs the freshest wins. A wide band
-  // (e.g. 0.5-1.0) is destructive on these compressed cosine scores: a
-  // 24-day-old 69% frontend match would collapse to ~34 and lose to a
-  // brand-new 54% account-exec role (54 × 1.0) — the exact "random fresh
-  // jobs on top" bug. So we cap the penalty at ~10% over 30 days, which
-  // keeps a clear match advantage intact while still floating the newest
-  // job to the top among similar matches.
-  //   0 days old:  factor = 1.00 (no penalty)
-  //   7 days:      factor ≈ 0.977
-  //  30 days:      factor = 0.90
-  //  30+ days:     factor = 0.90 (floor)
-  // Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
-  // postedAt = NULL (see normalizeGreenhouseJob comment).
-  const recencyFactorExpr = `
-    GREATEST(0.9, 1.0 - LEAST(
-      EXTRACT(EPOCH FROM (NOW() - COALESCE(ej."postedAt", ej."createdAt"))) / 86400.0,
-      30
-    ) / 300.0)
-  `.trim();
-  const rankScoreExpr = `(${scoreExpr}) * ${recencyFactorExpr}`;
+  // 'recommended' uses an explicit relevance-tier + date ordering (see
+  // matchBucketExpr below) so the latest posted job is always visible at the
+  // top among comparable matches. A pure multiplicative recency factor made
+  // the ordering look "date-unsorted": a 69% job from 24 days ago outranked a
+  // fresher 67% job, so users couldn't tell newest jobs were on top. Uses
+  // COALESCE(postedAt, createdAt) because Greenhouse jobs store postedAt=NULL.
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
 
+  // Relevance tier: bucket the (compressed, ~50-70) cosine match score into
+  // 10-point bands. Jobs in the same band are treated as equally relevant,
+  // so we can then order them by DATE — surfacing the latest posted job on
+  // top WITHIN each relevance tier. A clearly stronger match (next band up)
+  // still ranks above a fresher-but-weaker one, so we never bury relevance.
+  const matchBucketExpr = `FLOOR((${scoreExpr}) / 10.0)`;
+
   // ORDER BY differs by sort mode:
-  //   recommended → relevance-first (match × recency rank score)
+  //   recommended → relevance tier, then latest posted, then exact score
   //   match       → match score, recency tiebreak
   //   recent      → recency, match tiebreak
   let orderExpr;
@@ -770,15 +761,16 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): RELEVANCE-FIRST. Order by the rank score
-    // (match × recency multiplier 0.5-1.0) so the most relevant jobs always
-    // rise to the top, with fresher jobs winning among similarly-relevant
-    // ones. We deliberately do NOT tier by a hard freshness bucket first —
-    // doing so let brand-new but unrelated postings outrank an older perfect
-    // match (e.g. a Designer role posted an hour ago beating a Frontend
-    // Engineer match from last week). The recency multiplier inside
-    // rankScoreExpr keeps fresh-and-relevant on top without burying relevance.
-    orderExpr = `${rankScoreExpr} DESC, ${recencyOrderExpr}`;
+    // recommended (default): RELEVANCE-TIER then DATE. Group jobs into
+    // 10-point match bands (best band first), and within each band put the
+    // latest posted job on top. This satisfies "best match AND latest
+    // posted on top": a strong match always outranks a weak one (different
+    // band), but among comparable matches the freshest wins clearly — so the
+    // list reads as date-sorted instead of by an opaque blended score. We do
+    // NOT tier by a hard freshness bucket first (that let brand-new but
+    // unrelated postings outrank a strong match); the relevance band gates
+    // first, date orders within it.
+    orderExpr = `${matchBucketExpr} DESC, ${recencyOrderExpr}, ${scoreExpr} DESC`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
