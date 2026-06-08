@@ -736,23 +736,31 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     scoreExpr = `ROUND((1 - (ej.embedding <=> $1::vector)) * 100)`;
   }
 
-  // 'recommended' uses an explicit relevance-tier + date ordering (see
-  // matchBucketExpr below) so the latest posted job is always visible at the
-  // top among comparable matches. A pure multiplicative recency factor made
-  // the ordering look "date-unsorted": a 69% job from 24 days ago outranked a
-  // fresher 67% job, so users couldn't tell newest jobs were on top. Uses
-  // COALESCE(postedAt, createdAt) because Greenhouse jobs store postedAt=NULL.
+  // 'recommended' ordering: match score stays DOMINANT, with a small additive
+  // recency BONUS so the freshest jobs float to the top AMONG comparable
+  // matches — without ever lifting an irrelevant job above a clearly stronger
+  // one. Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
+  // postedAt = NULL (see normalizeGreenhouseJob comment).
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
 
-  // Relevance tier: bucket the (compressed, ~50-70) cosine match score into
-  // 10-point bands. Jobs in the same band are treated as equally relevant,
-  // so we can then order them by DATE — surfacing the latest posted job on
-  // top WITHIN each relevance tier. A clearly stronger match (next band up)
-  // still ranks above a fresher-but-weaker one, so we never bury relevance.
-  const matchBucketExpr = `FLOOR((${scoreExpr}) / 10.0)`;
+  // Recency bonus: 0-4 points added to the match score, linearly decaying
+  // over 30 days (today = +4, 30+ days = +0). The cap is deliberately small
+  // relative to the ~20-point spread of these compressed cosine scores:
+  //   - Two comparable matches (e.g. 66% vs 67% Frontend) reorder by date —
+  //     a fresher 66 (+4 = 70) beats a stale 67 (+0 = 67), so the newest job
+  //     shows on top, which is what users mean by "latest posted on top".
+  //   - A genuinely stronger match is NEVER buried: a 66% Frontend (+0 = 66)
+  //     still outranks a fresh 60% Recruiter (+4 = 64), because the >4-point
+  //     relevance gap exceeds the max bonus. (A 10-point bucket let that
+  //     recruiter win — too coarse for a 50-70 score range.)
+  const recencyBonusExpr = `(4.0 * GREATEST(0, 1.0 - LEAST(
+    EXTRACT(EPOCH FROM (NOW() - COALESCE(ej."postedAt", ej."createdAt"))) / 86400.0,
+    30
+  ) / 30.0))`;
+  const effectiveScoreExpr = `((${scoreExpr}) + ${recencyBonusExpr})`;
 
   // ORDER BY differs by sort mode:
-  //   recommended → relevance tier, then latest posted, then exact score
+  //   recommended → match score + recency bonus, then latest posted
   //   match       → match score, recency tiebreak
   //   recent      → recency, match tiebreak
   let orderExpr;
@@ -761,16 +769,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): RELEVANCE-TIER then DATE. Group jobs into
-    // 10-point match bands (best band first), and within each band put the
-    // latest posted job on top. This satisfies "best match AND latest
-    // posted on top": a strong match always outranks a weak one (different
-    // band), but among comparable matches the freshest wins clearly — so the
-    // list reads as date-sorted instead of by an opaque blended score. We do
-    // NOT tier by a hard freshness bucket first (that let brand-new but
-    // unrelated postings outrank a strong match); the relevance band gates
-    // first, date orders within it.
-    orderExpr = `${matchBucketExpr} DESC, ${recencyOrderExpr}, ${scoreExpr} DESC`;
+    // recommended (default): RELEVANCE-DOMINANT with a small recency boost.
+    // Order by (matchScore + 0-4 recency bonus) so the strongest matches stay
+    // on top, but among comparable matches the freshest posting wins clearly.
+    // Date is the final tiebreak so same-effective-score jobs still list
+    // newest-first. We deliberately do NOT tier by a hard freshness bucket
+    // first (that let brand-new but unrelated postings outrank a strong match)
+    // nor by a wide score bucket (that let a fresh weak match outrank a strong
+    // one). The capped additive bonus balances both.
+    orderExpr = `${effectiveScoreExpr} DESC, ${recencyOrderExpr}`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
