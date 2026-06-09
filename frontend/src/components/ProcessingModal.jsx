@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   Dialog,
@@ -15,6 +15,7 @@ import {
   Psychology as BrainIcon,
   CheckCircle as CheckIcon,
   Sync as SyncIcon,
+  Lightbulb as TipIcon,
 } from '@mui/icons-material';
 
 // Animations
@@ -48,6 +49,251 @@ const spin = keyframes`
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 `;
+
+/* ── Modern stepped loader (big-tech style) — used by enhance/tips ── */
+const stepIn = keyframes`
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const popCheck = keyframes`
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+`;
+
+const barShimmer = keyframes`
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+`;
+
+const tipFade = keyframes`
+  0%, 100% { opacity: 0; transform: translateY(4px); }
+  12%, 88% { opacity: 1; transform: translateY(0); }
+`;
+
+const ModernDialog = styled(Dialog)`
+  .MuiDialog-paper {
+    border-radius: 20px;
+    overflow: hidden;
+    background: #ffffff;
+    min-width: 380px;
+    max-width: 440px;
+    box-shadow: 0 24px 70px rgba(17, 24, 39, 0.22);
+  }
+`;
+
+const ModernHeader = styled(Box)`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px 16px;
+
+  .badge {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+    color: #6366f1;
+    flex: 0 0 auto;
+  }
+  .badge svg { font-size: 22px; }
+
+  .htitle {
+    font-size: 17px;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.2;
+  }
+  .hsub {
+    font-size: 12.5px;
+    color: #6b7280;
+    margin-top: 2px;
+  }
+`;
+
+const ModernBody = styled(Box)`
+  padding: 4px 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+`;
+
+const StepList = styled(Box)`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const StepRow = styled(Box)`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: ${stepIn} 0.35s ease both;
+
+  .ico {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+  }
+  &[data-state='done'] .ico { background: #ecfdf5; color: #10b981; }
+  &[data-state='done'] .ico svg { animation: ${popCheck} 0.3s ease both; font-size: 16px; }
+
+  &[data-state='active'] .ico {
+    border: 2px solid #e0e7ff;
+    border-top-color: #6366f1;
+    animation: ${spin} 0.7s linear infinite;
+  }
+
+  &[data-state='pending'] .ico { background: #f3f4f6; }
+  &[data-state='pending'] .ico::after {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #cbd5e1;
+  }
+
+  .label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    transition: color 0.3s;
+  }
+  &[data-state='pending'] .label { color: #9ca3af; }
+  &[data-state='active'] .label { color: #4338ca; font-weight: 600; }
+`;
+
+const SkeletonWrap = styled(Box)`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+`;
+
+const SkeletonBar = styled(Box)`
+  height: ${p => p.$h || 12}px;
+  width: ${p => p.$w || '100%'};
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e7ebf3 37%, #f1f5f9 63%);
+  background-size: 280% 100%;
+  animation: ${barShimmer} 1.4s ease-in-out infinite;
+`;
+
+const TipBar = styled(Box)`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f5f3ff, #eef2ff);
+  border: 1px solid #ede9fe;
+
+  .tip-ico { font-size: 16px; color: #8b5cf6; flex: 0 0 auto; }
+  .tip-text {
+    font-size: 12.5px;
+    color: #5b21b6;
+    font-weight: 500;
+    animation: ${tipFade} 4s ease-in-out infinite;
+  }
+  .tip-text b { font-weight: 700; }
+`;
+
+const modernConfig = {
+  enhance: {
+    icon: AIIcon,
+    steps: [
+      'Reading your profile',
+      'Optimizing wording & impact',
+      'Strengthening key sections',
+      'Polishing the final draft',
+    ],
+    tips: [
+      <>We quantify achievements to make recruiters take notice.</>,
+      <>Stronger action verbs &amp; clearer impact, automatically.</>,
+      <>Your tone &amp; facts stay yours — we just sharpen them.</>,
+    ],
+  },
+  tips: {
+    icon: BrainIcon,
+    steps: [
+      'Reviewing your profile',
+      'Benchmarking against top candidates',
+      'Spotting growth opportunities',
+      'Writing your personalized tips',
+    ],
+    tips: [
+      <>Tips are tailored to <b>your</b> target roles &amp; level.</>,
+      <>Act on the top suggestion first for the biggest lift.</>,
+      <>A complete profile reaches the <b>Top 10%</b> faster.</>,
+    ],
+  },
+};
+
+function ModernProcessing({ open, type, title, subtitle }) {
+  const cfg = modernConfig[type] || modernConfig.enhance;
+  const Icon = cfg.icon;
+  const [step, setStep] = useState(0);
+  const [tip, setTip] = useState(0);
+
+  useEffect(() => {
+    if (!open) { setStep(0); setTip(0); return; }
+    const t = setInterval(() => {
+      setStep((s) => (s < cfg.steps.length - 1 ? s + 1 : s));
+    }, 1100);
+    return () => clearInterval(t);
+  }, [open, cfg.steps.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => setTip((i) => (i + 1) % cfg.tips.length), 4000);
+    return () => clearInterval(t);
+  }, [open, cfg.tips.length]);
+
+  return (
+    <ModernDialog open={open} disableEscapeKeyDown onClose={() => {}}>
+      <DialogContent sx={{ p: 0 }}>
+        <ModernHeader>
+          <span className="badge"><Icon /></span>
+          <Box>
+            <div className="htitle">{title}</div>
+            {subtitle && <div className="hsub">{subtitle}</div>}
+          </Box>
+        </ModernHeader>
+        <ModernBody>
+          <StepList>
+            {cfg.steps.map((label, i) => {
+              const state = i < step ? 'done' : i === step ? 'active' : 'pending';
+              return (
+                <StepRow key={i} data-state={state} style={{ animationDelay: `${i * 60}ms` }}>
+                  <span className="ico">{state === 'done' && <CheckIcon />}</span>
+                  <span className="label">{label}</span>
+                </StepRow>
+              );
+            })}
+          </StepList>
+
+          <SkeletonWrap>
+            <SkeletonBar $w="42%" $h={10} />
+            <SkeletonBar $w="100%" />
+            <SkeletonBar $w="80%" />
+          </SkeletonWrap>
+
+          <TipBar>
+            <TipIcon className="tip-ico" />
+            <span className="tip-text" key={tip}>{cfg.tips[tip]}</span>
+          </TipBar>
+        </ModernBody>
+      </DialogContent>
+    </ModernDialog>
+  );
+}
 
 // Styled Components
 const StyledDialog = styled(Dialog)`
@@ -274,6 +520,18 @@ const ProcessingModal = ({
   const displayTitle = title || config.defaultTitle;
   const displaySubtitle = subtitle || config.defaultSubtitle;
   const displayPhase = phase || config.defaultPhase;
+
+  // Modern stepped loader for AI profile flows (big-tech style)
+  if (modernConfig[type]) {
+    return (
+      <ModernProcessing
+        open={open}
+        type={type}
+        title={displayTitle}
+        subtitle={displaySubtitle}
+      />
+    );
+  }
 
   return (
     <StyledDialog 

@@ -736,31 +736,32 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     scoreExpr = `ROUND((1 - (ej.embedding <=> $1::vector)) * 100)`;
   }
 
-  // 'recommended' ordering: match score stays DOMINANT, with a small additive
-  // recency BONUS so the freshest jobs float to the top AMONG comparable
-  // matches — without ever lifting an irrelevant job above a clearly stronger
-  // one. Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
+  // 'recommended' ordering goal: a candidate (e.g. a SF Frontend dev) opening
+  // the jobs page should see the LATEST posted RELEVANT jobs on top — i.e.
+  // strict newest-first ordering AMONG the jobs that actually match their
+  // profile, with off-target roles (recruiter, design, sales) kept out of the
+  // top. Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
   // postedAt = NULL (see normalizeGreenhouseJob comment).
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
 
-  // Recency bonus: 0-4 points added to the match score, linearly decaying
-  // over 30 days (today = +4, 30+ days = +0). The cap is deliberately small
-  // relative to the ~20-point spread of these compressed cosine scores:
-  //   - Two comparable matches (e.g. 66% vs 67% Frontend) reorder by date —
-  //     a fresher 66 (+4 = 70) beats a stale 67 (+0 = 67), so the newest job
-  //     shows on top, which is what users mean by "latest posted on top".
-  //   - A genuinely stronger match is NEVER buried: a 66% Frontend (+0 = 66)
-  //     still outranks a fresh 60% Recruiter (+4 = 64), because the >4-point
-  //     relevance gap exceeds the max bonus. (A 10-point bucket let that
-  //     recruiter win — too coarse for a 50-70 score range.)
-  const recencyBonusExpr = `(4.0 * GREATEST(0, 1.0 - LEAST(
-    EXTRACT(EPOCH FROM (NOW() - COALESCE(ej."postedAt", ej."createdAt"))) / 86400.0,
-    30
-  ) / 30.0))`;
-  const effectiveScoreExpr = `((${scoreExpr}) + ${recencyBonusExpr})`;
+  // Relevance band: bucket the (compressed, ~50-70) cosine match score into
+  // 5-POINT bands, then order strictly by DATE within each band. 5 points is
+  // the sweet spot for this score range:
+  //   - It SEPARATES a candidate's real matches from the noise: for a SF
+  //     Frontend dev, Frontend/Full-Stack roles score ~65-69 (band 13) while
+  //     Recruiter/Design/Sales score ~60-62 (band 12). Band 13 is strictly
+  //     above band 12, so the noise never reaches the top.
+  //   - WITHIN the top band it ignores tiny score deltas (65 vs 69 are the
+  //     same band), so pure date wins → ALL the latest frontend jobs sort to
+  //     the top newest-first, which is exactly what the user expects.
+  // (A 10-point band was too coarse — it merged 60-69 into one bucket, so a
+  // 60% recruiter could ride date above a 66% frontend role. A pure additive
+  // recency bonus was too weak — a 69% from 3 weeks ago still edged out a
+  // fresher 67%, so it didn't read as "latest on top".)
+  const matchBandExpr = `FLOOR((${scoreExpr}) / 5.0)`;
 
   // ORDER BY differs by sort mode:
-  //   recommended → match score + recency bonus, then latest posted
+  //   recommended → relevance band, then latest posted, then exact score
   //   match       → match score, recency tiebreak
   //   recent      → recency, match tiebreak
   let orderExpr;
@@ -769,15 +770,14 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): RELEVANCE-DOMINANT with a small recency boost.
-    // Order by (matchScore + 0-4 recency bonus) so the strongest matches stay
-    // on top, but among comparable matches the freshest posting wins clearly.
-    // Date is the final tiebreak so same-effective-score jobs still list
-    // newest-first. We deliberately do NOT tier by a hard freshness bucket
-    // first (that let brand-new but unrelated postings outrank a strong match)
-    // nor by a wide score bucket (that let a fresh weak match outrank a strong
-    // one). The capped additive bonus balances both.
-    orderExpr = `${effectiveScoreExpr} DESC, ${recencyOrderExpr}`;
+    // recommended (default): RELEVANCE BAND then DATE. Group jobs into 5-point
+    // match bands (best band first), and within each band put the latest
+    // posted job on top. This delivers "all latest posted relevant jobs on
+    // top": the candidate's real matches (top band) lead, ordered newest-
+    // first, while off-target roles sit in a lower band and never jump the
+    // queue on freshness alone. Exact score is the final tiebreak so equally-
+    // fresh jobs in a band still order by match strength.
+    orderExpr = `${matchBandExpr} DESC, ${recencyOrderExpr}, ${scoreExpr} DESC`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
