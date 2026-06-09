@@ -362,15 +362,12 @@ const CandidateJobs = () => {
   // in DB" (sync misconfigured / cron disabled) from "no matches for these
   // filters" (user filtering too aggressively). Loaded once per session.
   const [corpusTotal, setCorpusTotal] = useState(null);
-  // Sort mode for the External tab list. Surfaced as a "Sort" chip in the
-  // filter row so users can explicitly pick "Most recent" (pure recency,
-  // the fast no-ANN backend path) vs. "Recommended" (profile-aware
-  // match × recency via pgvector). Defaults to 'recommended' — candidates
-  // should see jobs relevant to their profile first, not just the freshest
-  // (which surfaced unrelated roles). The recommended path uses an
-  // HNSW-indexed two-stage ANN query so it stays fast (~0.2s warm).
-  // Initialized from / synced to the ?sort= URL param.
-  const [sortMode, setSortMode] = useState(() => {
+  // Sort mode for the External tab list. The user-facing Sort chip was
+  // removed — jobs are always ordered by the profile-aware "Recommended"
+  // ranking (relevance band + latest-posted within the band). We still read
+  // ?sort=recent from the URL so deep links / shared recency views keep
+  // working, but there's no in-page toggle (hence no setter).
+  const [sortMode] = useState(() => {
     const v = searchParams.get('sort');
     return (v === 'recent' || v === 'recommended') ? v : 'recommended';
   });
@@ -1310,6 +1307,50 @@ const CandidateJobs = () => {
     setActiveTab('external');
   };
 
+  // Smart "broaden" for the empty state. Rather than dumping the candidate
+  // back to an unfiltered corpus (which loses their role + location intent),
+  // we relax the SINGLE most-restrictive filter at a time, in priority order.
+  // Date is the worst offender — recent ingestion skews to a few role types,
+  // so a narrow window like "past 3 days" can be genuinely empty for a given
+  // specialty even though 30+ jobs exist this month. So we widen the date
+  // first, then drop the startup/salary/skill/work-type narrowing, keeping
+  // the candidate's role + location to the very end. Returns null when there's
+  // nothing left to relax (caller falls back to "Clear all filters").
+  const DATE_WIDEN_NEXT = { day: 'week', '3days': 'week', week: 'month', '2weeks': 'month', month: '3months' };
+  const computeBroadenAction = () => {
+    if (filters.datePosted && DATE_WIDEN_NEXT[filters.datePosted]) {
+      const next = DATE_WIDEN_NEXT[filters.datePosted];
+      const label = DATE_OPTIONS.find(o => o.value === next)?.label || 'a wider date range';
+      return { label: `Show jobs from the ${label.replace(/^Past /, 'past ').toLowerCase()}`, apply: () => handleFilterChange('datePosted', next) };
+    }
+    if (filters.datePosted) {
+      return { label: 'Show jobs from any date', apply: () => handleFilterChange('datePosted', '') };
+    }
+    if (filters.startup) {
+      return { label: 'Include non-startup companies', apply: () => handleFilterChange('startup', false) };
+    }
+    if (filters.salary) {
+      return { label: 'Remove the salary filter', apply: () => handleFilterChange('salary', '') };
+    }
+    if (filters.skills) {
+      return { label: 'Remove the skills filter', apply: () => handleFilterChange('skills', '') };
+    }
+    if (filters.employmentType) {
+      return { label: 'Remove the job-type filter', apply: () => handleFilterChange('employmentType', '') };
+    }
+    if (filters.locationType) {
+      return { label: 'Include all work types', apply: () => handleFilterChange('locationType', '') };
+    }
+    if (filters.experienceLevel) {
+      return { label: 'Include all experience levels', apply: () => handleFilterChange('experienceLevel', '') };
+    }
+    if (filters.location) {
+      return { label: 'Search beyond ' + filters.location, apply: () => { setLocationInput(''); handleFilterChange('location', ''); } };
+    }
+    return null;
+  };
+
+
   // True if the job was posted (or first seen by us) within the last 24 hours.
   // Drives the green ✨ NEW pill on cards. Uses the same COALESCE convention
   // as the date filter: real postedAt when available, else first-seen.
@@ -1382,11 +1423,6 @@ const CandidateJobs = () => {
   }, [activeTab, corpusTotal]);
 
   const hasActiveFilters = filters.locationType || filters.location || filters.datePosted || filters.experienceLevel || filters.company || filters.department || filters.employmentType || filters.salary || filters.skills || filters.startup;
-
-  const SORT_OPTIONS = [
-    { value: 'recent', label: 'Most recent', shortLabel: 'Most recent' },
-    { value: 'recommended', label: 'Recommended', shortLabel: 'Recommended' },
-  ];
 
   const DATE_OPTIONS = [
     { value: 'day', label: 'Past 24 hours', shortLabel: '24h' },
@@ -2297,32 +2333,11 @@ const CandidateJobs = () => {
                     )}
                   </div>
 
-                  {/* Sort — lets the user pick "Most recent" (pure recency,
-                      newest-first) vs. the default profile-aware
-                      "Recommended" ranking, or "Best match". */}
-                  <div style={{ position: 'relative' }}>
-                    <FilterChip
-                      $active={sortMode !== 'recent'}
-                      onClick={() => setOpenDropdown(openDropdown === 'sort' ? null : 'sort')}
-                      title="Change how jobs are ordered"
-                    >
-                      Sort · {SORT_OPTIONS.find(o => o.value === sortMode)?.shortLabel || 'Most recent'} <KeyboardArrowDownIcon style={{ fontSize: 18 }} />
-                    </FilterChip>
-                    {openDropdown === 'sort' && (
-                      <div style={dropdownMenuStyle()}>
-                        {SORT_OPTIONS.map(opt => (
-                          <button
-                            type="button"
-                            key={opt.value}
-                            style={dropdownItemStyle(sortMode === opt.value)}
-                            onClick={() => { setSortMode(opt.value); setOpenDropdown(null); }}
-                          >
-                            {opt.label} {sortMode === opt.value && '✓'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {/* Sort chip removed — jobs are always ordered by the
+                      profile-aware "Recommended" ranking (relevance band +
+                      latest-posted within the band). sortMode stays
+                      'recommended' by default; there's no user-facing toggle
+                      so the candidate's latest, most-relevant jobs lead. */}
 
                   {/* Experience */}
                   <div style={{ position: 'relative' }}>
@@ -2604,32 +2619,60 @@ const CandidateJobs = () => {
                     <h3>No jobs match your filters</h3>
                     <p>
                       {corpusTotal != null
-                        ? `${corpusTotal.toLocaleString()} jobs available — try removing a filter or broadening your search.`
+                        ? `${corpusTotal.toLocaleString()} jobs available — try broadening your search.`
                         : 'Try removing a filter or broadening your search.'}
                     </p>
-                    {hasActiveSearchOrFilter && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          clearFilters();
-                          setSearchQuery('');
-                          setDebouncedSearch('');
-                        }}
-                        style={{
-                          marginTop: 12,
-                          padding: '8px 16px',
-                          borderRadius: 8,
-                          border: '1.5px solid #E4E7EC',
-                          background: 'white',
-                          color: '#475467',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Clear all filters
-                      </button>
-                    )}
+                    {(() => {
+                      // Smart primary action: relax the single most-restrictive
+                      // filter (date → startup → salary → … → location) so the
+                      // candidate keeps their role/location intent. Falls back
+                      // to "Clear all filters" when nothing is left to relax.
+                      const broaden = computeBroadenAction();
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+                          {broaden && (
+                            <button
+                              type="button"
+                              onClick={broaden.apply}
+                              style={{
+                                padding: '8px 16px',
+                                borderRadius: 8,
+                                border: 'none',
+                                background: 'linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)',
+                                color: 'white',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {broaden.label}
+                            </button>
+                          )}
+                          {hasActiveSearchOrFilter && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearFilters();
+                                setSearchQuery('');
+                                setDebouncedSearch('');
+                              }}
+                              style={{
+                                padding: '8px 16px',
+                                borderRadius: 8,
+                                border: '1.5px solid #E4E7EC',
+                                background: 'white',
+                                color: '#475467',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Clear all filters
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </EmptyState>
                 )
               ) : (
