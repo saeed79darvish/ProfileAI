@@ -454,23 +454,23 @@ const CandidateJobs = () => {
   // (a) detect when the user has edited them (banner self-dismisses), and
   // (b) restore the corpus view on demand.
   const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null, experience: null });
-  // SESSION-scoped dismissal — when the candidate clicks "Show all jobs" we
-  // stop auto-seeding for the rest of this browser tab session, but we DO
-  // re-personalize on the next fresh visit. (It used to persist in
-  // localStorage permanently, which meant a single "Show all jobs" click
-  // silently turned off profile-based pre-filling forever — so candidates
-  // landed on an un-personalized feed with empty Location/Experience chips.)
-  // Read synchronously so the first-render effects can skip seeding within
-  // the same session.
+  // IN-MEMORY dismissal only. Clicking "Show all jobs" stops the auto-seed
+  // for the CURRENT mount (so it doesn't immediately re-apply while they
+  // browse), but we deliberately do NOT persist it: every fresh page load /
+  // visit re-personalizes from the candidate's profile. Earlier versions
+  // persisted this in localStorage (permanent) and then sessionStorage (whole
+  // tab session) — both made a single "Show all jobs" click silently turn off
+  // profile pre-filling on every later reload, which is exactly the "it only
+  // works once" bug. We also proactively clear any legacy persisted flags so
+  // already-affected browsers recover.
   const AUTO_SEED_DISMISS_KEY = 'jobs.autoSeedDismissed';
-  const autoSeedDismissedRef = useRef(
-    (() => {
-      // One-time cleanup: drop the legacy PERMANENT localStorage flag so any
-      // browser that dismissed under the old behavior gets re-personalized.
-      try { localStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
-      try { return sessionStorage.getItem(AUTO_SEED_DISMISS_KEY) === '1'; } catch { return false; }
-    })()
-  );
+  const autoSeedDismissedRef = useRef(false);
+  // One-time cleanup of the legacy persisted flags (permanent localStorage /
+  // tab-session sessionStorage) left by older builds.
+  useEffect(() => {
+    try { localStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
+    try { sessionStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
+  }, []);
 
   // First-fetch gate. Authenticated users with a clean (filter-less) URL get
   // their role/location/experience pre-seeded from their profile AFTER an
@@ -2545,12 +2545,10 @@ const CandidateJobs = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          // Dismiss for the rest of THIS tab session only —
-                          // the session-level refs in the profile-fetch effect
-                          // check this same key on mount, so navigating within
-                          // the session won't re-seed, but a fresh visit will
-                          // re-personalize (we no longer persist permanently).
-                          try { sessionStorage.setItem(AUTO_SEED_DISMISS_KEY, '1'); } catch {}
+                          // Stop auto-seeding for THIS mount only (so the
+                          // chips don't immediately re-fill while they browse
+                          // the full corpus). Not persisted — a fresh page
+                          // load / next visit re-personalizes from the profile.
                           autoSeedDismissedRef.current = true;
                           setAutoSeeded({ role: null, location: null, experience: null });
                           clearFilters();
