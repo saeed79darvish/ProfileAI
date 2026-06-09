@@ -3,6 +3,7 @@ const router = express.Router();
 const { Follow, User, Profile, RecruiterProfile } = require('../models');
 const auth = require('../middleware/auth');
 const { Op } = require('sequelize');
+const { isUuid } = require('../utils/slug');
 
 // @route   POST /api/follows/:userId
 // @desc    Follow a user
@@ -90,8 +91,17 @@ router.delete('/:userId', auth, async (req, res) => {
 // @access  Private
 router.get('/status/:userId', auth, async (req, res) => {
   try {
-    const followingId = req.params.userId;
+    let followingId = req.params.userId;
     const followerId = req.user.id;
+
+    // Accept a public slug as well as a UUID (followingId is a UUID column).
+    if (!isUuid(followingId)) {
+      const userBySlug = await User.findOne({ where: { slug: followingId }, attributes: ['id'] });
+      if (!userBySlug) {
+        return res.json({ isFollowing: false, followersCount: 0, followingCount: 0 });
+      }
+      followingId = userBySlug.id;
+    }
 
     const follow = await Follow.findOne({
       where: { followerId, followingId }
@@ -116,9 +126,18 @@ router.get('/status/:userId', auth, async (req, res) => {
 // @access  Public
 router.get('/followers/:userId', async (req, res) => {
   try {
-    const userId = req.params.userId;
+    let userId = req.params.userId;
     const { page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Accept a public slug as well as a UUID (followingId is a UUID column).
+    if (!isUuid(userId)) {
+      const userBySlug = await User.findOne({ where: { slug: userId }, attributes: ['id'] });
+      if (!userBySlug) {
+        return res.json({ followers: [], total: 0, page: parseInt(page), pages: 0 });
+      }
+      userId = userBySlug.id;
+    }
 
     const { count, rows: followers } = await Follow.findAndCountAll({
       where: { followingId: userId },
@@ -179,9 +198,18 @@ router.get('/followers/:userId', async (req, res) => {
 // @access  Public
 router.get('/following/:userId', async (req, res) => {
   try {
-    const userId = req.params.userId;
+    let userId = req.params.userId;
     const { page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Accept a public slug as well as a UUID (followerId is a UUID column).
+    if (!isUuid(userId)) {
+      const userBySlug = await User.findOne({ where: { slug: userId }, attributes: ['id'] });
+      if (!userBySlug) {
+        return res.json({ following: [], total: 0, page: parseInt(page), pages: 0 });
+      }
+      userId = userBySlug.id;
+    }
 
     const { count, rows: following } = await Follow.findAndCountAll({
       where: { followerId: userId },
@@ -242,7 +270,18 @@ router.get('/following/:userId', async (req, res) => {
 // @access  Public
 router.get('/counts/:userId', async (req, res) => {
   try {
-    const userId = req.params.userId;
+    // The param may be a UUID or a public slug (e.g. /profile/saeed-darvish-2).
+    // Follow.followingId/followerId are UUID columns, so passing a slug throws
+    // 22P02 (invalid input syntax for uuid). Resolve a slug to its userId first;
+    // a UUID is used as-is. Unknown slug → zero counts (not a 500).
+    let userId = req.params.userId;
+    if (!isUuid(userId)) {
+      const userBySlug = await User.findOne({ where: { slug: userId }, attributes: ['id'] });
+      if (!userBySlug) {
+        return res.json({ followersCount: 0, followingCount: 0 });
+      }
+      userId = userBySlug.id;
+    }
 
     const followersCount = await Follow.count({ where: { followingId: userId } });
     const followingCount = await Follow.count({ where: { followerId: userId } });
