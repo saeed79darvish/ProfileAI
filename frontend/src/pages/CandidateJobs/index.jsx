@@ -454,13 +454,21 @@ const CandidateJobs = () => {
   // (a) detect when the user has edited them (banner self-dismisses), and
   // (b) restore the corpus view on demand.
   const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null, experience: null });
-  // Persisted dismissal — once the candidate clicks "Show all jobs" we
-  // never auto-seed again on this browser. Read synchronously so the
-  // first-render effects can skip seeding.
+  // SESSION-scoped dismissal — when the candidate clicks "Show all jobs" we
+  // stop auto-seeding for the rest of this browser tab session, but we DO
+  // re-personalize on the next fresh visit. (It used to persist in
+  // localStorage permanently, which meant a single "Show all jobs" click
+  // silently turned off profile-based pre-filling forever — so candidates
+  // landed on an un-personalized feed with empty Location/Experience chips.)
+  // Read synchronously so the first-render effects can skip seeding within
+  // the same session.
   const AUTO_SEED_DISMISS_KEY = 'jobs.autoSeedDismissed';
   const autoSeedDismissedRef = useRef(
     (() => {
-      try { return localStorage.getItem(AUTO_SEED_DISMISS_KEY) === '1'; } catch { return false; }
+      // One-time cleanup: drop the legacy PERMANENT localStorage flag so any
+      // browser that dismissed under the old behavior gets re-personalized.
+      try { localStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
+      try { return sessionStorage.getItem(AUTO_SEED_DISMISS_KEY) === '1'; } catch { return false; }
     })()
   );
 
@@ -2537,11 +2545,12 @@ const CandidateJobs = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          // Persist so future visits skip the auto-seed
-                          // entirely. The session-level refs in the
-                          // profile-fetch effect also check this key on
-                          // mount, so a hard reload won't re-seed.
-                          try { localStorage.setItem(AUTO_SEED_DISMISS_KEY, '1'); } catch {}
+                          // Dismiss for the rest of THIS tab session only —
+                          // the session-level refs in the profile-fetch effect
+                          // check this same key on mount, so navigating within
+                          // the session won't re-seed, but a fresh visit will
+                          // re-personalize (we no longer persist permanently).
+                          try { sessionStorage.setItem(AUTO_SEED_DISMISS_KEY, '1'); } catch {}
                           autoSeedDismissedRef.current = true;
                           setAutoSeeded({ role: null, location: null, experience: null });
                           clearFilters();
