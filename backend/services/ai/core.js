@@ -10,6 +10,9 @@ const anthropic = new Anthropic.default({
   timeout: 60000, // 60s request timeout
 });
 
+// Default Claude model. Override via ANTHROPIC_MODEL env var.
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
+
 /**
  * Centralized AI call function
  * Includes retry with exponential backoff for transient failures
@@ -28,7 +31,7 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
       'You are a helpful AI assistant. Always return well-structured, accurate responses.';
 
     const response = await anthropic.messages.create({
-      model: model || 'claude-sonnet-4-20250514',
+      model: model || DEFAULT_MODEL,
       max_tokens,
       temperature,
       system: systemText,

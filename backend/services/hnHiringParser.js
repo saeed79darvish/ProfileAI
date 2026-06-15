@@ -23,8 +23,8 @@
 const { callAI, safeParseJSON } = require('./ai/core');
 
 // Use Haiku for the parser — small, cheap, fast.
-// Model string from the system prompt (claude-haiku-4-5-20251001).
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+// Override via ANTHROPIC_HAIKU_MODEL env var.
+const HAIKU_MODEL = process.env.ANTHROPIC_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
 
 // ─── HTML helpers (HN comments come as HTML fragments) ───────────────────
 

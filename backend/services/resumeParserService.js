@@ -55,7 +55,7 @@ async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, re
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
         max_tokens,
         temperature,
         system: system || 'You are a helpful AI assistant.',
