@@ -453,6 +453,22 @@ const startServer = async () => {
       }
     })();
 
+    // Ensure the canonical free ATS boards (greenhouse/lever/ashby/remoteok/
+    // wwr/hn_hiring) from config/seedBoards.js exist. ATS boards used to be
+    // inserted only by the manual scripts/seedATSBoards.js, which this
+    // git-push deploy flow never runs — so adding boards to the seed list had
+    // no effect on prod. This idempotent findOrCreate upsert lands new boards
+    // on a plain deploy; the sync cron then ingests their jobs. Run in the
+    // BACKGROUND (not awaited) so it never delays readiness or blocks boot.
+    (async () => {
+      try {
+        const { up: ensureSeedBoards } = require('./scripts/migrations/ensureSeedBoards');
+        await ensureSeedBoards();
+      } catch (err) {
+        console.warn('⚠️  Seed ATS boards ensure skipped:', err.message);
+      }
+    })();
+
     // Sync models (in development only). In production we want explicit
     // migrations — silent ALTER TABLE on boot can drop or rename columns
     // unexpectedly and is unsafe on shared instances. This guard is
