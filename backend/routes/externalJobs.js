@@ -9,6 +9,7 @@ const { refreshIfStale, ensureCorpusFresh } = require('../services/externalJobSe
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
+const { expandLocationAliases } = require('../utils/locationMatch');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -409,7 +410,16 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     if (location) {
-      where.location = { [Op.iLike]: `%${location}%` };
+      // Expand a major hub to its whole commute metro (e.g. "San Francisco"
+      // also matches San Mateo / Foster City / San Jose / Bay Area) so the
+      // filter doesn't drop the ~90% of in-area jobs that spell their location
+      // differently. Unknown locations fall back to a single substring match.
+      const locPatterns = expandLocationAliases(location);
+      if (locPatterns.length > 1) {
+        where.location = { [Op.or]: locPatterns.map(p => ({ [Op.iLike]: `%${p}%` })) };
+      } else {
+        where.location = { [Op.iLike]: `%${locPatterns[0] || location}%` };
+      }
     }
 
     if (locationType) {

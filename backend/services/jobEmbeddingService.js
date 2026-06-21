@@ -10,6 +10,7 @@
 
 const OpenAI = require('openai');
 const sequelize = require('../config/database');
+const { expandLocationAliases } = require('../utils/locationMatch');
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 512;
@@ -532,9 +533,22 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   }
 
   if (location) {
-    conditions.push(`ej.location ILIKE $${bindIndex}`);
-    binds.push(`%${location}%`);
-    bindIndex++;
+    // Expand a major hub to its whole commute metro (San Francisco → San
+    // Mateo / Foster City / San Jose / Bay Area …) so the filter doesn't drop
+    // the in-area jobs that spell their location differently. Keep in sync with
+    // routes/externalJobs.js. Unknown locations fall back to a single match.
+    const locPatterns = expandLocationAliases(location);
+    if (locPatterns.length > 1) {
+      const ors = locPatterns.map(p => {
+        binds.push(`%${p}%`);
+        return `ej.location ILIKE $${bindIndex++}`;
+      });
+      conditions.push(`(${ors.join(' OR ')})`);
+    } else {
+      conditions.push(`ej.location ILIKE $${bindIndex}`);
+      binds.push(`%${locPatterns[0] || location}%`);
+      bindIndex++;
+    }
   }
 
   if (company) {
