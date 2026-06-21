@@ -355,19 +355,24 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     if (search) {
-      // Weighted full-text search backed by ExternalJobs.searchTsv (a
-      // STORED generated tsvector column with weights A=title, B=company/
-      // dept, C=description) plus a GIN index. See
-      // scripts/migrations/addExternalJobSearchTsv.js.
+      // Weighted full-text search backed by ExternalJobs.searchTsvAB — a
+      // STORED generated tsvector containing ONLY the title (weight A) and
+      // company/department (weight B), NOT the description. See
+      // scripts/migrations/ensureExternalJobPerfSchema.js.
       //
-      // We require a hit in the title/company/dept (weights A or B), not
-      // description (weight C). Description hits are noisy — a Back-End
-      // job whose JD body happens to mention "frontend" should NOT match
-      // a search for "Frontend Engineer". ts_rank_cd with custom weights
-      // {D=0,C=0,B=1,A=1} returns 0 for description-only matches, so the
-      // > 0 filter drops them. The plainto_tsquery @@ check stays as the
-      // GIN-indexable predicate (fast); the ts_rank_cd is a cheap
-      // post-filter on the already-narrowed result set.
+      // We require a hit in the title/company/dept, not the description.
+      // Description hits are noisy — a Back-End job whose JD body happens to
+      // mention "frontend" should NOT match a search for "Frontend Engineer".
+      // Because searchTsvAB simply does not include the description, a single
+      // GIN-indexable `@@` predicate enforces that rule for free — no per-row
+      // ts_rank_cd post-filter.
+      //
+      // This replaced the previous `searchTsv @@ q AND ts_rank_cd(...) > 0`
+      // pair: ts_rank_cd had to be evaluated per matched row for BOTH the
+      // SELECT and findAndCountAll's COUNT pass, which on a common term like
+      // "engineer" (thousands of matches) blew the 15s statement_timeout and
+      // returned a 500. The single GIN @@ on the smaller A/B vector keeps both
+      // the bitmap COUNT and the recency sort fast.
       //
       // The query string flows through Sequelize's :tsQuery replacement
       // (escaped server-side) instead of being hand-interpolated, which
@@ -375,23 +380,7 @@ router.get('/', optionalAuth, async (req, res) => {
       whereReplacements.tsQuery = String(search);
       where[Op.and] = [
         ...(where[Op.and] || []),
-        // GIN-indexable predicate: any hit in the tsv (A/B/C). Kept so the
-        // index is still used to narrow the candidate set.
-        literal(`"ExternalJob"."searchTsv" @@ plainto_tsquery('english', :tsQuery)`),
-        // Hard filter: require a hit in the A (title) or B (company /
-        // department) weights only. Description-only hits (weight C) are
-        // rejected — a Workplace Operations JD that mentions "frontend"
-        // in its body must NOT match a "Frontend Engineer" search.
-        //
-        // ts_rank_cd reads the STORED searchTsv column with a custom
-        // weight array {D,C,B,A} = {0,0,1,1}: description (C) contributes
-        // 0, so a description-only match scores 0 and the `> 0` filter
-        // drops it, while any title (A) or company/dept (B) hit scores
-        // above 0 and passes. Reading the precomputed column avoids the
-        // per-row tsvector rebuild that was timing the query out (~15s →
-        // 500) on large result sets, since findAndCountAll re-ran that
-        // rebuild for the COUNT pass across all 13k+ jobs too.
-        literal(`ts_rank_cd('{0,0,1,1}', "ExternalJob"."searchTsv", plainto_tsquery('english', :tsQuery)) > 0`)
+        literal(`"ExternalJob"."searchTsvAB" @@ plainto_tsquery('english', :tsQuery)`)
       ];
     }
 

@@ -68,22 +68,16 @@ async function up() {
       setweight(to_tsvector('english', coalesce(description, '')), 'C')
     ) STORED;
   `);
-  await runStep('searchTsv GIN index', `
-    CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_gin"
-    ON "ExternalJobs" USING gin ("searchTsv");
-  `);
-
-  // Full-text search (searchTsv @@ plainto_tsquery) MUST hit the GIN index
-  // above. If it doesn't, a search WITHOUT any structured filter (location/
-  // date/experience) recheck-scans all ~12k+ rows, runs ts_rank_cd per row,
-  // and sorts by recency — which blows the 15s statement_timeout and returns
-  // HTTP 500. (Search + a filter stays fast because the filter's index
-  // narrows the rows first.) A plain `CREATE INDEX` (above) takes a SHARE
-  // lock that loses the race against the live cron writers, so on a busy
-  // prod table it can fail and leave an INVALID index behind — and
-  // `CREATE INDEX IF NOT EXISTS` then silently skips rebuilding it forever
-  // (same failure mode as the skills index). So: (1) drop any INVALID
-  // leftover, then (2) rebuild CONCURRENTLY, which doesn't block writers.
+  // A plain CREATE INDEX takes a SHARE lock that conflicts with the live
+  // cron writers. On a busy prod table it can lose the lock race and be left
+  // behind as an INVALID index — and `CREATE INDEX IF NOT EXISTS` then
+  // silently skips rebuilding it forever, so the planner ignores it and a
+  // search falls back to a full recheck scan (15s timeout → 500). We do NOT
+  // use CREATE INDEX CONCURRENTLY here: it waits for every in-flight writer
+  // transaction to drain and, against a continuously-writing cron, hangs
+  // indefinitely. Instead: (1) drop any INVALID leftover, then (2) plain
+  // build under a short lock_timeout so we grab a write-quiet window and
+  // fail fast (retried on the next boot) rather than blocking.
   await runStep('drop invalid searchTsv GIN', `
     DO $$
     DECLARE v_invalid boolean;
@@ -97,12 +91,38 @@ async function up() {
       END IF;
     END $$;
   `);
-  // CONCURRENTLY can't run inside a transaction block — sequelize.query runs
-  // in autocommit here, so it's fine. IF NOT EXISTS makes it a no-op once a
-  // valid index is present.
-  await runStep('searchTsv GIN index (concurrent rebuild)', `
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS "external_jobs_search_tsv_gin"
+  await runStep('searchTsv GIN index', `
+    SET lock_timeout = '5s';
+    CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_gin"
     ON "ExternalJobs" USING gin ("searchTsv");
+  `);
+
+  // Title + company/department ONLY tsvector (weights A/B, NO description).
+  // The /external-jobs search intentionally rejects description-only hits (a
+  // Back-End JD that merely mentions "frontend" must NOT match a "Frontend
+  // Engineer" search). That used to be enforced with a per-row
+  // `ts_rank_cd('{0,0,1,1}', searchTsv, query) > 0` post-filter — but on a
+  // common term like "engineer" that matches thousands of rows, computing
+  // ts_rank_cd per row for BOTH the SELECT and findAndCountAll's COUNT pass
+  // blew the 15s statement_timeout (→ 500), while a rare term like
+  // "kubernetes" squeaked through. This dedicated A/B-only tsvector lets the
+  // route use a single GIN-indexable `searchTsvAB @@ query` predicate that
+  // (a) inherently excludes description-only matches and (b) needs no per-row
+  // ranking, so both the bitmap COUNT and the recency sort stay fast.
+  await runStep('searchTsvAB column', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ExternalJobs"
+    ADD COLUMN IF NOT EXISTS "searchTsvAB" tsvector
+    GENERATED ALWAYS AS (
+      setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+      setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
+      setweight(to_tsvector('english', coalesce(department, '')), 'B')
+    ) STORED;
+  `);
+  await runStep('searchTsvAB GIN index', `
+    SET lock_timeout = '5s';
+    CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_ab_gin"
+    ON "ExternalJobs" USING gin ("searchTsvAB");
   `);
 
   // HNSW vector index — the single most important one for the slow path.

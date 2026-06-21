@@ -613,13 +613,13 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
       if (orTokens.length > 0) {
         const tsqExpr = orTokens.map(t => `${t}:*`).join(' | ');
-        // Require an A (title) or B (company/dept) weight hit on the
-        // STORED searchTsv column, excluding description-only (C) matches.
-        // ts_rank_cd with weight array {D,C,B,A} = {0,0,1,1} scores
-        // description matches at 0, so `> 0` drops them. Reading the
-        // precomputed column avoids the per-row tsvector rebuild that was
-        // a query-time hotspot.
-        conditions.push(`ts_rank_cd('{0,0,1,1}', ej."searchTsv", to_tsquery('english', $${bindIndex})) > 0`);
+        // Require an A (title) or B (company/dept) weight hit, excluding
+        // description-only matches. searchTsvAB is a STORED generated
+        // tsvector that contains ONLY title (A) + company/dept (B) — no
+        // description — so a single GIN-indexable `@@` enforces that rule
+        // natively, with no per-row ts_rank_cd (which on common terms timed
+        // the query out). See ensureExternalJobPerfSchema.js.
+        conditions.push(`ej."searchTsvAB" @@ to_tsquery('english', $${bindIndex})`);
         binds.push(tsqExpr);
         bindIndex++;
       }

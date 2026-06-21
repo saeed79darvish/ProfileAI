@@ -475,6 +475,10 @@ const startServer = async () => {
         hadSearchTsv = rows.length > 0;
         if (hadSearchTsv) {
           await sequelize.query(`ALTER TABLE "ExternalJobs" DROP COLUMN IF EXISTS "searchTsv";`);
+          // searchTsvAB also depends on title/company/department, so it must
+          // be dropped before sync({alter:true}) too. It's always recreated
+          // alongside searchTsv below.
+          await sequelize.query(`ALTER TABLE "ExternalJobs" DROP COLUMN IF EXISTS "searchTsvAB";`);
         }
       } catch (e) {
         console.warn('[startup] Could not pre-drop searchTsv:', e.message);
@@ -514,6 +518,19 @@ const startServer = async () => {
           await sequelize.query(`
             CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_gin"
             ON "ExternalJobs" USING gin ("searchTsv");
+          `);
+          await sequelize.query(`
+            ALTER TABLE "ExternalJobs"
+            ADD COLUMN IF NOT EXISTS "searchTsvAB" tsvector
+            GENERATED ALWAYS AS (
+              setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+              setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
+              setweight(to_tsvector('english', coalesce(department, '')), 'B')
+            ) STORED;
+          `);
+          await sequelize.query(`
+            CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_ab_gin"
+            ON "ExternalJobs" USING gin ("searchTsvAB");
           `);
         } catch (e) {
           console.warn('[startup] Could not recreate searchTsv:', e.message);
