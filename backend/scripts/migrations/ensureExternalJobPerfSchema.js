@@ -56,6 +56,21 @@ async function up() {
   await runStep('extension vector', 'CREATE EXTENSION IF NOT EXISTS vector;');
   await runStep('extension pg_trgm', 'CREATE EXTENSION IF NOT EXISTS pg_trgm;');
 
+  // Widen `location` to TEXT. The model declares it TEXT, but prod drifted to
+  // varchar(255). Greenhouse builds location from the joined office list
+  // ((job.offices||[]).map(o=>o.name).join(', ')), which for big multi-office
+  // companies (Datadog/Fastly/Flexport) exceeds 255 chars and fails the WHOLE
+  // board insert with "value too long for type character varying(255)" — those
+  // boards got stuck at 0 jobs. `location` is NOT referenced by the
+  // searchTsv/searchTsvAB generated columns, so this is a fast catalog-only
+  // change (varchar→text needs no table rewrite). The other varchar(255)
+  // columns ARE generated-column-referenced and can't be altered in place;
+  // they're clamped to 255 at ingest instead (clampVarchar255Fields).
+  await runStep('widen location to TEXT', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ExternalJobs" ALTER COLUMN "location" TYPE TEXT;
+  `);
+
   // Generated tsvector column for weighted full-text search (A=title,
   // B=company/department, C=description). STORED so it's indexable.
   await runStep('searchTsv column', `

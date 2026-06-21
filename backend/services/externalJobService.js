@@ -1171,6 +1171,29 @@ function parseTheirStackBoardToken(boardToken) {
   return { jobTitles: titles, pages, country };
 }
 
+// ExternalJobs columns that are varchar(255) in the production DB (the model
+// declares title/department as TEXT, but prod drifted and they can't be widened
+// in place because the searchTsv/searchTsvAB STORED generated columns depend on
+// them). A single over-long value (e.g. a Greenhouse job whose joined office or
+// department list exceeds 255 chars) fails the whole board insert with
+// "value too long for type character varying(255)". `location` is the common
+// offender and IS widened to TEXT separately (it is not referenced by a
+// generated column); the rest are short by nature, so clamping to 255 here is a
+// harmless, bulletproof guard against one bad row sinking an entire board sync.
+const VARCHAR_255_FIELDS = [
+  'externalId', 'boardToken', 'company', 'locationType', 'employmentType',
+  'experienceLevel', 'salaryCurrency', 'salaryPeriod', 'title', 'department',
+];
+function clampVarchar255Fields(payload) {
+  for (const field of VARCHAR_255_FIELDS) {
+    const v = payload[field];
+    if (typeof v === 'string' && v.length > 255) {
+      payload[field] = v.slice(0, 255);
+    }
+  }
+  return payload;
+}
+
 /**
  * Sync a single ATS board — fetch jobs and upsert into DB
  */
@@ -1254,7 +1277,7 @@ async function syncBoard(atsBoard) {
     let updated = 0;
     const newJobs = [];
     for (const jobData of normalizedJobs) {
-      const payload = { ...jobData };
+      const payload = clampVarchar255Fields({ ...jobData });
       if (payload.postedAt == null) {
         delete payload.postedAt;
       } else if (existingPostedAt.get(payload.externalId) != null) {
