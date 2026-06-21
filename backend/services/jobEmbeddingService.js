@@ -700,31 +700,27 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     bindIndex++;
   }
 
-  // Startup filter (mirrors routes/externalJobs.js logic). True when:
-  //   - source is one of the startup-leaning boards (HN, Lever, Ashby,
-  //     WeWorkRemotely, RemoteOK, TheirStack, Greenhouse), OR
-  //   - linked Company has employeeCount < 500, OR
-  //   - linked Company employeeRange is small (1-10 / 11-50 / 51-200 / 201-500), OR
-  //   - linked Company has early-stage funding.
+  // Startup filter (mirrors routes/externalJobs.js — keep in sync). A job is
+  // a "startup" job when:
+  //   - its source board is flagged ATSBoards.isStartup = true (boards found
+  //     by the YC / VC-portfolio crawl), probed via the unique
+  //     (platform, boardToken) index, OR
+  //   - it came from HackerNews "Who is hiring" (source = 'hn_hiring').
+  // The old `source IN (greenhouse,lever,ashby,…)` heuristic was a no-op
+  // (~27k/36k jobs passed, incl. Airbnb/Roblox). Hand-seeded boards (known,
+  // mostly-large companies) are isStartup = false, so excluded by the flag.
   //
-  // AND, unconditionally:
-  //   - the company name is NOT on the curated non-startup deny-list
-  //     (Stripe, OpenAI, Anthropic, Databricks, Twilio, etc.) — these
-  //     are technically private but read as "big tech" to candidates.
-  //   - the linked Company's funding stage is NOT late/IPO/Series D+
-  //     (which would also let through unicorns the deny-list misses).
+  // Defense-in-depth, unconditionally:
+  //   - company name is NOT on the curated non-startup deny-list.
+  //   - the linked Company's funding stage is NOT late/IPO/Series D+.
   if (startup) {
     conditions.push(`(
-      ej."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack','greenhouse')
+      ej."source" = 'hn_hiring'
       OR EXISTS (
-        SELECT 1 FROM "Companies" c
-        WHERE c.id = ej."companyId"
-          AND (
-            (c."employeeCount" IS NOT NULL AND c."employeeCount" < 500)
-            OR c."employeeRange" IN ('1-10','11-50','51-200','201-500')
-            OR LOWER(COALESCE(c."fundingStage", '')) IN
-               ('pre-seed','preseed','seed','series-a','series_a','series a','series-b','series_b','series b','series-c','series_c','series c')
-          )
+        SELECT 1 FROM "ATSBoards" ats
+        WHERE ats."platform" = ej."source"
+          AND ats."boardToken" = ej."boardToken"
+          AND ats."isStartup" = true
       )
     )`);
     // Hard deny-list on company name. Bound as a text[] so PostgreSQL
@@ -734,9 +730,9 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     binds.push(NON_STARTUP_COMPANIES);
     bindIndex++;
     // Hard exclusion of late-stage / IPO / acquired companies regardless
-    // of which arm of the OR above matched. NULL fundingStage falls
-    // through (most ExternalJobs rows have no linked Company enrichment
-    // yet — those still pass the source/employee arms).
+    // of the flag — catches a discovery company that has since grown large.
+    // NULL fundingStage falls through (most ExternalJobs rows have no linked
+    // Company enrichment yet — those still pass on the board flag).
     conditions.push(`NOT EXISTS (
       SELECT 1 FROM "Companies" c2
       WHERE c2.id = ej."companyId"

@@ -310,22 +310,21 @@ router.get('/', optionalAuth, async (req, res) => {
       ];
     }
 
-    // Startup filter. We don't have a single canonical "is this a startup"
-    // flag, so we OR together the strongest signals we have:
-    //   - source in startup-leaning boards (HN, Lever, Ashby, WeWorkRemotely,
-    //     RemoteOK, TheirStack, Greenhouse) — these skew toward startups /
-    //     scale-ups. Greenhouse hosts the bulk of the corpus (incl. many real
-    //     startups like Linear/Vercel), so excluding it dropped ~80% of fresh
-    //     jobs from the filter; the big-co deny-list below is the guardrail.
-    //   - companyInfo.employeeCount < 500 (small co), OR
-    //   - companyInfo.employeeRange in early-bucket (1-10 / 11-50 / 51-200 / 201-500), OR
-    //   - companyInfo.fundingStage in early-stage values.
-    // Many rows have companyId = NULL (no enrichment yet), so the source
-    // arm carries them. Without it the filter would return ~78 of 13k jobs.
+    // Startup filter — board-provenance based. A job is a "startup" job when:
+    //   - its source board is flagged ATSBoards.isStartup = true (boards found
+    //     by the YC / VC-portfolio crawl in services/startupBoardDiscovery.js),
+    //     probed via the unique (platform, boardToken) index, OR
+    //   - it came from HackerNews "Who is hiring" (source = 'hn_hiring'), which
+    //     skews heavily startup and has no ATSBoard row.
+    // This replaced the old `source IN (greenhouse,lever,ashby,…)` heuristic,
+    // which was effectively a no-op: greenhouse alone hosts ~22k jobs incl.
+    // Airbnb/Roblox/Datadog, so ~27k of 36k jobs "passed". The hand-curated
+    // SEED_BOARDS (known, mostly-large companies) are isStartup = false, so
+    // they're now correctly excluded by the flag itself.
     //
-    // We then SUBTRACT a deny-list of known non-startups (Stripe, OpenAI,
-    // Twilio, etc.) and any company whose funding stage is late/IPO/acquired.
-    // See backend/utils/startupClassifier.js for the curated lists.
+    // We still SUBTRACT, as defense-in-depth, the curated non-startup name
+    // deny-list and any company whose funding stage is late/IPO/acquired —
+    // this catches a discovery-sourced company that has since grown large.
     const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
     const wantStartup = String(startup || '').toLowerCase() === 'true';
     if (wantStartup) {
@@ -334,16 +333,12 @@ router.get('/', optionalAuth, async (req, res) => {
       where[Op.and] = [
         ...(where[Op.and] || []),
         literal(`(
-          "ExternalJob"."source" IN ('hn_hiring','lever','ashby','wwr','remoteok','theirstack','greenhouse')
+          "ExternalJob"."source" = 'hn_hiring'
           OR EXISTS (
-            SELECT 1 FROM "Companies" c
-            WHERE c.id = "ExternalJob"."companyId"
-              AND (
-                (c."employeeCount" IS NOT NULL AND c."employeeCount" < 500)
-                OR c."employeeRange" IN ('1-10','11-50','51-200','201-500')
-                OR LOWER(COALESCE(c."fundingStage", '')) IN
-                   ('pre-seed','preseed','seed','series-a','series_a','series a','series-b','series_b','series b','series-c','series_c','series c')
-              )
+            SELECT 1 FROM "ATSBoards" ats
+            WHERE ats."platform" = "ExternalJob"."source"
+              AND ats."boardToken" = "ExternalJob"."boardToken"
+              AND ats."isStartup" = true
           )
         )`),
         literal(`LOWER(COALESCE("ExternalJob"."company", '')) <> ALL(ARRAY[:nonStartupNames]::text[])`),

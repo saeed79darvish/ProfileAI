@@ -227,7 +227,10 @@ async function discoverYcBoards({ limit = 0, concurrency = 5, batch = null, dryR
     try {
       const [, wasCreated] = await ATSBoard.findOrCreate({
         where: { platform: board.platform, boardToken: board.boardToken },
-        defaults: { name: board.name, isActive: true },
+        // isStartup: true — every board this crawler creates is, by
+        // definition, a startup (YC / VC-portfolio company). Existing
+        // discovery boards are promoted by ensureStartupBoardFlag.js.
+        defaults: { name: board.name, isActive: true, isStartup: true },
       });
       if (wasCreated) created++; else skipped++;
     } catch {
@@ -329,7 +332,10 @@ async function discoverGetroBoards({ startId = 1, endId = 400, pages = 2, dryRun
     try {
       const [, wasCreated] = await ATSBoard.findOrCreate({
         where: { platform: board.platform, boardToken: board.boardToken },
-        defaults: { name: board.name, isActive: true },
+        // isStartup: true — every board this crawler creates is, by
+        // definition, a startup (YC / VC-portfolio company). Existing
+        // discovery boards are promoted by ensureStartupBoardFlag.js.
+        defaults: { name: board.name, isActive: true, isStartup: true },
       });
       if (wasCreated) created++; else skipped++;
     } catch {

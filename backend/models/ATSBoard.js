@@ -38,6 +38,12 @@ const ATSBoard = sequelize.define('ATSBoard', {
     allowNull: true,
     comment: 'Last sync error message, null if successful'
   },
+  isStartup: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    comment: 'True for boards discovered via the YC / VC-portfolio crawl — i.e. genuine startups. Hand-seeded boards (config/seedBoards.js: Airbnb, Roblox, Datadog, …) stay false. Drives the "Startups" job filter. Column added + backfilled by scripts/migrations/ensureStartupBoardFlag.js.'
+  },
   createdBy: {
     type: DataTypes.UUID,
     allowNull: true,

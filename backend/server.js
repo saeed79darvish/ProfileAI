@@ -434,6 +434,21 @@ const startServer = async () => {
       console.warn('⚠️  Users.jobDigestOptOut column ensure skipped:', err.message);
     }
 
+    // Add ATSBoards.isStartup and derive it from board provenance (seed list =
+    // known companies → false; discovered greenhouse/lever/ashby boards →
+    // true). This powers the accurate "Startups" job filter. AWAITED (not
+    // backgrounded) and placed BEFORE the seed/discovery board steps below,
+    // because the ATSBoard model now declares an isStartup field — every
+    // ATSBoard query (incl. those board steps) would error if the column did
+    // not yet exist. The ALTER is catalog-only (constant DEFAULT → no rewrite)
+    // and the backfill touches a few hundred rows, so awaiting is cheap.
+    try {
+      const { up: ensureStartupBoardFlag } = require('./scripts/migrations/ensureStartupBoardFlag');
+      await ensureStartupBoardFlag();
+    } catch (err) {
+      console.warn('⚠️  ATSBoards.isStartup flag ensure skipped:', err.message);
+    }
+
     // Ensure the ExternalJobs performance schema (HNSW vector index, recency
     // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
     // These were previously only created by manual migration scripts run on
