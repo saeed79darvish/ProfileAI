@@ -336,7 +336,7 @@ router.get('/', optionalAuth, async (req, res) => {
           "ExternalJob"."source" = 'hn_hiring'
           OR EXISTS (
             SELECT 1 FROM "ATSBoards" ats
-            WHERE ats."platform" = "ExternalJob"."source"
+            WHERE ats."platform"::text = "ExternalJob"."source"::text
               AND ats."boardToken" = "ExternalJob"."boardToken"
               AND ats."isStartup" = true
           )

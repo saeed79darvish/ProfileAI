@@ -718,7 +718,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       ej."source" = 'hn_hiring'
       OR EXISTS (
         SELECT 1 FROM "ATSBoards" ats
-        WHERE ats."platform" = ej."source"
+        WHERE ats."platform"::text = ej."source"::text
           AND ats."boardToken" = ej."boardToken"
           AND ats."isStartup" = true
       )

@@ -57,12 +57,12 @@ async function up() {
     `
     UPDATE "ATSBoards" ats
     SET "isStartup" = true
-    WHERE ats.platform = ANY($1::text[])
+    WHERE ats.platform::text = ANY($1::text[])
       AND ats."isStartup" = false
       AND NOT EXISTS (
         SELECT 1
         FROM unnest($2::text[], $3::text[]) AS s(platform, token)
-        WHERE s.platform = ats.platform
+        WHERE s.platform = ats.platform::text
           AND s.token = ats."boardToken"
       )
     `,
@@ -78,7 +78,7 @@ async function up() {
       AND EXISTS (
         SELECT 1
         FROM unnest($1::text[], $2::text[]) AS s(platform, token)
-        WHERE s.platform = ats.platform
+        WHERE s.platform = ats.platform::text
           AND s.token = ats."boardToken"
       )
     `,
