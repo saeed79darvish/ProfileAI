@@ -465,25 +465,12 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
   });
 
   // Sort by mode:
-  //   recommended → freshness tier first (last hour → last 24h → last 7d →
-  //                 older), then match × recency within each tier
+  //   recommended → latest posted first, match score tiebreak
   //   match       → pure match, recency tiebreak
   //   recent      → recency first, match tiebreak
-  // Tiering keeps the newest posts at the top of Recommended while still
-  // surfacing older (up to ~1 month+) listings below.
-  const HOUR_MS = 60 * 60 * 1000;
-  const DAY_MS = 24 * HOUR_MS;
-  const WEEK_MS = 7 * DAY_MS;
-  const now = Date.now();
-  const freshnessTier = (j) => {
-    const t = new Date(j.postedAt || j.createdAt || 0).getTime();
-    if (!t) return 0;
-    const age = now - t;
-    if (age < HOUR_MS) return 3;
-    if (age < DAY_MS) return 2;
-    if (age < WEEK_MS) return 1;
-    return 0;
-  };
+  // Recommended sorts strictly newest-first (same as recent) while still
+  // carrying each job's match % badge — product decision is "recommended =
+  // latest first". Jobs are already personalized candidates here.
   scored.sort((a, b) => {
     const ra = a.postedAt || a.createdAt || 0;
     const rb = b.postedAt || b.createdAt || 0;
@@ -492,16 +479,9 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
       if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
       return recDiff;
     }
-    if (sortMode === 'recent') {
-      if (recDiff !== 0) return recDiff;
-      return b.relevanceScore - a.relevanceScore;
-    }
-    // recommended: freshness tier first, then match × recency
-    const at = freshnessTier(a);
-    const bt = freshnessTier(b);
-    if (at !== bt) return bt - at;
-    if (b._rankScore !== a._rankScore) return b._rankScore - a._rankScore;
-    return recDiff;
+    // recommended + recent: recency first, match score tiebreak.
+    if (recDiff !== 0) return recDiff;
+    return b.relevanceScore - a.relevanceScore;
   });
 
   // Strip the internal sort key before returning so it doesn't leak into

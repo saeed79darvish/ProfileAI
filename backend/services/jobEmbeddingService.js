@@ -847,24 +847,8 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // postedAt = NULL (see normalizeGreenhouseJob comment).
   const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
 
-  // Relevance band: bucket the (compressed, ~50-70) cosine match score into
-  // 5-POINT bands, then order strictly by DATE within each band. 5 points is
-  // the sweet spot for this score range:
-  //   - It SEPARATES a candidate's real matches from the noise: for a SF
-  //     Frontend dev, Frontend/Full-Stack roles score ~65-69 (band 13) while
-  //     Recruiter/Design/Sales score ~60-62 (band 12). Band 13 is strictly
-  //     above band 12, so the noise never reaches the top.
-  //   - WITHIN the top band it ignores tiny score deltas (65 vs 69 are the
-  //     same band), so pure date wins → ALL the latest frontend jobs sort to
-  //     the top newest-first, which is exactly what the user expects.
-  // (A 10-point band was too coarse — it merged 60-69 into one bucket, so a
-  // 60% recruiter could ride date above a 66% frontend role. A pure additive
-  // recency bonus was too weak — a 69% from 3 weeks ago still edged out a
-  // fresher 67%, so it didn't read as "latest on top".)
-  const matchBandExpr = `FLOOR((${scoreExpr}) / 5.0)`;
-
   // ORDER BY differs by sort mode:
-  //   recommended → relevance band, then latest posted, then exact score
+  //   recommended → latest posted first, exact score tiebreak
   //   match       → match score, recency tiebreak
   //   recent      → recency, match tiebreak
   let orderExpr;
@@ -873,14 +857,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): RELEVANCE BAND then DATE. Group jobs into 5-point
-    // match bands (best band first), and within each band put the latest
-    // posted job on top. This delivers "all latest posted relevant jobs on
-    // top": the candidate's real matches (top band) lead, ordered newest-
-    // first, while off-target roles sit in a lower band and never jump the
-    // queue on freshness alone. Exact score is the final tiebreak so equally-
-    // fresh jobs in a band still order by match strength.
-    orderExpr = `${matchBandExpr} DESC, ${recencyOrderExpr}, ${scoreExpr} DESC`;
+    // recommended (default): sort STRICTLY by latest posted date (newest
+    // first), with the exact match score as the tiebreak for same-date jobs.
+    // The candidate pool is still personalized — the CTE below UNIONs the
+    // cosine-ANN pool with the newest-matching jobs, and every row carries
+    // its match % badge — but ORDERING is pure recency so the freshest
+    // relevant jobs always lead the list. (Earlier this tiered by a 5-point
+    // relevance band first, which let a high-match job from weeks ago sit
+    // above a fresh one; product decision is "recommended = latest first".)
+    orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
