@@ -49,7 +49,85 @@ async function callOpenAI({ system, prompt, max_tokens = 2000, temperature = 0.7
   return response.choices[0].message.content.trim();
 }
 
-// Centralized AI call — tries Claude Sonnet with retry, falls back to OpenAI GPT-4o
+// Best-effort repair of JSON that was truncated mid-output (model hit token
+// limit). Closes an unterminated string, drops a trailing partial key/value,
+// and balances open brackets/braces so JSON.parse can succeed. Returns the
+// parsed object on success, or null if it still can't be parsed.
+function repairTruncatedJSON(text) {
+  if (!text || typeof text !== 'string') return null;
+  let s = text.trim();
+
+  // Walk the string tracking structure so we can close it cleanly.
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  let lastSafeIndex = -1; // index of last char that completed a value/structure
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+        lastSafeIndex = i;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+      lastSafeIndex = i;
+    } else if (ch === ',' || (ch >= '0' && ch <= '9') || ch === 'e' || ch === 'l' || ch === 'n' || ch === 'r' || ch === 's' || ch === 't' || ch === '.' || ch === '-') {
+      lastSafeIndex = i;
+    }
+  }
+
+  // If we ended inside a string, truncate back to the last completed value so we
+  // don't keep a dangling partial string/key.
+  if (inString) {
+    if (lastSafeIndex < 0) return null;
+    s = s.slice(0, lastSafeIndex + 1);
+  }
+
+  // Drop a trailing comma or dangling key like  "foo":  with no value.
+  s = s.replace(/,\s*$/, '');
+  s = s.replace(/"[^"]*"\s*:\s*$/, '');
+  // Drop a dangling key that has no colon/value yet, e.g.  ...,"suggestedApproach"
+  s = s.replace(/,\s*"[^"]*"\s*$/, '');
+  s = s.replace(/,\s*$/, '');
+
+  // Rebuild the open-bracket stack against the (possibly trimmed) string.
+  const closers = [];
+  inString = false;
+  escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') closers.push('}');
+    else if (ch === '[') closers.push(']');
+    else if (ch === '}' || ch === ']') closers.pop();
+  }
+  while (closers.length) s += closers.pop();
+
+  try {
+    return JSON.parse(s);
+  } catch (_) {
+    return null;
+  }
+}
+
 async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, retries = 3 }) {
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -1507,17 +1585,28 @@ Return ONLY valid JSON, no additional text.`;
         system: 'You are an expert interview coach who prepares candidates for tech interviews. You give specific, actionable advice based on the candidate\'s profile and gaps. Always return valid JSON only.',
         prompt,
         temperature: 0.6,
-        max_tokens: 4000
+        max_tokens: 8000
       });
 
-      let jsonText = responseText;
+      let jsonText = responseText.trim();
       if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
+        jsonText = jsonText.replace(/^```json\s*/, '').replace(/```\s*$/, '');
       } else if (jsonText.startsWith('```')) {
-        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+        jsonText = jsonText.replace(/^```\s*/, '').replace(/```\s*$/, '');
       }
+      jsonText = jsonText.trim();
 
-      const prepData = JSON.parse(jsonText);
+      let prepData;
+      try {
+        prepData = JSON.parse(jsonText);
+      } catch (parseErr) {
+        // The model occasionally truncates large JSON responses, leaving an
+        // unterminated string / unclosed brackets. Attempt to repair before failing.
+        prepData = repairTruncatedJSON(jsonText);
+        if (!prepData) {
+          throw parseErr;
+        }
+      }
 
       return {
         success: true,
