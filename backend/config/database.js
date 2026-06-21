@@ -48,6 +48,37 @@ const commonOptions = {
     // mean "always keep 2 warm".
     evict: 60000,
   },
+  // Transparent retry for TRANSIENT connection-level failures only. When
+  // managed Postgres restarts (Render maintenance, a crash-into-recovery,
+  // or a failover) every connection already in the pool is dead, and the
+  // pg driver only discovers that on first reuse — so the next handful of
+  // requests 500 with "Connection terminated unexpectedly" / "the database
+  // system is in recovery mode" until the pool evicts the corpses. Retrying
+  // those specific errors a few times with a short backoff rides through a
+  // restart window (typically a few seconds) instead of surfacing 500s.
+  //
+  // Scope is deliberately NARROW: only connection/socket errors match.
+  // Statement timeouts (statement_timeout=15s) raise SequelizeDatabaseError,
+  // NOT a connection error, so a slow query is NEVER retried (it would just
+  // pile more load on a struggling DB). All our hot-path writes are
+  // idempotent (bulkCreate = upsert, the deactivate UPDATE and embedding
+  // UPDATEs are set-based), so a retried write can't double-apply.
+  retry: {
+    max: 3,
+    backoffBase: 250,
+    backoffExponent: 1.5,
+    match: [
+      /SequelizeConnectionError/,
+      /SequelizeConnectionRefusedError/,
+      /SequelizeHostNotReachableError/,
+      /SequelizeConnectionTimedOutError/,
+      /Connection terminated unexpectedly/,
+      /ECONNRESET/,
+      /EPIPE/,
+      /ETIMEDOUT/,
+      /the database system is (starting up|in recovery mode|not yet accepting connections)/,
+    ],
+  },
   // Per-connection session setup. Runs once when a connection is opened
   // (i.e. on cold-start of each pool slot, not per query) and applies
   // settings that searchSimilarJobs() used to wrap in a transaction:
