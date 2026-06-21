@@ -700,29 +700,18 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     bindIndex++;
   }
 
-  // Startup filter (mirrors routes/externalJobs.js — keep in sync). A job is
-  // a "startup" job when:
-  //   - its source board is flagged ATSBoards.isStartup = true (boards found
-  //     by the YC / VC-portfolio crawl), probed via the unique
-  //     (platform, boardToken) index, OR
-  //   - it came from HackerNews "Who is hiring" (source = 'hn_hiring').
-  // The old `source IN (greenhouse,lever,ashby,…)` heuristic was a no-op
-  // (~27k/36k jobs passed, incl. Airbnb/Roblox). Hand-seeded boards (known,
-  // mostly-large companies) are isStartup = false, so excluded by the flag.
+  // Startup filter (mirrors routes/externalJobs.js — keep in sync). Reads the
+  // denormalized ExternalJobs.isStartup boolean (set at ingest from the source
+  // board's ATSBoards.isStartup), OR source = 'hn_hiring'. We deliberately do
+  // NOT join ExternalJobs → ATSBoards: their source/platform are different enum
+  // types and casting to compare them defeats the (platform, boardToken) index,
+  // which timed the COUNT out under sync load. Both arms here are indexed.
   //
   // Defense-in-depth, unconditionally:
   //   - company name is NOT on the curated non-startup deny-list.
   //   - the linked Company's funding stage is NOT late/IPO/Series D+.
   if (startup) {
-    conditions.push(`(
-      ej."source" = 'hn_hiring'
-      OR EXISTS (
-        SELECT 1 FROM "ATSBoards" ats
-        WHERE ats."platform"::text = ej."source"::text
-          AND ats."boardToken" = ej."boardToken"
-          AND ats."isStartup" = true
-      )
-    )`);
+    conditions.push(`(ej."source" = 'hn_hiring' OR ej."isStartup" = true)`);
     // Hard deny-list on company name. Bound as a text[] so PostgreSQL
     // can hash-probe instead of evaluating a long OR chain, and so the
     // values are properly escaped.

@@ -310,17 +310,13 @@ router.get('/', optionalAuth, async (req, res) => {
       ];
     }
 
-    // Startup filter — board-provenance based. A job is a "startup" job when:
-    //   - its source board is flagged ATSBoards.isStartup = true (boards found
-    //     by the YC / VC-portfolio crawl in services/startupBoardDiscovery.js),
-    //     probed via the unique (platform, boardToken) index, OR
-    //   - it came from HackerNews "Who is hiring" (source = 'hn_hiring'), which
-    //     skews heavily startup and has no ATSBoard row.
-    // This replaced the old `source IN (greenhouse,lever,ashby,…)` heuristic,
-    // which was effectively a no-op: greenhouse alone hosts ~22k jobs incl.
-    // Airbnb/Roblox/Datadog, so ~27k of 36k jobs "passed". The hand-curated
-    // SEED_BOARDS (known, mostly-large companies) are isStartup = false, so
-    // they're now correctly excluded by the flag itself.
+    // Startup filter — board-provenance based, read from the denormalized
+    // ExternalJobs.isStartup boolean (set at ingest from the source board's
+    // ATSBoards.isStartup; hn_hiring rows are flagged true too). We deliberately
+    // do NOT join ExternalJobs → ATSBoards here: their source/platform are
+    // different enum types, and casting to compare them defeated the unique
+    // (platform, boardToken) index, making the correlated EXISTS time out under
+    // sync load. A plain indexed boolean keeps the COUNT + scan fast.
     //
     // We still SUBTRACT, as defense-in-depth, the curated non-startup name
     // deny-list and any company whose funding stage is late/IPO/acquired —
@@ -332,15 +328,7 @@ router.get('/', optionalAuth, async (req, res) => {
       whereReplacements.nonStartupStages = NON_STARTUP_FUNDING_STAGES;
       where[Op.and] = [
         ...(where[Op.and] || []),
-        literal(`(
-          "ExternalJob"."source" = 'hn_hiring'
-          OR EXISTS (
-            SELECT 1 FROM "ATSBoards" ats
-            WHERE ats."platform"::text = "ExternalJob"."source"::text
-              AND ats."boardToken" = "ExternalJob"."boardToken"
-              AND ats."isStartup" = true
-          )
-        )`),
+        { [Op.or]: [{ source: 'hn_hiring' }, { isStartup: true }] },
         literal(`LOWER(COALESCE("ExternalJob"."company", '')) <> ALL(ARRAY[:nonStartupNames]::text[])`),
         literal(`NOT EXISTS (
           SELECT 1 FROM "Companies" c2

@@ -1278,6 +1278,9 @@ async function syncBoard(atsBoard) {
     const newJobs = [];
     for (const jobData of normalizedJobs) {
       const payload = clampVarchar255Fields({ ...jobData });
+      // Denormalize the board's startup flag onto every job so the "Startups"
+      // filter is a plain indexed boolean (no cross-enum join at query time).
+      payload.isStartup = atsBoard.isStartup === true;
       if (payload.postedAt == null) {
         delete payload.postedAt;
       } else if (existingPostedAt.get(payload.externalId) != null) {

@@ -88,7 +88,49 @@ async function up() {
   const promoted = promoteMeta?.rowCount ?? 0;
   const demoted = demoteMeta?.rowCount ?? 0;
   console.log(
-    `✅ ensureStartupBoardFlag: isStartup column ready; +${promoted} promoted, ${demoted} demoted to non-startup.`
+    `✅ ensureStartupBoardFlag: ATSBoards.isStartup ready; +${promoted} promoted, ${demoted} demoted.`
+  );
+
+  // ── Denormalize the flag onto ExternalJobs ────────────────────────────────
+  // The "Startups" filter must NOT join ExternalJobs → ATSBoards at query time:
+  // ExternalJobs.source and ATSBoards.platform are DIFFERENT enum types, and
+  // casting either side to text to compare them defeats the unique
+  // (platform, boardToken) index, turning the correlated EXISTS into a per-row
+  // scan that blew the statement timeout under sync load. Instead we carry an
+  // indexed boolean ExternalJobs.isStartup, written at ingest from the board
+  // and backfilled here once. The filter then reduces to a plain `isStartup`.
+  await sequelize.query(`
+    ALTER TABLE "ExternalJobs"
+    ADD COLUMN IF NOT EXISTS "isStartup" boolean NOT NULL DEFAULT false
+  `);
+  // Partial index — the filter only ever asks for the TRUE rows, so a partial
+  // index stays tiny and makes the startup COUNT/scan index-only-ish.
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS "external_jobs_is_startup"
+    ON "ExternalJobs" ("isStartup") WHERE "isStartup" = true
+  `);
+
+  // Backfill from the (now-correct) board flags. Single set-based UPDATE …
+  // FROM → one hash semi-join over ~721 boards, fast. hn_hiring has no board
+  // row, so flag it directly (it skews heavily startup).
+  const [, ejFromBoards] = await sequelize.query(`
+    UPDATE "ExternalJobs" ej
+    SET "isStartup" = true
+    FROM "ATSBoards" ats
+    WHERE ats."isStartup" = true
+      AND ats."platform"::text = ej."source"::text
+      AND ats."boardToken" = ej."boardToken"
+      AND ej."isStartup" = false
+  `);
+  const [, ejHn] = await sequelize.query(`
+    UPDATE "ExternalJobs" ej
+    SET "isStartup" = true
+    WHERE ej."source" = 'hn_hiring'
+      AND ej."isStartup" = false
+  `);
+  const ejFlagged = (ejFromBoards?.rowCount ?? 0) + (ejHn?.rowCount ?? 0);
+  console.log(
+    `✅ ensureStartupBoardFlag: ExternalJobs.isStartup backfilled (+${ejFlagged} flagged).`
   );
 }
 

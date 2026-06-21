@@ -124,6 +124,12 @@ const ExternalJob = sequelize.define('ExternalJob', {
   companyId: {
     type: DataTypes.UUID,
     allowNull: true
+  },
+  isStartup: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    comment: 'Denormalized from the source ATSBoard.isStartup (set at ingest). Powers the "Startups" filter as a plain indexed boolean, avoiding a cross-enum ExternalJobs.source ↔ ATSBoards.platform join at query time. hn_hiring rows are also flagged true.'
   }
 }, {
   tableName: 'ExternalJobs',
