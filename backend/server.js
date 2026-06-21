@@ -469,6 +469,20 @@ const startServer = async () => {
       }
     })();
 
+    // One-time bootstrap of startup ATS boards from the YC directory. GATED so
+    // it only crawls when we still have few company boards (runs ~once after
+    // this ships, then no-ops on every later boot); ongoing refresh is the
+    // weekly cron. Heavy outbound HTTP crawl → run in the BACKGROUND, capped
+    // and low-concurrency, so it never delays readiness or blocks boot.
+    (async () => {
+      try {
+        const { up: ensureStartupBoards } = require('./scripts/migrations/ensureStartupBoards');
+        await ensureStartupBoards();
+      } catch (err) {
+        console.warn('⚠️  Startup boards bootstrap skipped:', err.message);
+      }
+    })();
+
     // Sync models (in development only). In production we want explicit
     // migrations — silent ALTER TABLE on boot can drop or rename columns
     // unexpectedly and is unsafe on shared instances. This guard is
