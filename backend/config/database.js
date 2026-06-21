@@ -48,35 +48,33 @@ const commonOptions = {
     // mean "always keep 2 warm".
     evict: 60000,
   },
-  // Transparent retry for TRANSIENT connection-level failures only. When
-  // managed Postgres restarts (Render maintenance, a crash-into-recovery,
-  // or a failover) every connection already in the pool is dead, and the
-  // pg driver only discovers that on first reuse — so the next handful of
-  // requests 500 with "Connection terminated unexpectedly" / "the database
-  // system is in recovery mode" until the pool evicts the corpses. Retrying
-  // those specific errors a few times with a short backoff rides through a
-  // restart window (typically a few seconds) instead of surfacing 500s.
+  // Transparent retry for TRANSIENT single-connection drops only. Managed
+  // Postgres (Render) periodically recycles / fails over individual backend
+  // connections; the pg driver only discovers a dead pooled connection on
+  // first reuse, so one request 500s with "Connection terminated unexpectedly"
+  // even though the DB is perfectly healthy. Retrying that once or twice
+  // transparently re-establishes a fresh connection and succeeds.
   //
-  // Scope is deliberately NARROW: only connection/socket errors match.
-  // Statement timeouts (statement_timeout=15s) raise SequelizeDatabaseError,
-  // NOT a connection error, so a slow query is NEVER retried (it would just
-  // pile more load on a struggling DB). All our hot-path writes are
-  // idempotent (bulkCreate = upsert, the deactivate UPDATE and embedding
-  // UPDATEs are set-based), so a retried write can't double-apply.
+  // Scope is deliberately NARROW:
+  //   - Only socket-level drops match. Statement timeouts raise
+  //     SequelizeDatabaseError (NOT matched) so a slow query is never retried.
+  //   - Whole-DB-down states ("the database system is in recovery mode" /
+  //     "not yet accepting connections") are intentionally NOT matched: a
+  //     restart takes seconds-to-minutes, far longer than a couple of
+  //     sub-second retries can bridge, so retrying there only piles
+  //     reconnection load on an already-struggling DB and slows its recovery.
+  //     We'd rather fail that request fast and let the pool heal.
+  //   - All hot-path writes are idempotent (bulkCreate = upsert, the
+  //     deactivate UPDATE and embedding UPDATEs are set-based), so a retried
+  //     write can't double-apply.
   retry: {
-    max: 3,
-    backoffBase: 250,
-    backoffExponent: 1.5,
+    max: 2,
+    backoffBase: 300,
+    backoffExponent: 2,
     match: [
-      /SequelizeConnectionError/,
-      /SequelizeConnectionRefusedError/,
-      /SequelizeHostNotReachableError/,
-      /SequelizeConnectionTimedOutError/,
       /Connection terminated unexpectedly/,
       /ECONNRESET/,
       /EPIPE/,
-      /ETIMEDOUT/,
-      /the database system is (starting up|in recovery mode|not yet accepting connections)/,
     ],
   },
   // Per-connection session setup. Runs once when a connection is opened

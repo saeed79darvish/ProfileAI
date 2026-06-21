@@ -24,10 +24,12 @@ const _inFlightBoardSyncs = new Set();
 
 // Global concurrency cap for user-request-driven background refreshes. The cron
 // worker is the primary path for keeping data fresh; refreshIfStale is just a
-// fallback. Capping at 2 means even under burst load (e.g. 100 concurrent
-// /jobs requests hitting 6 different boards each), at most 2 boards will sync
-// at once, leaving DB pool capacity for actual user queries.
-const REFRESH_CONCURRENCY_CAP = 2;
+// fallback. Capped at 1: on a small managed Postgres, even 2 concurrent board
+// syncs stacked on top of a full sweep + live /jobs queries saturated the
+// instance into statement timeouts and crash-into-recovery. One at a time
+// leaves DB headroom for actual user queries; freshness still heals, just
+// slightly slower.
+const REFRESH_CONCURRENCY_CAP = 1;
 let _activeRefreshCount = 0;
 
 // Overlap guard for the full cron sweep (syncAllBoards). A sweep can exceed
