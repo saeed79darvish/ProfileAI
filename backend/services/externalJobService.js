@@ -1571,7 +1571,13 @@ function inferExperienceLevel(title) {
   if (t.includes('senior') || t.includes('sr.') || t.includes('staff') || t.includes('principal')) return 'senior';
   if (t.includes('lead') || t.includes('manager')) return 'lead';
   if (t.includes('director') || t.includes('vp') || t.includes('head of') || t.includes('chief')) return 'executive';
-  return 'mid';
+  // No seniority keyword in the title → genuinely UNKNOWN, not "mid". The old
+  // 'mid' default silently mislabeled every keyword-less role (e.g. a senior
+  // "Software Engineer") as mid, which — because the experienceLevel filter is
+  // exact equality — EXCLUDED those roles from a Senior search and polluted the
+  // Mid facet. Returning null keeps it honest; the filter uses a lenient NULL
+  // policy so unknown-level jobs still surface under any level selection.
+  return null;
 }
 
 function inferLocationType(location, title) {

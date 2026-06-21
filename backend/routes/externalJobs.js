@@ -438,7 +438,17 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     if (experienceLevel) {
-      where.experienceLevel = experienceLevel;
+      // LENIENT NULL policy. experienceLevel is inferred from the job title
+      // and is genuinely UNKNOWN (null) whenever the title carries no
+      // seniority keyword (e.g. a plain "Software Engineer"). An exact-equality
+      // filter would hide all those roles from any level selection — including
+      // real senior roles that simply weren't titled "Senior". So we match the
+      // requested level OR an unknown level, mirroring the employmentType /
+      // salary filters.
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: [{ experienceLevel: null }, { experienceLevel }] }
+      ];
     }
 
     // Salary band filter — LENIENT NULL policy. Only ~1.5% of the corpus

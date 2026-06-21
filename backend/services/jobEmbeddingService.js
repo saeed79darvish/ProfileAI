@@ -586,7 +586,11 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   }
 
   if (experienceLevel) {
-    conditions.push(`ej."experienceLevel" = $${bindIndex}`);
+    // LENIENT NULL policy — mirror routes/externalJobs.js: experienceLevel is
+    // inferred from the title and is null whenever no seniority keyword is
+    // present, so match the requested level OR an unknown (null) level rather
+    // than excluding every keyword-less role.
+    conditions.push(`(ej."experienceLevel" = $${bindIndex} OR ej."experienceLevel" IS NULL)`);
     binds.push(experienceLevel);
     bindIndex++;
   }
@@ -632,29 +636,33 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       // relevance. The role of the typed query here is only to keep the
       // candidate set on-topic — not to be the primary filter.
       //
-      // We used to require an AND match against title/company/department
-      // via plainto_tsquery, which over-restricted multi-word searches:
-      //   "Software Architect" → had to contain BOTH "software" + "architect"
-      //   in title/company/dept, so "Solutions Architect", "Cloud Architect",
-      //   "Principal Architect", "Staff Engineer, Architecture" were all
-      //   excluded even though their embedding is highly similar.
+      // The typed query must keep the candidate set on-topic. We use AND
+      // semantics on prefix-stemmed tokens: EVERY token must hit title/
+      // company/department. This is the relevance fix — OR semantics let
+      // "Frontend Engineer" match every "…Engineer" (Backend, Data, ML…),
+      // and cosine ranking could not always push those off-target roles
+      // down far enough, so results felt inaccurate.
       //
-      // Switch to OR semantics on prefix-stemmed tokens: any single token
-      // hit in title/company/dept is enough. Cosine similarity then ranks
-      // within that pool, so good fits still float to the top and obvious
-      // mismatches sink. We sanitize tokens to [a-z0-9]+ so user input
-      // can't break to_tsquery syntax (single quotes / colons / parens
-      // are stripped at the JS layer; the value is also passed via a
-      // bind, not interpolated).
-      const orTokens = String(search)
+      // Prefix-stemming (`token:*`) preserves the useful looseness AND
+      // needs — "Frontend Engineer" still matches "Frontend Engineering",
+      // "Frontend Software Engineer", etc. — while requiring all concepts
+      // to be present. The frontend already trims seniority prefixes
+      // ("Senior Frontend Engineer" → "Frontend Engineer") before seeding
+      // the search box, so AND does not over-restrict on common queries.
+      // Cosine similarity (scoreExpr) then ranks within this tight pool.
+      //
+      // Tokens are sanitized to [a-z0-9]+ so user input can't break
+      // to_tsquery syntax (quotes / colons / parens are stripped at the
+      // JS layer; the value is also passed via a bind, not interpolated).
+      const queryTokens = String(search)
         .toLowerCase()
         .split(/[^a-z0-9+#.]+/)
         .map(t => t.replace(/[^a-z0-9]/g, ''))
         .filter(t => t.length >= 2)
         .slice(0, 8); // cap so a giant paste can't blow up the query
 
-      if (orTokens.length > 0) {
-        const tsqExpr = orTokens.map(t => `${t}:*`).join(' | ');
+      if (queryTokens.length > 0) {
+        const tsqExpr = queryTokens.map(t => `${t}:*`).join(' & ');
         // Require an A (title) or B (company/dept) weight hit, excluding
         // description-only matches. searchTsvAB is a STORED generated
         // tsvector that contains ONLY title (A) + company/dept (B) — no
