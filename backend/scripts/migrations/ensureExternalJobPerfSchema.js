@@ -73,6 +73,38 @@ async function up() {
     ON "ExternalJobs" USING gin ("searchTsv");
   `);
 
+  // Full-text search (searchTsv @@ plainto_tsquery) MUST hit the GIN index
+  // above. If it doesn't, a search WITHOUT any structured filter (location/
+  // date/experience) recheck-scans all ~12k+ rows, runs ts_rank_cd per row,
+  // and sorts by recency — which blows the 15s statement_timeout and returns
+  // HTTP 500. (Search + a filter stays fast because the filter's index
+  // narrows the rows first.) A plain `CREATE INDEX` (above) takes a SHARE
+  // lock that loses the race against the live cron writers, so on a busy
+  // prod table it can fail and leave an INVALID index behind — and
+  // `CREATE INDEX IF NOT EXISTS` then silently skips rebuilding it forever
+  // (same failure mode as the skills index). So: (1) drop any INVALID
+  // leftover, then (2) rebuild CONCURRENTLY, which doesn't block writers.
+  await runStep('drop invalid searchTsv GIN', `
+    DO $$
+    DECLARE v_invalid boolean;
+    BEGIN
+      SELECT NOT i.indisvalid INTO v_invalid
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE c.relname = 'external_jobs_search_tsv_gin';
+      IF v_invalid IS TRUE THEN
+        EXECUTE 'DROP INDEX IF EXISTS "external_jobs_search_tsv_gin"';
+      END IF;
+    END $$;
+  `);
+  // CONCURRENTLY can't run inside a transaction block — sequelize.query runs
+  // in autocommit here, so it's fine. IF NOT EXISTS makes it a no-op once a
+  // valid index is present.
+  await runStep('searchTsv GIN index (concurrent rebuild)', `
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS "external_jobs_search_tsv_gin"
+    ON "ExternalJobs" USING gin ("searchTsv");
+  `);
+
   // HNSW vector index — the single most important one for the slow path.
   // Turns the cosine ANN ORDER BY into an index probe instead of a seq scan.
   await runStep('HNSW embedding index', `
