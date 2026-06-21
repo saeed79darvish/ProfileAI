@@ -41,6 +41,27 @@ function startCron({ inline = false } = {}) {
       syncAllBoards().catch(err => console.error(`${tag} Initial external jobs sync error:`, err.message));
     }, 10000);
     console.log(`${tag} ✓ External jobs sync scheduled (every 15min)`);
+
+    // Weekly startup-board discovery: crawl the YC directory for new
+    // Greenhouse/Lever/Ashby boards and upsert them (idempotent). Runs Sunday
+    // 04:00 server time by default. The boot bootstrap seeds the initial set;
+    // this keeps it growing as new YC companies appear. Uncapped sweep, but
+    // weekly cadence keeps the outbound crawl cost low.
+    const discoverySchedule = process.env.STARTUP_DISCOVERY_CRON || '0 4 * * 0';
+    cron.schedule(discoverySchedule, () => {
+      console.log(`${tag} Running startup-board discovery...`);
+      const { discoverYcBoards, discoverGetroBoards } = require('../services/startupBoardDiscovery');
+      // Getro VC-portfolio networks (cheap, high-yield) then the YC directory.
+      discoverGetroBoards({ startId: 1, endId: 600 })
+        .then(r => console.log(`${tag} Getro discovery: +${r.created} boards (gh=${r.counts.greenhouse}, lever=${r.counts.lever}, ashby=${r.counts.ashby}) from ${r.networks} networks.`))
+        .catch(err => console.error(`${tag} Getro discovery error:`, err.message))
+        .finally(() => {
+          discoverYcBoards({ concurrency: 5 })
+            .then(r => console.log(`${tag} YC discovery: +${r.created} boards (gh=${r.counts.greenhouse}, lever=${r.counts.lever}, ashby=${r.counts.ashby}) from ${r.probed} sites.`))
+            .catch(err => console.error(`${tag} YC discovery error:`, err.message));
+        });
+    });
+    console.log(`${tag} ✓ Startup-board discovery scheduled (${discoverySchedule})`);
   } else {
     console.log(`${tag} External jobs sync disabled`);
   }
