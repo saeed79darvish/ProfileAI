@@ -2303,25 +2303,6 @@ const CandidateJobs = () => {
                     )}
                   </div>
 
-                  {/* Work Type (Remote/Hybrid/On-site) */}
-                  <div style={{ position: 'relative' }}>
-                    <FilterChip
-                      $active={!!filters.locationType}
-                      onClick={() => setOpenDropdown(openDropdown === 'locationType' ? null : 'locationType')}
-                    >
-                      {filters.locationType ? LOCATION_OPTIONS.find(o => o.value === filters.locationType)?.label || filters.locationType : 'Work Type'} {filters.locationType ? <CloseIcon style={{ fontSize: 14, marginLeft: 2 }} onClick={(e) => { e.stopPropagation(); handleFilterChange('locationType', ''); }} /> : <KeyboardArrowDownIcon style={{ fontSize: 18 }} />}
-                    </FilterChip>
-                    {openDropdown === 'locationType' && (
-                      <div style={dropdownMenuStyle()}>
-                        {LOCATION_OPTIONS.map(opt => (
-                          <button type="button" key={opt.value} style={dropdownItemStyle(filters.locationType === opt.value)} onClick={() => handleFilterChange('locationType', filters.locationType === opt.value ? '' : opt.value)}>
-                            {opt.label} {filters.locationType === opt.value && '✓'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Date Posted */}
                   <div style={{ position: 'relative' }}>
                     <FilterChip
@@ -2360,25 +2341,6 @@ const CandidateJobs = () => {
                         {EXPERIENCE_OPTIONS.map(opt => (
                           <button type="button" key={opt.value} style={dropdownItemStyle(filters.experienceLevel === opt.value)} onClick={() => handleFilterChange('experienceLevel', filters.experienceLevel === opt.value ? '' : opt.value)}>
                             {opt.label} {filters.experienceLevel === opt.value && '✓'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Job Type */}
-                  <div style={{ position: 'relative' }}>
-                    <FilterChip
-                      $active={!!filters.employmentType}
-                      onClick={() => setOpenDropdown(openDropdown === 'employmentType' ? null : 'employmentType')}
-                    >
-                      Job Type {filters.employmentType ? `· ${EMPLOYMENT_TYPE_OPTIONS.find(o => o.value === filters.employmentType)?.label || filters.employmentType}` : ''} <KeyboardArrowDownIcon style={{ fontSize: 18 }} />
-                    </FilterChip>
-                    {openDropdown === 'employmentType' && (
-                      <div style={dropdownMenuStyle()}>
-                        {EMPLOYMENT_TYPE_OPTIONS.map(opt => (
-                          <button type="button" key={opt.value} style={dropdownItemStyle(filters.employmentType === opt.value)} onClick={() => handleFilterChange('employmentType', filters.employmentType === opt.value ? '' : opt.value)}>
-                            {opt.label} {filters.employmentType === opt.value && '✓'}
                           </button>
                         ))}
                       </div>
