@@ -733,6 +733,74 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
   const whereClause = conditions.join(' AND ');
 
+  // ── COUNT first: it drives the query-plan choice below ──────────────────
+  // Count query shares the same WHERE conditions but doesn't use $1 (embedding),
+  // $2 (limit), $3 (offset), or the optional searchEmbedding bind. We must
+  // re-index the filter-only params so PostgreSQL gets the right bind count.
+  // filterBinds holds only the values for $4+ (filters); we remap $4→$1, $5→$2, etc.
+  const filterBindStartIndex = searchEmbedding ? 5 : 4; // $4 or $5 depending on searchEmbedding
+  const filterBinds = binds.slice(filterBindStartIndex - 1); // 0-based: slice(3) or slice(4)
+
+  // Rebuild WHERE clause with re-indexed bind params for the count query
+  let countWhereClause = whereClause;
+  for (let oldIdx = filterBindStartIndex, newIdx = 1; oldIdx <= binds.length; oldIdx++, newIdx++) {
+    // Replace $N with re-indexed $M (use word boundary to avoid $10 matching $1)
+    countWhereClause = countWhereClause.replace(
+      new RegExp(`\\$${oldIdx}(?![0-9])`, 'g'),
+      `__BIND_${newIdx}__`
+    );
+  }
+  // Now replace placeholders with final $N
+  countWhereClause = countWhereClause.replace(/__BIND_(\d+)__/g, (_, n) => `$${n}`);
+
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM "ExternalJobs" ej
+    WHERE ${countWhereClause}
+  `;
+
+  // Run the count up front (filter-signature keyed cache, user-independent —
+  // the count is identical for every user with the same filter set). The
+  // total tells us whether HNSW is even worth using: pgvector's HNSW index is
+  // only fast when the post-WHERE filter is BROAD. It walks the graph in
+  // similarity order and discards rows failing the filter, so a HIGHLY
+  // SELECTIVE filter (e.g. startup + a specific city + a search term that
+  // together match only a few hundred of 36k jobs) forces it to traverse
+  // almost the entire graph to fill the candidate pool — that's slower than a
+  // plain filtered scan and is the cause of the multi-second/timeout
+  // responses. So when the filtered set is small we skip HNSW and rank the
+  // small set directly (a filtered seqscan + cosine over a few hundred rows is
+  // milliseconds); HNSW is reserved for the broad-filter case where it pays.
+  const countCacheKey = `${countWhereClause}|${JSON.stringify(filterBinds)}`;
+  const cachedCount = jobsCountCache.get(countCacheKey);
+  const countFreshEnough = cachedCount && cachedCount.expiresAt > Date.now();
+  let total;
+  if (countFreshEnough) {
+    total = cachedCount.total;
+  } else {
+    const countResult = await sequelize.query(countQuery, {
+      bind: filterBinds,
+      type: sequelize.constructor.QueryTypes.SELECT,
+    });
+    total = parseInt(countResult[0]?.total) || 0;
+    // Cap entries to keep memory bounded; FIFO eviction is fine since hot
+    // filter combos are revisited continuously and stay warm.
+    if (jobsCountCache.size >= JOBS_COUNT_CACHE_MAX_ENTRIES) {
+      const oldest = jobsCountCache.keys().next().value;
+      if (oldest !== undefined) jobsCountCache.delete(oldest);
+    }
+    jobsCountCache.set(countCacheKey, {
+      total,
+      expiresAt: Date.now() + JOBS_COUNT_CACHE_TTL_MS,
+    });
+  }
+
+  // Below this many matching rows, the direct (non-HNSW) ranked scan is faster
+  // AND more accurate than HNSW-with-post-filter (which would have to scan the
+  // whole graph to fill a pool of a few thousand anyway). The ANN pool caps at
+  // 3000, so a set already at/under that gains nothing from HNSW.
+  const SMALL_SET_THRESHOLD = 5000;
+
   // Match score (the % shown in the UI badge) stays as a pure profile-fit
   // signal. Sorting uses a SEPARATE rank score that multiplies the match
   // by a recency factor so fresh-and-relevant jobs land at the very top —
@@ -811,7 +879,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // 'recent' bypasses this — pure date ordering uses the
   // (isActive, postedAt DESC) composite index directly; cosine is only
   // a tiebreaker computed on the already LIMIT-clamped result set.
-  const needsAnn = sortMode !== 'recent';
+  const needsAnn = sortMode !== 'recent' && total > SMALL_SET_THRESHOLD;
   // POOL = max(500, (limit + offset) * 3), capped at 3000. Allows ~25
   // pages of 20 results; cap keeps the worst case bounded.
   const annPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 3000)`;
@@ -905,41 +973,6 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     LIMIT $2 OFFSET $3
   `;
 
-  // Count query shares the same WHERE conditions but doesn't use $1 (embedding),
-  // $2 (limit), $3 (offset), or the optional searchEmbedding bind. We must
-  // re-index the filter-only params so PostgreSQL gets the right bind count.
-  // filterBinds holds only the values for $4+ (filters); we remap $4→$1, $5→$2, etc.
-  const filterBindStartIndex = searchEmbedding ? 5 : 4; // $4 or $5 depending on searchEmbedding
-  const filterBinds = binds.slice(filterBindStartIndex - 1); // 0-based: slice(3) or slice(4)
-
-  // Rebuild WHERE clause with re-indexed bind params for the count query
-  let countWhereClause = whereClause;
-  for (let oldIdx = filterBindStartIndex, newIdx = 1; oldIdx <= binds.length; oldIdx++, newIdx++) {
-    // Replace $N with re-indexed $M (use word boundary to avoid $10 matching $1)
-    countWhereClause = countWhereClause.replace(
-      new RegExp(`\\$${oldIdx}(?![0-9])`, 'g'),
-      `__BIND_${newIdx}__`
-    );
-  }
-  // Now replace placeholders with final $N
-  countWhereClause = countWhereClause.replace(/__BIND_(\d+)__/g, (_, n) => `$${n}`);
-
-  const countQuery = `
-    SELECT COUNT(*) as total
-    FROM "ExternalJobs" ej
-    WHERE ${countWhereClause}
-  `;
-
-  // When the ANN CTE is in play, bump hnsw.ef_search above the default 40.
-  // Larger ef_search → wider HNSW traversal → better recall when restrictive
-  // WHERE filters (locationType, salary, skills, etc.) shrink the candidate
-  // pool. 200 is a sweet spot: recall stays > 99% on this corpus while the
-  // index probe is still single-digit ms.
-  //
-  // SET LOCAL only applies inside an explicit transaction. Outside one it
-  // would be a no-op at best and a session-leaking config change at worst.
-  // We wrap the SELECT in a transaction so the setting is scoped correctly
-  // and rolled back automatically when the read completes.
   // hnsw.ef_search is now configured per-connection via the database
   // pool's afterConnect hook (see backend/config/database.js). We used to
   // wrap the ANN SELECT in `sequelize.transaction()` just to scope
@@ -949,43 +982,11 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // The setting is harmless when the query doesn't use HNSW.
   try {
     const t0 = Date.now();
-    const runListQuery = sequelize.query(query, {
+    const results = await sequelize.query(query, {
       bind: binds,
       type: sequelize.constructor.QueryTypes.SELECT,
     });
-
-    // Count cache — filter-signature keyed, user-independent. See the
-    // module-level comment on jobsCountCache for the rationale; in short,
-    // the count is the same for every user with the same filter set, and
-    // recomputing it on every request is the dominant cost here.
-    const countCacheKey = `${countWhereClause}|${JSON.stringify(filterBinds)}`;
-    const cachedCount = jobsCountCache.get(countCacheKey);
-    const countFreshEnough = cachedCount && cachedCount.expiresAt > Date.now();
-
-    const runCountQuery = countFreshEnough
-      ? Promise.resolve([{ total: cachedCount.total }])
-      : sequelize.query(countQuery, {
-          bind: filterBinds,
-          type: sequelize.constructor.QueryTypes.SELECT,
-        });
-
-    const [results, countResult] = await Promise.all([runListQuery, runCountQuery]);
     const listMs = Date.now() - t0;
-
-    const total = parseInt(countResult[0]?.total) || 0;
-
-    if (!countFreshEnough) {
-      // Cap entries to keep memory bounded; FIFO eviction is fine since
-      // hot filter combos are revisited continuously and stay warm.
-      if (jobsCountCache.size >= JOBS_COUNT_CACHE_MAX_ENTRIES) {
-        const oldest = jobsCountCache.keys().next().value;
-        if (oldest !== undefined) jobsCountCache.delete(oldest);
-      }
-      jobsCountCache.set(countCacheKey, {
-        total,
-        expiresAt: Date.now() + JOBS_COUNT_CACHE_TTL_MS,
-      });
-    }
 
     // Log when a request gets visibly slow so we can spot regressions in
     // prod logs. 1500ms is generous (typical good runs are 30-150ms) but
@@ -993,7 +994,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     if (listMs > 1500) {
       console.warn(
         `[JobEmbedding] slow searchSimilarJobs: ${listMs}ms ` +
-        `(needsAnn=${needsAnn}, countCached=${countFreshEnough}, ` +
+        `(needsAnn=${needsAnn}, total=${total}, ` +
         `filters=${filterBinds.length}, search=${!!search})`
       );
     }
