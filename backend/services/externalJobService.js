@@ -1245,56 +1245,71 @@ async function syncBoard(atsBoard) {
 
     const fetchedExternalIds = new Set(normalizedJobs.map(j => j.externalId));
 
-    // Pre-fetch the postedAt values of any rows we already have for this
-    // (source, externalId) set so we can preserve the FIRST-seen posting
-    // date. Some ATS APIs (Ashby in particular — `publishedDate` mirrors
-    // `updatedAt` and refreshes on every republish) would otherwise stamp
-    // every job with the latest sync time, making old listings look
-    // "Posted just now".
+    // Pre-fetch the externalIds we already have for this fetched set. Two
+    // uses: (1) classify inserts vs updates after the bulk upsert below
+    // (PostgreSQL's ON CONFLICT can't tell us per row), so we only embed /
+    // extract skills for genuinely NEW jobs; (2) the FIRST-seen posting date
+    // is preserved by EXCLUDING postedAt from updateOnDuplicate (see below) —
+    // some ATS APIs (Ashby's publishedDate mirrors updatedAt and refreshes on
+    // every republish) would otherwise stamp old listings as "Posted just now".
     const existingRows = await ExternalJob.findAll({
       where: {
         source: normalizedJobs[0]?.source || null,
         externalId: { [Op.in]: [...fetchedExternalIds] }
       },
-      attributes: ['externalId', 'postedAt'],
+      attributes: ['externalId'],
       raw: true,
     });
-    const existingPostedAt = new Map(
-      existingRows.map(r => [r.externalId, r.postedAt])
-    );
+    const existingIds = new Set(existingRows.map(r => r.externalId));
 
-    // Upsert all fetched jobs.
-    //
-    // Important: Sequelize.upsert rewrites EVERY field in the payload on
-    // conflict. Some source APIs return the posted-date intermittently
-    // (Greenhouse / RSS feeds in particular) — if we passed `postedAt: null`
-    // through to the UPDATE clause, we'd wipe a previously-correct date
-    // every time we re-scraped. Strip null `postedAt` so the existing
-    // column value is preserved. Also strip `postedAt` whenever a row
-    // already exists with a non-null value, so the first-seen posting date
-    // is treated as canonical and never overwritten by later syncs.
+    // Build deduped payloads keyed on externalId (last wins). Dedup is
+    // REQUIRED: a single ON CONFLICT statement cannot affect the same row
+    // twice, so a flaky source returning a duplicate externalId in one fetch
+    // would otherwise abort the whole chunk. isStartup is denormalized from
+    // the board so the "Startups" filter is a plain indexed boolean.
+    const payloadsById = new Map();
+    for (const jobData of normalizedJobs) {
+      const payload = clampVarchar255Fields({ ...jobData });
+      payload.isStartup = atsBoard.isStartup === true;
+      payloadsById.set(payload.externalId, payload);
+    }
+    const payloads = [...payloadsById.values()];
+
+    // Fields to overwrite on conflict: every mutable column EXCEPT the identity
+    // keys, the canonical first-seen postedAt, createdAt, and the background-
+    // computed embedding columns (regenerated separately — a sync must never
+    // wipe them). Excluding postedAt is what makes the first-seen date stick.
+    const NEVER_UPDATE = new Set([
+      'id', 'source', 'externalId', 'postedAt', 'createdAt',
+      'embedding', 'embeddingUpdatedAt',
+    ]);
+    const updateOnDuplicate = Object.keys(ExternalJob.rawAttributes)
+      .filter((k) => !NEVER_UPDATE.has(k));
+
+    // Chunked bulkCreate → ON CONFLICT (source, externalId) DO UPDATE. One
+    // index-maintenance pass per ~500-row chunk instead of per row: the old
+    // per-job upsert loop ran ~0.2s/job (Anthropic's 373 jobs = 81.5s) and
+    // big boards (Coinbase / Cloudflare / Block / Instacart) blew the 15s
+    // statement timeout. returning:true gives back the persisted instances so
+    // NEW rows can be embedded; updated rows are skipped via existingIds.
+    const CHUNK_SIZE = 500;
     let created = 0;
     let updated = 0;
     const newJobs = [];
-    for (const jobData of normalizedJobs) {
-      const payload = clampVarchar255Fields({ ...jobData });
-      // Denormalize the board's startup flag onto every job so the "Startups"
-      // filter is a plain indexed boolean (no cross-enum join at query time).
-      payload.isStartup = atsBoard.isStartup === true;
-      if (payload.postedAt == null) {
-        delete payload.postedAt;
-      } else if (existingPostedAt.get(payload.externalId) != null) {
-        // Row exists and already has a postedAt — keep the original.
-        delete payload.postedAt;
-      }
-      const [job, wasCreated] = await ExternalJob.upsert(payload, {
-        conflictFields: ['source', 'externalId']
+    for (let i = 0; i < payloads.length; i += CHUNK_SIZE) {
+      const chunk = payloads.slice(i, i + CHUNK_SIZE);
+      const rows = await ExternalJob.bulkCreate(chunk, {
+        updateOnDuplicate,
+        conflictAttributes: ['source', 'externalId'],
+        returning: true,
       });
-      if (wasCreated) {
-        created++;
-        newJobs.push(job);
-      } else {
-        updated++;
+      for (const row of rows) {
+        if (existingIds.has(row.externalId)) {
+          updated++;
+        } else {
+          created++;
+          newJobs.push(row);
+        }
       }
     }
 
