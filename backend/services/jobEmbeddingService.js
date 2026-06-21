@@ -174,7 +174,18 @@ let openaiClient = null;
 
 function getClient() {
   if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      // Transient "Premature close" / "Invalid response body" errors are
+      // undici connection drops to OpenAI — retryable. The SDK retries
+      // APIConnectionError with exponential backoff; bump from the default 2
+      // to 4 so a brief network blip doesn't surface to the caller (for the
+      // search-embedding path that just means losing search-relevance blending
+      // for that request). A 15s per-attempt timeout caps a hung socket far
+      // below the SDK's 10-minute default so we fail fast and retry.
+      maxRetries: 4,
+      timeout: 15000,
+    });
   }
   return openaiClient;
 }
@@ -473,6 +484,19 @@ async function generateSearchQueryEmbedding(searchText) {
       model: EMBEDDING_MODEL,
       input: searchText.trim(),
       dimensions: EMBEDDING_DIMENSIONS
+    }, {
+      // CRITICAL: this call is on the user's request critical path — the
+      // /external-jobs search route awaits it before ranking. So it must
+      // fail FAST, not resiliently: a tight 2.5s timeout and a single retry
+      // cap the worst case at ~5s, after which the caller proceeds with
+      // lexical (searchTsvAB) + profile-vector ranking and the next request
+      // for the same term uses the cached vector. (The background job-
+      // embedding path keeps the client's resilient maxRetries=4/15s default,
+      // where latency is irrelevant.) Without this override the client-level
+      // settings could stack 4 retries × 15s on a flaky connection and hang
+      // the search request for a minute.
+      timeout: 2500,
+      maxRetries: 1,
     });
     const embedding = response.data?.[0]?.embedding || null;
 
@@ -491,7 +515,11 @@ async function generateSearchQueryEmbedding(searchText) {
 
     return embedding;
   } catch (error) {
-    console.error(`[JobEmbedding] Search query embedding error:`, error.message);
+    // Non-fatal: the caller falls back to profile-only ranking (no search-
+    // relevance blending) for this request. Logged at warn since it's an
+    // expected, recoverable transient (OpenAI connection drop) after the
+    // client's own retries are exhausted — not an error needing attention.
+    console.warn(`[JobEmbedding] Search query embedding unavailable (transient): ${error.message}`);
     return null;
   }
 }
