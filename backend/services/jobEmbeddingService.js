@@ -14,7 +14,10 @@ const { expandLocationAliases } = require('../utils/locationMatch');
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 512;
-const MAX_BATCH_SIZE = 100; // OpenAI batch limit for embeddings
+const MAX_BATCH_SIZE = 64; // Inputs per OpenAI embed call. Kept well under
+// the API's hard limit to shrink the request body — large bodies correlate
+// with undici "Premature close" drops under load. _embedTextsWithSplit below
+// salvages the rest of a batch if a call still fails.
 
 // In-memory cache for profile query embeddings (avoids repeated OpenAI calls)
 // Key: `profile:<userId>`, Value: { embedding, textHash, expiresAt }
@@ -261,6 +264,32 @@ async function generateJobEmbedding(job) {
  * @param {Object[]} jobs - Array of ExternalJob instances/plain objects
  * @returns {{ success: number, failed: number }}
  */
+// Embed an array of texts, returning one embedding (or null) per input in
+// order. On failure of a multi-item call (e.g. a "Premature close" undici
+// drop that survives the SDK's own retries), the batch is split in half and
+// each half retried independently — so one transient drop or one poison
+// input no longer wipes the entire batch. Recurses down to single items.
+async function _embedTextsWithSplit(client, texts) {
+  try {
+    const response = await client.embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: texts,
+      dimensions: EMBEDDING_DIMENSIONS
+    });
+    return texts.map((_, j) => response.data?.[j]?.embedding || null);
+  } catch (error) {
+    if (texts.length === 1) {
+      console.error(`[JobEmbedding] embed failed (single input):`, error.message);
+      return [null];
+    }
+    const mid = Math.ceil(texts.length / 2);
+    const left = await _embedTextsWithSplit(client, texts.slice(0, mid));
+    await new Promise(r => setTimeout(r, 150));
+    const right = await _embedTextsWithSplit(client, texts.slice(mid));
+    return [...left, ...right];
+  }
+}
+
 async function generateBatchJobEmbeddings(jobs) {
   let success = 0;
   let failed = 0;
@@ -283,35 +312,25 @@ async function generateBatchJobEmbeddings(jobs) {
 
     if (texts.length === 0) continue;
 
-    try {
-      const response = await client.embeddings.create({
-        model: EMBEDDING_MODEL,
-        input: texts,
-        dimensions: EMBEDDING_DIMENSIONS
-      });
-
-      const updates = [];
-      for (let j = 0; j < validJobs.length; j++) {
-        const embedding = response.data?.[j]?.embedding;
-        if (embedding) {
-          updates.push(
-            sequelize.query(
-              `UPDATE "ExternalJobs" SET embedding = $1, "embeddingUpdatedAt" = NOW() WHERE id = $2`,
-              {
-                bind: [JSON.stringify(embedding), validJobs[j].id],
-                type: sequelize.constructor.QueryTypes.UPDATE
-              }
-            ).then(() => { success++; })
-          );
-        } else {
-          failed++;
-        }
+    const embeddings = await _embedTextsWithSplit(client, texts);
+    const updates = [];
+    for (let j = 0; j < validJobs.length; j++) {
+      const embedding = embeddings[j];
+      if (embedding) {
+        updates.push(
+          sequelize.query(
+            `UPDATE "ExternalJobs" SET embedding = $1, "embeddingUpdatedAt" = NOW() WHERE id = $2`,
+            {
+              bind: [JSON.stringify(embedding), validJobs[j].id],
+              type: sequelize.constructor.QueryTypes.UPDATE
+            }
+          ).then(() => { success++; })
+        );
+      } else {
+        failed++;
       }
-      await Promise.all(updates);
-    } catch (error) {
-      console.error(`[JobEmbedding] Batch error at offset ${i}:`, error.message);
-      failed += texts.length;
     }
+    await Promise.all(updates);
 
     // Rate limit: small delay between batches
     if (i + MAX_BATCH_SIZE < jobs.length) {
@@ -320,6 +339,37 @@ async function generateBatchJobEmbeddings(jobs) {
   }
 
   return { success, failed };
+}
+
+// Self-healing backfill: embed a small batch of active jobs that have no
+// embedding yet (newest first — those are what users actually see). New jobs
+// are embedded inline at ingest, but that call can drop and leave them
+// unembedded, which makes them invisible to semantic RANKING (they still
+// appear via the recency path after the membership fix, just unranked).
+// Scheduled cron is off in this topology, so the API process sweeps these on
+// an interval (see server.js). Bounded + single-flight so it never piles
+// load on the DB. Returns { success, failed, picked }.
+let _embedBackfillInFlight = false;
+async function backfillMissingJobEmbeddings({ limit = 50 } = {}) {
+  if (!process.env.OPENAI_API_KEY) return { success: 0, failed: 0, picked: 0, skipped: 'no-key' };
+  if (_embedBackfillInFlight) return { success: 0, failed: 0, picked: 0, skipped: 'in-flight' };
+  _embedBackfillInFlight = true;
+  try {
+    const rows = await sequelize.query(
+      `SELECT id, title, company, department, location, "locationType",
+              "experienceLevel", skills, requirements, description
+       FROM "ExternalJobs"
+       WHERE "isActive" = true AND embedding IS NULL
+       ORDER BY COALESCE("postedAt", "createdAt") DESC
+       LIMIT $1`,
+      { bind: [limit], type: sequelize.constructor.QueryTypes.SELECT }
+    );
+    if (!rows.length) return { success: 0, failed: 0, picked: 0 };
+    const { success, failed } = await generateBatchJobEmbeddings(rows);
+    return { success, failed, picked: rows.length };
+  } finally {
+    _embedBackfillInFlight = false;
+  }
 }
 
 /**
@@ -1024,6 +1074,7 @@ module.exports = {
   buildJobText,
   generateJobEmbedding,
   generateBatchJobEmbeddings,
+  backfillMissingJobEmbeddings,
   generateProfileQueryEmbedding,
   generateSearchQueryEmbedding,
   regenerateProfileOpenAIEmbedding,

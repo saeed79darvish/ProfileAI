@@ -635,6 +635,33 @@ const startServer = async () => {
         console.log('[Cron] Inline cron disabled. Run `npm run cron` as a separate process.');
       }
 
+      // Self-healing job-embedding backfill. New jobs are embedded inline at
+      // ingest, but those OpenAI calls can drop ("Premature close") and leave
+      // jobs with embedding=NULL — which makes them invisible to semantic
+      // RANKING (they still appear via the recency path, just unranked). With
+      // scheduled cron off in this topology, the API process sweeps a small
+      // batch of unembedded active jobs (newest first) on an interval so the
+      // corpus catches up and stays embedded. Deliberately gentle: one small
+      // OpenAI batch + a few single-row UPDATEs per tick, single-flight, so it
+      // never piles load on the DB. Disable with ENABLE_EMBED_BACKFILL=false.
+      if (process.env.OPENAI_API_KEY && process.env.ENABLE_EMBED_BACKFILL !== 'false') {
+        const { backfillMissingJobEmbeddings } = require('./services/jobEmbeddingService');
+        const embedBatch = parseInt(process.env.EMBED_BACKFILL_BATCH || '50', 10);
+        const embedIntervalMs = parseInt(process.env.EMBED_BACKFILL_INTERVAL_MS || '120000', 10);
+        const embedTick = () => backfillMissingJobEmbeddings({ limit: embedBatch })
+          .then(r => {
+            if (r.success || r.failed) {
+              console.log(`[EmbedBackfill] embedded ${r.success}, failed ${r.failed} (picked ${r.picked})`);
+            }
+          })
+          .catch(err => console.warn('[EmbedBackfill] error:', err.message));
+        setTimeout(embedTick, 30000);
+        setInterval(embedTick, embedIntervalMs);
+        console.log(`[EmbedBackfill] ✓ enabled (batch=${embedBatch}, every ${Math.round(embedIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[EmbedBackfill] disabled');
+      }
+
       // ApplyPilot submit worker — consumes approved applications from
       // the pg-boss queue and POSTs them to the right ATS. Runs in-
       // process for dev; production should spin it up standalone via
