@@ -630,69 +630,47 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   }
 
   if (search) {
-    if (searchEmbedding) {
-      // Semantic mode: we have a vector for the search query, so cosine
-      // similarity (in scoreExpr below) already ranks by semantic
-      // relevance. The role of the typed query here is only to keep the
-      // candidate set on-topic — not to be the primary filter.
-      //
-      // The typed query must keep the candidate set on-topic. We use AND
-      // semantics on prefix-stemmed tokens: EVERY token must hit title/
-      // company/department. This is the relevance fix — OR semantics let
-      // "Frontend Engineer" match every "…Engineer" (Backend, Data, ML…),
-      // and cosine ranking could not always push those off-target roles
-      // down far enough, so results felt inaccurate.
-      //
-      // Prefix-stemming (`token:*`) preserves the useful looseness AND
-      // needs — "Frontend Engineer" still matches "Frontend Engineering",
-      // "Frontend Software Engineer", etc. — while requiring all concepts
-      // to be present. The frontend already trims seniority prefixes
-      // ("Senior Frontend Engineer" → "Frontend Engineer") before seeding
-      // the search box, so AND does not over-restrict on common queries.
-      // Cosine similarity (scoreExpr) then ranks within this tight pool.
-      //
-      // Tokens are sanitized to [a-z0-9]+ so user input can't break
-      // to_tsquery syntax (quotes / colons / parens are stripped at the
-      // JS layer; the value is also passed via a bind, not interpolated).
-      const queryTokens = String(search)
-        .toLowerCase()
-        .split(/[^a-z0-9+#.]+/)
-        .map(t => t.replace(/[^a-z0-9]/g, ''))
-        .filter(t => t.length >= 2)
-        .slice(0, 8); // cap so a giant paste can't blow up the query
+    // Hard text filter on the typed query. This is ALWAYS applied when a
+    // search term is present — it is independent of whether we have a query
+    // embedding (the embedding only affects RANKING via scoreExpr, never the
+    // candidate set).
+    //
+    // We require EVERY token to hit title (A) or company/department (B) via
+    // the searchTsvAB STORED generated tsvector. Crucially, searchTsvAB does
+    // NOT include the description — matching the description (weight C) is
+    // what made a "Frontend Engineer" search return Solutions Managers,
+    // Backend/Embedded roles, etc. that merely *mention* "frontend" and
+    // "engineer" somewhere in their job description. Title/company/dept-only
+    // matching keeps the candidate set genuinely on-topic.
+    //
+    // AND semantics with prefix-stemming (`token:*`) preserves useful
+    // looseness — "Frontend Engineer" still matches "Frontend Engineering",
+    // "Frontend Software Engineer", etc. — while requiring all concepts to be
+    // present. The frontend trims seniority prefixes ("Senior Frontend
+    // Engineer" → "Frontend Engineer") before seeding the search box, so AND
+    // does not over-restrict common queries. A single GIN-indexable `@@`
+    // enforces this with no per-row ts_rank_cd (which on common terms timed
+    // the query out). See ensureExternalJobPerfSchema.js.
+    //
+    // Tokens are sanitized to [a-z0-9]+ so user input can't break to_tsquery
+    // syntax (quotes / colons / parens are stripped at the JS layer; the
+    // value is also passed via a bind, not interpolated).
+    const queryTokens = String(search)
+      .toLowerCase()
+      .split(/[^a-z0-9+#.]+/)
+      .map(t => t.replace(/[^a-z0-9]/g, ''))
+      .filter(t => t.length >= 2)
+      .slice(0, 8); // cap so a giant paste can't blow up the query
 
-      if (queryTokens.length > 0) {
-        const tsqExpr = queryTokens.map(t => `${t}:*`).join(' & ');
-        // Require an A (title) or B (company/dept) weight hit, excluding
-        // description-only matches. searchTsvAB is a STORED generated
-        // tsvector that contains ONLY title (A) + company/dept (B) — no
-        // description — so a single GIN-indexable `@@` enforces that rule
-        // natively, with no per-row ts_rank_cd (which on common terms timed
-        // the query out). See ensureExternalJobPerfSchema.js.
-        conditions.push(`ej."searchTsvAB" @@ to_tsquery('english', $${bindIndex})`);
-        binds.push(tsqExpr);
-        bindIndex++;
-      }
-      // If sanitization stripped everything (e.g. pure symbols), let
-      // cosine similarity handle the ranking alone — the search embedding
-      // still carries the semantic intent.
-    } else {
-      // No embedding available (the query-embedding call is time-boxed and
-      // returns null on timeout/failure): we MUST still hard-filter on the
-      // typed query, otherwise the result set falls back to "every job that
-      // passes the other filters" — which, under recency-first ordering,
-      // surfaces the newest *unrelated* roles at the top. Weighted full-text
-      // via the searchTsv generated column + GIN index: title hits rank
-      // highest (weight A), company/dept mid (B), description low (C).
-      // plainto_tsquery ANDs every token, which keeps results tight on
-      // intentional multi-word inputs. The frontend trims seniority prefixes
-      // from the auto-detected role before seeding the search box (so
-      // "Senior Frontend Engineer" → "Frontend Engineer"), which avoids the
-      // AND-too-restrictive trap.
-      conditions.push(`ej."searchTsv" @@ plainto_tsquery('english', $${bindIndex})`);
-      binds.push(search);
+    if (queryTokens.length > 0) {
+      const tsqExpr = queryTokens.map(t => `${t}:*`).join(' & ');
+      conditions.push(`ej."searchTsvAB" @@ to_tsquery('english', $${bindIndex})`);
+      binds.push(tsqExpr);
       bindIndex++;
     }
+    // If sanitization stripped everything (e.g. a pure-symbol query), fall
+    // through with no text filter: when we have an embedding cosine carries
+    // the intent; otherwise the other filters (location/level/…) still apply.
   }
 
   // Skill containment filter — backed by GIN index (jsonb_path_ops). The
