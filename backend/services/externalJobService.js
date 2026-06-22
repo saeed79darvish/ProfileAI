@@ -818,7 +818,15 @@ function normalizeAshbyJob(job, orgSlug) {
     salaryPeriod: null,
     applyUrl: job.jobUrl || `https://jobs.ashbyhq.com/${orgSlug}/${job.id}`,
     sourceUrl: job.jobUrl || `https://jobs.ashbyhq.com/${orgSlug}/${job.id}`,
-    postedAt: job.publishedDate ? new Date(job.publishedDate) : (job.updatedAt ? new Date(job.updatedAt) : null),
+    // Ashby's public posting API returns the real first-published date in
+    // `publishedAt`. The previous code read `publishedDate`/`updatedAt` —
+    // fields Ashby does NOT send — so postedAt was ALWAYS null, which silently
+    // parked every Ashby job's recency on its board-discovery `createdAt`
+    // (making "Date Posted: 24h/week" filters meaningless for ~24% of the
+    // corpus). The legacy field names are kept only as defensive fallbacks.
+    postedAt: job.publishedAt ? new Date(job.publishedAt)
+            : (job.publishedDate ? new Date(job.publishedDate)
+            : (job.updatedAt ? new Date(job.updatedAt) : null)),
     isActive: true,
     lastFetchedAt: new Date(),
     metadata: {
@@ -1266,9 +1274,9 @@ async function syncBoard(atsBoard) {
     // uses: (1) classify inserts vs updates after the bulk upsert below
     // (PostgreSQL's ON CONFLICT can't tell us per row), so we only embed /
     // extract skills for genuinely NEW jobs; (2) the FIRST-seen posting date
-    // is preserved by EXCLUDING postedAt from updateOnDuplicate (see below) —
-    // some ATS APIs (Ashby's publishedDate mirrors updatedAt and refreshes on
-    // every republish) would otherwise stamp old listings as "Posted just now".
+    // is preserved by EXCLUDING postedAt from updateOnDuplicate (see below) so
+    // a re-published listing never restamps itself as "Posted just now". NULL
+    // postedAt rows are instead healed by the IS NULL backfill after the upsert.
     const existingRows = await ExternalJob.findAll({
       where: {
         source: normalizedJobs[0]?.source || null,
@@ -1328,6 +1336,41 @@ async function syncBoard(atsBoard) {
           newJobs.push(row);
         }
       }
+    }
+
+    // Backfill postedAt for rows that currently have NULL — WITHOUT overwriting
+    // any existing date. `postedAt` is excluded from updateOnDuplicate above to
+    // keep the first-seen date sticky (Greenhouse uses createdAt; re-published
+    // listings must not jump to "just now"), but that also meant the long-
+    // standing Ashby rows that were saved with postedAt=NULL (from the old
+    // publishedDate/updatedAt field-name bug) could never pick up their real
+    // `publishedAt`. This set-based UPDATE fills only the NULL rows from the
+    // freshly-fetched payloads, so each Ashby board self-heals the next time it
+    // syncs — riding existing refreshIfStale traffic with no extra fetch. The
+    // `IS NULL` guard makes it a no-op once filled and leaves every other
+    // source's first-seen date untouched.
+    const datedPayloads = payloads.filter(
+      (p) => p.postedAt instanceof Date && !isNaN(p.postedAt.getTime())
+    );
+    if (datedPayloads.length > 0) {
+      const source = normalizedJobs[0]?.source || atsBoard.platform;
+      await ExternalJob.sequelize.query(
+        `UPDATE "ExternalJobs" AS ej
+            SET "postedAt" = v.posted_at::timestamptz
+           FROM (SELECT UNNEST($1::text[]) AS external_id,
+                        UNNEST($2::text[]) AS posted_at) AS v
+          WHERE ej.source = $3
+            AND ej."externalId" = v.external_id
+            AND ej."postedAt" IS NULL`,
+        {
+          bind: [
+            datedPayloads.map((p) => p.externalId),
+            datedPayloads.map((p) => p.postedAt.toISOString()),
+            source,
+          ],
+          type: ExternalJob.sequelize.QueryTypes.UPDATE,
+        }
+      );
     }
 
     // Generate embeddings for new jobs in the background
