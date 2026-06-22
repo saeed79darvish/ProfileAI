@@ -675,15 +675,20 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       }
       // If sanitization stripped everything (e.g. pure symbols), let
       // cosine similarity handle the ranking alone — the search embedding
-      // still carries the semantic intent. else {
-      // No embedding available: weighted full-text via the searchTsv
-      // generated column + GIN index. Title hits rank highest (weight A),
-      // company/dept mid (B), description low (C).
+      // still carries the semantic intent.
+    } else {
+      // No embedding available (the query-embedding call is time-boxed and
+      // returns null on timeout/failure): we MUST still hard-filter on the
+      // typed query, otherwise the result set falls back to "every job that
+      // passes the other filters" — which, under recency-first ordering,
+      // surfaces the newest *unrelated* roles at the top. Weighted full-text
+      // via the searchTsv generated column + GIN index: title hits rank
+      // highest (weight A), company/dept mid (B), description low (C).
       // plainto_tsquery ANDs every token, which keeps results tight on
-      // intentional multi-word inputs. The frontend trims seniority
-      // prefixes from the auto-detected role before seeding the search
-      // box (so "Senior Frontend Engineer" → "Frontend Engineer"), which
-      // avoids the AND-too-restrictive trap.
+      // intentional multi-word inputs. The frontend trims seniority prefixes
+      // from the auto-detected role before seeding the search box (so
+      // "Senior Frontend Engineer" → "Frontend Engineer"), which avoids the
+      // AND-too-restrictive trap.
       conditions.push(`ej."searchTsv" @@ plainto_tsquery('english', $${bindIndex})`);
       binds.push(search);
       bindIndex++;
