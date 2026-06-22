@@ -21,6 +21,7 @@ import LaunchIcon from '@mui/icons-material/Launch';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PsychologyIcon from '@mui/icons-material/Psychology';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import CheckIcon from '@mui/icons-material/Check';
@@ -1912,6 +1913,53 @@ const CandidateJobs = () => {
                 </div>
               </div>
               <InlineJobAITools job={selectedJob} />
+            </div>
+          )}
+
+          {/* AI Tools teaser for logged-out visitors — entice free sign-up */}
+          {!isAuthenticated && (
+            <div className="job-detail-ai-tools">
+              <div className="job-detail-ai-header">
+                <div className="job-detail-ai-icon">
+                  <AutoAwesomeIcon />
+                </div>
+                <div>
+                  <div className="job-detail-ai-title">AI Job Tools</div>
+                  <div className="job-detail-ai-subtitle">Free with your ProfilleAI account</div>
+                </div>
+              </div>
+              <div className="job-detail-ai-teaser-list">
+                <div className="job-detail-ai-teaser-item">
+                  <TrendingUpIcon />
+                  <span><strong>See your match score</strong> for this job</span>
+                </div>
+                <div className="job-detail-ai-teaser-item">
+                  <AutoAwesomeIcon />
+                  <span><strong>Tailor your resume</strong> to this role in one click</span>
+                </div>
+                <div className="job-detail-ai-teaser-item">
+                  <DescriptionIcon />
+                  <span><strong>Generate a cover letter</strong> in seconds</span>
+                </div>
+                <div className="job-detail-ai-teaser-item">
+                  <PsychologyIcon />
+                  <span><strong>Spot skill gaps</strong> to close before applying</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="job-detail-ai-teaser-cta"
+                onClick={() => navigate('/register')}
+              >
+                Sign up free to unlock AI tools <ArrowForwardIcon />
+              </button>
+              <button
+                type="button"
+                className="job-detail-ai-teaser-signin"
+                onClick={() => navigate('/login')}
+              >
+                Already have an account? Sign in
+              </button>
             </div>
           )}
         </div>

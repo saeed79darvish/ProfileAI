@@ -1833,6 +1833,65 @@ export const ExternalJobDescriptionStyles = styled.div`
     }
   }
 
+  /* --- Logged-out AI tools teaser --- */
+  .job-detail-ai-teaser-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .job-detail-ai-teaser-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #475467;
+
+    svg { font-size: 18px; color: #7C3AED; flex-shrink: 0; }
+    strong { color: #101828; font-weight: 600; }
+  }
+
+  .job-detail-ai-teaser-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 11px 16px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #7C3AED, #6366F1);
+    color: white;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+
+    svg { font-size: 17px; }
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);
+    }
+  }
+
+  .job-detail-ai-teaser-signin {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 4px;
+    background: none;
+    border: none;
+    color: #7C3AED;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+
+    &:hover { text-decoration: underline; }
+  }
+
   /* --- Divider --- */
   .job-detail-divider {
     height: 1px;
