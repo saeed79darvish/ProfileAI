@@ -63,6 +63,17 @@ const NEWEST_AGE_CACHE_MS = 60 * 1000;             // cache newest-job age for 6
 let _lastCorpusRefreshTrigger = 0;
 let _newestJobAgeCache = { value: null, at: 0 };
 
+// Kill switch for the request-path full-corpus self-heal sweep. DEFAULT OFF.
+// The sweep walks all ~721 boards sequentially; on the current undersized
+// managed Postgres that sweep — stacked on top of live /jobs HNSW queries and
+// per-board refreshes — drove statement timeouts and crash-into-recovery
+// (57P03: "the database system is not yet accepting connections"), taking the
+// whole API down with 500s. Until the DB is upsized (or a decoupled cron/worker
+// runs the sweep off the request path), we do NOT fire it from web requests.
+// Per-board refreshIfStale (cap 1, only boards already in a response) still
+// provides lightweight freshness. Set ENABLE_CORPUS_SELF_HEAL=true to re-enable.
+const ENABLE_CORPUS_SELF_HEAL = process.env.ENABLE_CORPUS_SELF_HEAL === 'true';
+
 async function getNewestJobAgeMinutes() {
   const now = Date.now();
   if (_newestJobAgeCache.value !== null && now - _newestJobAgeCache.at < NEWEST_AGE_CACHE_MS) {
@@ -86,6 +97,10 @@ async function getNewestJobAgeMinutes() {
  */
 function ensureCorpusFresh() {
   const now = Date.now();
+  // Disabled by default — see ENABLE_CORPUS_SELF_HEAL rationale above. This is
+  // the single biggest load the request path puts on the DB, so it stays off
+  // until the DB can take it.
+  if (!ENABLE_CORPUS_SELF_HEAL) return;
   // Cheap synchronous gates first.
   if (_fullSyncInProgress) return;
   if (now - _lastCorpusRefreshTrigger < CORPUS_REFRESH_COOLDOWN_MS) return;
