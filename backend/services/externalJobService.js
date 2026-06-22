@@ -1554,6 +1554,80 @@ function refreshIfStale(boardToken) {
   });
 }
 
+// Single-flight guard for the scheduled stale-board rotation (refreshStaleBoards).
+// The rotation runs boards one at a time, but two overlapping ticks (or a tick
+// landing on top of a slow previous one) must not double-walk the same set.
+let _boardRotationInProgress = false;
+
+/**
+ * Scheduled stale-board refresh rotation. OPT-IN — only ever called from the
+ * env-gated interval in server.js (ENABLE_BOARD_REFRESH=true), never from the
+ * request path.
+ *
+ * Picks the `batch` most-stale active boards (ORDER BY lastSyncAt ASC NULLS
+ * FIRST — never-synced boards first) and re-syncs them sequentially, one at a
+ * time, so the Ashby postedAt backfill and general freshness propagate without
+ * waiting on user traffic. Deliberately conservative for the crash-prone
+ * managed Postgres:
+ *   • single-flight (_boardRotationInProgress) — no overlapping rotations;
+ *   • yields to a full sweep (_fullSyncInProgress) and to per-request refreshes
+ *     via the shared _inFlightBoardSyncs set, so a board never syncs twice at
+ *     once;
+ *   • concurrency 1 with a small inter-board delay — at most one board syncing.
+ * Fire-and-forget friendly: resolves with a summary, never throws.
+ */
+async function refreshStaleBoards({ batch = 3 } = {}) {
+  if (_fullSyncInProgress) {
+    return { synced: 0, skipped: 'full-sync-in-progress' };
+  }
+  if (_boardRotationInProgress) {
+    return { synced: 0, skipped: 'rotation-in-progress' };
+  }
+  _boardRotationInProgress = true;
+  try {
+    const boards = await ATSBoard.findAll({
+      where: { isActive: true },
+      order: [
+        // NULLS FIRST → never-synced boards get priority, then oldest syncs.
+        [ATSBoard.sequelize.literal('"lastSyncAt" ASC NULLS FIRST')],
+      ],
+      limit: Math.max(1, batch),
+    });
+
+    if (boards.length === 0) {
+      return { synced: 0, results: [] };
+    }
+
+    const results = [];
+    for (const board of boards) {
+      // Don't collide with an in-flight per-request refresh of this board.
+      if (_inFlightBoardSyncs.has(board.boardToken)) {
+        results.push({ board: board.name, skipped: 'inflight' });
+        continue;
+      }
+      _inFlightBoardSyncs.add(board.boardToken);
+      try {
+        const result = await syncBoard(board);
+        results.push({ board: board.name, ...result });
+      } catch (err) {
+        results.push({ board: board.name, success: false, error: err.message });
+      } finally {
+        _inFlightBoardSyncs.delete(board.boardToken);
+      }
+      // Be gentle: small breather between boards so live /jobs queries keep
+      // DB headroom.
+      if (boards.indexOf(board) < boards.length - 1) {
+        await sleep(1500);
+      }
+    }
+
+    const synced = results.filter(r => r.success).length;
+    return { synced, results };
+  } finally {
+    _boardRotationInProgress = false;
+  }
+}
+
 /**
  * Validate that a board token is reachable and returns jobs
  */
@@ -1683,6 +1757,7 @@ module.exports = {
   syncBoard,
   syncAllBoards,
   refreshIfStale,
+  refreshStaleBoards,
   ensureCorpusFresh,
   validateBoard,
   STALE_THRESHOLD_MINUTES

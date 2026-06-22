@@ -662,6 +662,35 @@ const startServer = async () => {
         console.log('[EmbedBackfill] disabled');
       }
 
+      // Scheduled stale-board refresh rotation. OPT-IN, DEFAULT OFF.
+      // With no scheduled cron in this topology, board freshness (and the
+      // Ashby postedAt backfill) otherwise only propagates when a user browses
+      // a board's jobs and trips refreshIfStale. This rotation walks the few
+      // most-stale boards on an interval so freshness heals without waiting on
+      // traffic. It is GATED OFF by default because it adds continuous load to
+      // the crash-prone managed Postgres — only flip ENABLE_BOARD_REFRESH=true
+      // once the DB is upsized / stable. Deliberately gentle: a small batch of
+      // the most-stale boards, synced one at a time, single-flight, yielding to
+      // full sweeps and per-request refreshes.
+      if (process.env.ENABLE_BOARD_REFRESH === 'true') {
+        const { refreshStaleBoards } = require('./services/externalJobService');
+        const boardBatch = parseInt(process.env.BOARD_REFRESH_BATCH || '3', 10);
+        const boardIntervalMs = parseInt(process.env.BOARD_REFRESH_INTERVAL_MS || '300000', 10);
+        const boardTick = () => refreshStaleBoards({ batch: boardBatch })
+          .then(r => {
+            if (r.synced || (r.results && r.results.length)) {
+              console.log(`[BoardRefresh] synced ${r.synced || 0}/${(r.results || []).length} stale boards`
+                + (r.skipped ? ` (skipped: ${r.skipped})` : ''));
+            }
+          })
+          .catch(err => console.warn('[BoardRefresh] error:', err.message));
+        setTimeout(boardTick, 60000);
+        setInterval(boardTick, boardIntervalMs);
+        console.log(`[BoardRefresh] ✓ enabled (batch=${boardBatch}, every ${Math.round(boardIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[BoardRefresh] disabled. Set ENABLE_BOARD_REFRESH=true to enable (only after DB is upsized).');
+      }
+
       // ApplyPilot submit worker — consumes approved applications from
       // the pg-boss queue and POSTs them to the right ATS. Runs in-
       // process for dev; production should spin it up standalone via
