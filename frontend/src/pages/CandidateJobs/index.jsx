@@ -44,7 +44,6 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import JobDetailView from '@/components/JobDetailView';
 import InlineJobAITools from '@/components/InlineJobAITools';
 import AgentNegotiationModal from '@/components/AgentNegotiationModal';
-import GlobalSearchDialog from '@/components/GlobalSearchDialog';
 
 // Alias icons
 const TrendingIcon = TrendingUpIcon;
@@ -316,7 +315,6 @@ const CandidateJobs = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('search') || '');
-  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const searchTimerRef = useRef(null);
   // External job saves now live in the polymorphic SavedJob table — see
   // backend/scripts/migrations/addExternalJobSaves.js. The previous
@@ -757,7 +755,7 @@ const CandidateJobs = () => {
     }
   }, [activeTab, fetchMyApplications, myApplications.length]);
 
-  // Sync URL params to state when navigating from GlobalSearchDialog
+  // Sync URL params to state on direct navigation / deep links
   useEffect(() => {
     const search = searchParams.get('search') || '';
     const locationType = searchParams.get('locationType') || '';
@@ -2146,19 +2144,6 @@ const CandidateJobs = () => {
                     <CloseIcon style={{ fontSize: 18 }} />
                   </button>
                 )}
-                <button type="button"
-                  onClick={(e) => { e.stopPropagation(); setSearchDialogOpen(true); }}
-                  aria-label="Open full search (jobs, people, companies)"
-                  title="Search everywhere (⌘K)"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '3px 8px', border: '1px solid #E4E7EC', borderRadius: 6,
-                    background: '#F9FAFB', color: '#667085', fontSize: 11, fontWeight: 600,
-                    cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit',
-                  }}
-                >
-                  ⌘K
-                </button>
               </SearchInputWrapper>
               {/* Auto-detected role hint — shown when we seeded the search
                   box from the user's profile. Compact one-line pill so the
@@ -3446,8 +3431,6 @@ const CandidateJobs = () => {
           </div>
         </DialogContent>
       </Dialog>
-
-      <GlobalSearchDialog open={searchDialogOpen} onClose={() => setSearchDialogOpen(false)} defaultCategory="jobs" initialQuery={searchQuery} />
 
       {/* Match Analysis Dialog */}
       <Dialog open={matchDialogOpen} onClose={() => setMatchDialogOpen(false)} maxWidth="sm" fullWidth>

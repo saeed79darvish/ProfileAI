@@ -7,7 +7,6 @@ import {
   Menu as MenuIcon,
   Close as CloseIcon,
   Person as PersonIcon,
-  Search as SearchIcon,
   Notifications as NotificationsIcon,
   KeyboardArrowDown as ArrowDownIcon,
   Dashboard as DashboardIcon,
@@ -29,7 +28,6 @@ import { Badge } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { messageAPI, notificationAPI } from '../services/api';
 import { featureFlags } from '../config/featureFlags';
-import GlobalSearchDialog from './GlobalSearchDialog';
 import { BP, media } from '../styles/breakpoints';
 import { shouldBlockNavigation, notifyOnboardingBlocked } from '../utils/onboardingGate';
 
@@ -493,7 +491,6 @@ const Navbar = () => {
   const [notificationPreview, setNotificationPreview] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   const userMenuRef = useRef(null);
@@ -591,18 +588,6 @@ const Navbar = () => {
     setNotifOpen(false);
     setDrawerOpen(false);
   }, [location.pathname]);
-
-  /* --- Cmd/Ctrl+K → spotlight --- */
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   /* --- Unread message + notification polling (visibility-aware) --- */
   useEffect(() => {
@@ -958,9 +943,6 @@ const Navbar = () => {
           {isAuthenticated && (
             <>
               <DrawerSeparator />
-              <DrawerItem type="button" onClick={() => { setSearchOpen(true); setDrawerOpen(false); }}>
-                <SearchIcon aria-hidden="true" /> Search
-              </DrawerItem>
               <DrawerItem
                 type="button"
                 $active={isActive('/notifications')}
@@ -1035,14 +1017,6 @@ const Navbar = () => {
             {isAuthenticated && (
               <>
                 <Divider />
-                <IconBtn
-                  type="button"
-                  onClick={() => setSearchOpen(true)}
-                  aria-label="Search (Cmd/Ctrl+K)"
-                  title="Search (⌘K)"
-                >
-                  <SearchIcon />
-                </IconBtn>
                 {renderNotifications()}
                 <Divider />
                 {renderUserMenu()}
@@ -1067,8 +1041,6 @@ const Navbar = () => {
       </Container>
 
       {renderDrawer()}
-
-      <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
     </Nav>
   );
 };
