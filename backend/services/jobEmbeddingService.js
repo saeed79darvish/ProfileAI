@@ -264,11 +264,32 @@ async function generateJobEmbedding(job) {
  * @param {Object[]} jobs - Array of ExternalJob instances/plain objects
  * @returns {{ success: number, failed: number }}
  */
+// Is this a connection/transport-level failure (vs an API-level error like a
+// 400 on a poison input)? Splitting the batch can isolate a poison input, but
+// it can NOT help a dropped socket — so for connection errors we must bail out
+// of the whole group instead of fanning one failure into N retried sub-calls.
+function _isConnectionError(error) {
+  const name = error?.name || '';
+  const msg = error?.message || '';
+  return (
+    name === 'APIConnectionError' ||
+    name === 'APIConnectionTimeoutError' ||
+    /premature close|invalid response body|terminated|econnreset|etimedout|socket hang up|fetch failed|connection error|network/i.test(msg)
+  );
+}
+
 // Embed an array of texts, returning one embedding (or null) per input in
-// order. On failure of a multi-item call (e.g. a "Premature close" undici
-// drop that survives the SDK's own retries), the batch is split in half and
-// each half retried independently — so one transient drop or one poison
-// input no longer wipes the entire batch. Recurses down to single items.
+// order. On failure of a multi-item call the batch is split in half and each
+// half retried independently — so one poison input no longer wipes the entire
+// batch. Recurses down to single items.
+//
+// EXCEPTION: a connection-level failure (undici "Premature close" / timeout)
+// is NOT a poison input — the socket to OpenAI is the problem, and splitting
+// just multiplies one failure into ~2N retried create() calls (a 50-item
+// batch → ~99 calls × SDK retries = a log flood + socket/CPU drain that, on
+// our single-worker box, competes with a Postgres that may itself be in
+// recovery). For those we throw a tagged error so the caller aborts the whole
+// batch and its circuit breaker backs off.
 async function _embedTextsWithSplit(client, texts) {
   try {
     const response = await client.embeddings.create({
@@ -278,6 +299,11 @@ async function _embedTextsWithSplit(client, texts) {
     });
     return texts.map((_, j) => response.data?.[j]?.embedding || null);
   } catch (error) {
+    if (_isConnectionError(error)) {
+      const e = new Error(error.message);
+      e.isConnectionError = true;
+      throw e;
+    }
     if (texts.length === 1) {
       console.error(`[JobEmbedding] embed failed (single input):`, error.message);
       return [null];
@@ -293,6 +319,7 @@ async function _embedTextsWithSplit(client, texts) {
 async function generateBatchJobEmbeddings(jobs) {
   let success = 0;
   let failed = 0;
+  let connectionError = false;
   const client = getClient();
 
   for (let i = 0; i < jobs.length; i += MAX_BATCH_SIZE) {
@@ -312,7 +339,20 @@ async function generateBatchJobEmbeddings(jobs) {
 
     if (texts.length === 0) continue;
 
-    const embeddings = await _embedTextsWithSplit(client, texts);
+    let embeddings;
+    try {
+      embeddings = await _embedTextsWithSplit(client, texts);
+    } catch (error) {
+      if (error.isConnectionError) {
+        // OpenAI is unreachable — stop now rather than grinding through every
+        // remaining batch (and every job's SDK retries) against a dead socket.
+        // Count the rest as failed and let the caller's circuit breaker back off.
+        connectionError = true;
+        failed += jobs.length - i - (batch.length - texts.length);
+        break;
+      }
+      throw error;
+    }
     const updates = [];
     for (let j = 0; j < validJobs.length; j++) {
       const embedding = embeddings[j];
@@ -338,7 +378,7 @@ async function generateBatchJobEmbeddings(jobs) {
     }
   }
 
-  return { success, failed };
+  return { success, failed, connectionError };
 }
 
 // Self-healing backfill: embed a small batch of active jobs that have no
@@ -348,24 +388,64 @@ async function generateBatchJobEmbeddings(jobs) {
 // appear via the recency path after the membership fix, just unranked).
 // Scheduled cron is off in this topology, so the API process sweeps these on
 // an interval (see server.js). Bounded + single-flight so it never piles
-// load on the DB. Returns { success, failed, picked }.
+// load on the DB.
+//
+// Circuit breaker: the same NULL-embedding rows are re-picked every tick, so
+// if OpenAI is down (undici "Premature close") or Postgres is in recovery,
+// the naive loop hammers a dead dependency every interval forever — exactly
+// the log flood / socket drain seen in prod. When a tick makes no progress
+// because the dependency is unreachable, we skip subsequent ticks with
+// exponential backoff (5m → 1h cap) and auto-resume the moment it recovers.
+// Returns { success, failed, picked }.
 let _embedBackfillInFlight = false;
+let _embedBackfillSkipUntil = 0;          // epoch ms; skip ticks until this
+let _embedBackfillConsecutiveOutages = 0; // drives exponential backoff
+const EMBED_OUTAGE_BASE_BACKOFF_MS = 5 * 60 * 1000;  // 5 min
+const EMBED_OUTAGE_MAX_BACKOFF_MS = 60 * 60 * 1000;  // 1 hr
+const EMBED_DB_BACKOFF_MS = 60 * 1000;               // 1 min while DB recovers
+
+function _embedBackfillBackOff(reason) {
+  _embedBackfillConsecutiveOutages++;
+  const backoff = Math.min(
+    EMBED_OUTAGE_BASE_BACKOFF_MS * 2 ** (_embedBackfillConsecutiveOutages - 1),
+    EMBED_OUTAGE_MAX_BACKOFF_MS
+  );
+  _embedBackfillSkipUntil = Date.now() + backoff;
+  console.warn(`[EmbedBackfill] ${reason} — backing off ${Math.round(backoff / 60000)}m`);
+}
+
 async function backfillMissingJobEmbeddings({ limit = 50 } = {}) {
   if (!process.env.OPENAI_API_KEY) return { success: 0, failed: 0, picked: 0, skipped: 'no-key' };
   if (_embedBackfillInFlight) return { success: 0, failed: 0, picked: 0, skipped: 'in-flight' };
+  if (Date.now() < _embedBackfillSkipUntil) return { success: 0, failed: 0, picked: 0, skipped: 'backoff' };
   _embedBackfillInFlight = true;
   try {
-    const rows = await sequelize.query(
-      `SELECT id, title, company, department, location, "locationType",
-              "experienceLevel", skills, requirements, description
-       FROM "ExternalJobs"
-       WHERE "isActive" = true AND embedding IS NULL
-       ORDER BY COALESCE("postedAt", "createdAt") DESC
-       LIMIT $1`,
-      { bind: [limit], type: sequelize.constructor.QueryTypes.SELECT }
-    );
-    if (!rows.length) return { success: 0, failed: 0, picked: 0 };
-    const { success, failed } = await generateBatchJobEmbeddings(rows);
+    let rows;
+    try {
+      rows = await sequelize.query(
+        `SELECT id, title, company, department, location, "locationType",
+                "experienceLevel", skills, requirements, description
+         FROM "ExternalJobs"
+         WHERE "isActive" = true AND embedding IS NULL
+         ORDER BY COALESCE("postedAt", "createdAt") DESC
+         LIMIT $1`,
+        { bind: [limit], type: sequelize.constructor.QueryTypes.SELECT }
+      );
+    } catch (dbErr) {
+      // DB unreachable / in recovery mode — back off briefly so we stop
+      // piling reconnection attempts onto a Postgres that is trying to
+      // come back up. Short, fixed backoff (not exponential) since the DB
+      // typically recovers in a minute or two.
+      _embedBackfillSkipUntil = Date.now() + EMBED_DB_BACKOFF_MS;
+      return { success: 0, failed: 0, picked: 0, skipped: 'db-error', error: dbErr.message };
+    }
+    if (!rows.length) { _embedBackfillConsecutiveOutages = 0; return { success: 0, failed: 0, picked: 0 }; }
+    const { success, failed, connectionError } = await generateBatchJobEmbeddings(rows);
+    if (success > 0) {
+      _embedBackfillConsecutiveOutages = 0;   // progress — reset the breaker
+    } else if (connectionError) {
+      _embedBackfillBackOff(`OpenAI unreachable (${failed} failed)`);
+    }
     return { success, failed, picked: rows.length };
   } finally {
     _embedBackfillInFlight = false;
