@@ -1559,6 +1559,137 @@ function refreshIfStale(boardToken) {
 // landing on top of a slow previous one) must not double-walk the same set.
 let _boardRotationInProgress = false;
 
+// ─── Admin one-shot date-backfill resync ─────────────────────────────────────
+// Progress for the admin-triggered resync (POST /external-jobs/admin/resync).
+// Runs in the BACKGROUND so the HTTP request returns immediately; the admin
+// polls GET /external-jobs/admin/resync-status to watch it. Single-flight via
+// `running`. Used to heal sources whose postedAt was historically NULL (e.g.
+// the 8,739 Ashby rows fixed in 47577b0) without waiting on the env-gated
+// rotation or organic traffic.
+let _dateResyncStatus = {
+  running: false,
+  platform: null,
+  planned: 0,
+  processed: 0,
+  synced: 0,
+  failed: 0,
+  startedAt: null,
+  finishedAt: null,
+  lastBoard: null,
+  lastError: null,
+};
+
+function getDateResyncStatus() {
+  return { ..._dateResyncStatus };
+}
+
+/**
+ * Kick off a one-shot, background re-sync of the active boards on `platform`
+ * that still have NULL-postedAt jobs, so their real posting dates get captured
+ * and backfilled. Returns immediately with `{ started, planned }`; progress is
+ * tracked in `_dateResyncStatus` (see getDateResyncStatus). Sequential,
+ * concurrency 1, gentle inter-board delay — same load profile as the scheduled
+ * rotation, just scoped to boards that actually need the backfill and run once.
+ */
+async function startDateResync({ platform = 'ashby', maxBoards = null } = {}) {
+  if (_dateResyncStatus.running) {
+    return { started: false, reason: 'already-running', status: getDateResyncStatus() };
+  }
+  if (_fullSyncInProgress) {
+    return { started: false, reason: 'full-sync-in-progress' };
+  }
+
+  // Only touch boards that still have NULL-postedAt active jobs — re-syncing a
+  // board whose dates are already filled is wasted load (the backfill UPDATE is
+  // a no-op there anyway).
+  const Q = ExternalJob.sequelize.constructor.QueryTypes.SELECT;
+  const rows = await ExternalJob.sequelize.query(
+    `SELECT b.id, b."lastSyncAt"
+       FROM "ATSBoards" b
+      WHERE b."isActive" = true
+        AND b.platform = :platform
+        AND EXISTS (
+          SELECT 1 FROM "ExternalJobs" ej
+           WHERE ej."boardToken" = b."boardToken"
+             AND ej.source = b.platform
+             AND ej."isActive" = true
+             AND ej."postedAt" IS NULL
+        )
+      ORDER BY b."lastSyncAt" ASC NULLS FIRST`,
+    { replacements: { platform }, type: Q }
+  );
+
+  let ids = rows.map((r) => r.id);
+  if (Number.isInteger(maxBoards) && maxBoards > 0) {
+    ids = ids.slice(0, maxBoards);
+  }
+
+  if (ids.length === 0) {
+    return { started: false, reason: 'no-boards-need-backfill', planned: 0 };
+  }
+
+  _dateResyncStatus = {
+    running: true,
+    platform,
+    planned: ids.length,
+    processed: 0,
+    synced: 0,
+    failed: 0,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    lastBoard: null,
+    lastError: null,
+  };
+
+  // Fire-and-forget: walk the boards one at a time in the background.
+  (async () => {
+    for (const id of ids) {
+      let board;
+      try {
+        board = await ATSBoard.findByPk(id);
+        if (!board || !board.isActive) {
+          _dateResyncStatus.processed += 1;
+          continue;
+        }
+        // Coordinate with per-request refreshes so a board never syncs twice.
+        if (_inFlightBoardSyncs.has(board.boardToken)) {
+          _dateResyncStatus.processed += 1;
+          continue;
+        }
+        _inFlightBoardSyncs.add(board.boardToken);
+        try {
+          const result = await syncBoard(board);
+          if (result && result.success) _dateResyncStatus.synced += 1;
+          else _dateResyncStatus.failed += 1;
+        } finally {
+          _inFlightBoardSyncs.delete(board.boardToken);
+        }
+        _dateResyncStatus.lastBoard = board.name;
+      } catch (err) {
+        _dateResyncStatus.failed += 1;
+        _dateResyncStatus.lastError = err.message;
+        console.error(`[DateResync] board ${board ? board.name : id} failed:`, err.message);
+      } finally {
+        _dateResyncStatus.processed += 1;
+      }
+      // Gentle breather between boards.
+      await sleep(1500);
+    }
+    _dateResyncStatus.running = false;
+    _dateResyncStatus.finishedAt = new Date().toISOString();
+    console.log(
+      `[DateResync] done: ${_dateResyncStatus.synced} synced, ${_dateResyncStatus.failed} failed of ${_dateResyncStatus.planned} (${platform}).`
+    );
+  })().catch((err) => {
+    _dateResyncStatus.running = false;
+    _dateResyncStatus.finishedAt = new Date().toISOString();
+    _dateResyncStatus.lastError = err.message;
+    console.error('[DateResync] fatal:', err.message);
+  });
+
+  return { started: true, planned: ids.length, platform };
+}
+
 /**
  * Scheduled stale-board refresh rotation. OPT-IN — only ever called from the
  * env-gated interval in server.js (ENABLE_BOARD_REFRESH=true), never from the
@@ -1758,6 +1889,8 @@ module.exports = {
   syncAllBoards,
   refreshIfStale,
   refreshStaleBoards,
+  startDateResync,
+  getDateResyncStatus,
   ensureCorpusFresh,
   validateBoard,
   STALE_THRESHOLD_MINUTES

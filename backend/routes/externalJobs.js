@@ -5,7 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
 const requireVerifiedEmail = require('../middleware/requireVerifiedEmail');
 const { Op, literal } = require('sequelize');
-const { refreshIfStale, ensureCorpusFresh } = require('../services/externalJobService');
+const { refreshIfStale, ensureCorpusFresh, startDateResync, getDateResyncStatus } = require('../services/externalJobService');
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
@@ -998,6 +998,54 @@ router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => 
     });
   } catch (error) {
     console.error('Error fetching external-jobs health:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   POST /api/external-jobs/admin/resync
+ * @desc    One-shot, on-demand re-sync of active boards on a platform that
+ *          still have NULL-postedAt jobs, to capture & backfill their real
+ *          posting dates (e.g. heal the historical Ashby postedAt gap). Runs
+ *          in the BACKGROUND and returns immediately; poll /admin/resync-status
+ *          to watch progress. Single-flight — a second call while one is
+ *          running is a no-op. Gentle: sequential, concurrency 1, scoped only
+ *          to boards that need it.
+ *          Body: { platform = 'ashby', maxBoards = null }
+ * @access  Private (admin only)
+ *
+ * NOTE: This route MUST be declared BEFORE the /:id route.
+ */
+router.post('/admin/resync', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    const platform = (req.body && req.body.platform ? String(req.body.platform) : 'ashby').toLowerCase();
+    const maxBoards = req.body && req.body.maxBoards != null ? parseInt(req.body.maxBoards, 10) : null;
+    const result = await startDateResync({ platform, maxBoards: Number.isInteger(maxBoards) ? maxBoards : null });
+    return res.status(result.started ? 202 : 409).json(result);
+  } catch (error) {
+    console.error('Error starting date resync:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   GET /api/external-jobs/admin/resync-status
+ * @desc    Live progress of the most recent /admin/resync run.
+ * @access  Private (admin only)
+ *
+ * NOTE: This route MUST be declared BEFORE the /:id route.
+ */
+router.get('/admin/resync-status', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    return res.json(getDateResyncStatus());
+  } catch (error) {
+    console.error('Error fetching date resync status:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
