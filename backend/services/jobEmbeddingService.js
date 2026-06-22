@@ -539,9 +539,16 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
 
   const conditions = [
-    `ej."isActive" = true`,
-    `ej.embedding IS NOT NULL`
+    `ej."isActive" = true`
   ];
+  // NOTE: we deliberately do NOT require `ej.embedding IS NOT NULL` here.
+  // Freshly-ingested jobs are embedded asynchronously, so a hard NOT-NULL
+  // filter made every just-posted job invisible to logged-in users (the
+  // semantic path) while the keyword path still showed them — the cause of
+  // "why does it only show 4 jobs". Unembedded rows are kept in the candidate
+  // set (their score COALESCEs to 0, see scoreExpr) and are still surfaced by
+  // the recency ordering / recency UNION arm. The HNSW cosine arm below keeps
+  // its own local `embedding IS NOT NULL` so the index stays efficient.
   // $1 = profileEmbedding, $2 = limit, $3 = offset, optional $4+ for filters
   const binds = [JSON.stringify(profileEmbedding), limit, offset];
   let bindIndex = 4;
@@ -812,14 +819,18 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // related on top" without watering down what the badge percentage means.
   let scoreExpr;
   if (searchEmbBindIdx) {
-    // Blended score: 70% search relevance + 30% profile relevance
+    // Blended score: 70% search relevance + 30% profile relevance.
+    // COALESCE → 0 so rows without an embedding (not yet backfilled) score 0
+    // instead of NULL and still rank/appear (recency leads in recommended).
     scoreExpr = `ROUND(
-      (0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
-       + 0.3 * (1 - (ej.embedding <=> $1::vector)))
-      * 100
+      COALESCE(
+        0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
+        + 0.3 * (1 - (ej.embedding <=> $1::vector)),
+        0
+      ) * 100
     )`;
   } else {
-    scoreExpr = `ROUND((1 - (ej.embedding <=> $1::vector)) * 100)`;
+    scoreExpr = `ROUND(COALESCE(1 - (ej.embedding <=> $1::vector), 0) * 100)`;
   }
 
   // 'recommended' ordering goal: a candidate (e.g. a SF Frontend dev) opening
@@ -896,7 +907,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       (
         SELECT ej.id
         FROM "ExternalJobs" ej
-        WHERE ${whereClause}
+        WHERE ${whereClause} AND ej.embedding IS NOT NULL
         ORDER BY ej.embedding <=> $1::vector
         LIMIT ${annPoolExpr}
       )
@@ -913,7 +924,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     WITH ann_candidates AS (
       SELECT ej.id
       FROM "ExternalJobs" ej
-      WHERE ${whereClause}
+      WHERE ${whereClause} AND ej.embedding IS NOT NULL
       ORDER BY ej.embedding <=> $1::vector
       LIMIT ${annPoolExpr}
     )`;
