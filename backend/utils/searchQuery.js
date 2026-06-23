@@ -22,52 +22,113 @@
  * company/department only — never the description).
  */
 
-// Each group lists surface phrases that mean the same concept. `triggers` are
-// what a user might type (each an array of already-sanitized lowercase tokens);
-// `expand` is the set of alternatives OR-ed together in the generated tsquery
-// (each alternative an array of tokens AND-ed, then prefix-stemmed with :*).
+// ── Data-driven, multi-industry alias taxonomy ──────────────────────────────
 //
-// Keep this conservative: only equivalences that are genuinely the same role,
-// so we widen recall without pulling in unrelated jobs.
+// HOW TO EXTEND: just add a `syn(...)` line below. Each `syn(...)` call lists
+// the surface phrases that mean the SAME concept; any of them TRIGGERS the
+// group, and the whole set is OR-ed into the generated tsquery (recall), while
+// DISTINCT concepts in a query are still AND-ed together (precision). No code
+// changes are needed to cover a new role/industry — this is pure data.
+//
+// `syn('registered nurse', 'rn')` →
+//    triggers: [['registered','nurse'], ['rn']]
+//    expand:   same
+//    so a search for "RN" finds "Registered Nurse" jobs and vice-versa.
+//
+// PRECISION NOTES:
+//  • Multi-token phrases are AND-ed inside an alternative, so "registered nurse"
+//    only matches when BOTH tokens are present — no loose "nurse" blow-out.
+//  • Because concepts are AND-ed across a query, an abbreviation expansion can't
+//    drag in unrelated roles on its own: "UI Designer" requires (ui-concept) AND
+//    (designer), so a "React Engineer" (ui-concept but no "designer") won't match.
+//  • Keep equivalences to genuinely-interchangeable role language. Avoid overly
+//    generic single tokens (web/javascript/data/ops/support on their own) that
+//    would erode precision more than they help recall.
+
+// Tokenize a human phrase ("Front-End", "React.js") into sanitized lexemes the
+// same way the query side does, so triggers line up with parsed query tokens.
+function tokenizePhrase(s) {
+  return String(s || '')
+    .toLowerCase()
+    .split(/[^a-z0-9+#.]+/)
+    .map((t) => t.replace(/[^a-z0-9]/g, ''))
+    .filter((t) => t.length >= 2);
+}
+
+// Build a symmetric concept group from a list of equivalent phrases: every
+// phrase both triggers the group and is part of its expansion.
+function syn(...phrases) {
+  const toks = phrases.map(tokenizePhrase).filter((p) => p.length > 0);
+  return { triggers: toks, expand: toks };
+}
+
 const CONCEPT_GROUPS = [
-  {
-    // "Frontend" is a CONCEPT, not just a word. The token "frontend" alone
-    // matched only ~6% of the "software engineer" corpus because the bulk of
-    // frontend roles are titled by their stack/surface — "React Engineer",
-    // "UI Engineer", "Angular Developer", "Vue Developer" — none of which
-    // contain the literal "frontend". We expand the concept to the unambiguous
-    // frontend technologies/surfaces so a "Frontend Engineer" search also
-    // captures them. Distinct concepts are still AND-ed with the role noun
-    // (engineer|developer), which keeps precision: "React Engineer" matches,
-    // but a plain "Reactive Systems" backend role does not (no engineer/dev
-    // co-occurrence rescue here — and these terms are frontend-specific).
-    //
-    // Deliberately EXCLUDED: "web" / "javascript" / "typescript" — too broad
-    // ("web3"/blockchain, "webrtc", "webhook" infra roles, every JS backend)
-    // and would erode precision more than they help recall.
-    triggers: [
-      ['frontend'], ['front', 'end'], ['frontend', 'developer'], ['front', 'end', 'developer'],
-      ['react'], ['reactjs'], ['angular'], ['vue'], ['vuejs'], ['svelte'], ['ui'],
-    ],
-    expand: [
-      ['frontend'], ['front', 'end'],
-      ['react'], ['angular'], ['vue'], ['svelte'], ['ui'],
-    ],
-  },
-  {
-    triggers: [['backend'], ['back', 'end']],
-    expand: [['backend'], ['back', 'end']],
-  },
-  {
-    triggers: [['fullstack'], ['full', 'stack']],
-    expand: [['fullstack'], ['full', 'stack']],
-  },
-  // Role-noun equivalence: "engineer" and "developer" are interchangeable in
-  // job titles (Frontend Engineer ≡ Frontend Developer).
-  {
-    triggers: [['engineer'], ['developer']],
-    expand: [['engineer'], ['developer']],
-  },
+  // ── Software / Engineering ────────────────────────────────────────────────
+  // "Frontend" is a concept, not just a word: most frontend roles are titled by
+  // their stack/surface (React/UI/Angular/Vue). Expand to those so a "Frontend
+  // Engineer" search captures them. Excludes web/js/ts (too broad: web3, webrtc).
+  syn('frontend', 'front end', 'react', 'angular', 'vue', 'svelte', 'ui', 'user interface'),
+  syn('backend', 'back end'),
+  syn('fullstack', 'full stack'),
+  syn('engineer', 'developer', 'programmer'),
+  syn('devops', 'dev ops', 'sre', 'site reliability'),
+  syn('mobile', 'ios', 'android'),
+  syn('machine learning', 'ml'),
+  syn('artificial intelligence', 'ai'),
+  syn('data scientist', 'data science'),
+  syn('data engineer', 'data engineering'),
+  syn('data analyst', 'data analytics'),
+  syn('qa', 'quality assurance', 'sdet', 'test engineer', 'quality engineer'),
+  syn('security', 'infosec', 'information security', 'cybersecurity', 'appsec'),
+  syn('ux', 'user experience'),
+
+  // ── Product / Program / Project ───────────────────────────────────────────
+  syn('product manager', 'product management', 'pm'),
+  syn('program manager', 'program management', 'tpm', 'technical program manager'),
+  syn('project manager', 'project management'),
+  syn('product owner'),
+
+  // ── Design ────────────────────────────────────────────────────────────────
+  syn('designer', 'design'),
+  syn('product designer'),
+  syn('graphic designer'),
+
+  // ── Marketing ─────────────────────────────────────────────────────────────
+  syn('marketing', 'marketer'),
+  syn('seo', 'search engine optimization'),
+  syn('content strategist', 'content marketing'),
+
+  // ── Sales / Customer ──────────────────────────────────────────────────────
+  syn('account executive', 'ae'),
+  syn('sales development', 'sdr', 'bdr', 'business development representative'),
+  syn('customer success', 'csm'),
+  syn('customer support', 'customer service'),
+
+  // ── Healthcare ────────────────────────────────────────────────────────────
+  syn('registered nurse', 'rn'),
+  syn('nurse practitioner', 'np'),
+  syn('licensed practical nurse', 'lpn', 'licensed vocational nurse', 'lvn'),
+  syn('certified nursing assistant', 'cna'),
+  syn('physician', 'doctor', 'md'),
+  syn('medical assistant'),
+
+  // ── Finance / Accounting ──────────────────────────────────────────────────
+  syn('accountant', 'accounting'),
+  syn('financial analyst', 'finance analyst'),
+  syn('bookkeeper', 'bookkeeping'),
+  syn('certified public accountant', 'cpa'),
+
+  // ── HR / Recruiting ───────────────────────────────────────────────────────
+  syn('human resources', 'hr'),
+  syn('recruiter', 'recruiting', 'talent acquisition'),
+  syn('people operations', 'people ops'),
+
+  // ── Legal ─────────────────────────────────────────────────────────────────
+  syn('attorney', 'lawyer', 'counsel'),
+  syn('paralegal', 'legal assistant'),
+
+  // ── Operations / Admin ────────────────────────────────────────────────────
+  syn('administrative assistant', 'admin assistant', 'executive assistant'),
 ];
 
 // Longest triggers first so multi-word phrases (e.g. "front end developer") are
