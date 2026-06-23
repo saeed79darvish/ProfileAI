@@ -10,7 +10,7 @@ const { startBoardDiscovery, getBoardDiscoveryStatus } = require('../services/st
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
-const { expandLocationAliases } = require('../utils/locationMatch');
+const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -821,7 +821,13 @@ router.get('/locations', optionalAuth, async (req, res) => {
     const cacheKey = 'external_jobs:locations';
     let locations = cache.get(cacheKey);
     if (!locations) {
-      locations = await ExternalJob.findAll({
+      // Pull the raw distinct locations + counts (the long tail is wide, so take
+      // a generous slice before collapsing). Then fold every spelling of the
+      // same place into one canonical metro so the dropdown shows a handful of
+      // meaningful options instead of hundreds of near-duplicate "San Francisco"
+      // rows. The filter side already expands a selected metro back to its whole
+      // commute area via expandLocationAliases, so this is purely presentational.
+      const rawLocations = await ExternalJob.findAll({
         where: {
           isActive: true,
           location: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] }
@@ -832,9 +838,23 @@ router.get('/locations', optionalAuth, async (req, res) => {
         ],
         group: ['location'],
         order: [[ExternalJob.sequelize.fn('COUNT', ExternalJob.sequelize.col('id')), 'DESC']],
-        limit: 500,
+        limit: 2000,
         raw: true
       });
+
+      const buckets = new Map();
+      for (const row of rawLocations) {
+        const canonical = canonicalizeLocation(row.location);
+        if (!canonical) continue;
+        const count = parseInt(row.jobCount, 10) || 0;
+        buckets.set(canonical, (buckets.get(canonical) || 0) + count);
+      }
+
+      locations = Array.from(buckets.entries())
+        .map(([location, jobCount]) => ({ location, jobCount }))
+        .sort((a, b) => b.jobCount - a.jobCount)
+        .slice(0, 200);
+
       cache.set(cacheKey, locations, 10 * 60 * 1000);
     }
 
