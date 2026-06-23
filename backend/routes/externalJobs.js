@@ -11,6 +11,7 @@ const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
+const { buildJobSearchTsquery } = require('../utils/searchQuery');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -362,11 +363,20 @@ router.get('/', optionalAuth, async (req, res) => {
       // The query string flows through Sequelize's :tsQuery replacement
       // (escaped server-side) instead of being hand-interpolated, which
       // closes the previous SQL-injection vector here.
-      whereReplacements.tsQuery = String(search);
-      where[Op.and] = [
-        ...(where[Op.and] || []),
-        literal(`"ExternalJob"."searchTsvAB" @@ plainto_tsquery('english', :tsQuery)`)
-      ];
+      //
+      // buildJobSearchTsquery expands role-spelling/synonym concepts
+      // ("frontend" ⇄ "front end" ⇄ "front-end", "engineer" ⇄ "developer") into a
+      // to_tsquery so this anonymous/recency path returns the same widened
+      // result set as the signed-in searchSimilarJobs path. If sanitization
+      // leaves nothing usable, skip the text filter (other filters still apply).
+      const tsQuery = buildJobSearchTsquery(search);
+      if (tsQuery) {
+        whereReplacements.tsQuery = tsQuery;
+        where[Op.and] = [
+          ...(where[Op.and] || []),
+          literal(`"ExternalJob"."searchTsvAB" @@ to_tsquery('english', :tsQuery)`)
+        ];
+      }
     }
 
     if (datePosted) {
@@ -1432,6 +1442,16 @@ router.delete('/:id/save', authMiddleware, async (req, res) => {
  */
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
+    // ExternalJobs.id is a UUID. A non-UUID param (e.g. a typo'd path like
+    // /external-jobs/search, or a stray sub-route that was never defined)
+    // would otherwise reach Postgres as `WHERE id = 'search'` and throw
+    // `invalid input syntax for type uuid` → a noisy 500. Treat anything that
+    // isn't a UUID as a plain 404.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(String(req.params.id || ''))) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
     const job = await ExternalJob.findByPk(req.params.id, {
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
     });

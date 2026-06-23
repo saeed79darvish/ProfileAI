@@ -11,6 +11,7 @@
 const OpenAI = require('openai');
 const sequelize = require('../config/database');
 const { expandLocationAliases } = require('../utils/locationMatch');
+const { buildJobSearchTsquery } = require('../utils/searchQuery');
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_DIMENSIONS = 512;
@@ -792,15 +793,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     // Tokens are sanitized to [a-z0-9]+ so user input can't break to_tsquery
     // syntax (quotes / colons / parens are stripped at the JS layer; the
     // value is also passed via a bind, not interpolated).
-    const queryTokens = String(search)
-      .toLowerCase()
-      .split(/[^a-z0-9+#.]+/)
-      .map(t => t.replace(/[^a-z0-9]/g, ''))
-      .filter(t => t.length >= 2)
-      .slice(0, 8); // cap so a giant paste can't blow up the query
+    //
+    // buildJobSearchTsquery additionally expands role-spelling/synonym concepts
+    // — "frontend" ⇄ "front end" ⇄ "front-end", "engineer" ⇄ "developer" — so a
+    // "Frontend Engineer" search also matches "Front End Engineer" /
+    // "Frontend Developer" titles that tokenize differently. Distinct concepts
+    // are still AND-ed, so recall widens without drifting to unrelated roles.
+    const tsqExpr = buildJobSearchTsquery(search);
 
-    if (queryTokens.length > 0) {
-      const tsqExpr = queryTokens.map(t => `${t}:*`).join(' & ');
+    if (tsqExpr) {
       conditions.push(`ej."searchTsvAB" @@ to_tsquery('english', $${bindIndex})`);
       binds.push(tsqExpr);
       bindIndex++;
