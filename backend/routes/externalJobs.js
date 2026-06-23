@@ -130,18 +130,28 @@ function intersectSkills(profileSkillSet, jobSkills) {
 /**
  * Normalize the user-facing sort parameter to a known mode.
  *
- *   'recommended' (default) — match × recency. Best of both worlds.
- *   'recent'                — pure recency (newest first), match used only as tiebreak.
- *   'match'                 — pure match (highest %), recency used only as tiebreak.
+ *   'recent' (default) — search-filtered, newest first. The typed query's
+ *                        hard text filter (title/company/dept) provides
+ *                        relevance; ordering is pure recency. This is the
+ *                        single fast indexed path.
+ *   'match'            — opt-in semantic ranking (highest profile-fit %),
+ *                        recency only as tiebreak. Heavier (OpenAI search
+ *                        embedding + pgvector HNSW); reachable via ?sort=match.
  *
- * Anything else (including missing) falls back to 'recommended'.
+ * 'recommended'/'relevance'/missing all resolve to 'recent'. The old
+ * 'recommended' mode ran the full semantic pipeline (search-embedding
+ * generation, HNSW ANN + recency UNION, per-row cosine) but then ORDERED
+ * purely by recency — identical output to 'recent' at multi-second cost and
+ * frequent statement-timeouts. We collapsed it onto the fast path: same
+ * result, a fraction of the latency. Match-% badges are simply omitted on
+ * this path (the UI hides them when absent).
  */
 function normalizeSortMode(s) {
   const v = String(s || '').toLowerCase();
-  if (v === 'recent' || v === 'match' || v === 'recommended') return v;
-  // Backwards compat: legacy callers used "relevance" for the default.
-  if (v === 'relevance' || v === '') return 'recommended';
-  return 'recommended';
+  if (v === 'recent' || v === 'match') return v;
+  // 'recommended' (the old default) is now an alias for 'recent' — see above.
+  // 'relevance' was a legacy alias for the default; missing → default.
+  return 'recent';
 }
 
 /**
