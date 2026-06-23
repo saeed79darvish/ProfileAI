@@ -34,6 +34,20 @@ const FREE_PLATFORMS = new Set([
   'hn_hiring',
 ]);
 
+// A DB that is restarting/recovering rejects every connection. Detect it so we
+// can bail out of the whole loop instead of hammering it ~114 more times (which
+// only floods logs and slows the DB's recovery).
+function isDbUnavailable(err) {
+  const msg = (err && err.message ? err.message : '').toLowerCase();
+  return (
+    msg.includes('in recovery') ||
+    msg.includes('not yet accepting connections') ||
+    msg.includes('econnrefused') ||
+    msg.includes('the database system is starting up') ||
+    msg.includes('terminating connection')
+  );
+}
+
 async function up() {
   const boards = SEED_BOARDS.filter((b) => FREE_PLATFORMS.has(b.platform));
   let created = 0;
@@ -49,6 +63,13 @@ async function up() {
         console.log(`   + ${board.name} (${board.platform}/${board.boardToken})`);
       }
     } catch (err) {
+      // If the DB itself is down/recovering, stop entirely — retrying the
+      // remaining boards is pointless and harmful. Boot continues; the boards
+      // already exist and will sync once the DB is back.
+      if (isDbUnavailable(err)) {
+        console.warn(`   ⚠️  ensureSeedBoards aborted: database unavailable (${err.message}). Skipping the rest; boards persist from a prior boot.`);
+        return;
+      }
       // One bad row must never block the rest (or boot).
       console.warn(`   ⚠️  ${board.platform}/${board.boardToken} ensure skipped: ${err.message}`);
     }
