@@ -286,8 +286,28 @@ function normalizeRemoteOKJob(job) {
  * Fetch jobs from Adzuna API (requires app_id + app_key)
  * API: GET https://api.adzuna.com/v1/api/jobs/{country}/search/{page}
  * Set ADZUNA_APP_ID and ADZUNA_APP_KEY in .env
+ *
+ * boardToken encodes country + optional targeted query:
+ *   "us"                  → country us, FAN OUT across many categories (default)
+ *   "us::data scientist"  → country us, single targeted query
+ *   "us::nurse::5"        → country us, query "nurse", 5 pages
+ *
+ * The default ("us") fans out over a broad category list so a SINGLE Adzuna
+ * board pulls thousands of fresh, real-`postedAt` US jobs across functions in
+ * one sync — which keeps deactivation correct (all rows share one boardToken)
+ * and avoids overlapping category boards churning each other. Tune the breadth
+ * with ADZUNA_CATEGORIES (comma-separated) and ADZUNA_PAGES_PER_CATEGORY.
  */
-async function fetchAdzunaJobs(countryCode = 'us', pages = 3) {
+const ADZUNA_DEFAULT_CATEGORIES = [
+  'software engineer', 'frontend engineer', 'backend engineer', 'full stack engineer',
+  'data scientist', 'data analyst', 'data engineer', 'machine learning engineer',
+  'devops engineer', 'product manager', 'product designer', 'ux designer',
+  'project manager', 'marketing manager', 'sales representative', 'account executive',
+  'customer success', 'business analyst', 'financial analyst', 'accountant',
+  'human resources', 'recruiter', 'operations manager', 'nurse', 'mechanical engineer',
+];
+
+async function fetchAdzunaJobs(boardToken = 'us', { pages } = {}) {
   const appId = process.env.ADZUNA_APP_ID;
   const appKey = process.env.ADZUNA_APP_KEY;
 
@@ -295,42 +315,65 @@ async function fetchAdzunaJobs(countryCode = 'us', pages = 3) {
     throw new Error('Adzuna API keys not configured. Set ADZUNA_APP_ID and ADZUNA_APP_KEY in .env');
   }
 
-  const allJobs = [];
-  for (let page = 1; page <= pages; page++) {
-    const params = new URLSearchParams({
-      app_id: appId,
-      app_key: appKey,
-      results_per_page: '50',
-      what: 'software engineer developer designer',
-      'content-type': 'application/json'
-    });
-    const url = `https://api.adzuna.com/v1/api/jobs/${encodeURIComponent(countryCode)}/search/${page}?${params}`;
-    const response = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(30000)
-    });
+  const parts = String(boardToken || 'us').split('::');
+  const countryCode = (parts[0] || 'us').trim().toLowerCase();
+  const targetedWhat = (parts[1] || '').trim();
 
-    if (!response.ok) {
-      throw new Error(`Adzuna API error ${response.status}: ${response.statusText}`);
+  // Targeted board → one query. Default board → fan out across categories.
+  const queries = targetedWhat
+    ? [targetedWhat]
+    : (process.env.ADZUNA_CATEGORIES
+        ? process.env.ADZUNA_CATEGORIES.split(',').map((s) => s.trim()).filter(Boolean)
+        : ADZUNA_DEFAULT_CATEGORIES);
+  const pagesPerQuery =
+    pages || parseInt(parts[2], 10) || parseInt(process.env.ADZUNA_PAGES_PER_CATEGORY, 10) ||
+    (targetedWhat ? 3 : 2);
+
+  const byId = new Map();
+  for (const what of queries) {
+    for (let page = 1; page <= pagesPerQuery; page++) {
+      const params = new URLSearchParams({
+        app_id: appId,
+        app_key: appKey,
+        results_per_page: '50',
+        what,
+        'content-type': 'application/json',
+      });
+      const url = `https://api.adzuna.com/v1/api/jobs/${encodeURIComponent(countryCode)}/search/${page}?${params}`;
+      let response;
+      try {
+        response = await fetch(url, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(30000),
+        });
+      } catch (err) {
+        // Network hiccup on one category shouldn't kill the whole fan-out.
+        console.warn(`[Adzuna] fetch failed for "${what}" p${page}: ${err.message}`);
+        break;
+      }
+      if (!response.ok) {
+        // 429/5xx on one category: skip to the next rather than abort.
+        console.warn(`[Adzuna] ${response.status} for "${what}" p${page} — skipping rest of this category`);
+        break;
+      }
+      const data = await response.json();
+      const results = data.results || [];
+      for (const job of results) {
+        const normalized = normalizeAdzunaJob(job, countryCode, boardToken);
+        byId.set(normalized.externalId, normalized);
+      }
+      if (results.length < 50) break; // last page for this category
+      await sleep(400); // rate-limit courtesy
     }
-
-    const data = await response.json();
-    const results = data.results || [];
-    allJobs.push(...results.map(job => normalizeAdzunaJob(job, countryCode)));
-
-    // Stop if we got fewer results than requested (last page)
-    if (results.length < 50) break;
-    // Rate-limit courtesy
-    await sleep(500);
   }
 
-  return allJobs;
+  return [...byId.values()];
 }
 
 /**
  * Normalize an Adzuna job to our ExternalJob schema
  */
-function normalizeAdzunaJob(job, countryCode) {
+function normalizeAdzunaJob(job, countryCode, boardToken) {
   let employmentType = null;
   if (job.contract_time === 'full_time') employmentType = 'full-time';
   else if (job.contract_time === 'part_time') employmentType = 'part-time';
@@ -341,7 +384,7 @@ function normalizeAdzunaJob(job, countryCode) {
   return {
     externalId: String(job.id),
     source: 'adzuna',
-    boardToken: countryCode,
+    boardToken: boardToken || countryCode,
     title: job.title || 'Untitled',
     company: job.company?.display_name || 'Unknown',
     location,

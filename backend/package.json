@@ -20,6 +20,7 @@
     "backfill-embeddings": "node scripts/backfillEmbeddings.js",
     "backfill-slugs": "node scripts/backfillUserSlugs.js",
     "send-job-digest": "node scripts/send-job-digest.js",
+    "seed-aggregators": "node scripts/seedAggregatorBoards.js",
     "smoke": "node scripts/smokeTest.js"
   },
   "keywords": [
