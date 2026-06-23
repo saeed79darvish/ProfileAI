@@ -107,6 +107,83 @@ const METRO_ALIASES = [
     triggers: ['london'],
     match: ['london'],
   },
+  // Additional US tech hubs.
+  {
+    canonical: 'Phoenix',
+    triggers: ['phoenix'],
+    match: ['phoenix', 'scottsdale', 'tempe, az', 'chandler, az'],
+  },
+  {
+    canonical: 'Miami',
+    triggers: ['miami'],
+    match: ['miami', 'fort lauderdale', 'coral gables'],
+  },
+  {
+    canonical: 'Houston',
+    triggers: ['houston'],
+    match: ['houston'],
+  },
+  {
+    canonical: 'Portland',
+    triggers: ['portland, or', 'portland, oregon'],
+    match: ['portland, or', 'portland, oregon', 'beaverton'],
+  },
+  {
+    canonical: 'Salt Lake City',
+    triggers: ['salt lake city'],
+    match: ['salt lake city', 'lehi, ut', 'provo, ut'],
+  },
+  {
+    canonical: 'Nashville',
+    triggers: ['nashville'],
+    match: ['nashville'],
+  },
+  {
+    canonical: 'Raleigh-Durham',
+    triggers: ['raleigh', 'durham, nc', 'research triangle'],
+    match: ['raleigh', 'durham, nc', 'research triangle', 'cary, nc', 'chapel hill'],
+  },
+  {
+    canonical: 'Philadelphia',
+    triggers: ['philadelphia'],
+    match: ['philadelphia'],
+  },
+  {
+    canonical: 'Minneapolis',
+    triggers: ['minneapolis'],
+    match: ['minneapolis', 'saint paul', 'st. paul'],
+  },
+  {
+    canonical: 'Detroit',
+    triggers: ['detroit'],
+    match: ['detroit', 'ann arbor'],
+  },
+  {
+    canonical: 'Pittsburgh',
+    triggers: ['pittsburgh'],
+    match: ['pittsburgh'],
+  },
+  // International tech hubs.
+  {
+    canonical: 'Vancouver',
+    triggers: ['vancouver'],
+    match: ['vancouver', 'british columbia'],
+  },
+  {
+    canonical: 'Berlin',
+    triggers: ['berlin'],
+    match: ['berlin'],
+  },
+  {
+    canonical: 'Bangalore',
+    triggers: ['bangalore', 'bengaluru'],
+    match: ['bangalore', 'bengaluru'],
+  },
+  {
+    canonical: 'Dublin',
+    triggers: ['dublin'],
+    match: ['dublin, ireland', 'dublin, county', 'dublin 1', 'dublin 2', 'dublin, d'],
+  },
 ];
 
 // Free-text markers that mean "not tied to a physical office". Collapsed into a
