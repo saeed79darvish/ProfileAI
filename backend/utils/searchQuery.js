@@ -31,8 +31,28 @@
 // so we widen recall without pulling in unrelated jobs.
 const CONCEPT_GROUPS = [
   {
-    triggers: [['frontend'], ['front', 'end'], ['frontend', 'developer'], ['front', 'end', 'developer']],
-    expand: [['frontend'], ['front', 'end']],
+    // "Frontend" is a CONCEPT, not just a word. The token "frontend" alone
+    // matched only ~6% of the "software engineer" corpus because the bulk of
+    // frontend roles are titled by their stack/surface — "React Engineer",
+    // "UI Engineer", "Angular Developer", "Vue Developer" — none of which
+    // contain the literal "frontend". We expand the concept to the unambiguous
+    // frontend technologies/surfaces so a "Frontend Engineer" search also
+    // captures them. Distinct concepts are still AND-ed with the role noun
+    // (engineer|developer), which keeps precision: "React Engineer" matches,
+    // but a plain "Reactive Systems" backend role does not (no engineer/dev
+    // co-occurrence rescue here — and these terms are frontend-specific).
+    //
+    // Deliberately EXCLUDED: "web" / "javascript" / "typescript" — too broad
+    // ("web3"/blockchain, "webrtc", "webhook" infra roles, every JS backend)
+    // and would erode precision more than they help recall.
+    triggers: [
+      ['frontend'], ['front', 'end'], ['frontend', 'developer'], ['front', 'end', 'developer'],
+      ['react'], ['reactjs'], ['angular'], ['vue'], ['vuejs'], ['svelte'], ['ui'],
+    ],
+    expand: [
+      ['frontend'], ['front', 'end'],
+      ['react'], ['angular'], ['vue'], ['svelte'], ['ui'],
+    ],
   },
   {
     triggers: [['backend'], ['back', 'end']],
