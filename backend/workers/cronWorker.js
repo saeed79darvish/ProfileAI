@@ -52,7 +52,7 @@ function startCron({ inline = false } = {}) {
       console.log(`${tag} Running startup-board discovery...`);
       const { discoverYcBoards, discoverGetroBoards } = require('../services/startupBoardDiscovery');
       // Getro VC-portfolio networks (cheap, high-yield) then the YC directory.
-      discoverGetroBoards({ startId: 1, endId: 600 })
+      discoverGetroBoards({ startId: 1, endId: 1500 })
         .then(r => console.log(`${tag} Getro discovery: +${r.created} boards (gh=${r.counts.greenhouse}, lever=${r.counts.lever}, ashby=${r.counts.ashby}) from ${r.networks} networks.`))
         .catch(err => console.error(`${tag} Getro discovery error:`, err.message))
         .finally(() => {

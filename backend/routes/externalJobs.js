@@ -6,6 +6,7 @@ const { optionalAuth } = require('../middleware/auth');
 const requireVerifiedEmail = require('../middleware/requireVerifiedEmail');
 const { Op, literal } = require('sequelize');
 const { refreshIfStale, ensureCorpusFresh, startDateResync, getDateResyncStatus } = require('../services/externalJobService');
+const { startBoardDiscovery, getBoardDiscoveryStatus } = require('../services/startupBoardDiscovery');
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
@@ -1046,6 +1047,53 @@ router.get('/admin/resync-status', authMiddleware, requireVerifiedEmail, async (
     return res.json(getDateResyncStatus());
   } catch (error) {
     console.error('Error fetching date resync status:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   POST /api/external-jobs/admin/discover-boards
+ * @desc    Kick off a background discovery sweep (Getro VC-portfolio networks +
+ *          YC directory) to GROW board coverage on demand instead of waiting for
+ *          the weekly cron. Idempotent; single-flight. 202 on start, 409 if one
+ *          is already running. Body: { getroStart=1, getroEnd=1500 }.
+ * @access  Private (admin only)
+ *
+ * NOTE: This route MUST be declared BEFORE the /:id route.
+ */
+router.post('/admin/discover-boards', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    const getroStart = req.body && req.body.getroStart != null ? parseInt(req.body.getroStart, 10) : 1;
+    const getroEnd = req.body && req.body.getroEnd != null ? parseInt(req.body.getroEnd, 10) : 1500;
+    const result = startBoardDiscovery({
+      getroStart: Number.isInteger(getroStart) ? getroStart : 1,
+      getroEnd: Number.isInteger(getroEnd) ? getroEnd : 1500,
+    });
+    return res.status(result.started ? 202 : 409).json(result);
+  } catch (error) {
+    console.error('Error starting board discovery:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   GET /api/external-jobs/admin/discover-status
+ * @desc    Live progress of the most recent /admin/discover-boards run.
+ * @access  Private (admin only)
+ *
+ * NOTE: This route MUST be declared BEFORE the /:id route.
+ */
+router.get('/admin/discover-status', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    return res.json(getBoardDiscoveryStatus());
+  } catch (error) {
+    console.error('Error fetching discovery status:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

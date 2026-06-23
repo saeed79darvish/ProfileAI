@@ -345,9 +345,87 @@ async function discoverGetroBoards({ startId = 1, endId = 400, pages = 2, dryRun
   return { created, skipped, counts, networks };
 }
 
+// ─── On-demand discovery orchestration (admin-triggered) ─────────────────────
+// Lets you GROW board coverage on demand (Getro VC portfolios + YC directory)
+// instead of waiting for the weekly cron — useful right after a DB upsize when
+// you want to expand the corpus quickly. Runs in the BACKGROUND; single-flight;
+// progress in _discoveryStatus (see getBoardDiscoveryStatus). Same HTTP-only,
+// idempotent crawlers the cron uses — just invokable when you want them.
+let _discoveryStatus = {
+  running: false,
+  phase: null,        // 'getro' | 'yc' | null
+  getro: null,        // { created, skipped, counts, networks }
+  yc: null,           // { created, skipped, counts, probed }
+  startedAt: null,
+  finishedAt: null,
+  lastError: null,
+};
+
+function getBoardDiscoveryStatus() {
+  return { ..._discoveryStatus };
+}
+
+/**
+ * Kick off a background discovery sweep: Getro collections [getroStart,getroEnd]
+ * then the YC directory. Returns immediately with { started }. Idempotent
+ * (findOrCreate keyed on platform+boardToken) so re-runs only add genuinely new
+ * boards. Wider Getro range than the weekly cron so an on-demand run can reach
+ * deeper into the VC-portfolio long tail.
+ */
+function startBoardDiscovery({ getroStart = 1, getroEnd = 1500, ycConcurrency = 5 } = {}) {
+  if (_discoveryStatus.running) {
+    return { started: false, reason: 'already-running', status: getBoardDiscoveryStatus() };
+  }
+  _discoveryStatus = {
+    running: true,
+    phase: 'getro',
+    getro: null,
+    yc: null,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    lastError: null,
+  };
+
+  (async () => {
+    try {
+      _discoveryStatus.getro = await discoverGetroBoards({ startId: getroStart, endId: getroEnd });
+      console.log(
+        `[Discovery] Getro: +${_discoveryStatus.getro.created} boards from ${_discoveryStatus.getro.networks} networks.`
+      );
+    } catch (err) {
+      _discoveryStatus.lastError = `getro: ${err.message}`;
+      console.error('[Discovery] Getro error:', err.message);
+    }
+    try {
+      _discoveryStatus.phase = 'yc';
+      _discoveryStatus.yc = await discoverYcBoards({ concurrency: ycConcurrency });
+      console.log(
+        `[Discovery] YC: +${_discoveryStatus.yc.created} boards from ${_discoveryStatus.yc.probed} sites.`
+      );
+    } catch (err) {
+      _discoveryStatus.lastError = (_discoveryStatus.lastError ? _discoveryStatus.lastError + '; ' : '') + `yc: ${err.message}`;
+      console.error('[Discovery] YC error:', err.message);
+    }
+    _discoveryStatus.phase = null;
+    _discoveryStatus.running = false;
+    _discoveryStatus.finishedAt = new Date().toISOString();
+    const total = (_discoveryStatus.getro?.created || 0) + (_discoveryStatus.yc?.created || 0);
+    console.log(`[Discovery] done: +${total} new boards total.`);
+  })().catch((err) => {
+    _discoveryStatus.running = false;
+    _discoveryStatus.finishedAt = new Date().toISOString();
+    _discoveryStatus.lastError = err.message;
+    console.error('[Discovery] fatal:', err.message);
+  });
+
+  return { started: true, getroStart, getroEnd };
+}
+
 module.exports = {
   discoverYcBoards,
   discoverGetroBoards,
+  startBoardDiscovery,
+  getBoardDiscoveryStatus,
   // exported for reuse/testing
   loadYcAlgoliaConfig,
   fetchAllYcCompanies,
