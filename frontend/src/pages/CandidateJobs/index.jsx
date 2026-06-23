@@ -430,62 +430,11 @@ const CandidateJobs = () => {
   const [mobileGapResult, setMobileGapResult] = useState(null);
   const [mobileGapLoading, setMobileGapLoading] = useState(false);
   const [userSkills, setUserSkills] = useState([]);
-  // Role auto-detected from the candidate's profile (title || headline).
-  // Used to seed the search box on first visit so users see jobs in their
-  // own category by default, sorted most-recent-first.
-  const [detectedRole, setDetectedRole] = useState('');
-  // Tracks whether we've already auto-applied the detected role to the
-  // search input. Prevents us from re-filling after the user clears it.
-  const roleAutoAppliedRef = useRef(false);
-  // Same idea for the location filter: only auto-seed it once, never
-  // re-apply if the candidate clears it (otherwise their "remote-anywhere"
-  // intent is silently overridden on every render).
-  const locationAutoAppliedRef = useRef(false);
-  // Same one-shot guard for the experience-level filter, inferred from the
-  // candidate's profile title/headline (e.g. "Senior …" → senior level).
-  const experienceAutoAppliedRef = useRef(false);
 
-  // Disclosure banner state (Fix 6.1). When the page auto-applies a role
-  // or location from the candidate's profile we surface a one-line
-  // "Personalized for you" banner with a [Show all jobs] escape hatch so
-  // the candidate understands *why* the result set is narrower than the
-  // corpus total. The state holds the *values* we seeded so we can
-  // (a) detect when the user has edited them (banner self-dismisses), and
-  // (b) restore the corpus view on demand.
-  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null, experience: null });
-  // IN-MEMORY dismissal only. Clicking "Show all jobs" stops the auto-seed
-  // for the CURRENT mount (so it doesn't immediately re-apply while they
-  // browse), but we deliberately do NOT persist it: every fresh page load /
-  // visit re-personalizes from the candidate's profile. Earlier versions
-  // persisted this in localStorage (permanent) and then sessionStorage (whole
-  // tab session) — both made a single "Show all jobs" click silently turn off
-  // profile pre-filling on every later reload, which is exactly the "it only
-  // works once" bug. We also proactively clear any legacy persisted flags so
-  // already-affected browsers recover.
-  const AUTO_SEED_DISMISS_KEY = 'jobs.autoSeedDismissed';
-  const autoSeedDismissedRef = useRef(false);
-  // One-time cleanup of the legacy persisted flags (permanent localStorage /
-  // tab-session sessionStorage) left by older builds.
-  useEffect(() => {
-    try { localStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
-    try { sessionStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
-  }, []);
-
-  // First-fetch gate. Authenticated users with a clean (filter-less) URL get
-  // their role/location/experience pre-seeded from their profile AFTER an
-  // async getMyProfile() call. Firing the jobs fetch on mount (before seeding)
-  // wastes a slow unfiltered "recommended" request and then immediately
-  // re-fetches once the seeds land. We instead hold the initial fetch until
-  // `seedSettled` flips true (in the profile fetch's .finally). Anonymous
-  // users, deep-links (URL already has a query), and dismissed-personalization
-  // users bypass the gate and fetch immediately. See the fetch effect below.
-  const initialUrlHasQueryRef = useRef(
-    ['search', 'location', 'locationType', 'datePosted', 'experienceLevel', 'company', 'department', 'employmentType', 'salary', 'skills', 'startup']
-      .some(k => searchParams.get(k))
-  );
-  const [seedSettled, setSeedSettled] = useState(false);
-
-  // Fetch user skills + role once on mount
+  // Fetch the candidate's skills once on mount — used only to highlight
+  // matched / missing skills on job cards. The jobs page no longer auto-seeds
+  // the search / location / experience filters from the profile; it always
+  // starts from the full corpus and the candidate filters manually.
   useEffect(() => {
     if (!isAuthenticated) return;
     profileAPI.getMyProfile().then(res => {
@@ -497,147 +446,8 @@ const CandidateJobs = () => {
         skills = Object.values(raw).flat().map(s => (typeof s === 'string' ? s : s.name || '').toLowerCase()).filter(Boolean);
       }
       setUserSkills(skills);
-      // Pull the candidate's current role from profile.title (preferred,
-      // short & specific, e.g. "Senior Frontend Engineer") or headline as
-      // a fallback. Then aggressively normalize so plainto_tsquery (which
-      // ANDs every token) doesn't over-restrict the candidate's discovery
-      // feed:
-      //   1. Strip leading seniority prefixes ("Senior", "Staff", "Lead",
-      //      "Principal", "Junior", "Mid", "Associate", etc.).
-      //   2. Strip noise tokens like "Full-Stack" / "Fullstack" that
-      //      wedge an extra AND-constraint into the search without
-      //      identifying a role family.
-      //   3. Keep at most TWO tokens — the first specialty word + the
-      //      last role-family word (typically "Engineer", "Developer",
-      //      "Manager", "Designer", "Scientist"). Examples:
-      //        "Senior Frontend Full-Stack Software Engineer"
-      //          → "Frontend Engineer"
-      //        "Staff Software Engineer" → "Software Engineer"
-      //        "Lead Backend Developer" → "Backend Developer"
-      //        "Product Manager" → "Product Manager"
-      //      This keeps results fresh (more matches) while still
-      //      preserving the candidate's specialty.
-      const SENIORITY_PREFIX_RE = /^(?:senior|sr\.?|junior|jr\.?|staff|lead|principal|chief|head\s+of|head|entry[-\s]?level|mid[-\s]?level|associate|intern|interim)\s+/i;
-      const NOISE_TOKEN_RE = /^(?:full[-\s]?stack|fullstack)$/i;
-      let role = String(res.data?.title || res.data?.headline || '').trim();
-      role = role.replace(SENIORITY_PREFIX_RE, '').replace(SENIORITY_PREFIX_RE, '').trim();
-      const tokens = role.split(/\s+/).filter(t => t && !NOISE_TOKEN_RE.test(t));
-      if (tokens.length > 2) {
-        // Specialty (first) + role family (last). Drops middle filler
-        // like "Software" or "Web" that would AND-narrow the search.
-        role = `${tokens[0]} ${tokens[tokens.length - 1]}`;
-      } else {
-        role = tokens.join(' ');
-      }
-      role = role.slice(0, 80);
-      if (role) {
-        setDetectedRole(role);
-        // Apply the role to the search box synchronously HERE (rather than
-        // deferring to the detectedRole effect below) so the very first jobs
-        // fetch already carries it. Combined with the seedSettled gate, this
-        // collapses the old "unfiltered recommended fetch → re-fetch with
-        // seeds" waterfall into a single, faster filtered request.
-        if (
-          !roleAutoAppliedRef.current &&
-          !autoSeedDismissedRef.current &&
-          !searchParams.get('search') &&
-          !searchQuery
-        ) {
-          roleAutoAppliedRef.current = true;
-          setSearchQuery(role);
-          setDebouncedSearch(role);
-          setAutoSeeded(prev => ({ ...prev, role }));
-        }
-      }
-
-      // Auto-seed the LOCATION filter from the candidate's profile so the
-      // first jobs page they see is geographically relevant. Only when:
-      //   - No ?location / ?locationType URL param (don't override deep
-      //     links / shared filters).
-      //   - User has not already typed something into the location box.
-      //   - We haven't already auto-applied this session (clearing the
-      //     filter must stay cleared).
-      // Strategy: use the first comma-separated chunk ("San Francisco, CA"
-      // → "San Francisco") so the substring filter on the API still hits
-      // jobs labelled "San Francisco Bay Area", "San Francisco, USA",
-      // "Remote – San Francisco", etc. Country / region get dropped to
-      // avoid over-restricting.
-      const profileLocationRaw = String(res.data?.location || '').trim();
-      if (
-        profileLocationRaw &&
-        !locationAutoAppliedRef.current &&
-        !autoSeedDismissedRef.current &&
-        !searchParams.get('location') &&
-        !searchParams.get('locationType')
-      ) {
-        const seededLocation = profileLocationRaw.split(',')[0].trim();
-        if (seededLocation) {
-          locationAutoAppliedRef.current = true;
-          setLocationInput(seededLocation);
-          setFilters(prev => ({ ...prev, location: seededLocation }));
-          setDebouncedFilters(prev => ({ ...prev, location: seededLocation }));
-          setAutoSeeded(prev => ({ ...prev, location: seededLocation }));
-          // eslint-disable-next-line no-console
-          console.debug('[Jobs] Auto-applied profile location to filter:', seededLocation);
-        }
-      }
-
-      // Auto-seed the EXPERIENCE filter from the candidate's profile title /
-      // headline so the first feed matches their seniority. Same one-shot,
-      // never-override rules as the location seed. We only seed a *clear*
-      // signal (entry / senior / lead / executive) and deliberately skip the
-      // ambiguous "mid" default — seeding mid would silently narrow the feed
-      // for every untitled profile without the candidate ever asking for it.
-      const profileTitleRaw = String(res.data?.title || res.data?.headline || '').toLowerCase();
-      if (
-        profileTitleRaw &&
-        !experienceAutoAppliedRef.current &&
-        !autoSeedDismissedRef.current &&
-        !searchParams.get('experienceLevel')
-      ) {
-        let level = null;
-        if (/\b(junior|jr\.?|entry|associate|intern)\b/.test(profileTitleRaw)) level = 'entry';
-        else if (/\b(senior|sr\.?|staff|principal)\b/.test(profileTitleRaw)) level = 'senior';
-        else if (/\b(lead|manager)\b/.test(profileTitleRaw)) level = 'lead';
-        else if (/\b(director|vp|vice president|head of|chief|c-level)\b/.test(profileTitleRaw)) level = 'executive';
-        if (level) {
-          experienceAutoAppliedRef.current = true;
-          setFilters(prev => ({ ...prev, experienceLevel: level }));
-          setDebouncedFilters(prev => ({ ...prev, experienceLevel: level }));
-          setAutoSeeded(prev => ({ ...prev, experience: level }));
-          // eslint-disable-next-line no-console
-          console.debug('[Jobs] Auto-applied profile experience to filter:', level);
-        }
-      }
-    }).catch(() => {}).finally(() => {
-      // Release the first-fetch gate once profile seeding has settled (or
-      // failed). For authenticated users with a clean URL this guarantees the
-      // initial fetch runs exactly once, with the seeded role/location/
-      // experience already in place. See the seedSettled gate on the fetch
-      // effect below.
-      setSeedSettled(true);
-    });
+    }).catch(() => {});
   }, [isAuthenticated]);
-
-  // Auto-seed the search box with the detected role on first load.
-  // Conditions:
-  //   - User has a detected role from their profile
-  //   - URL has no ?search param (we don't override deep links / shares)
-  //   - searchQuery is currently empty (don't clobber what they typed)
-  //   - We haven't already auto-applied (so clearing the role stays cleared)
-  useEffect(() => {
-    if (!detectedRole) return;
-    if (roleAutoAppliedRef.current) return;
-    if (autoSeedDismissedRef.current) return;
-    if (searchParams.get('search')) return;
-    if (searchQuery) return;
-    roleAutoAppliedRef.current = true;
-    setSearchQuery(detectedRole);
-    setDebouncedSearch(detectedRole);
-    setAutoSeeded(prev => ({ ...prev, role: detectedRole }));
-    // eslint-disable-next-line no-console
-    console.debug('[Jobs] Auto-applied detected role to search:', detectedRole);
-  }, [detectedRole, searchParams, searchQuery]);
 
   // One-time migration: any external job IDs the user previously saved to
   // localStorage (before the polymorphic SavedJob backend existed) get
@@ -977,17 +787,10 @@ const CandidateJobs = () => {
 
   useEffect(() => {
     if (activeTab !== 'external') return;
-    // Hold the initial fetch only for the case where profile seeding WILL
-    // change the query params (authenticated + clean URL + not dismissed).
-    // Everyone else fetches immediately. Once seeding settles, seedSettled
-    // flips and this effect re-runs once with the seeded params in place.
-    const gateOpen =
-      !isAuthenticated ||
-      initialUrlHasQueryRef.current ||
-      autoSeedDismissedRef.current ||
-      seedSettled;
-    if (gateOpen) fetchExternalJobs();
-  }, [activeTab, fetchExternalJobs, isAuthenticated, seedSettled]);
+    // Always fetch from the full corpus on mount / tab switch — there is no
+    // profile-based pre-seeding to wait for. The candidate filters manually.
+    fetchExternalJobs();
+  }, [activeTab, fetchExternalJobs]);
 
   // Tracks whether the user has narrowed the list themselves; used by the
   // empty-state branch and any future surfaces that need to know "is this a
@@ -2193,43 +1996,6 @@ const CandidateJobs = () => {
                   </button>
                 )}
               </SearchInputWrapper>
-              {/* Auto-detected role hint — shown when we seeded the search
-                  box from the user's profile. Compact one-line pill so the
-                  list above the fold doesn't get pushed down. */}
-              {detectedRole && searchQuery && searchQuery.trim().toLowerCase() === detectedRole.trim().toLowerCase() && (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    marginTop: 6, padding: '4px 8px 4px 10px',
-                    background: '#F5F3FF', border: '1px solid #E9D5FF',
-                    borderRadius: 8, fontSize: 11.5, color: '#5B21B6',
-                    fontWeight: 500, lineHeight: 1.3,
-                    maxWidth: '100%',
-                  }}
-                >
-                  <AutoAwesomeIcon style={{ fontSize: 12, flexShrink: 0 }} />
-                  <span style={{
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    minWidth: 0, flex: 1,
-                  }}>
-                    Recent jobs for <strong>{detectedRole}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setSearchQuery(''); setDebouncedSearch(''); }}
-                    aria-label="Clear role filter"
-                    style={{
-                      background: 'none', border: 'none', padding: 0,
-                      cursor: 'pointer', color: '#7C3AED', display: 'inline-flex',
-                      alignItems: 'center', flexShrink: 0,
-                    }}
-                  >
-                    <CloseIcon style={{ fontSize: 14 }} />
-                  </button>
-                </div>
-              )}
             </SearchSection>
 
             {/* Tabs */}
@@ -2492,79 +2258,6 @@ const CandidateJobs = () => {
                     always shows the best matches that were posted most
                     recently (backend 'recommended' mode = match × recency).
                     Power users can still override via ?sort= URL param. */}
-                {/* Auto-applied filter disclosure banner (Fix 6.1). Only
-                    rendered when (a) we actually seeded a role or location
-                    from the candidate's profile this session, AND (b) that
-                    seeded value is still the live filter. If the user has
-                    edited the search box / location to something else, the
-                    banner self-dismisses because the personalization is no
-                    longer in effect. */}
-                {(() => {
-                  const roleActive = autoSeeded.role && autoSeeded.role === searchQuery;
-                  const locActive = autoSeeded.location && autoSeeded.location === filters.location;
-                  const expActive = autoSeeded.experience && autoSeeded.experience === filters.experienceLevel;
-                  if (!roleActive && !locActive && !expActive) return null;
-                  const parts = [];
-                  if (roleActive) parts.push(`role: \u201C${autoSeeded.role}\u201D`);
-                  if (locActive) parts.push(`location: \u201C${autoSeeded.location}\u201D`);
-                  if (expActive) {
-                    const expLabel = EXPERIENCE_OPTIONS.find(o => o.value === autoSeeded.experience)?.label || autoSeeded.experience;
-                    parts.push(`experience: \u201C${expLabel}\u201D`);
-                  }
-                  return (
-                    <div
-                      role="status"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        padding: '10px 14px',
-                        marginBottom: 12,
-                        background: '#F9F5FF',
-                        border: '1px solid #E9D5FF',
-                        borderRadius: 10,
-                        fontSize: 13,
-                        color: '#53389E',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <AutoAwesomeIcon style={{ fontSize: 16, color: '#7C3AED' }} />
-                        <span>
-                          <strong style={{ fontWeight: 600 }}>Personalized for you</strong>
-                          {' \u2014 we pre-filled '}
-                          {parts.join(' and ')}
-                          {' from your profile.'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Stop auto-seeding for THIS mount only (so the
-                          // chips don't immediately re-fill while they browse
-                          // the full corpus). Not persisted — a fresh page
-                          // load / next visit re-personalizes from the profile.
-                          autoSeedDismissedRef.current = true;
-                          setAutoSeeded({ role: null, location: null, experience: null });
-                          clearFilters();
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid #D6BBFB',
-                          color: '#6941C6',
-                          fontWeight: 600,
-                          fontSize: 12.5,
-                          padding: '6px 12px',
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Show all jobs
-                      </button>
-                    </div>
-                  );
-                })()}
                 {externalJobsPagination.total > 0 && (
                   <div style={{
                     display: 'flex',
