@@ -506,27 +506,28 @@ const startServer = async () => {
     if (isProduction) {
       console.log('✓ Skipping sequelize.sync (production — use migrations)');
     } else if (process.env.NODE_ENV === 'development') {
-      // The "ExternalJobs"."searchTsv" column is a STORED generated column
-      // depending on title/company/department/description. Sequelize's
-      // sync({ alter: true }) blindly emits ALTER COLUMN ... TYPE statements
-      // even when they are no-ops, and Postgres refuses to alter columns
-      // referenced by generated columns. Drop & recreate searchTsv around sync.
-      let hadSearchTsv = false;
+      // "ExternalJobs"."searchTsvAB" is a STORED generated column depending on
+      // title/company/department. Sequelize's sync({ alter: true }) blindly
+      // emits ALTER COLUMN ... TYPE statements even when they are no-ops, and
+      // Postgres refuses to alter columns referenced by generated columns.
+      // Drop it (and the now-retired searchTsv, if a stale copy lingers) before
+      // sync, then recreate searchTsvAB after. searchTsv is NOT recreated — it
+      // was retired (description-bearing, read by nobody; see
+      // ensureExternalJobPerfSchema.js "drop dead searchTsv index + column").
+      let hadSearchCols = false;
       try {
         const [rows] = await sequelize.query(
           `SELECT 1 FROM information_schema.columns
-           WHERE table_name = 'ExternalJobs' AND column_name = 'searchTsv' LIMIT 1;`
+           WHERE table_name = 'ExternalJobs'
+             AND column_name IN ('searchTsv', 'searchTsvAB') LIMIT 1;`
         );
-        hadSearchTsv = rows.length > 0;
-        if (hadSearchTsv) {
+        hadSearchCols = rows.length > 0;
+        if (hadSearchCols) {
           await sequelize.query(`ALTER TABLE "ExternalJobs" DROP COLUMN IF EXISTS "searchTsv";`);
-          // searchTsvAB also depends on title/company/department, so it must
-          // be dropped before sync({alter:true}) too. It's always recreated
-          // alongside searchTsv below.
           await sequelize.query(`ALTER TABLE "ExternalJobs" DROP COLUMN IF EXISTS "searchTsvAB";`);
         }
       } catch (e) {
-        console.warn('[startup] Could not pre-drop searchTsv:', e.message);
+        console.warn('[startup] Could not pre-drop search tsvector columns:', e.message);
       }
 
       await sequelize.sync({ alter: true });
@@ -548,22 +549,8 @@ const startServer = async () => {
         console.warn('[startup] emailVerified backfill skipped:', e.message);
       }
 
-      if (hadSearchTsv) {
+      if (hadSearchCols) {
         try {
-          await sequelize.query(`
-            ALTER TABLE "ExternalJobs"
-            ADD COLUMN IF NOT EXISTS "searchTsv" tsvector
-            GENERATED ALWAYS AS (
-              setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-              setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
-              setweight(to_tsvector('english', coalesce(department, '')), 'B') ||
-              setweight(to_tsvector('english', coalesce(description, '')), 'C')
-            ) STORED;
-          `);
-          await sequelize.query(`
-            CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_gin"
-            ON "ExternalJobs" USING gin ("searchTsv");
-          `);
           await sequelize.query(`
             ALTER TABLE "ExternalJobs"
             ADD COLUMN IF NOT EXISTS "searchTsvAB" tsvector
@@ -578,7 +565,7 @@ const startServer = async () => {
             ON "ExternalJobs" USING gin ("searchTsvAB");
           `);
         } catch (e) {
-          console.warn('[startup] Could not recreate searchTsv:', e.message);
+          console.warn('[startup] Could not recreate searchTsvAB:', e.message);
         }
       }
     }
@@ -660,6 +647,30 @@ const startServer = async () => {
         console.log(`[EmbedBackfill] ✓ enabled (batch=${embedBatch}, every ${Math.round(embedIntervalMs / 1000)}s)`);
       } else {
         console.log('[EmbedBackfill] disabled');
+      }
+
+      // Disk-reclaim: prune long-inactive ExternalJobs. Deactivated jobs (no
+      // longer in any board's fetch) are never shown again but keep a row +
+      // 1536-dim embedding + index entries forever, steadily bloating the DB
+      // (a direct cause of the storage filling up). This sweeps a bounded batch
+      // of jobs inactive for > PRUNE_INACTIVE_DAYS, skipping any saved/applied
+      // ones (FK-safe). Gentle + single-flight; disable with
+      // ENABLE_INACTIVE_JOB_PRUNE=false.
+      if (process.env.ENABLE_INACTIVE_JOB_PRUNE !== 'false') {
+        const { pruneStaleInactiveJobs } = require('./services/externalJobService');
+        const pruneDays = parseInt(process.env.PRUNE_INACTIVE_DAYS || '60', 10);
+        const pruneBatch = parseInt(process.env.PRUNE_INACTIVE_BATCH || '500', 10);
+        const pruneIntervalMs = parseInt(process.env.PRUNE_INACTIVE_INTERVAL_MS || '900000', 10);
+        const pruneTick = () => pruneStaleInactiveJobs({ days: pruneDays, limit: pruneBatch })
+          .then(r => {
+            if (r.deleted) console.log(`[InactivePrune] deleted ${r.deleted} stale inactive jobs (>${pruneDays}d)`);
+          })
+          .catch(err => console.warn('[InactivePrune] error:', err.message));
+        setTimeout(pruneTick, 90000);
+        setInterval(pruneTick, pruneIntervalMs);
+        console.log(`[InactivePrune] ✓ enabled (>${pruneDays}d inactive, batch=${pruneBatch}, every ${Math.round(pruneIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[InactivePrune] disabled');
       }
 
       // Scheduled stale-board refresh rotation. OPT-IN, DEFAULT OFF.

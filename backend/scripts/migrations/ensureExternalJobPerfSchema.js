@@ -71,45 +71,23 @@ async function up() {
     ALTER TABLE "ExternalJobs" ALTER COLUMN "location" TYPE TEXT;
   `);
 
-  // Generated tsvector column for weighted full-text search (A=title,
-  // B=company/department, C=description). STORED so it's indexable.
-  await runStep('searchTsv column', `
-    ALTER TABLE "ExternalJobs"
-    ADD COLUMN IF NOT EXISTS "searchTsv" tsvector
-    GENERATED ALWAYS AS (
-      setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-      setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
-      setweight(to_tsvector('english', coalesce(department, '')), 'B') ||
-      setweight(to_tsvector('english', coalesce(description, '')), 'C')
-    ) STORED;
-  `);
-  // A plain CREATE INDEX takes a SHARE lock that conflicts with the live
-  // cron writers. On a busy prod table it can lose the lock race and be left
-  // behind as an INVALID index — and `CREATE INDEX IF NOT EXISTS` then
-  // silently skips rebuilding it forever, so the planner ignores it and a
-  // search falls back to a full recheck scan (15s timeout → 500). We do NOT
-  // use CREATE INDEX CONCURRENTLY here: it waits for every in-flight writer
-  // transaction to drain and, against a continuously-writing cron, hangs
-  // indefinitely. Instead: (1) drop any INVALID leftover, then (2) plain
-  // build under a short lock_timeout so we grab a write-quiet window and
-  // fail fast (retried on the next boot) rather than blocking.
-  await runStep('drop invalid searchTsv GIN', `
-    DO $$
-    DECLARE v_invalid boolean;
-    BEGIN
-      SELECT NOT i.indisvalid INTO v_invalid
-      FROM pg_index i
-      JOIN pg_class c ON c.oid = i.indexrelid
-      WHERE c.relname = 'external_jobs_search_tsv_gin';
-      IF v_invalid IS TRUE THEN
-        EXECUTE 'DROP INDEX IF EXISTS "external_jobs_search_tsv_gin"';
-      END IF;
-    END $$;
-  `);
-  await runStep('searchTsv GIN index', `
+  // Generated tsvector column for weighted full-text search.
+  //
+  // RETIRED (2026-06-24): the description-bearing `searchTsv` (weight C =
+  // description) is no longer read by ANY query path — both the route
+  // (routes/externalJobs.js) and the semantic path (jobEmbeddingService.js)
+  // now filter on the smaller `searchTsvAB` (title+company/dept, no
+  // description). The old column + its big GIN index were pure dead weight:
+  // a large TOASTed tsvector stored per row plus a description-sized GIN
+  // index, BOTH re-maintained on every upsert (slowing board syncs) while
+  // being queried by nobody. Dropping them reclaims significant disk and
+  // removes one index-maintenance pass per write. DROP INDEX frees its space
+  // immediately; DROP COLUMN of a STORED generated column is catalog-only
+  // (fast) and reclaims the per-row tsvector lazily as rows churn on re-sync.
+  await runStep('drop dead searchTsv index + column', `
     SET lock_timeout = '5s';
-    CREATE INDEX IF NOT EXISTS "external_jobs_search_tsv_gin"
-    ON "ExternalJobs" USING gin ("searchTsv");
+    DROP INDEX IF EXISTS "external_jobs_search_tsv_gin";
+    ALTER TABLE "ExternalJobs" DROP COLUMN IF EXISTS "searchTsv";
   `);
 
   // Title + company/department ONLY tsvector (weights A/B, NO description).

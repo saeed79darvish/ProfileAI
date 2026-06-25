@@ -1942,6 +1942,63 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Prune long-inactive ExternalJobs to reclaim disk.
+ *
+ * A job is deactivated (isActive=false) by syncBoard when it drops out of its
+ * board's fetch. Deactivated jobs are never shown again (every read filters
+ * isActive=true) yet still occupy a row plus a 1536-dim embedding and entries
+ * in the HNSW / GIN / b-tree indexes. Nothing ever removed them, so they
+ * accumulate forever and bloat disk — a direct contributor to the DB filling
+ * up. This deletes inactive jobs untouched for `days`, in bounded batches,
+ * while SKIPPING any row still referenced by a SavedJob or ApplyPilotApplication
+ * (both FK ExternalJobs.id) so a user's saved job / application is never
+ * orphaned. Single-flight; the DELETE runs in a txn with a raised
+ * statement_timeout (index maintenance on delete can exceed the 15s read cap).
+ *
+ * @param {Object} opts
+ * @param {number} opts.days  - inactivity age threshold (default 60)
+ * @param {number} opts.limit - max rows per run (default 500)
+ * @returns {Promise<{deleted:number, skipped?:string}>}
+ */
+let _pruneInFlight = false;
+async function pruneStaleInactiveJobs({ days = 60, limit = 500 } = {}) {
+  if (_pruneInFlight) return { deleted: 0, skipped: 'in-flight' };
+  _pruneInFlight = true;
+  const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
+  try {
+    const deleted = await ExternalJob.sequelize.transaction(async (t) => {
+      await ExternalJob.sequelize.query(
+        `SET LOCAL statement_timeout = ${timeoutMs}`,
+        { transaction: t }
+      );
+      const [rows] = await ExternalJob.sequelize.query(
+        `WITH doomed AS (
+           SELECT ej.id
+             FROM "ExternalJobs" ej
+            WHERE ej."isActive" = false
+              AND COALESCE(ej."lastFetchedAt", ej."updatedAt", ej."createdAt")
+                  < NOW() - ($1 || ' days')::interval
+              AND NOT EXISTS (
+                SELECT 1 FROM "SavedJobs" s WHERE s."externalJobId" = ej.id)
+              AND NOT EXISTS (
+                SELECT 1 FROM "ApplyPilotApplications" a WHERE a."externalJobId" = ej.id)
+            LIMIT $2
+         )
+         DELETE FROM "ExternalJobs" ej
+          USING doomed d
+          WHERE ej.id = d.id
+         RETURNING ej.id`,
+        { bind: [String(days), limit], transaction: t }
+      );
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+    return { deleted };
+  } finally {
+    _pruneInFlight = false;
+  }
+}
+
 module.exports = {
   fetchGreenhouseJobs,
   fetchLeverJobs,
@@ -1960,6 +2017,7 @@ module.exports = {
   startDateResync,
   getDateResyncStatus,
   ensureCorpusFresh,
+  pruneStaleInactiveJobs,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };
