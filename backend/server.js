@@ -673,6 +673,31 @@ const startServer = async () => {
         console.log('[InactivePrune] disabled');
       }
 
+      // Disk-reclaim, layer 2: compact heavy columns on OLD ExternalJob rows.
+      // Nulls `metadata` (raw ATS JSON, never read back) and `descriptionHtml`
+      // (HTML version of description; frontend falls back to plain `description`)
+      // on rows older than COMPACT_OLD_JOBS_DAYS while keeping the row itself
+      // discoverable. Both are TOASTed columns, so nulling them lets autovacuum
+      // reclaim significant disk. Runs alongside the prune in a separate bounded
+      // single-flight tick so neither blocks the other. Disable with
+      // ENABLE_JOB_COMPACTION=false.
+      if (process.env.ENABLE_JOB_COMPACTION !== 'false') {
+        const { compactOldJobRows } = require('./services/externalJobService');
+        const compactDays = parseInt(process.env.COMPACT_OLD_JOBS_DAYS || '30', 10);
+        const compactBatch = parseInt(process.env.COMPACT_OLD_JOBS_BATCH || '500', 10);
+        const compactIntervalMs = parseInt(process.env.COMPACT_OLD_JOBS_INTERVAL_MS || '600000', 10);
+        const compactTick = () => compactOldJobRows({ days: compactDays, limit: compactBatch })
+          .then(r => {
+            if (r.updated) console.log(`[JobCompaction] compacted ${r.updated} jobs (>${compactDays}d, nulled descriptionHtml + metadata)`);
+          })
+          .catch(err => console.warn('[JobCompaction] error:', err.message));
+        setTimeout(compactTick, 120000);
+        setInterval(compactTick, compactIntervalMs);
+        console.log(`[JobCompaction] ✓ enabled (>${compactDays}d, batch=${compactBatch}, every ${Math.round(compactIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[JobCompaction] disabled');
+      }
+
       // Scheduled stale-board refresh rotation. OPT-IN, DEFAULT OFF.
       // With no scheduled cron in this topology, board freshness (and the
       // Ashby postedAt backfill) otherwise only propagates when a user browses

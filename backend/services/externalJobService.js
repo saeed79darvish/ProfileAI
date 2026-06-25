@@ -1336,9 +1336,18 @@ async function syncBoard(atsBoard) {
     // would otherwise abort the whole chunk. isStartup is denormalized from
     // the board so the "Startups" filter is a plain indexed boolean.
     const payloadsById = new Map();
+    // ExternalJobs.metadata holds the raw ATS response "for reference" but no
+    // prod read path ever reads it back (only one ad-hoc debug script does).
+    // For ~10k+ jobs each carrying multi-KB of raw JSON (often with full
+    // descriptions duplicated inside), this is the single largest source of
+    // ongoing disk growth — and a major contributor to the 256MB/15GB DB
+    // filling up and going Unavailable. Default OFF; set STORE_JOB_METADATA=true
+    // to opt back in for debugging.
+    const storeMetadata = process.env.STORE_JOB_METADATA === 'true';
     for (const jobData of normalizedJobs) {
       const payload = clampVarchar255Fields({ ...jobData });
       payload.isStartup = atsBoard.isStartup === true;
+      if (!storeMetadata) payload.metadata = null;
       payloadsById.set(payload.externalId, payload);
     }
     const payloads = [...payloadsById.values()];
@@ -1999,6 +2008,66 @@ async function pruneStaleInactiveJobs({ days = 60, limit = 500 } = {}) {
   }
 }
 
+/**
+ * Compact heavy columns on old ExternalJob rows to reclaim disk WITHOUT losing
+ * the row itself (keeps it discoverable via search + saved jobs intact).
+ *
+ * Targets the two biggest per-row storage hogs:
+ *   - `metadata` (JSONB): raw ATS response kept "for reference" but never
+ *     read back in any prod code path. Multi-KB per row.
+ *   - `descriptionHtml` (TEXT): raw HTML version of the description. The
+ *     job-detail page reads it, but the frontend gracefully falls back to
+ *     rendering `description` (plain text) as markdown when null, so nulling
+ *     it on old rows only mildly degrades how the detail view looks for jobs
+ *     users rarely re-open.
+ *
+ * Both columns are TOASTed (large field storage), so nulling them frees the
+ * TOAST relation on autovacuum. This is the largest available one-shot disk
+ * reclaim on the ExternalJobs corpus short of deleting rows outright. Runs
+ * in bounded batches with a raised write timeout; single-flight; idempotent
+ * (the WHERE clause naturally excludes already-compacted rows).
+ *
+ * @param {Object} opts
+ * @param {number} opts.days  - row-age threshold (default 30)
+ * @param {number} opts.limit - max rows touched per run (default 500)
+ * @returns {Promise<{updated:number, skipped?:string}>}
+ */
+let _compactInFlight = false;
+async function compactOldJobRows({ days = 30, limit = 500 } = {}) {
+  if (_compactInFlight) return { updated: 0, skipped: 'in-flight' };
+  _compactInFlight = true;
+  const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
+  try {
+    const updated = await ExternalJob.sequelize.transaction(async (t) => {
+      await ExternalJob.sequelize.query(
+        `SET LOCAL statement_timeout = ${timeoutMs}`,
+        { transaction: t }
+      );
+      const [rows] = await ExternalJob.sequelize.query(
+        `WITH targets AS (
+           SELECT ej.id
+             FROM "ExternalJobs" ej
+            WHERE (ej."descriptionHtml" IS NOT NULL OR ej."metadata" IS NOT NULL)
+              AND COALESCE(ej."postedAt", ej."createdAt")
+                  < NOW() - ($1 || ' days')::interval
+            LIMIT $2
+         )
+         UPDATE "ExternalJobs" ej
+            SET "descriptionHtml" = NULL,
+                "metadata"        = NULL
+           FROM targets t
+          WHERE ej.id = t.id
+         RETURNING ej.id`,
+        { bind: [String(days), limit], transaction: t }
+      );
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+    return { updated };
+  } finally {
+    _compactInFlight = false;
+  }
+}
+
 module.exports = {
   fetchGreenhouseJobs,
   fetchLeverJobs,
@@ -2018,6 +2087,7 @@ module.exports = {
   getDateResyncStatus,
   ensureCorpusFresh,
   pruneStaleInactiveJobs,
+  compactOldJobRows,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };
