@@ -1361,15 +1361,33 @@ async function syncBoard(atsBoard) {
     // statement timeout. returning:true gives back the persisted instances so
     // NEW rows can be embedded; updated rows are skipped via existingIds.
     const CHUNK_SIZE = 500;
+    // Per-statement timeout for the SYNC WRITE path only. Connections set a
+    // global statement_timeout=15s (tuned for the read/ANN SELECT path in
+    // database.js afterConnect). A chunked upsert must refresh the large
+    // searchTsv/searchTsvAB GIN + trigram indexes in one pass, which under DB
+    // contention routinely exceeds 15s — and being cancelled there left the
+    // board permanently stale ("✗ canceling statement due to statement
+    // timeout" → 0 jobs ingested → refreshIfStale retries → cancelled again, a
+    // death spiral that starved the corpus of fresh jobs). We raise the cap to
+    // SYNC_WRITE_TIMEOUT_MS for the write transaction ONLY (SET LOCAL is scoped
+    // to the transaction) so the read path keeps its 15s protection.
+    const SYNC_WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
     let created = 0;
     let updated = 0;
     const newJobs = [];
     for (let i = 0; i < payloads.length; i += CHUNK_SIZE) {
       const chunk = payloads.slice(i, i + CHUNK_SIZE);
-      const rows = await ExternalJob.bulkCreate(chunk, {
-        updateOnDuplicate,
-        conflictAttributes: ['source', 'externalId'],
-        returning: true,
+      const rows = await ExternalJob.sequelize.transaction(async (t) => {
+        await ExternalJob.sequelize.query(
+          `SET LOCAL statement_timeout = ${SYNC_WRITE_TIMEOUT_MS}`,
+          { transaction: t }
+        );
+        return ExternalJob.bulkCreate(chunk, {
+          updateOnDuplicate,
+          conflictAttributes: ['source', 'externalId'],
+          returning: true,
+          transaction: t,
+        });
       });
       for (const row of rows) {
         if (existingIds.has(row.externalId)) {
@@ -1397,23 +1415,30 @@ async function syncBoard(atsBoard) {
     );
     if (datedPayloads.length > 0) {
       const source = normalizedJobs[0]?.source || atsBoard.platform;
-      await ExternalJob.sequelize.query(
-        `UPDATE "ExternalJobs" AS ej
+      await ExternalJob.sequelize.transaction(async (t) => {
+        await ExternalJob.sequelize.query(
+          `SET LOCAL statement_timeout = ${SYNC_WRITE_TIMEOUT_MS}`,
+          { transaction: t }
+        );
+        await ExternalJob.sequelize.query(
+          `UPDATE "ExternalJobs" AS ej
             SET "postedAt" = v.posted_at::timestamptz
            FROM (SELECT UNNEST($1::text[]) AS external_id,
                         UNNEST($2::text[]) AS posted_at) AS v
           WHERE ej.source = $3
             AND ej."externalId" = v.external_id
             AND ej."postedAt" IS NULL`,
-        {
-          bind: [
-            datedPayloads.map((p) => p.externalId),
-            datedPayloads.map((p) => p.postedAt.toISOString()),
-            source,
-          ],
-          type: ExternalJob.sequelize.QueryTypes.UPDATE,
-        }
-      );
+          {
+            bind: [
+              datedPayloads.map((p) => p.externalId),
+              datedPayloads.map((p) => p.postedAt.toISOString()),
+              source,
+            ],
+            type: ExternalJob.sequelize.QueryTypes.UPDATE,
+            transaction: t,
+          }
+        );
+      });
     }
 
     // Generate embeddings for new jobs in the background
