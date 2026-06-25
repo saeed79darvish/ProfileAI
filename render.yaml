@@ -31,7 +31,16 @@ services:
   # Do not run both at once.
 
   - type: web
-    name: profileai-api
+    name: profilleai-api
+    # NOTE: name MUST match the existing production web service exactly
+    # (profilleai-api — double "l", srv-d85atsbtqb8s73fsebtg — the one bound to
+    # api.profilleai.com). This Blueprint previously used "profileai-api"
+    # (single "l"), which did NOT match the live service, so a Blueprint Sync
+    # created a SECOND, duplicate web service (srv-d86…). Two API services both
+    # ran the inline cron → double sync/search load on one Postgres, which
+    # contributed to the DB OOM/disk-fill. Keeping this name aligned means a
+    # Sync adopts/updates the real service instead of spawning another. After
+    # renaming, delete the stray single-l "profileai-api" in the dashboard.
     runtime: node
     plan: starter            # 512MB, $7/mo — does not sleep
     region: oregon           # change to ohio/frankfurt/singapore as needed
