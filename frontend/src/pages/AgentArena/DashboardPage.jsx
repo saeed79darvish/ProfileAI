@@ -43,6 +43,87 @@ const hasCriteria = (cfg) => {
   return Array.isArray(titles) && titles.length > 0;
 };
 
+/**
+ * Translate the scout's `lastScoutRun` snapshot into a user-facing
+ * diagnostic for the empty-queue state. Without this, a misconfigured
+ * pilot looks like a broken pilot — the dashboard just says "watching"
+ * forever even when the criteria/profile mismatch guarantees nothing
+ * will ever surface.
+ */
+const interpretScoutFunnel = (lastScoutRun) => {
+  if (!lastScoutRun) {
+    return {
+      title: 'No matches yet, the pilot is watching',
+      sub: "We scan 40+ boards every few minutes. Strong matches land here first. Close the tab if you want, we'll ping you.",
+      hint: null,
+      cta: null,
+    };
+  }
+  const r = lastScoutRun || {};
+  const eligible = r.eligible ?? 0;
+  const above = r.above ?? 0;
+  const below = r.below ?? 0;
+  const noUrl = r.noUrl ?? 0;
+  const threshold = r.threshold ?? 70;
+  const dailyCount = r.dailyCount ?? 0;
+  const dailyLimit = r.dailyLimit ?? 10;
+
+  switch (r.reason) {
+    case 'no_profile':
+      return {
+        title: "We can't match jobs without your profile",
+        sub: 'Add your title, skills, and experience so the pilot has something to compare jobs against.',
+        hint: null,
+        cta: { label: 'Complete your profile', to: '/profile' },
+      };
+    case 'daily_limit_hit':
+      return {
+        title: `Daily limit reached (${dailyCount} of ${dailyLimit})`,
+        sub: "We'll resume scouting tomorrow. Raise your daily limit in Setup if you want more.",
+        hint: null,
+        cta: { label: 'Adjust limits', to: '/applypilot/setup' },
+      };
+    case 'no_eligible_jobs':
+      return {
+        title: 'No jobs match your filters',
+        sub: 'Your criteria filtered out every recent posting. Try widening role titles, locations, or lowering the salary floor.',
+        hint: null,
+        cta: { label: 'Loosen criteria', to: '/applypilot/setup' },
+      };
+    case 'all_below_threshold':
+      return {
+        title: `Checked ${eligible} jobs — none cleared your ${threshold}% match`,
+        sub: above === 0 && below > 0
+          ? `Every job scored below ${threshold}%. Either lower your match threshold or broaden your role titles so the pilot has closer fits to work with.`
+          : 'Try lowering your match threshold or refining role titles to better mirror your profile.',
+        hint: `eligible ${eligible} · above ${above} · below ${below}`,
+        cta: { label: 'Adjust match threshold', to: '/applypilot/setup' },
+      };
+    case 'no_apply_url':
+      return {
+        title: `Found ${eligible} jobs but none had a usable apply link`,
+        sub: 'These postings link to ATS pages we can\'t auto-submit yet. We\'ll keep watching for ones we can.',
+        hint: `noUrl ${noUrl}`,
+        cta: null,
+      };
+    case 'scout_error':
+      return {
+        title: 'Scout hit an error on its last run',
+        sub: r.error ? `Last error: ${r.error}` : "We'll retry on the next cycle.",
+        hint: null,
+        cta: null,
+      };
+    case 'surfaced':
+    default:
+      return {
+        title: 'No matches yet, the pilot is watching',
+        sub: "We scan 40+ boards every few minutes. Strong matches land here first.",
+        hint: r.ranAt ? `Last scan ${RELATIVE(r.ranAt)}` : null,
+        cta: null,
+      };
+  }
+};
+
 const matchTier = (m) => {
   if (typeof m !== 'number') return 'neutral';
   if (m >= 88) return 'good';
@@ -666,16 +747,22 @@ const DashboardPage = () => {
       </AgentCard>
 
       {/* ─── Empty-state when pilot running and nothing yet ─── */}
-      {isRunning && pending.length === 0 && liveBlockers.length === 0 && inFlight === 0 && (
-        <EmptyQueue>
-          <EmptyEmoji aria-hidden>🔭</EmptyEmoji>
-          <EmptyTitle>No matches yet, the pilot is watching</EmptyTitle>
-          <EmptySub>
-            We scan 40+ boards every few minutes. Strong matches land here first. Close the tab if
-            you want, we&apos;ll ping you.
-          </EmptySub>
-        </EmptyQueue>
-      )}
+      {isRunning && pending.length === 0 && liveBlockers.length === 0 && inFlight === 0 && (() => {
+        const diag = interpretScoutFunnel(cfg?.lastScoutRun);
+        return (
+          <EmptyQueue>
+            <EmptyEmoji aria-hidden>🔭</EmptyEmoji>
+            <EmptyTitle>{diag.title}</EmptyTitle>
+            <EmptySub>{diag.sub}</EmptySub>
+            {diag.hint && <EmptyHint>{diag.hint}</EmptyHint>}
+            {diag.cta && (
+              <EmptyCta type="button" onClick={() => navigate(diag.cta.to)}>
+                {diag.cta.label}
+              </EmptyCta>
+            )}
+          </EmptyQueue>
+        );
+      })()}
 
       {/* ─── Ready to review cards ─── */}
       {pending.length > 0 && (
@@ -1735,6 +1822,28 @@ const EmptySub = styled.div`
   max-width: 52ch;
   margin: 0 auto;
   line-height: 1.5;
+`;
+
+const EmptyHint = styled.div`
+  font-size: 11.5px;
+  color: ${MUTED};
+  opacity: 0.7;
+  margin-top: 10px;
+  font-variant-numeric: tabular-nums;
+`;
+
+const EmptyCta = styled.button`
+  margin-top: 16px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid ${LINE};
+  background: ${INK};
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  &:hover { opacity: 0.85; }
 `;
 
 /* Section head */

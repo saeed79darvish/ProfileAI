@@ -589,6 +589,20 @@ const startServer = async () => {
       console.warn('[startup] Preparing-app recovery failed (non-blocking):', recoveryErr.message);
     }
 
+    // ApplyPilotConfigs.lastScoutRun — funnel snapshot written by the
+    // scout cron so the dashboard can explain *why* a running pilot has
+    // produced no applications (e.g. criteria too narrow, profile too
+    // sparse, daily cap hit). Idempotent ADD COLUMN IF NOT EXISTS so the
+    // boot is safe to run on every deploy.
+    try {
+      await sequelize.query(`
+        ALTER TABLE "ApplyPilotConfigs"
+        ADD COLUMN IF NOT EXISTS "lastScoutRun" jsonb
+      `);
+    } catch (e) {
+      console.warn('[startup] ApplyPilotConfigs.lastScoutRun ensure skipped:', e.message);
+    }
+
     // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running on 0.0.0.0:${PORT}`);

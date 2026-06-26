@@ -47,6 +47,15 @@ function buildCriteriaWhere(criteria = {}) {
   // postings require active security clearance or U.S. citizenship that
   // most candidates can't satisfy. Skip by default; only include when
   // the user has explicitly opted in.
+  //
+  // PERF: only scan TITLES. NOT ILIKE on the description column with a
+  // ~17-keyword chain is a sequential scan that takes seconds even on a
+  // warm cache (this is the same fix already applied in routes/applyPilot.js
+  // match-preview — comment there explains the cost). With the scout
+  // already running 200-row title ILIKE OR chains, adding the description
+  // NOT ILIKE on top reliably blew Render's statement_timeout. Federal /
+  // clearance roles overwhelmingly say so in the title; the small miss
+  // rate is worth not wedging the scout cron.
   if (!allowFederal) {
     const FEDERAL_KEYWORDS = [
       'security clearance', 'active clearance', 'ts/sci', 'top secret',
@@ -57,15 +66,7 @@ function buildCriteriaWhere(criteria = {}) {
     ];
     and.push({
       [Op.and]: FEDERAL_KEYWORDS.map(kw => ({
-        [Op.and]: [
-          { title: { [Op.notILike]: `%${kw}%` } },
-          {
-            [Op.or]: [
-              { description: null },
-              { description: { [Op.notILike]: `%${kw}%` } },
-            ],
-          },
-        ],
+        title: { [Op.notILike]: `%${kw}%` },
       })),
     });
   }
@@ -252,7 +253,36 @@ async function runScout() {
       await scoutForUser(cfg);
     } catch (err) {
       console.error(`[applypilot scout] user=${cfg.userId}`, err.message);
+      // Surface the crash on the dashboard too so it isn't invisible.
+      try {
+        await persistScoutFunnel(cfg, {
+          eligible: 0, surfaced: 0, above: 0, below: 0,
+          fallback: 0, noUrl: 0,
+          threshold: cfg.criteria?.matchThreshold ?? 70,
+          dailyCount: 0,
+          dailyLimit: cfg.criteria?.dailyLimit ?? 10,
+          reason: 'scout_error',
+          error: String(err?.message || err).slice(0, 240),
+        });
+      } catch {
+        /* best-effort */
+      }
     }
+  }
+}
+
+/**
+ * Persist the most recent scout-cycle funnel onto the config row so the
+ * dashboard can explain *why* the queue is empty. Best-effort: a failed
+ * write must never break the scout loop.
+ */
+async function persistScoutFunnel(cfg, snapshot) {
+  try {
+    cfg.lastScoutRun = { ranAt: new Date().toISOString(), ...snapshot };
+    cfg.changed('lastScoutRun', true);
+    await cfg.save({ fields: ['lastScoutRun'] });
+  } catch (err) {
+    console.warn(`[applypilot scout] persistFunnel skipped user=${cfg.userId}:`, err.message);
   }
 }
 
@@ -270,10 +300,26 @@ async function scoutForUser(cfg) {
   const recentCount = await ApplyPilotApplication.count({
     where: { userId, createdAt: { [Op.gte]: dayAgo } },
   });
-  if (recentCount >= dailyLimit) return;
+  if (recentCount >= dailyLimit) {
+    await persistScoutFunnel(cfg, {
+      eligible: 0, surfaced: 0, above: 0, below: 0,
+      fallback: 0, noUrl: 0,
+      threshold, dailyCount: recentCount, dailyLimit,
+      reason: 'daily_limit_hit',
+    });
+    return;
+  }
 
   const profile = await Profile.findOne({ where: { userId } });
-  if (!profile) return;
+  if (!profile) {
+    await persistScoutFunnel(cfg, {
+      eligible: 0, surfaced: 0, above: 0, below: 0,
+      fallback: 0, noUrl: 0,
+      threshold, dailyCount: recentCount, dailyLimit,
+      reason: 'no_profile',
+    });
+    return;
+  }
 
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 3600 * 1000);
 
@@ -492,6 +538,30 @@ async function scoutForUser(cfg) {
     + `fallback=${fallbackUsed} noUrl=${noApplyUrl} threshold=${threshold} `
     + `dailyCount=${recentCount}/${dailyLimit}`
   );
+
+  // Persist the funnel onto the config so the dashboard's empty-state
+  // can show "we checked N jobs but none cleared your X% threshold" or
+  // "tighten/loosen these criteria" instead of saying "the pilot is
+  // watching" indefinitely. Classification order matches the order the
+  // scout itself drops jobs.
+  let reason;
+  if (surfaced > 0) reason = 'surfaced';
+  else if (scored.length === 0) reason = 'no_eligible_jobs';
+  else if (aboveThreshold === 0 && fallbackUsed === 0) reason = 'all_below_threshold';
+  else if (noApplyUrl > 0 && noApplyUrl >= scored.length) reason = 'no_apply_url';
+  else reason = 'all_below_threshold';
+  await persistScoutFunnel(cfg, {
+    eligible: scored.length,
+    surfaced,
+    above: aboveThreshold,
+    below: belowThreshold,
+    fallback: fallbackUsed,
+    noUrl: noApplyUrl,
+    threshold,
+    dailyCount: recentCount,
+    dailyLimit,
+    reason,
+  });
 }
 
 function guessCompanyKey(name) {

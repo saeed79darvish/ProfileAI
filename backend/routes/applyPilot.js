@@ -372,6 +372,7 @@ router.get('/config', async (req, res) => {
       },
       status: cfg.state,
       training: coverage,
+      lastScoutRun: cfg.lastScoutRun || null,
     });
   } catch (err) {
     console.error('[applypilot] getConfig:', err);
@@ -592,7 +593,13 @@ router.get('/status', async (req, res) => {
   const queueCount = await ApplyPilotApplication.count({
     where: { userId: req.userId, status: 'prepared' },
   });
-  res.json({ state: cfg.state, queueCount });
+  res.json({
+    state: cfg.state,
+    queueCount,
+    // Last scout-cycle funnel so the dashboard can explain *why* the
+    // queue is empty. Null until the scout has run at least once.
+    lastScoutRun: cfg.lastScoutRun || null,
+  });
 });
 
 /* ================================================================

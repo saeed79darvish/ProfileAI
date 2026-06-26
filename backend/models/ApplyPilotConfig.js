@@ -97,6 +97,26 @@ const ApplyPilotConfig = sequelize.define('ApplyPilotConfig', {
   //   { overallPct: number, topics: [{ key, pct, variant }] }
   trainingCoverage: { type: DataTypes.JSONB, defaultValue: {} },
 
+  // Last scout-cycle funnel snapshot. Written at the end of every
+  // scoutForUser() run so the dashboard can explain *why* the queue is
+  // empty instead of saying "the pilot is watching" forever. Shape:
+  //   {
+  //     ranAt: ISO string,
+  //     eligible: number,          // jobs that survived the criteria filter
+  //     surfaced: number,          // jobs inserted as ApplyPilotApplications
+  //     above: number,             // jobs that cleared matchThreshold
+  //     below: number,             // jobs below threshold
+  //     fallback: number,          // jobs surfaced via fallback floor
+  //     noUrl: number,             // jobs dropped because no apply URL
+  //     threshold: number,         // user's matchThreshold at run time
+  //     dailyCount: number,        // applications already created today
+  //     dailyLimit: number,        // user's daily cap
+  //     reason: string,            // one of: surfaced | no_profile |
+  //                                //   daily_limit_hit | no_eligible_jobs |
+  //                                //   all_below_threshold | no_apply_url
+  //   }
+  lastScoutRun: { type: DataTypes.JSONB, allowNull: true, defaultValue: null },
+
   lastStartedAt: { type: DataTypes.DATE, allowNull: true },
   lastPausedAt: { type: DataTypes.DATE, allowNull: true },
 }, {
