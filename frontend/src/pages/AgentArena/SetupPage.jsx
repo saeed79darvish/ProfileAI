@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useApplyPilotConfig, saveApplyPilotConfig } from '../../hooks/useApplyPilot';
 import { profileAPI, applyPilotAPI } from '../../services/api';
@@ -240,6 +240,12 @@ const SetupPage = () => {
   // it gates downstream auto-submit logic (visa-required postings etc.).
   const [workAuth, setWorkAuth] = useState('');
   const [workAuthError, setWorkAuthError] = useState(false);
+  // Step 1 — role titles are required. Without at least one title the
+  // backend filter falls through to a no-op WHERE clause AND the
+  // dashboard guard bounces the user back here, creating a redirect
+  // loop. Show an inline error when they try to advance with no
+  // titles selected.
+  const [roleTitlesError, setRoleTitlesError] = useState(false);
   const [relocate, setRelocate] = useState('depends');
   const [yearsExp, setYearsExp] = useState('');
   const [noticePeriod, setNoticePeriod] = useState('2 weeks');
@@ -509,6 +515,19 @@ const SetupPage = () => {
     setArr(arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]);
   }, []);
 
+  // Workstyle is a hard filter on the backend (at least one of
+  // remote/hybrid/onsite must be chosen). Empty array returns 0 matches
+  // even though everything else is fine, which looks like the agent is
+  // broken. Block deselection of the last workstyle so we can never
+  // end up in that state.
+  const toggleWorkstyle = useCallback((value) => {
+    setWorkstyle((arr) => {
+      const removing = arr.includes(value);
+      if (removing && arr.length <= 1) return arr; // keep at least one
+      return removing ? arr.filter((v) => v !== value) : [...arr, value];
+    });
+  }, []);
+
   const addCustomTitle = () => {
     const v = newTitle.trim();
     if (!v) { setAddingTitle(false); return; }
@@ -577,6 +596,20 @@ const SetupPage = () => {
       : 'through your extended waking hours';
 
   const handleNext = () => {
+    // Step 1 → 2: at least one role title is required. Without one the
+    // backend scout filter is meaningless (matches everything) AND the
+    // dashboard guard rejects the config → redirect loop. Block here
+    // with an inline error.
+    if (step === 1 && (!roleTitles || roleTitles.length === 0)) {
+      setRoleTitlesError(true);
+      try {
+        document.getElementById('role-titles-section')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      } catch { /* no-op */ }
+      return;
+    }
     // Step 3 → 4: work authorization is required because the submit
     // pipeline uses it to skip postings that refuse sponsorship etc.
     // Guard against legacy / unknown values too, if the stored value
@@ -604,11 +637,26 @@ const SetupPage = () => {
 
   const handleExit = () => navigate('/applypilot/dashboard');
 
+  // When the dashboard bounces a user here for missing criteria it
+  // appends ?setup_required=1. Show a banner so they understand why
+  // they're back in setup instead of where they clicked.
+  const [searchParams] = useSearchParams();
+  const setupRequired = searchParams.get('setup_required') === '1';
+
   return (
     <Page>
       <SaveHint>
         {savedAt ? 'Saved automatically' : 'Your changes autosave'}
       </SaveHint>
+
+      {setupRequired && (
+        <SetupRequiredBanner role="status">
+          <span aria-hidden style={{ fontSize: 18 }}>⚡</span>
+          <span>
+            <b>Almost there.</b> Pick at least one role title below to start the pilot. You’ll land on the dashboard right after.
+          </span>
+        </SetupRequiredBanner>
+      )}
 
       <Progress>
         {[1, 2, 3, 4].map((n) => {
@@ -679,15 +727,23 @@ const SetupPage = () => {
                 We&apos;ll scout these titles plus common synonyms. Start with 2–5, you can tune later.
               </Lede>
 
-              <Section>
+              <Section id="role-titles-section">
                 <SectionHead>
-                  <h3>Role titles</h3>
+                  <h3>
+                    Role titles{' '}
+                    <RequiredMark aria-hidden>*</RequiredMark>
+                  </h3>
                   <span>
                     {profilePrefilled.titles.length
                       ? 'We pulled your current title, tap to keep/remove.'
                       : 'Pulled from your resume, tap to keep/remove.'}
                   </span>
                 </SectionHead>
+                {roleTitlesError && roleTitles.length === 0 && (
+                  <InlineError role="alert">
+                    Pick at least one role title so the pilot knows what to scout.
+                  </InlineError>
+                )}
                 <ChipRow>
                   {titlePool.map((t) => {
                     const on = roleTitles.includes(t);
@@ -696,7 +752,7 @@ const SetupPage = () => {
                       <Chip
                         key={t}
                         $on={on}
-                        onClick={() => toggle(roleTitles, setRoleTitles, t)}
+                        onClick={() => { setRoleTitlesError(false); toggle(roleTitles, setRoleTitles, t); }}
                         title={fromProfile ? 'From your profile' : undefined}
                       >
                         {on && <span className="check">✓</span>}
@@ -736,7 +792,7 @@ const SetupPage = () => {
               <Section>
                 <SectionHead>
                   <h3>Seniority fit</h3>
-                  <span>Pick every level you&apos;re open to.</span>
+                  <span>Pick every level you&apos;re open to. Leave blank to match any seniority.</span>
                 </SectionHead>
                 <ChipRow>
                   {SENIORITY.map((s) => {
@@ -807,7 +863,7 @@ const SetupPage = () => {
               <Section>
                 <SectionHead>
                   <h3>Work style</h3>
-                  <span>Pick any that work, multi-select.</span>
+                  <span>Pick any that work, multi-select. At least one is required.</span>
                 </SectionHead>
                 <WorkStyleGrid>
                   {WORK_STYLES.map((w) => {
@@ -816,7 +872,7 @@ const SetupPage = () => {
                       <WorkStyleCard
                         key={w.key}
                         $on={on}
-                        onClick={() => toggle(workstyle, setWorkstyle, w.key)}
+                        onClick={() => toggleWorkstyle(w.key)}
                       >
                         <WsCheck $on={on}>{on && '✓'}</WsCheck>
                         <WsEmoji aria-hidden>{w.ico}</WsEmoji>
@@ -833,8 +889,8 @@ const SetupPage = () => {
                   <h3>Location &amp; timezone</h3>
                   <span>
                     {profilePrefilled.location
-                      ? 'Pulled your home city from your profile, add more if you\u2019d like.'
-                      : 'Where you\u2019re willing to be, or which timezones you can overlap.'}
+                      ? 'Pulled your home city from your profile, add more if you\u2019d like. Leave blank to match any location.'
+                      : 'Where you\u2019re willing to be, or which timezones you can overlap. Leave blank to match any location.'}
                   </span>
                 </SectionHead>
                 <ChipRow>
@@ -920,7 +976,7 @@ const SetupPage = () => {
               <Section>
                 <SectionHead>
                   <h3>Company size</h3>
-                  <span>Any mix, the agent can bias toward what you pick.</span>
+                  <span>Leave blank and the pilot won&apos;t filter on size. Select any to prioritize them.</span>
                 </SectionHead>
                 <ChipRow>
                   {COMPANY_SIZES.map((c) => {
@@ -1465,7 +1521,7 @@ const SetupPage = () => {
               <Section>
                 <SectionHead>
                   <h3>Deal-breaker keywords</h3>
-                  <span>Postings mentioning any of these get skipped before they reach your queue.</span>
+                  <span>Optional. Postings mentioning any of these get skipped before they reach your queue.</span>
                 </SectionHead>
                 <ChipRow>
                   {KEYWORD_FILTERS.map((k) => {
@@ -1491,8 +1547,8 @@ const SetupPage = () => {
                 </SectionHead>
                 <SummaryCard>
                   <SummaryLine>
-                    Your pilot will scout <b>{roleTitles.length || '—'}</b> titles across{' '}
-                    <b>{locations.length || '—'}</b> locations {scheduleSummary}, queue up to{' '}
+                    Your pilot will scout <b>{roleTitles.length || 'any'}</b> titles across{' '}
+                    <b>{locations.length || 'any'}</b> locations {scheduleSummary}, queue up to{' '}
                     <b>{dailyCap}</b> strong matches/day for your review, and skip anything from{' '}
                     <b>{blockedCompanies.length}</b> blocked companies
                     {blockedKeywords.length > 0 && <> or mentioning <b>{blockedKeywords.length}</b> deal-breakers</>}.
@@ -1500,11 +1556,11 @@ const SetupPage = () => {
                   <SummaryGrid>
                     <SummaryItem>
                       <SummaryK>Titles</SummaryK>
-                      <SummaryV>{roleTitles.length}</SummaryV>
+                      <SummaryV>{roleTitles.length || '—'}</SummaryV>
                     </SummaryItem>
                     <SummaryItem>
                       <SummaryK>Locations</SummaryK>
-                      <SummaryV>{locations.length}</SummaryV>
+                      <SummaryV>{locations.length || 'any'}</SummaryV>
                     </SummaryItem>
                     <SummaryItem>
                       <SummaryK>Salary floor</SummaryK>
@@ -1739,6 +1795,38 @@ const SaveHint = styled.div`
   font-size: 13px;
   color: ${MUTED};
   @media (max-width: 768px) { display: none; }
+`;
+
+const SetupRequiredBanner = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border: 1px solid #FBE3D5;
+  background: #FEF6F1;
+  color: #8B3A1A;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  max-width: 1180px;
+`;
+
+const RequiredMark = styled.span`
+  color: #C2371D;
+  font-weight: 700;
+  margin-left: 2px;
+`;
+
+const InlineError = styled.div`
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #FBE3D5;
+  background: #FEF6F1;
+  color: #8B3A1A;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
 `;
 
 const Progress = styled.ol`

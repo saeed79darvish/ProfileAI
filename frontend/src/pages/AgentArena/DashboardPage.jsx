@@ -411,7 +411,12 @@ const DashboardPage = () => {
   };
 
   if (!cfgLoading && cfg && !hasCriteria(cfg)) {
-    return <Navigate to="/applypilot/welcome" replace />;
+    // Send the user back to finish setup, NOT to /welcome. The welcome
+    // page bounces unconfigured users back to /agent which would create
+    // a redirect loop (Dashboard → welcome → agent → finish → Dashboard
+    // → welcome → ...). The ?setup_required=1 hint lets SetupPage show
+    // a banner explaining why they were redirected.
+    return <Navigate to="/applypilot/agent?setup_required=1" replace />;
   }
 
   return (
