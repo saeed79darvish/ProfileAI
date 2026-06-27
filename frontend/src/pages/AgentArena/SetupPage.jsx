@@ -1866,7 +1866,10 @@ const SetupRequiredBanner = styled.div`
   align-items: center;
   gap: 10px;
   margin: 0 0 18px;
-  padding: 12px 16px;
+  /* Reserve room on the right for the absolutely-positioned SaveHint
+     ("Your changes autosave") so it doesn't float on top of the banner
+     copy. SaveHint is ~150px wide; 170px clears it with a small gap. */
+  padding: 12px 180px 12px 16px;
   border: 1px solid #FBE3D5;
   background: #FEF6F1;
   color: #8B3A1A;
@@ -1874,6 +1877,11 @@ const SetupRequiredBanner = styled.div`
   font-size: 14px;
   line-height: 1.4;
   max-width: 1180px;
+
+  @media (max-width: 768px) {
+    /* SaveHint is hidden on mobile so we don't need the right padding. */
+    padding-right: 16px;
+  }
 `;
 
 const RequiredMark = styled.span`
