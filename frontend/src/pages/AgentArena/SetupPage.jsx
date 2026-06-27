@@ -10,11 +10,84 @@ const INDUSTRY_OPTIONS = [
   'AI / ML', 'Healthcare', 'E-commerce',
   'Gaming', 'Media',
 ];
-const DEFAULT_TITLE_POOL = [
-  'Senior SRE', 'Staff SRE', 'Platform Engineer',
-  'Infrastructure Engineer', 'Reliability Lead',
-  'DevOps Engineer', 'Cloud Engineer',
-];
+
+// Family-aware title suggestions. The wizard used to hardcode an
+// SRE/Platform pool which felt off-brand for any candidate whose
+// profile didn't already say "SRE". Instead we pick a small family
+// of synonyms relevant to the candidate's actual title so the
+// unchecked suggestion chips read as personalised.
+const TITLE_FAMILIES = {
+  frontend: [
+    'Senior Frontend Engineer', 'Staff Frontend Engineer',
+    'UI Engineer', 'Web Engineer', 'React Engineer',
+    'Senior Software Engineer', 'Frontend Platform Lead',
+  ],
+  backend: [
+    'Senior Backend Engineer', 'Staff Backend Engineer',
+    'Senior Software Engineer', 'Staff Software Engineer',
+    'API Engineer', 'Platform Engineer',
+  ],
+  fullstack: [
+    'Senior Full-Stack Engineer', 'Staff Full-Stack Engineer',
+    'Senior Software Engineer', 'Product Engineer',
+    'Senior Frontend Engineer', 'Senior Backend Engineer',
+  ],
+  mobile: [
+    'Senior iOS Engineer', 'Senior Android Engineer',
+    'Staff Mobile Engineer', 'Senior Mobile Engineer',
+    'React Native Engineer',
+  ],
+  data: [
+    'Senior Data Engineer', 'Staff Data Engineer',
+    'Senior Analytics Engineer', 'Senior ML Engineer',
+    'Senior Software Engineer',
+  ],
+  ml: [
+    'Senior ML Engineer', 'Staff ML Engineer',
+    'Senior Machine Learning Engineer', 'Applied Scientist',
+    'Senior Data Scientist',
+  ],
+  infra: [
+    'Senior SRE', 'Staff SRE', 'Platform Engineer',
+    'Infrastructure Engineer', 'DevOps Engineer',
+    'Cloud Engineer', 'Reliability Lead',
+  ],
+  security: [
+    'Senior Security Engineer', 'Staff Security Engineer',
+    'Application Security Engineer', 'Cloud Security Engineer',
+    'Security Architect',
+  ],
+  pm: [
+    'Senior Product Manager', 'Staff Product Manager',
+    'Group Product Manager', 'Principal Product Manager',
+  ],
+  design: [
+    'Senior Product Designer', 'Staff Product Designer',
+    'Lead UX Designer', 'Design Lead',
+  ],
+  generic: [
+    'Senior Software Engineer', 'Staff Software Engineer',
+    'Senior Engineer', 'Lead Engineer', 'Product Engineer',
+  ],
+};
+
+function detectTitleFamily(profileTitle) {
+  const t = String(profileTitle || '').toLowerCase();
+  if (!t) return 'generic';
+  if (/(front[\s-]?end|ui engineer|react|vue|angular|web (eng|dev))/.test(t)) return 'frontend';
+  if (/(back[\s-]?end|api engineer)/.test(t)) return 'backend';
+  if (/(full[\s-]?stack|product engineer)/.test(t)) return 'fullstack';
+  if (/(ios|android|mobile|react native|flutter)/.test(t)) return 'mobile';
+  if (/(ml engineer|machine learning|applied scientist|data scientist)/.test(t)) return 'ml';
+  if (/(data engineer|analytics engineer|bi engineer|etl)/.test(t)) return 'data';
+  if (/(sre|site reliability|devops|platform engineer|infrastructure|cloud engineer|reliability)/.test(t)) return 'infra';
+  if (/(security engineer|appsec|infosec|security architect)/.test(t)) return 'security';
+  if (/(product manager|\bpm\b|group pm)/.test(t)) return 'pm';
+  if (/(product designer|ux designer|design lead|ui designer)/.test(t)) return 'design';
+  return 'generic';
+}
+
+const DEFAULT_TITLE_POOL = TITLE_FAMILIES.generic;
 
 const WORK_STYLES = [
   { key: 'Remote', ico: '🏠', title: 'Remote', desc: 'Fully remote, timezone overlap only.' },
@@ -249,7 +322,13 @@ const SetupPage = () => {
 
     // ── Role titles ────────────────────────────────────────────────
     const profileTitle = profileArg?.title?.trim();
-    let mergedTitlePool = [...DEFAULT_TITLE_POOL];
+    // Derive a family-specific pool from the candidate's profile title
+    // (frontend / backend / mobile / ml / infra / ...). When the title
+    // doesn't map to a known family the generic SWE pool is used. This
+    // keeps the suggestion chips relevant instead of always showing
+    // SRE/Platform roles to people who aren't infra candidates.
+    const family = detectTitleFamily(profileTitle);
+    let mergedTitlePool = [...(TITLE_FAMILIES[family] || TITLE_FAMILIES.generic)];
     if (profileTitle) {
       mergedTitlePool = Array.from(new Set([profileTitle, ...mergedTitlePool]));
       prefill.titles = [profileTitle];

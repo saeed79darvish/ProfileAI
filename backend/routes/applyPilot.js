@@ -283,22 +283,13 @@ async function enqueueSubmissionForApplication(app, options = {}) {
     err.status = 404;
     throw err;
   }
-  // Hybrid pivot: ApplyPilot prepares materials only. Auto-submit is
-  // off unless the operator explicitly enables APPLYPILOT_AUTOSUBMIT.
-  // Callers should be unreachable from the UI, but guard anyway so a
-  // stale frontend can't silently push a row into the submit queue.
-  if (!featureFlags.applyPilotAutoSubmit) {
-    const err = new Error('autosubmit_disabled');
-    err.status = 410;
-    throw err;
-  }
   if (app.status === 'submitted') {
     const err = new Error('already_submitted');
     err.status = 409;
     throw err;
   }
   if (app.status === 'submitting') {
-    return { alreadyQueued: true, status: app.status, jobId: null };
+    return { alreadyQueued: true, status: app.status, jobId: null, autoSubmit: featureFlags.applyPilotAutoSubmit };
   }
 
   const eligibleStatuses = new Set(['prepared', 'approved', 'failed', 'needs_attention']);
@@ -319,6 +310,16 @@ async function enqueueSubmissionForApplication(app, options = {}) {
   app.submissionError = null;
   await app.save();
 
+  // Hybrid mode (APPLYPILOT_AUTOSUBMIT=off, the production default):
+  // We persist the approval but DO NOT enqueue browser-based submission.
+  // The user clicks through to the ATS apply URL and submits manually,
+  // then comes back to mark the row 'submitted' via the tracking endpoint.
+  // Returning success here (instead of 410) is what unblocks the demo:
+  // the UI flow stays identical, only the submit step is human-driven.
+  if (!featureFlags.applyPilotAutoSubmit) {
+    return { alreadyQueued: false, status: app.status, jobId: null, autoSubmit: false };
+  }
+
   const jobId = await enqueue(QUEUES.SUBMIT, { appId: app.id }, {
     singletonKey: `submit:${app.id}`,
   });
@@ -333,7 +334,7 @@ async function enqueueSubmissionForApplication(app, options = {}) {
     err.status = 503;
     throw err;
   }
-  return { alreadyQueued: false, status: app.status, jobId };
+  return { alreadyQueued: false, status: app.status, jobId, autoSubmit: true };
 }
 
 function appendResolution(receipt, resolution) {
@@ -434,7 +435,30 @@ router.put('/config', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, autoEnqueued });
+    // Auto-promote state on first valid criteria save. Without this,
+    // users who fill the wizard but never click an explicit "Start"
+    // button leave state='idle' forever — the scout cron skips them
+    // and nothing surfaces. Promote to 'running' as soon as the
+    // criteria look usable (at least one role title), and kick off
+    // an immediate scout pass so the dashboard isn't empty for 10
+    // minutes waiting for the next cron tick.
+    let autoStarted = false;
+    const hasRoleTitles = Array.isArray(cfg.criteria?.roleTitles)
+      && cfg.criteria.roleTitles.filter((t) => typeof t === 'string' && t.trim()).length > 0;
+    if (cfg.state === 'idle' && hasRoleTitles) {
+      cfg.state = 'running';
+      cfg.lastStartedAt = new Date();
+      await cfg.save();
+      autoStarted = true;
+      setImmediate(() => {
+        require('../services/applyPilotScout')
+          .scoutForUser(cfg)
+          .catch((err) => console.error(`[applypilot] auto-start scout user=${req.userId}:`, err.message));
+      });
+      console.log(`[applypilot] auto-started scout for user=${req.userId} on first valid criteria save`);
+    }
+
+    res.json({ ok: true, autoEnqueued, autoStarted, state: cfg.state });
   } catch (err) {
     console.error('[applypilot] updateConfig:', err);
     res.status(500).json({ error: 'update_config_failed' });
@@ -634,6 +658,13 @@ router.post('/match-preview', express.json(), async (req, res) => {
       salaryFloorK = 0,
       allowFederal = false,
     } = req.body || {};
+
+    // Lightweight diagnostic — when total=0 surprises a user we want
+    // to be able to grep prod logs and see exactly which criteria the
+    // wizard sent. Keeps the line short to avoid log bloat.
+    if (process.env.LOG_MATCH_PREVIEW !== 'false') {
+      console.log(`[applypilot] match-preview u=${req.userId} titles=${JSON.stringify(roleTitles)} sen=${JSON.stringify(seniority)} loc=${JSON.stringify(locations)} ws=${JSON.stringify(workstyle)} salaryK=${salaryFloorK} fed=${allowFederal}`);
+    }
 
     const where = { isActive: true };
     const and = [];
@@ -1756,7 +1787,13 @@ router.post('/applications/:appId/approve', async (req, res) => {
 
     const result = await enqueueSubmissionForApplication(app, { forceApprove: true });
 
-    res.json({ ok: true, status: result.status, queued: !result.alreadyQueued, jobId: result.jobId });
+    res.json({
+      ok: true,
+      status: result.status,
+      queued: !result.alreadyQueued,
+      jobId: result.jobId,
+      autoSubmit: result.autoSubmit,
+    });
   } catch (err) {
     if (err.status === 409) {
       return res.status(409).json({ error: err.message });
@@ -1777,7 +1814,13 @@ router.post('/applications/:appId/submit', async (req, res) => {
     if (!app) return res.status(404).json({ error: 'not_found' });
 
     const result = await enqueueSubmissionForApplication(app, { forceApprove: app.status === 'prepared' });
-    return res.json({ ok: true, status: result.status, queued: !result.alreadyQueued, jobId: result.jobId });
+    return res.json({
+      ok: true,
+      status: result.status,
+      queued: !result.alreadyQueued,
+      jobId: result.jobId,
+      autoSubmit: result.autoSubmit,
+    });
   } catch (err) {
     if (err.status === 409) {
       return res.status(409).json({ error: err.message });

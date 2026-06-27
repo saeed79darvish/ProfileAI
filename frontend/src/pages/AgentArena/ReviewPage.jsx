@@ -949,10 +949,25 @@ const ReviewPage = () => {
 
     setActionInFlight(true);
     try {
-      if (status === 'approved') await approveApplication(id);
+      let res = null;
+      if (status === 'approved') res = await approveApplication(id);
       else if (status === 'rejected') await rejectApplication(id);
 
       setStatuses(prev => ({ ...prev, [id]: status }));
+
+      // Tell the user what just happened. In hybrid mode (autoSubmit
+      // off, the production default) the row is marked approved but
+      // ApplyPilot will NOT auto-submit — the candidate clicks through
+      // to the ATS apply URL and submits manually, then marks the row
+      // as applied. In auto mode the submit worker takes over.
+      if (status === 'approved') {
+        const autoSubmit = res?.data?.autoSubmit ?? res?.autoSubmit;
+        if (autoSubmit) {
+          toast?.success?.('Approved — queued for auto-submit.');
+        } else {
+          toast?.success?.('Approved. Click “Apply on company site” to submit when ready.');
+        }
+      }
 
       // Advance only after a confirmed success.
       const nextPending = (queue || []).find(
@@ -974,9 +989,25 @@ const ReviewPage = () => {
       const code = e?.response?.status;
       const serverMessage = e?.response?.data?.error || e?.response?.data?.message;
       const fallback = status === 'approved' ? 'Approve failed. Please try again.' : 'Reject failed. Please try again.';
-      const message = code === 409
-        ? (serverMessage || 'Application is not ready to approve yet (409).')
-        : (serverMessage || fallback);
+      // Map known error codes / server error strings to human copy so
+      // the user never sees raw codes like 'autosubmit_disabled' or 410.
+      let message = fallback;
+      if (code === 409) {
+        message = serverMessage === 'already_submitted'
+          ? 'This application was already submitted.'
+          : serverMessage === 'wrong_status'
+            ? 'This application isn’t ready to approve yet.'
+            : (serverMessage || 'Application is not ready to approve yet.');
+      } else if (code === 410 || serverMessage === 'autosubmit_disabled') {
+        // Legacy server (pre-hybrid-fix). Just tell the user it worked
+        // even though the backend refused — we can’t fully recover
+        // here, but spelling out the server error helps support triage.
+        message = 'Auto-submit is disabled on the server. Please apply manually via the company site.';
+      } else if (code === 503) {
+        message = 'Submit queue is temporarily unavailable. Try again in a minute.';
+      } else if (serverMessage) {
+        message = serverMessage;
+      }
       toast?.error?.(message);
       console.warn('[ApplyPilot] review action failed:', e?.message || e);
     } finally {
