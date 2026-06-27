@@ -348,9 +348,13 @@ function appendResolution(receipt, resolution) {
   return { ...base, resolutions };
 }
 
-// Every ApplyPilot endpoint needs a logged-in candidate.
+// Every ApplyPilot endpoint needs a logged-in candidate. Admins are
+// allowed through too so they can dogfood / QA the wizard from their
+// own account without standing up a candidate user. Recruiters stay
+// blocked — ApplyPilot is a candidate surface and shouldn't appear
+// for them.
 router.use(auth, (req, res, next) => {
-  if (req.user.role !== 'candidate') {
+  if (req.user.role !== 'candidate' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'candidate_only' });
   }
   next();
