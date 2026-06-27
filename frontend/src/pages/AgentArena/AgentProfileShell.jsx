@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import styled from 'styled-components';
+import { featureFlags } from '../../config/featureFlags';
 
 /**
  * AgentProfileShell · sub-tab nav for /applypilot/agent/*.
@@ -67,6 +68,13 @@ const TabIcon = styled.span`
 `;
 
 const AgentProfileShell = () => {
+  // Coach training is gated behind VITE_ENABLE_APPLYPILOT_COACH. With
+  // the flag off there's only one tab left (Job criteria), so hide the
+  // whole tab bar to avoid a lonely / confusing single-tab strip.
+  const showCoach = featureFlags.applyPilotCoach;
+  if (!showCoach) {
+    return <Outlet />;
+  }
   return (
     <>
       <TabBar>

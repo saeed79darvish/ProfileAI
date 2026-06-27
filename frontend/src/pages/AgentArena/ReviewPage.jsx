@@ -69,6 +69,7 @@ import {
   analyzeApplicationGaps,
 } from '../../hooks/useApplyPilot';
 import { useToast } from '../../contexts/ToastContext';
+import { featureFlags } from '../../config/featureFlags';
 
 const TABS = ['Tailored resume', 'Cover letter', 'Application Q&A', 'Job description', 'Match score', 'How to apply', 'Submission status'];
 const SHORTCUT_TIP_KEY = 'applypilot_review_shortcut_tip_seen';
@@ -681,6 +682,43 @@ const ResumeEmpty = styled.div`
   background: #F8F7FC;
   border: 1px dashed #E4DFF5;
   border-radius: 10px;
+`;
+
+// Empty / no-selection state for the right pane of the inbox. Dedicated
+// container because reusing ReviewHero broke at narrow viewports — the
+// mobile breakpoint puts content into a 40px logo column and the empty
+// state copy was wrapping word-by-word.
+const EmptyDetailState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 32px;
+  flex: 1;
+  min-height: 0;
+
+  h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #100C28;
+    max-width: 520px;
+  }
+  p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #6B6787;
+    max-width: 520px;
+  }
+
+  @media (max-width: 1199px) {
+    padding: 40px 20px;
+    h2 { font-size: 19px; }
+    p { font-size: 13.5px; }
+  }
 `;
 
 function arrayifyBullets(v) {
@@ -1894,30 +1932,32 @@ const ReviewPage = () => {
 
           <ReviewDetail $showOnMobile={mobileShowDetail}>
             {!selected ? (
-              <ReviewDetailHead>
-                <ReviewHero>
-                  <div className="r-title">
-                    {queue?.length === 0 ? (
-                      <>
-                        <h2>All caught up!</h2>
-                        <p>No applications waiting for review. Your agent will scout new matches and add them here.</p>
-                        <Btn
-                          $variant="primary"
-                          style={{ marginTop: 16 }}
-                          onClick={() => navigate('/applypilot/dashboard')}
-                        >
-                          Back to dashboard
-                        </Btn>
-                      </>
-                    ) : (
-                      <>
-                        <h2>Loading applications…</h2>
-                        <p>Your agent is preparing the queue.</p>
-                      </>
-                    )}
-                  </div>
-                </ReviewHero>
-              </ReviewDetailHead>
+              // Empty / no-selection state. Render its OWN container instead
+              // of reusing ReviewHero — ReviewHero's narrow-viewport breakpoint
+              // uses a CSS grid that maps `> :first-child` to a 40px logo
+              // column. With only a single text child the empty-state copy
+              // got crammed into that 40px column and wrapped word-by-word
+              // ("All / caught / up!" stacking vertically).
+              <EmptyDetailState>
+                {queue?.length === 0 ? (
+                  <>
+                    <h2>All caught up!</h2>
+                    <p>No applications waiting for review. Your agent will scout new matches and add them here.</p>
+                    <Btn
+                      $variant="primary"
+                      style={{ marginTop: 16 }}
+                      onClick={() => navigate('/applypilot/dashboard')}
+                    >
+                      Back to dashboard
+                    </Btn>
+                  </>
+                ) : (
+                  <>
+                    <h2>Loading applications…</h2>
+                    <p>Your agent is preparing the queue.</p>
+                  </>
+                )}
+              </EmptyDetailState>
             ) : (
             <>
             <ReviewDetailHead>
@@ -2883,14 +2923,19 @@ const ReviewPage = () => {
                             ))}
                             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #E7C66A', fontSize: 12, color: '#5C4300' }}>
                               The agent saw these fields for the first time. Teach it how to answer once
-                              and it will reuse the answer for every future application.{' '}
-                              <a
-                                href="/applypilot/agent/coach"
-                                onClick={(e) => { e.preventDefault(); navigate('/applypilot/agent/coach'); }}
-                                style={{ color: '#6C5CE7', fontWeight: 600, textDecoration: 'underline' }}
-                              >
-                                Train the agent →
-                              </a>
+                              and it will reuse the answer for every future application.
+                              {featureFlags.applyPilotCoach && (
+                                <>
+                                  {' '}
+                                  <a
+                                    href="/applypilot/agent/coach"
+                                    onClick={(e) => { e.preventDefault(); navigate('/applypilot/agent/coach'); }}
+                                    style={{ color: '#6C5CE7', fontWeight: 600, textDecoration: 'underline' }}
+                                  >
+                                    Train the agent →
+                                  </a>
+                                </>
+                              )}
                             </div>
                           </div>
                         )}

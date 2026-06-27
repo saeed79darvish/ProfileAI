@@ -15,4 +15,9 @@ export const featureFlags = {
   // Claude Connector promo/onboarding UI ("Use ProfilleAI in Claude" cards).
   // Backend exposure is gated separately by ENABLE_CLAUDE_CONNECTOR.
   claudeConnector: parseBool(import.meta.env.VITE_ENABLE_CLAUDE_CONNECTOR, false),
+  // ApplyPilot "Coach training" tab — chat-based agent training surface.
+  // Hidden by default while we focus the demo on Job criteria → scout →
+  // review → approve. The CoachPage code still ships so we can flip
+  // this on without a code change once the training UX is finished.
+  applyPilotCoach: parseBool(import.meta.env.VITE_ENABLE_APPLYPILOT_COACH, false),
 };

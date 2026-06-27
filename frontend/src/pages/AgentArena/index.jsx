@@ -10,6 +10,14 @@ import ReviewPage from './ReviewPage';
 import ReviewEntry from './ReviewEntry';
 import SentPage from './SentPage';
 import SentDetailPage from './SentDetailPage';
+import { featureFlags } from '../../config/featureFlags';
+
+// Coach training is hidden by default — see featureFlags.applyPilotCoach.
+// When off, every URL that used to land on /coach (incl. back-compat
+// redirects) bounces to the wizard instead so stale deep-links never 404.
+const coachOrAgent = featureFlags.applyPilotCoach
+  ? <CoachPage />
+  : <Navigate to="/applypilot/agent" replace />;
 
 /**
  * ApplyPilot · router shell.
@@ -50,16 +58,16 @@ const AgentArena = () => (
 
       <Route path="agent" element={<AgentProfileShell />}>
         <Route index element={<SetupPage />} />
-        <Route path="coach" element={<CoachPage />} />
-        <Route path="training" element={<Navigate to="/applypilot/agent/coach" replace />} />
+        <Route path="coach" element={coachOrAgent} />
+        <Route path="training" element={<Navigate to="/applypilot/agent" replace />} />
         <Route path="credentials" element={<Navigate to="/applypilot/agent" replace />} />
       </Route>
 
       {/* Back-compat redirects. */}
       <Route path="inbox" element={<Navigate to="/applypilot/review" replace />} />
       <Route path="setup" element={<Navigate to="/applypilot/agent" replace />} />
-      <Route path="training" element={<Navigate to="/applypilot/agent/coach" replace />} />
-      <Route path="coach" element={<Navigate to="/applypilot/agent/coach" replace />} />
+      <Route path="training" element={<Navigate to="/applypilot/agent" replace />} />
+      <Route path="coach" element={<Navigate to="/applypilot/agent" replace />} />
       <Route path="credentials" element={<Navigate to="/applypilot/agent" replace />} />
       <Route path="review" element={<Navigate to="/applypilot/dashboard" replace />} />
       <Route path="review/:appId" element={<LegacyReviewRedirect />} />
