@@ -451,6 +451,68 @@ const SetupPage = () => {
 
   // Autosave (debounced)
   const saveTimerRef = useRef(null);
+  // Tracked separately so the Finish button can flush a pending save
+  // BEFORE navigating to the dashboard. Without this the 600ms debounce
+  // races the route change: dashboard guard fetches stale /config that
+  // still has the old roleTitles, hasCriteria(cfg) returns false, and
+  // bounces the user back to setup — looks like a Finish bug.
+  const isSavingRef = useRef(false);
+  const buildSavePayload = useCallback(() => ({
+    criteria: {
+      roleTitles,
+      seniority,
+      industries,
+      workstyle,
+      locations,
+      salaryFloorK,
+      companySize,
+      dailyLimit: dailyCap,
+      matchThreshold,
+      allowFederal,
+    },
+    demographics: {
+      workAuthorization: workAuth || null,
+      genderIdentity: genderIdentity || null,
+      ethnicity: ethnicity.length ? ethnicity : null,
+      veteran: veteran || null,
+      disability: disability || null,
+    },
+    profile: {
+      linkedinUrl: linkedinUrl || null,
+      githubUrl: githubUrl || null,
+      portfolioUrl: portfolioUrl || null,
+      phone: phoneNumber || null,
+      noticePeriod: noticePeriod || null,
+      relocationWillingness:
+        relocate === 'yes' ? true : relocate === 'no' ? false : null,
+    },
+    rails: {
+      blockedCompanies,
+    },
+  }), [
+    roleTitles, seniority, industries,
+    workstyle, locations, salaryFloorK, companySize,
+    dailyCap, matchThreshold, allowFederal,
+    workAuth, genderIdentity, ethnicity, veteran, disability,
+    linkedinUrl, githubUrl, portfolioUrl, phoneNumber, noticePeriod, relocate,
+    blockedCompanies,
+  ]);
+  // Cancel the pending debounce and save NOW. Awaited by handleNext on
+  // step 4 so the dashboard always sees the latest criteria.
+  const flushSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    isSavingRef.current = true;
+    try {
+      await saveApplyPilotConfig(buildSavePayload());
+      setSavedAt(new Date());
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [buildSavePayload]);
+
   useEffect(() => {
     if (!hydratedRef.current) return;
     // Hydration sets a bunch of state in one render; swallow the tick it
@@ -463,39 +525,7 @@ const SetupPage = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await saveApplyPilotConfig({
-          criteria: {
-            roleTitles,
-            seniority,
-            industries,
-            workstyle,
-            locations,
-            salaryFloorK,
-            companySize,
-            dailyLimit: dailyCap,
-            matchThreshold,
-            allowFederal,
-          },
-          demographics: {
-            workAuthorization: workAuth || null,
-            genderIdentity: genderIdentity || null,
-            ethnicity: ethnicity.length ? ethnicity : null,
-            veteran: veteran || null,
-            disability: disability || null,
-          },
-          profile: {
-            linkedinUrl: linkedinUrl || null,
-            githubUrl: githubUrl || null,
-            portfolioUrl: portfolioUrl || null,
-            phone: phoneNumber || null,
-            noticePeriod: noticePeriod || null,
-            relocationWillingness:
-              relocate === 'yes' ? true : relocate === 'no' ? false : null,
-          },
-          rails: {
-            blockedCompanies,
-          },
-        });
+        await saveApplyPilotConfig(buildSavePayload());
         setSavedAt(new Date());
       } catch {
         /* swallow, the indicator just won't update */
@@ -595,7 +625,7 @@ const SetupPage = () => {
       ? 'around the clock'
       : 'through your extended waking hours';
 
-  const handleNext = () => {
+  const handleNext = async () => {
     // Step 1 → 2: at least one role title is required. Without one the
     // backend scout filter is meaningless (matches everything) AND the
     // dashboard guard rejects the config → redirect loop. Block here
@@ -627,15 +657,49 @@ const SetupPage = () => {
       } catch { /* no-op */ }
       return;
     }
-    if (step < 4) setStep(step + 1);
-    else navigate('/applypilot/dashboard');
+    if (step < 4) {
+      setStep(step + 1);
+      return;
+    }
+    // Step 4 → Dashboard: this is the Finish click. Guard the same way
+    // step 1 does so a user who somehow reached step 4 with empty
+    // roleTitles (e.g. deselected them after the step-1 gate) is
+    // bounced back to step 1 with a clear error, NOT silently
+    // redirected by the dashboard guard.
+    if (!roleTitles || roleTitles.length === 0) {
+      setRoleTitlesError(true);
+      setStep(1);
+      return;
+    }
+    // CRITICAL: flush the debounced autosave before navigating. The
+    // 600ms debounce raced the route change — dashboard.useApplyPilotConfig
+    // would fetch stale /config (without the latest criteria), the
+    // hasCriteria guard would fail, and the user would get bounced back
+    // to setup. Awaiting flushSave() makes Finish wait for the server
+    // to confirm the latest config is persisted.
+    try {
+      await flushSave();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[applypilot setup] flushSave failed on Finish:', err?.message || err);
+      // Keep going — the dashboard's auto-promote endpoint will try
+      // again on its own /config GET, and stale data is better than a
+      // dead-end UX where Finish does nothing.
+    }
+    navigate('/applypilot/dashboard');
   };
 
   const handleBack = () => {
     if (step > 1) setStep(step - 1);
   };
 
-  const handleExit = () => navigate('/applypilot/dashboard');
+  // Save & Exit must also flush the pending debounce — otherwise the
+  // user clicks Save and the route change kills the timer before it
+  // fires, losing their last edits.
+  const handleExit = async () => {
+    try { await flushSave(); } catch { /* swallow */ }
+    navigate('/applypilot/dashboard');
+  };
 
   // When the dashboard bounces a user here for missing criteria it
   // appends ?setup_required=1. Show a banner so they understand why
