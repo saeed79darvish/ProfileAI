@@ -650,31 +650,10 @@ const DashboardPage = () => {
           </HeroActions>
         </HeroBody>
 
-        {/* Right-side visual, changes per state */}
-        <HeroVisual aria-hidden>
-          {heroMode === 'review' && (
-            <ReviewStack>
-              {[0, 1, 2].slice(0, Math.min(3, pending.length)).map((i) => (
-                <StackCard key={i} $depth={i}>
-                  <CompanyAvatar
-                    company={pending[i]?.company}
-                    companyKey={pending[i]?.companyKey}
-                    letter={pending[i]?.logoText}
-                    size={40}
-                    radius={10}
-                  />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <StackRole>{pending[i]?.role || 'Role'}</StackRole>
-                    <StackCo>{pending[i]?.company || 'Company'}</StackCo>
-                  </div>
-                  <StackPill>{pending[i]?.match ?? 90}%</StackPill>
-                </StackCard>
-              ))}
-            </ReviewStack>
-          )}
-          {(heroMode === 'scanning' || heroMode === 'submitting') && <ScanAnim />}
-          {heroMode === 'start' && <StartAnim />}
-        </HeroVisual>
+        {/* Right-side visual hidden — design uses a clean text-only hero
+            (eyebrow + headline + lede + buttons). The ReviewStack was
+            interesting but isn't in the spec. Kept defined below so we
+            can re-enable per state without re-implementing it. */}
       </Hero>
 
       {/* ─── KPI tiles ─── */}
@@ -727,7 +706,7 @@ const DashboardPage = () => {
           </CritCell>
 
           <CritCell>
-            <CritK>Workstyle</CritK>
+            <CritK>Work style</CritK>
             <CritV>
               {(criteria.workstyle || []).length > 0
                 ? <ChipRow>{(criteria.workstyle || []).map((r) => <MiniChip key={r}>{r}</MiniChip>)}</ChipRow>
@@ -756,7 +735,7 @@ const DashboardPage = () => {
           </CritCell>
 
           <CritCell>
-            <CritK>Blocked</CritK>
+            <CritK>Blocked companies</CritK>
             <CritV>
               <CritStrong>
                 {((rails.blockedCompanies || []).length + (rails.blockedKeywords || []).length) || 'None'}
@@ -1252,13 +1231,14 @@ const Hero = styled.section`
   border-radius: 20px;
   padding: 36px 36px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  /* Single-column hero \u2014 design has no right-side visual stack. The
+     prior 2-col grid (1fr + 280px) reserved space for the HeroVisual
+     which now renders nothing, leaving the hero text feeling cramped. */
+  grid-template-columns: 1fr;
   gap: 32px;
-  align-items: center;
   margin-bottom: 28px;
 
   @media (max-width: 860px) {
-    grid-template-columns: 1fr;
     padding: 28px 22px;
     gap: 20px;
   }
