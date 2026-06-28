@@ -1667,6 +1667,11 @@ router.patch('/applications/:appId/tracking', express.json(), async (req, res) =
 // ============================================================
 
 router.post('/applications/:appId/preview', async (req, res) => {
+  // Declared outside the try so the catch block can safely reference it
+  // for response context. Was previously declared with `const` inside the
+  // try, which made `adapter?.name` in the catch throw ReferenceError
+  // and turn graceful 200 fallbacks into unhandled rejections.
+  let adapter = null;
   try {
     const app = await ApplyPilotApplication.findOne({
       where: { id: req.params.appId, userId: req.userId },
@@ -1690,7 +1695,7 @@ router.post('/applications/:appId/preview', async (req, res) => {
 
     // Force Puppeteer so we can provide visual proof before approval,
     // regardless of the global APPLYPILOT_ATS_MODE.
-    const adapter = selectAdapter(applyUrl, { mode: 'puppeteer' });
+    adapter = selectAdapter(applyUrl, { mode: 'puppeteer' });
     if (!adapter) {
       return res.status(200).json({
         ok: false,
