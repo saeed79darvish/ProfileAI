@@ -137,12 +137,6 @@ function AppContent() {
   const hideNavbar =
     AUTH_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
-    // ApplyPilot has its own self-contained shell (the AgentArenaShell
-    // sub-nav reads "ApplyPilot · Dashboard · Review · Sent"). The
-    // design treats it as its own product surface with no global
-    // ProfileAI navbar above it. AgentArenaShell renders its own
-    // profile avatar on the right so navigation isn't lost.
-    location.pathname.startsWith('/applypilot') ||
     isOverlayMode;
 
   // Register navigate so the api.js 401 interceptor can do SPA navigation

@@ -64,16 +64,6 @@ const AgentArenaShell = () => {
               }}
             </NavLink>
           ))}
-          {/* Right-side escape hatch. Because the global ProfileAI navbar
-              is hidden on /applypilot/* (per the design), we need a way
-              for admins / candidates to get back to the rest of the app.
-              Sits on the right edge of the sub-nav. */}
-          <NavLink to="/" style={{ marginLeft: 'auto', textDecoration: 'none' }}>
-            <ArenaNavLink as="span">
-              <span aria-hidden style={{ marginRight: 6 }}>←</span>
-              Back to ProfileAI
-            </ArenaNavLink>
-          </NavLink>
         </ArenaSubNavInner>
       </ArenaSubNav>
       <Outlet />
