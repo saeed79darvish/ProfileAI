@@ -137,11 +137,6 @@ function AppContent() {
   const hideNavbar =
     AUTH_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
-    // ApplyPilot owns its own sub-nav via AgentArenaShell (the bar that
-    // reads "ApplyPilot · Dashboard · Review · Sent"). Showing the
-    // global ProfileAI Navbar on top of it produces a double-stacked
-    // header that doesn't match the design.
-    location.pathname.startsWith('/applypilot') ||
     isOverlayMode;
 
   // Register navigate so the api.js 401 interceptor can do SPA navigation
