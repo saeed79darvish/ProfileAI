@@ -101,17 +101,16 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
 
 // `/applypilot` is shared between the public marketing landing page
-// and the candidate auto-apply dashboard. Signed-in candidates land
-// on the in-app welcome route (which adapts its primary CTA to
-// "Go to Dashboard"). Signed-out visitors and non-candidates see the
-// same LandingPage rendered standalone (no auth-gated sub-nav shell),
-// so the marketing hero/value-prop is consistent across both states
-// and we no longer fall back to the old standalone ApplyPilotPage
-// marketing page (since removed from this route).
+// and the candidate auto-apply dashboard. ANY authenticated user that
+// can access ApplyPilot (candidate or admin) is redirected into the
+// shell at /applypilot/welcome so they get the in-app sub-nav
+// (ApplyPilot · Dashboard · Review · Sent). Signed-out visitors see
+// the same LandingPage rendered standalone — the marketing hero is
+// the entire page for them.
 function ApplyPilotGateway() {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return LazyFallback;
-  if (isAuthenticated && user?.role === 'candidate') {
+  if (isAuthenticated && (user?.role === 'candidate' || user?.role === 'admin')) {
     return <Navigate to="/applypilot/welcome" replace />;
   }
   return <ApplyPilotLanding />;
