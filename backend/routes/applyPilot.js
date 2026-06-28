@@ -1752,8 +1752,31 @@ router.post('/applications/:appId/preview', async (req, res) => {
         },
       });
     }
+    // Puppeteer / browser-launch failures — production runs with
+    // PUPPETEER_SKIP_DOWNLOAD=true to stay under disk quota, so Chromium
+    // isn't installed and the dry-run preview can't render. Surface this
+    // as a friendly 200 so the UI shows the same "preview unavailable"
+    // panel it shows for unsupported ATSs, instead of a generic 500.
+    const msg = String(err?.message || '').toLowerCase();
+    const isBrowserMissing = /chromium|could not find browser|executablepath|failed to launch|browser was not found|puppeteer|playwright/.test(msg);
+    if (isBrowserMissing) {
+      console.warn('[applypilot] preview: browser unavailable, returning graceful fallback:', err.message);
+      return res.status(200).json({
+        ok: false,
+        preview: {
+          provider: adapter?.name || 'unknown',
+          dryRun: true,
+          unsupported: true,
+          errorCode: 'browser_unavailable',
+          error: 'Preview screenshots are unavailable in this environment. You can still approve and apply manually with the tailored materials.',
+          screenshots: [],
+          blockers: [],
+          resolutions: [],
+        },
+      });
+    }
     console.error('[applypilot] preview:', err);
-    res.status(500).json({ error: 'preview_failed' });
+    res.status(500).json({ error: 'preview_failed', message: err?.message || 'unknown' });
   }
 });
 
