@@ -1689,7 +1689,8 @@ const SetupPage = () => {
 
       <Footer>
         <FooterLeft>
-          <span aria-hidden>🗐</span> Your changes autosave
+          <span aria-hidden className="check">{savedAt ? '✓' : '⋯'}</span>
+          Your changes autosave
         </FooterLeft>
         <FooterRight>
           {step > 1 && (
@@ -1813,7 +1814,7 @@ const LiveMatchesCard = ({
         : corpusStatus === 'stale'
           ? 'No fresh postings in the index. Recent jobs will appear after the next sync (every 15 min).'
           : 'No matching postings yet. Try adding more role titles or relaxing your filters.')
-    : 'Counter reflects live ExternalJob data. Only postings ApplyPilot can actually auto-submit are counted.';
+    : 'Counter reflects live job-board data. Only postings ApplyPilot can actually auto-submit are counted.';
 
   return (
     <>
@@ -2798,11 +2799,24 @@ const Footer = styled.div`
 `;
 
 const FooterLeft = styled.div`
-  color: ${MUTED};
+  color: #1F8A4E;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+
+  .check {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #E2F4EA;
+    color: #1F8A4E;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
   @media (max-width: 520px) { display: none; }
 `;
 

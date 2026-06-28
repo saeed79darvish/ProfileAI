@@ -539,8 +539,7 @@ const DashboardPage = () => {
             {heroMode === 'review' && (
               <>
                 <Big>{pending.length}</Big>{' '}
-                {pending.length === 1 ? 'application has' : 'applications have'} been tailored and{' '}
-                {pending.length === 1 ? 'is' : 'are'} ready for review and Apply
+                {pending.length === 1 ? 'application is' : 'applications are'} tailored and ready for review &amp; apply
               </>
             )}
             {heroMode === 'scanning' && <>The pilot is scanning 40+ job boards</>}
