@@ -11,6 +11,9 @@ const INDUSTRY_OPTIONS = [
   'Gaming', 'Media',
 ];
 
+// Labels for the 4-step progress rail. Index matches step number - 1.
+const STEPS = ['Roles', 'Location & pay', 'Application answers', 'Pacing & guardrails'];
+
 // Family-aware title suggestions. The wizard used to hardcode an
 // SRE/Platform pool which felt off-brand for any candidate whose
 // profile didn't already say "SRE". Instead we pick a small family
@@ -737,10 +740,6 @@ const SetupPage = () => {
 
   return (
     <Page>
-      <SaveHint>
-        {savedAt ? 'Saved automatically' : 'Your changes autosave'}
-      </SaveHint>
-
       {setupRequired && (
         <SetupRequiredBanner role="status">
           <span aria-hidden style={{ fontSize: 18 }}>⚡</span>
@@ -750,14 +749,11 @@ const SetupPage = () => {
         </SetupRequiredBanner>
       )}
 
-      <Progress>
-        {[1, 2, 3, 4].map((n) => {
+      <StepRail aria-label="Setup progress">
+        {STEPS.map((label, i) => {
+          const n = i + 1;
           const isDone = n < step;
-          // Every dot is clickable, backward freely, forward as long
-          // as no required field on the steps we're skipping over is
-          // missing. Today the only hard gate is `workAuth` on step 3,
-          // so jumping from 1/2/3 → 4 with empty workAuth re-uses the
-          // same validation the Next button does.
+          const isActive = n === step;
           const handleDotClick = () => {
             if (n === step) return;
             // Same gate as handleNext, don't let the user reach step 4
@@ -777,23 +773,30 @@ const SetupPage = () => {
             setStep(n);
           };
           return (
-            <ProgressItem key={n}>
-              <Bubble
-                $active={n === step}
+            <React.Fragment key={n}>
+              <StepBlock
+                $active={isActive}
                 $done={isDone}
-                $clickable={n !== step}
+                $clickable={!isActive}
                 onClick={handleDotClick}
-                title={n === step ? undefined : `Go to step ${n}`}
-                aria-label={n === step ? `Step ${n} (current)` : `Go to step ${n}`}
-                aria-current={n === step ? 'step' : undefined}
+                aria-label={isActive ? `Step ${n} — ${label} (current)` : `Go to step ${n} — ${label}`}
+                aria-current={isActive ? 'step' : undefined}
+                type="button"
               >
-                {n}
-              </Bubble>
-              {n < 4 && <ProgressLine $done={isDone} />}
-            </ProgressItem>
+                <StepCircle $active={isActive} $done={isDone} aria-hidden>
+                  {isDone ? '✓' : n}
+                </StepCircle>
+                <StepLabel $active={isActive} $done={isDone}>{label}</StepLabel>
+              </StepBlock>
+              {n < STEPS.length && <StepLine $done={isDone} />}
+            </React.Fragment>
           );
         })}
-      </Progress>
+        <StepAutosave aria-live="polite">
+          <span aria-hidden>{savedAt ? '✓' : '⋯'}</span>
+          {savedAt ? 'Your changes autosave' : 'Your changes autosave'}
+        </StepAutosave>
+      </StepRail>
 
       <Layout>
         <Main>
@@ -1881,12 +1884,103 @@ const Page = styled.div`
 `;
 
 const SaveHint = styled.div`
-  position: absolute;
-  top: 22px;
-  right: 32px;
+  /* Deprecated — the inline StepAutosave inside the StepRail replaces
+     the absolute-positioned hint that used to overlap the
+     setup_required banner. Kept as a no-op for safety. */
+  display: none;
+`;
+
+const StepRail = styled.nav`
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 8px 0 32px;
+  max-width: 1180px;
+
+  @media (max-width: 900px) {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+`;
+
+const StepBlock = styled.button`
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: ${(p) => (p.$clickable ? 'pointer' : 'default')};
+  border-radius: 8px;
+  transition: background 0.15s ease;
+
+  &:hover {
+    ${(p) => p.$clickable && `background: rgba(108, 92, 231, 0.06);`}
+  }
+  &:focus-visible {
+    outline: 2px solid ${BRAND};
+    outline-offset: 2px;
+  }
+`;
+
+const StepCircle = styled.span`
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
   font-size: 13px;
-  color: ${MUTED};
-  @media (max-width: 768px) { display: none; }
+  font-weight: 700;
+  flex-shrink: 0;
+  color: ${(p) => (p.$active || p.$done ? '#fff' : MUTED)};
+  background: ${(p) => (p.$active || p.$done ? BRAND : '#FFFFFF')};
+  border: 1.5px solid ${(p) => (p.$active || p.$done ? BRAND : '#D8D5E6')};
+  transition: transform 0.15s ease;
+  ${(p) => p.$done && `font-size: 14px; line-height: 1;`}
+`;
+
+const StepLabel = styled.span`
+  font-size: 13.5px;
+  font-weight: ${(p) => (p.$active ? 700 : 500)};
+  color: ${(p) => (p.$active ? INK : p.$done ? '#3D3957' : MUTED)};
+  white-space: nowrap;
+
+  @media (max-width: 900px) { display: none; }
+`;
+
+const StepLine = styled.span`
+  flex: 1;
+  min-width: 14px;
+  height: 2px;
+  margin: 0 10px;
+  background: ${(p) => (p.$done ? BRAND : '#E9E6F3')};
+  border-radius: 2px;
+  transition: background 0.2s ease;
+`;
+
+const StepAutosave = styled.span`
+  margin-left: auto;
+  padding-left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #1F8A4E;
+
+  span[aria-hidden] {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #E2F4EA;
+    color: #1F8A4E;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  @media (max-width: 900px) { display: none; }
 `;
 
 const SetupRequiredBanner = styled.div`
@@ -1929,49 +2023,13 @@ const InlineError = styled.div`
   font-weight: 600;
 `;
 
-const Progress = styled.ol`
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 34px;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  max-width: 1180px;
+const Progress = styled.div`
+  /* Deprecated — replaced by StepRail above. No-op for safety. */
+  display: none;
 `;
-
-const ProgressItem = styled.li`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-`;
-
-const Bubble = styled.span`
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 700;
-  flex-shrink: 0;
-  color: ${(p) => (p.$active ? '#fff' : p.$done ? '#fff' : MUTED)};
-  background: ${(p) => (p.$active ? BRAND : p.$done ? BRAND : '#F4F2FB')};
-  border: 1px solid ${(p) => (p.$active || p.$done ? BRAND : LINE)};
-  cursor: ${(p) => (p.$clickable ? 'pointer' : 'default')};
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  &:hover {
-    ${(p) => p.$clickable && `
-      transform: scale(1.08);
-      box-shadow: 0 4px 12px rgba(108, 92, 231, 0.35);
-    `}
-  }
-`;
-
-const ProgressLine = styled.span`
-  flex: 1;
-  height: 2px;
-  background: ${(p) => (p.$done ? BRAND : LINE)};
-  border-radius: 2px;
-`;
+const ProgressItem = styled.span`display: none;`;
+const Bubble = styled.span`display: none;`;
+const ProgressLine = styled.span`display: none;`;
 
 const Layout = styled.div`
   display: grid;

@@ -2064,41 +2064,6 @@ const ReviewPage = () => {
                   </SkillToken>
                 </div>
               </ReviewHero>
-              {/* Prominent manual-apply CTA right under the hero so the
-                  candidate can act without scrolling to the footer.
-                  Approval has always been a two-step flow (approve
-                  materials -> submit on the employer's site); this
-                  surfaces the second step. handleMarkApplied opens the
-                  ATS apply page AND records the click as 'applied'
-                  in our tracking pipeline. Once applied, the button
-                  flips to a disabled "Applied" badge. */}
-              {!appDetail?.tracking?.manuallyAppliedAt && (
-                <HeroApplyRow>
-                  <HeroApplyMessage>
-                    <span aria-hidden style={{ fontSize: 16 }}>✨</span>
-                    <span>
-                      Materials ready. Auto-submit is coming soon — for now click <b>Apply on company site</b> to open the employer’s form. We’ll track the application from there.
-                    </span>
-                  </HeroApplyMessage>
-                  <HeroApplyCta
-                    onClick={handleMarkApplied}
-                    disabled={actionInFlight || isSelectedPreparing}
-                    title={isSelectedPreparing ? 'Application is still preparing' : 'Open the employer’s apply page'}
-                  >
-                    Apply on company site →
-                  </HeroApplyCta>
-                </HeroApplyRow>
-              )}
-              {appDetail?.tracking?.manuallyAppliedAt && (
-                <HeroApplyRow $applied>
-                  <HeroApplyMessage>
-                    <span aria-hidden style={{ fontSize: 16 }}>✅</span>
-                    <span>
-                      <b>Applied</b> on {new Date(appDetail.tracking.manuallyAppliedAt).toLocaleDateString()}. Update the status in the Submission tab as you hear back.
-                    </span>
-                  </HeroApplyMessage>
-                </HeroApplyRow>
-              )}
             </ReviewDetailHead>
 
             {/* Mobile-only compact header for "Open full" focus mode. */}
