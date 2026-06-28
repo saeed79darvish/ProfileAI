@@ -721,6 +721,59 @@ const EmptyDetailState = styled.div`
   }
 `;
 
+// Hero apply row. Single line on desktop (message left, CTA right),
+// stacks on narrow viewports. Two visual variants — default (orange,
+// nudges the user to apply) and $applied (green, confirms applied).
+const HeroApplyRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid ${p => (p.$applied ? '#C9E5D6' : '#FBE3D5')};
+  background: ${p => (p.$applied ? '#EFF9F3' : '#FEF6F1')};
+  color: ${p => (p.$applied ? '#1F6B43' : '#8B3A1A')};
+  font-size: 13.5px;
+  line-height: 1.45;
+
+  @media (max-width: 1199px) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    text-align: left;
+  }
+`;
+
+const HeroApplyMessage = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+`;
+
+const HeroApplyCta = styled.button`
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #6C5CE7;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover { background: #5A4BD1; }
+  &:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  @media (max-width: 1199px) {
+    width: 100%;
+    padding: 12px 18px;
+  }
+`;
+
 function arrayifyBullets(v) {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string') {
@@ -2011,6 +2064,41 @@ const ReviewPage = () => {
                   </SkillToken>
                 </div>
               </ReviewHero>
+              {/* Prominent manual-apply CTA right under the hero so the
+                  candidate can act without scrolling to the footer.
+                  Approval has always been a two-step flow (approve
+                  materials -> submit on the employer's site); this
+                  surfaces the second step. handleMarkApplied opens the
+                  ATS apply page AND records the click as 'applied'
+                  in our tracking pipeline. Once applied, the button
+                  flips to a disabled "Applied" badge. */}
+              {!appDetail?.tracking?.manuallyAppliedAt && (
+                <HeroApplyRow>
+                  <HeroApplyMessage>
+                    <span aria-hidden style={{ fontSize: 16 }}>✨</span>
+                    <span>
+                      Materials ready. Auto-submit is coming soon — for now click <b>Apply on company site</b> to open the employer’s form. We’ll track the application from there.
+                    </span>
+                  </HeroApplyMessage>
+                  <HeroApplyCta
+                    onClick={handleMarkApplied}
+                    disabled={actionInFlight || isSelectedPreparing}
+                    title={isSelectedPreparing ? 'Application is still preparing' : 'Open the employer’s apply page'}
+                  >
+                    Apply on company site →
+                  </HeroApplyCta>
+                </HeroApplyRow>
+              )}
+              {appDetail?.tracking?.manuallyAppliedAt && (
+                <HeroApplyRow $applied>
+                  <HeroApplyMessage>
+                    <span aria-hidden style={{ fontSize: 16 }}>✅</span>
+                    <span>
+                      <b>Applied</b> on {new Date(appDetail.tracking.manuallyAppliedAt).toLocaleDateString()}. Update the status in the Submission tab as you hear back.
+                    </span>
+                  </HeroApplyMessage>
+                </HeroApplyRow>
+              )}
             </ReviewDetailHead>
 
             {/* Mobile-only compact header for "Open full" focus mode. */}
@@ -2145,6 +2233,20 @@ const ReviewPage = () => {
                       </h3>
                       {appDetail?.coverLetter && (
                         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                          <Btn
+                            $size="sm"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(appDetail.coverLetter);
+                                toast?.success?.('Cover letter copied to clipboard.');
+                              } catch {
+                                toast?.error?.('Couldn’t copy. Try selecting the text manually.');
+                              }
+                            }}
+                            title="Copy cover letter to clipboard"
+                          >
+                            Copy
+                          </Btn>
                           <Btn
                             $size="sm"
                             $variant="primary"
