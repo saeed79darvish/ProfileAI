@@ -411,12 +411,31 @@ const DashboardPage = () => {
   };
 
   if (!cfgLoading && cfg && !hasCriteria(cfg)) {
-    // Send the user back to finish setup, NOT to /welcome. The welcome
-    // page bounces unconfigured users back to /agent which would create
-    // a redirect loop (Dashboard → welcome → agent → finish → Dashboard
-    // → welcome → ...). The ?setup_required=1 hint lets SetupPage show
-    // a banner explaining why they were redirected.
-    return <Navigate to="/applypilot/agent?setup_required=1" replace />;
+    // Don't redirect — that's what caused the welcome <-> dashboard loop
+    // earlier. Render the dashboard chrome with an explicit "finish
+    // setup" empty state so the user is in control of when to go back
+    // to the wizard. The previous Navigate also raced the SetupPage's
+    // unmount-flush save: GET /config could beat the in-flight PUT and
+    // see stale empty criteria, bouncing the user back even though
+    // their changes had been entered. Rendering inline removes the
+    // race entirely.
+    return (
+      <Page>
+        <div style={{ maxWidth: 720, margin: '64px auto 0', padding: '0 24px' }}>
+          <EmptyQueue>
+            <EmptyEmoji aria-hidden>🛫</EmptyEmoji>
+            <EmptyTitle>Finish your pilot setup</EmptyTitle>
+            <EmptySub>
+              Pick at least one role title and we&apos;ll start the queue. Takes about
+              60 seconds.
+            </EmptySub>
+            <EmptyCta onClick={() => navigate('/applypilot/agent?setup_required=1')}>
+              Open setup wizard →
+            </EmptyCta>
+          </EmptyQueue>
+        </div>
+      </Page>
+    );
   }
 
   return (

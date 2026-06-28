@@ -513,6 +513,34 @@ const SetupPage = () => {
     }
   }, [buildSavePayload]);
 
+  // Keep a ref pointing at the latest buildSavePayload so the unmount
+  // cleanup (which only runs once, on real unmount) can capture the most
+  // recent form state instead of whatever existed at mount.
+  const buildSavePayloadRef = useRef(buildSavePayload);
+  useEffect(() => { buildSavePayloadRef.current = buildSavePayload; }, [buildSavePayload]);
+
+  // Fire a final save on unmount. The wizard's TOP-NAV "Dashboard" link
+  // (rendered by AgentArenaShell, not by SetupPage) is a plain Link, so
+  // clicking it bypasses handleNext/handleExit entirely. Without this
+  // cleanup the 600ms debounced save gets cancelled by React's effect
+  // teardown, the user's latest edits never reach the server, the
+  // dashboard guard sees stale empty criteria, and bounces them right
+  // back here with ?setup_required=1.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        // Fire-and-forget — we can't await during unmount, but in
+        // practice the request beats the dashboard's GET /config since
+        // they happen on the same event loop.
+        try {
+          saveApplyPilotConfig(buildSavePayloadRef.current()).catch(() => {});
+        } catch { /* no-op */ }
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!hydratedRef.current) return;
     // Hydration sets a bunch of state in one render; swallow the tick it

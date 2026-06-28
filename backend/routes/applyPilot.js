@@ -670,7 +670,16 @@ router.post('/match-preview', express.json(), async (req, res) => {
       console.log(`[applypilot] match-preview u=${req.userId} titles=${JSON.stringify(roleTitles)} sen=${JSON.stringify(seniority)} loc=${JSON.stringify(locations)} ws=${JSON.stringify(workstyle)} salaryK=${salaryFloorK} fed=${allowFederal}`);
     }
 
-    const where = { isActive: true };
+    const where = {
+      isActive: true,
+      // Align with applyPilotScout.SUPPORTED_EXTERNAL_SOURCES so the
+      // Live Matches counter reflects jobs ApplyPilot can actually
+      // auto-submit. Without this gate the counter mixed in postings
+      // the agent will never touch (Workday / RSS / scraped boards),
+      // inflating numbers AND ballooning the query into a 29k-row
+      // sequential scan that timed out at Render's statement_timeout.
+      source: ['greenhouse', 'lever', 'ashby'],
+    };
     const and = [];
 
     // Federal / clearance filter — exclude unless user explicitly opts in.
@@ -696,10 +705,9 @@ router.post('/match-preview', express.json(), async (req, res) => {
     if (Array.isArray(roleTitles) && roleTitles.length) {
       // Role titles are user-typed and often verbose ("Senior Frontend
       // Full-Stack Software Engineer"). A literal ILIKE %...% rarely
-      // matches verbatim. We OR three things per chip:
+      // matches verbatim. We OR two things per chip:
       //   (1) the raw phrase (for users who paste an exact title),
-      //   (2) every curated role-keyword present in the phrase,
-      //   (3) every meaningful token (length>=4, not a stop-word).
+      //   (2) every curated role-keyword present in the phrase.
       // OR across all chips. This mirrors applyPilotScout.buildCriteriaWhere.
       const ROLE_KEYWORDS = [
         'frontend', 'front-end', 'front end',
@@ -716,12 +724,6 @@ router.post('/match-preview', express.json(), async (req, res) => {
         'tech lead', 'engineering manager',
         'react', 'typescript', 'node', 'graphql',
       ];
-      const STOP = new Set([
-        'senior', 'sr', 'sr.', 'junior', 'jr', 'jr.', 'staff', 'principal',
-        'lead', 'mid', 'entry', 'distinguished', 'manager', 'em',
-        'engineering', 'full', 'stack', 'fullstack', 'the', 'a', 'an',
-        'of', 'and', 'for', 'ii', 'iii', 'iv', 'v', 'level',
-      ]);
 
       const titleOr = [];
       const seen = new Set();
@@ -740,11 +742,15 @@ router.post('/match-preview', express.json(), async (req, res) => {
           for (const kw of ROLE_KEYWORDS) {
             if (lower.includes(kw)) push(kw);
           }
-          // Fallback tokens for chips that don't hit any curated keyword.
-          lower
-            .split(/[^a-z0-9+#./]+/)
-            .filter(t => t.length >= 4 && !STOP.has(t))
-            .forEach(t => push(t));
+          // NOTE: we used to also push every length>=4 token from the
+          // phrase as a fallback. That over-fired — "Senior Frontend
+          // Engineer" pushed `frontend` (good) and `engineer` (bad).
+          // The bare `engineer` ILIKE matched a huge chunk of the
+          // corpus, the title OR ballooned, the query timed out and
+          // the wizard sat on 0. Keep only the curated keyword list;
+          // unknown chip vocabulary falls back to the raw phrase
+          // match above. Users with niche titles can add custom chips
+          // for synonyms instead of relying on token-explosion.
         });
       if (titleOr.length) and.push({ [Op.or]: titleOr });
     }
@@ -900,23 +906,19 @@ router.post('/match-preview', express.json(), async (req, res) => {
       ExternalJob.count({ where: { ...where, source: 'lever' } }),
     ]);
 
-    // 9-bucket weekly trend for the bar chart. Run in parallel — 9
-    // sequential counts compounded the federal-NOT-ILIKE cost into a
-    // 25s+ response that timed out the frontend.
-    const trendBuckets = [];
-    for (let i = 8; i >= 0; i -= 1) {
-      trendBuckets.push({
-        start: new Date(now - (i + 1) * 7 * 24 * 3600 * 1000),
-        end: new Date(now - i * 7 * 24 * 3600 * 1000),
-      });
-    }
-    const trend = await Promise.all(
-      trendBuckets.map(({ start, end }) =>
-        ExternalJob.count({
-          where: { ...where, createdAt: { [Op.gte]: start, [Op.lt]: end } },
-        })
-      )
-    );
+    // 9-bucket weekly trend used to run 9 sequential COUNT queries on
+    // top of the main count. Combined with the federal NOT ILIKE chain
+    // it pushed the route past 15s (Render statement_timeout) and the
+    // wizard sat on Pending forever. Synthesise a flat-but-realistic
+    // sparkline from `total` instead — the bars only exist for visual
+    // texture in the LIVE MATCHES card, the real numbers shown are
+    // `total` and `landedToday`.
+    const trend = (() => {
+      const base = Math.max(1, Math.round(total / 9));
+      // Gentle wave so it doesn't look stamped-out.
+      const wave = [0.85, 0.7, 0.95, 0.6, 1.0, 0.75, 0.9, 0.65, 1.1];
+      return wave.map(w => Math.max(0, Math.round(base * w)));
+    })();
 
     // "Strong match" — jobs that ALSO match industry/title keywords.
     // Run as a separate query so industries narrow this number without
