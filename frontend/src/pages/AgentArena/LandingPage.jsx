@@ -79,25 +79,32 @@ const LandingPage = () => {
             </H1>
             <Lede>
               Tell ApplyPilot what you want. It watches <strong>40+ job boards</strong>,
-              tailors your resume and cover letter for each match, and submits the moment
+              tailors your résumé and cover letter for every match, and submits the moment
               you approve the preview.
             </Lede>
             <CtaRow>
               <Primary onClick={primaryAction}>
                 {primaryLabel}
               </Primary>
-              <Ghost onClick={() => scrollTo('how')}>See how it works</Ghost>
+              <Ghost onClick={() => scrollTo('how')}>See it running</Ghost>
               {!isSetUp && (
                 <Meta><span aria-hidden>⏱</span> 2 minutes to set up</Meta>
               )}
             </CtaRow>
 
             <HeroStats>
-              <Stat><strong>847</strong><span>apps sent last week</span></Stat>
-              <SDiv />
-              <Stat><strong>12%</strong><span>avg response rate</span></Stat>
-              <SDiv />
-              <Stat><strong>6.2 h</strong><span>saved per candidate</span></Stat>
+              <StatCard>
+                <strong>847</strong>
+                <span>apps sent last week</span>
+              </StatCard>
+              <StatCard>
+                <strong>12%</strong>
+                <span>avg response rate</span>
+              </StatCard>
+              <StatCard>
+                <strong>6.2 h</strong>
+                <span>hours saved / week</span>
+              </StatCard>
             </HeroStats>
           </HeroCopy>
 
@@ -212,106 +219,58 @@ const LandingPage = () => {
       {/* ── How it works ────────────────────────────────── */}
       <Section id="how">
         <SecEyebrow>HOW IT WORKS</SecEyebrow>
-        <SecTitle>Three steps. That&apos;s the whole thing.</SecTitle>
-        <SecLede>
-          From a blank profile to approved applications in the same afternoon, without
-          opening a single job board.
-        </SecLede>
+        <SecTitle>Set it once. Review on your terms.</SecTitle>
 
-        <Steps>
-          {/* Step 1, Set it up */}
-          <Step>
-            <StepHead>
-              <Num>1</Num>
-              <div>
-                <StepTitle>Set it up</StepTitle>
-                <StepSub>Tell the pilot what you want. Takes 2 minutes.</StepSub>
-              </div>
-            </StepHead>
-            <Mock>
-              <MockLabel>TARGET ROLES</MockLabel>
-              <MockChips>
-                <MChip $on>✓ Senior SRE</MChip>
-                <MChip $on>✓ Staff SRE</MChip>
-                <MChip $on>✓ Platform Engineer</MChip>
-                <MChip>+ add</MChip>
-              </MockChips>
-              <MockLabel style={{ marginTop: 14 }}>LOCATION · SALARY FLOOR</MockLabel>
-              <MockRow>
-                <MChip $on>Remote · NA</MChip>
-                <MChip $on>Toronto, CA</MChip>
-                <MoneyPill>$180k+</MoneyPill>
-              </MockRow>
-            </Mock>
-          </Step>
+        <HowGrid>
+          <HowCard>
+            <HowIcon>
+              {/* Target / criteria icon */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              </svg>
+            </HowIcon>
+            <HowNum>01</HowNum>
+            <HowTitle>Set your criteria</HowTitle>
+            <HowDesc>
+              Pick target roles, locations, comp floor and work style. ApplyPilot pulls
+              defaults from your profile so it takes about two minutes.
+            </HowDesc>
+          </HowCard>
 
-          {/* Step 2, Agent scouts */}
-          <Step>
-            <StepHead>
-              <Num>2</Num>
-              <div>
-                <StepTitle>The agent scouts</StepTitle>
-                <StepSub>40+ boards, 24/7, matched to your criteria.</StepSub>
-              </div>
-            </StepHead>
-            <Mock>
-              <ScoutHead>
-                <ScoutDot />
-                <span>LIVE · scanning Greenhouse, Lever, Ashby…</span>
-              </ScoutHead>
-              <JobCard>
-                <JobLogo $c="#5B8DEF">St</JobLogo>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <JobRole>Staff SRE</JobRole>
-                  <JobCo>Stripe · Remote</JobCo>
-                </div>
-                <Match $good>94%</Match>
-              </JobCard>
-              <JobCard>
-                <JobLogo $c="#22C55E">Vr</JobLogo>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <JobRole>Senior Platform Engineer</JobRole>
-                  <JobCo>Vercel · Remote</JobCo>
-                </div>
-                <Match $good>91%</Match>
-              </JobCard>
-              <JobCard>
-                <JobLogo $c="#F59E0B">Li</JobLogo>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <JobRole>Infrastructure Engineer</JobRole>
-                  <JobCo>Linear · Toronto</JobCo>
-                </div>
-                <Match>87%</Match>
-              </JobCard>
-            </Mock>
-          </Step>
+          <HowCard>
+            <HowIcon>
+              {/* Sparkle / AI icon */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 3l1.7 4.6L18 9l-4.3 1.4L12 15l-1.7-4.6L6 9l4.3-1.4L12 3z" fill="currentColor" />
+                <path d="M5 16l.8 2 2 .8-2 .8L5 22l-.8-2-2-.8 2-.8L5 16z" fill="currentColor" />
+                <path d="M19 14l.6 1.6 1.6.6-1.6.6L19 18.4l-.6-1.6-1.6-.6 1.6-.6L19 14z" fill="currentColor" />
+              </svg>
+            </HowIcon>
+            <HowNum>02</HowNum>
+            <HowTitle>The agent scouts &amp; tailors</HowTitle>
+            <HowDesc>
+              It scans 40+ boards around the clock, scores each match, and prepares a
+              tailored résumé, cover letter and filled form.
+            </HowDesc>
+          </HowCard>
 
-          {/* Step 3, Review & approve */}
-          <Step>
-            <StepHead>
-              <Num>3</Num>
-              <div>
-                <StepTitle>Review &amp; approve</StepTitle>
-                <StepSub>Glance at the preview. One click sends it.</StepSub>
-              </div>
-            </StepHead>
-            <Mock>
-              <ReviewHead>
-                <MChip $on>Tailored resume</MChip>
-                <MChip $on>Cover letter</MChip>
-              </ReviewHead>
-              <ReviewBody>
-                Hi Stripe team, I&apos;m reaching out about the Staff SRE role.
-                Over the past 5 years I&apos;ve led reliability for
-                payments infrastructure at…
-              </ReviewBody>
-              <ReviewActions>
-                <ApproveBtn>Approve &amp; send</ApproveBtn>
-                <TweakBtn>Tweak</TweakBtn>
-              </ReviewActions>
-            </Mock>
-          </Step>
-        </Steps>
+          <HowCard>
+            <HowIcon>
+              {/* Check / approve icon */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="5 12 10 17 19 7" />
+              </svg>
+            </HowIcon>
+            <HowNum>03</HowNum>
+            <HowTitle>You review &amp; approve</HowTitle>
+            <HowDesc>
+              Every application waits in your inbox. Approve to submit, tweak the draft,
+              or skip — nothing goes out without your nod.
+            </HowDesc>
+          </HowCard>
+        </HowGrid>
       </Section>
 
       {/* ── Dashboard preview ───────────────────────────── */}
@@ -1020,26 +979,31 @@ const Meta = styled.span`
 `;
 
 const HeroStats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  max-width: 560px;
+
+  @media (max-width: 560px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+`;
+
+const StatCard = styled.div`
   display: flex;
-  align-items: center;
-  gap: 28px;
+  flex-direction: column;
+  gap: 4px;
   background: #FFFFFF;
   border: 1px solid ${LINE};
   border-radius: 14px;
-  padding: 18px 26px;
-  flex-wrap: wrap;
-  max-width: 720px;
-`;
+  padding: 16px 18px;
 
-const Stat = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   strong {
-    font-size: 24px;
+    font-size: 26px;
     font-weight: 800;
     color: ${BRAND};
     letter-spacing: -0.015em;
+    line-height: 1;
   }
   span {
     font-size: 12.5px;
@@ -1047,12 +1011,10 @@ const Stat = styled.div`
   }
 `;
 
-const SDiv = styled.span`
-  width: 1px;
-  height: 30px;
-  background: ${LINE};
-  @media (max-width: 720px) { display: none; }
-`;
+// Deprecated — kept exported so nothing else in the tree breaks. The
+// new layout uses StatCard inside a grid HeroStats.
+const Stat = styled.div`display: none;`;
+const SDiv = styled.span`display: none;`;
 
 /* ── Sections ── */
 
@@ -1090,7 +1052,69 @@ const SecLede = styled.p`
   max-width: 60ch;
 `;
 
-/* ── Steps ── */
+/* ── How-it-works cards (new design) ── */
+
+const HowGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  margin-top: 36px;
+  @media (max-width: 960px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const HowCard = styled.div`
+  background: #FFFFFF;
+  border: 1px solid ${LINE};
+  border-radius: 18px;
+  padding: 22px 24px 24px;
+  box-shadow: 0 1px 2px rgba(23, 21, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+`;
+
+const HowIcon = styled.div`
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: ${BRAND_50};
+  color: ${BRAND};
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+`;
+
+const HowNum = styled.div`
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  font-size: 22px;
+  font-weight: 800;
+  color: ${BRAND};
+  letter-spacing: -0.01em;
+  line-height: 1;
+`;
+
+const HowTitle = styled.h3`
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: ${INK};
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+`;
+
+const HowDesc = styled.p`
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: ${MUTED};
+`;
+
+/* ── Steps (deprecated — replaced by HowGrid above. Kept exports for safety.) ── */
 
 const Steps = styled.div`
   display: grid;
