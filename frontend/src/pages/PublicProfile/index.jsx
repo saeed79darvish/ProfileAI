@@ -16,10 +16,12 @@ import {
   Divider,
   Alert,
   Snackbar,
-  Fab,
   Fade,
   Zoom,
   Tooltip,
+  SpeedDial,
+  SpeedDialAction,
+  SpeedDialIcon,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -30,12 +32,14 @@ import ChatIcon from '@mui/icons-material/Chat';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
+import CloseIcon from '@mui/icons-material/Close';
 import EmailIcon from '@mui/icons-material/Email';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PersonIcon from '@mui/icons-material/Person';
+import PhoneIcon from '@mui/icons-material/Phone';
 import SchoolIcon from '@mui/icons-material/School';
 import ShareIcon from '@mui/icons-material/Share';
 import TwitterIcon from '@mui/icons-material/Twitter';
@@ -630,6 +634,7 @@ const PublicProfile = () => {
   const [userSessions, setUserSessions] = useState([]);
   const [showCopiedSnackbar, setShowCopiedSnackbar] = useState(false);
   const [showStickyHeader, setShowStickyHeader] = useState(false);
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
   
   const headerRef = useRef(null);
 
@@ -784,6 +789,7 @@ const PublicProfile = () => {
     ? `${user.firstName} ${user.lastName}` 
     : profile.title || 'User';
   const email = user.email || '';
+  const phone = profile.phone || profile.phoneNumber || '';
   const location = profile.location || '';
   const title = profile.title || '';
   const bio = profile.summary || profile.aiSummary || '';
@@ -826,7 +832,12 @@ const PublicProfile = () => {
   const projects = Array.isArray(profile.projects) ? profile.projects : [];
   const achievements = profile.aiStrengths || [];
   const aiScore = profile.aiKeywords?.length > 0 ? Math.min(95, 60 + profile.aiKeywords.length * 5) : null;
-  const profileImage = resolveImageUrl(profile.profilePicture) || '';
+  // Fall back to the OAuth photo (User.profilePictureUrl) when the candidate
+  // hasn't uploaded a separate Profile.profilePicture. The authenticated
+  // navbar already self-heals via the GET /profiles/me backfill, but the
+  // public endpoint is read-only and would otherwise show an initial
+  // avatar to recruiters even though the candidate has an OAuth photo.
+  const profileImage = resolveImageUrl(profile.profilePicture || profile.user?.profilePictureUrl) || '';
   const coverImage = resolveImageUrl(profile.coverImage) || '';
   
   // Helper to ensure URLs have proper protocol
@@ -1049,26 +1060,55 @@ const PublicProfile = () => {
               </Box>
               
               {/* Social Links */}
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {email && (
+                  <Tooltip title={email}>
+                    <IconButton href={`mailto:${email}`} sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <EmailIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {phone && (
+                  <Tooltip title={phone}>
+                    <IconButton href={`tel:${phone}`} sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <PhoneIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 {socialLinks.linkedin && (
-                  <IconButton href={socialLinks.linkedin} target="_blank" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
-                    <LinkedInIcon />
-                  </IconButton>
+                  <Tooltip title="LinkedIn">
+                    <IconButton href={socialLinks.linkedin} target="_blank" rel="noopener noreferrer" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <LinkedInIcon />
+                    </IconButton>
+                  </Tooltip>
                 )}
                 {socialLinks.github && (
-                  <IconButton href={socialLinks.github} target="_blank" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
-                    <GitHubIcon />
-                  </IconButton>
+                  <Tooltip title="GitHub">
+                    <IconButton href={socialLinks.github} target="_blank" rel="noopener noreferrer" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <GitHubIcon />
+                    </IconButton>
+                  </Tooltip>
                 )}
                 {socialLinks.twitter && (
-                  <IconButton href={socialLinks.twitter} target="_blank" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
-                    <TwitterIcon />
-                  </IconButton>
+                  <Tooltip title="Twitter / X">
+                    <IconButton href={socialLinks.twitter} target="_blank" rel="noopener noreferrer" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <TwitterIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {socialLinks.website && (
+                  <Tooltip title="Website">
+                    <IconButton href={socialLinks.website} target="_blank" rel="noopener noreferrer" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <WebsiteIcon />
+                    </IconButton>
+                  </Tooltip>
                 )}
                 {portfolioUrl && (
-                  <IconButton href={portfolioUrl} target="_blank" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
-                    <WebsiteIcon />
-                  </IconButton>
+                  <Tooltip title="Portfolio">
+                    <IconButton href={portfolioUrl} target="_blank" rel="noopener noreferrer" sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.15)', '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' } }}>
+                      <FolderIcon />
+                    </IconButton>
+                  </Tooltip>
                 )}
               </Box>
             </Box>
@@ -1178,10 +1218,47 @@ const PublicProfile = () => {
             size="small"
             sx={{ borderColor: '#e5e7eb', color: '#6b7280', fontWeight: 500, height: 32, borderRadius: 4 }}
           />
+          {email && (
+            <Tooltip title={email}>
+              <IconButton href={`mailto:${email}`} size="small" sx={{ bgcolor: '#667eea', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#4f63d2' } }}>
+                <EmailIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          {phone && (
+            <Tooltip title={phone}>
+              <IconButton href={`tel:${phone}`} size="small" sx={{ bgcolor: '#10b981', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#059669' } }}>
+                <PhoneIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
           {socialLinks.linkedin && (
-            <IconButton href={socialLinks.linkedin} target="_blank" size="small" sx={{ bgcolor: '#0A66C2', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#004182' } }}>
-              <LinkedInIcon sx={{ fontSize: 18 }} />
-            </IconButton>
+            <Tooltip title="LinkedIn">
+              <IconButton href={socialLinks.linkedin} target="_blank" rel="noopener noreferrer" size="small" sx={{ bgcolor: '#0A66C2', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#004182' } }}>
+                <LinkedInIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          {socialLinks.github && (
+            <Tooltip title="GitHub">
+              <IconButton href={socialLinks.github} target="_blank" rel="noopener noreferrer" size="small" sx={{ bgcolor: '#24292e', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#1a1f24' } }}>
+                <GitHubIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          {socialLinks.twitter && (
+            <Tooltip title="Twitter / X">
+              <IconButton href={socialLinks.twitter} target="_blank" rel="noopener noreferrer" size="small" sx={{ bgcolor: '#1da1f2', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#0c85d0' } }}>
+                <TwitterIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          {(socialLinks.website || portfolioUrl) && (
+            <Tooltip title={socialLinks.website ? 'Website' : 'Portfolio'}>
+              <IconButton href={socialLinks.website || portfolioUrl} target="_blank" rel="noopener noreferrer" size="small" sx={{ bgcolor: '#a855f7', color: 'white', width: 32, height: 32, '&:hover': { bgcolor: '#9333ea' } }}>
+                <WebsiteIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           )}
         </Box>
 
@@ -1353,10 +1430,19 @@ const PublicProfile = () => {
                 <SectionHeader icon={StarIcon} title="Quick Highlights" color="#f59e0b" />
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
-                    <QuickHighlightCard 
+                    <QuickHighlightCard
                       icon={WorkIcon}
                       title="Current Role"
-                      subtitle={experience[0]?.role ? `${experience[0].role} at ${experience[0].company}` : (title || 'N/A')}
+                      subtitle={
+                        // Single source of truth: the saved profile title.
+                        // Falls back to the most recent experience role only
+                        // when no title is set — avoids showing a stale
+                        // "QA Engineer" headline for a candidate whose saved
+                        // title is "Senior Full Stack Developer".
+                        title
+                          ? (experience[0]?.company ? `${title} at ${experience[0].company}` : title)
+                          : (experience[0]?.role ? `${experience[0].role}${experience[0].company ? ` at ${experience[0].company}` : ''}` : 'N/A')
+                      }
                       color="#3b82f6"
                     />
                   </Grid>
@@ -1754,24 +1840,89 @@ const PublicProfile = () => {
         </Container>
       </Box>
 
-      {/* Floating Email FAB - hidden on mobile to avoid distracting from profile */}
-      <Fab
-        color="primary"
-        href={`mailto:${email}`}
+      {/* Floating Contact SpeedDial */}
+      <SpeedDial
+        ariaLabel="Contact options"
+        open={speedDialOpen}
+        onOpen={() => setSpeedDialOpen(true)}
+        onClose={() => setSpeedDialOpen(false)}
+        icon={<SpeedDialIcon icon={<EmailIcon />} openIcon={<CloseIcon />} />}
         sx={{
           display: { xs: 'none', md: 'flex' },
           position: 'fixed',
           bottom: 24,
           right: 24,
-          background: 'linear-gradient(135deg, #667eea 0%, #a855f7 100%)',
-          boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
-          '&:hover': {
-            boxShadow: '0 12px 32px rgba(102, 126, 234, 0.5)',
+          '& .MuiSpeedDial-fab': {
+            background: 'linear-gradient(135deg, #667eea 0%, #a855f7 100%)',
+            boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+            '&:hover': { boxShadow: '0 12px 32px rgba(102, 126, 234, 0.5)' },
           },
         }}
       >
-        <EmailIcon />
-      </Fab>
+        {email && (
+          <SpeedDialAction
+            icon={<EmailIcon />}
+            tooltipTitle={email}
+            tooltipOpen
+            onClick={() => { window.location.href = `mailto:${email}`; setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#667eea', color: 'white', '&:hover': { bgcolor: '#4f63d2' } } }}
+          />
+        )}
+        {phone && (
+          <SpeedDialAction
+            icon={<PhoneIcon />}
+            tooltipTitle={phone}
+            tooltipOpen
+            onClick={() => { window.location.href = `tel:${phone}`; setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#10b981', color: 'white', '&:hover': { bgcolor: '#059669' } } }}
+          />
+        )}
+        {socialLinks.linkedin && (
+          <SpeedDialAction
+            icon={<LinkedInIcon />}
+            tooltipTitle="LinkedIn"
+            tooltipOpen
+            onClick={() => { window.open(socialLinks.linkedin, '_blank', 'noopener,noreferrer'); setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#0A66C2', color: 'white', '&:hover': { bgcolor: '#004182' } } }}
+          />
+        )}
+        {socialLinks.github && (
+          <SpeedDialAction
+            icon={<GitHubIcon />}
+            tooltipTitle="GitHub"
+            tooltipOpen
+            onClick={() => { window.open(socialLinks.github, '_blank', 'noopener,noreferrer'); setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#24292e', color: 'white', '&:hover': { bgcolor: '#1a1f24' } } }}
+          />
+        )}
+        {socialLinks.twitter && (
+          <SpeedDialAction
+            icon={<TwitterIcon />}
+            tooltipTitle="Twitter / X"
+            tooltipOpen
+            onClick={() => { window.open(socialLinks.twitter, '_blank', 'noopener,noreferrer'); setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#1da1f2', color: 'white', '&:hover': { bgcolor: '#0c85d0' } } }}
+          />
+        )}
+        {socialLinks.website && (
+          <SpeedDialAction
+            icon={<WebsiteIcon />}
+            tooltipTitle="Website"
+            tooltipOpen
+            onClick={() => { window.open(socialLinks.website, '_blank', 'noopener,noreferrer'); setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#a855f7', color: 'white', '&:hover': { bgcolor: '#9333ea' } } }}
+          />
+        )}
+        {portfolioUrl && (
+          <SpeedDialAction
+            icon={<FolderIcon />}
+            tooltipTitle="Portfolio"
+            tooltipOpen
+            onClick={() => { window.open(portfolioUrl, '_blank', 'noopener,noreferrer'); setSpeedDialOpen(false); }}
+            FabProps={{ sx: { bgcolor: '#ec4899', color: 'white', '&:hover': { bgcolor: '#db2777' } } }}
+          />
+        )}
+      </SpeedDial>
 
       {/* Copy Link Success Snackbar */}
       <Snackbar
