@@ -66,10 +66,11 @@ import {
 } from './styled';
 import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS, CAREER_STAGES } from './constants';
 import { getSectorProfile, getStageCopy } from './sectorProfiles';
-import { mapWizardExperienceToEditor, wizardDataToProfileShape } from './handoff';
+import { mapWizardExperienceToEditor, mapWizardProjectToEditor, wizardDataToProfileShape } from './handoff';
 import { validateHttpUrl } from '@/utils/urlValidation';
 import { validateYear, validateYearRange } from './yearValidation';
 import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
+import useAICredits from '@/hooks/useAICredits';
 import BrandWordmark from '@/components/BrandWordmark';
 import AICreditsBadge from '@/components/AICreditsBadge';
 
@@ -233,6 +234,21 @@ const JobPreferencesWizard = () => {
   const [aiDraftKey, setAiDraftKey] = useState(null);
   const [aiDraftError, setAiDraftError] = useState('');
 
+  // Live AI credits for the AI Draft buttons. Pulled from the same source
+  // the AICreditsBadge displays so the button's disabled state and the
+  // header counter always agree. When out of credits the buttons grey out
+  // proactively instead of letting users click and hit the paywall.
+  const aiCredits = useAICredits('profile_enhance');
+  const outOfAICredits =
+    !aiCredits.loading && !aiCredits.isUnlimited && aiCredits.remaining === 0;
+  const aiPeriodSuffix = aiCredits.period === 'month' ? 'this month' : 'this week';
+  const aiDraftTooltip = outOfAICredits
+    ? `No AI credits left ${aiPeriodSuffix}`
+    : aiCredits.isUnlimited
+      ? 'Unlimited AI (Pro)'
+      : `Costs 1 AI credit · ${aiCredits.remaining ?? '…'} left ${aiPeriodSuffix}`;
+  const aiOutOfCreditsHelper = `Out of AI credits ${aiPeriodSuffix}. Upgrade or wait for the reset.`;
+
   // URL validation errors for inline display. Keys: `portfolio` for the
   // Step 5 portfolio link, `projects.${idx}.url` for each project row.
   // Empty when no errors. Cleared on field edit, set on blur, and
@@ -321,11 +337,13 @@ const JobPreferencesWizard = () => {
     navigate('/profile/create-form');
   };
 
-  // Re-run URL validation over the whole wizard. Used as a guard in
-  // handleFinish so users can't bypass blur-driven inline validation by
-  // pasting bad URLs and clicking through quickly. Mirrors the per-field
-  // validation rules so the messages match exactly.
-  const validateAllUrls = useCallback(() => {
+  // Derived URL errors over the whole wizard. Same pattern as
+  // `yearErrorsAll`: a memo of the live data is the source of truth for
+  // gating Continue / Finish, while `urlErrors` (state) is what surfaces
+  // inline on blur. Computing from `data` means a freshly-typed bad URL
+  // blocks Continue even before the input has blurred, so users can't
+  // click through a stale-state window.
+  const urlErrorsAll = useMemo(() => {
     const errs = {};
     const sp = getSectorProfile(data.sector);
     // Portfolio URL is only validated when the field is in URL mode. In
@@ -424,13 +442,12 @@ const JobPreferencesWizard = () => {
     // Guard: block navigation if any URL field is invalid. Bounce the
     // user back to the Projects step (index 5) where every URL input
     // lives, and surface the field-level errors so they can fix them.
-    const urlErrs = validateAllUrls();
-    if (Object.keys(urlErrs).length > 0) {
-      setUrlErrors(urlErrs);
+    if (Object.keys(urlErrorsAll).length > 0) {
+      setUrlErrors(urlErrorsAll);
       setAnimDir('left');
       setCurrentStep(5);
       // Focus the first invalid field once the step renders.
-      const firstKey = Object.keys(urlErrs)[0];
+      const firstKey = Object.keys(urlErrorsAll)[0];
       setTimeout(() => {
         const selector = `[name="${firstKey.replace(/\./g, '\\.')}"]`;
         const el = document.querySelector(selector);
@@ -475,9 +492,11 @@ const JobPreferencesWizard = () => {
     const cleanedEducation = (data.education || []).filter(
       (e) => (e.degree || '').trim() || (e.institution || '').trim() || (e.fieldOfStudy || '').trim()
     );
-    const cleanedProjects = (data.projects || []).filter(
-      (p) => (p.title || '').trim() || (p.description || '').trim()
-    );
+    const cleanedProjects = (data.projects || [])
+      .filter(
+        (p) => (p.title || '').trim() || (p.description || '').trim()
+      )
+      .map(mapWizardProjectToEditor);
 
     // Navigate to ProfileForm with pre-filled data (matching resumeData shape)
     navigate('/profile/create-form', {
@@ -521,11 +540,11 @@ const JobPreferencesWizard = () => {
       case 2: return true; // skills are optional
       case 3: return true; // experience optional — branched by careerStage
       case 4: return Object.keys(yearErrorsAll).length === 0; // years must validate
-      case 5: return true; // projects optional
+      case 5: return Object.keys(urlErrorsAll).length === 0; // portfolio + project URLs must validate
       case 6: return true;
       default: return true;
     }
-  }, [currentStep, data, yearErrorsAll]);
+  }, [currentStep, data, yearErrorsAll, urlErrorsAll]);
 
   // Live profile-completion score. Single source of truth shared with the
   // editor sidebar, the success modal, and the Dashboard card via
@@ -1359,17 +1378,19 @@ const JobPreferencesWizard = () => {
                       for the candidate's industry (latency for tech, ACV
                       for sales, jurisdiction for legal, etc.). */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75, gap: 1, flexWrap: 'wrap' }}>
-                    <Typography sx={{ fontSize: 11.5, color: (exp.description?.length || 0) < 10 ? '#94a3b8' : '#6366f1', fontWeight: 500 }}>
+                    <Typography sx={{ fontSize: 11.5, color: (exp.description?.length || 0) < 10 ? '#94a3b8' : outOfAICredits ? '#dc2626' : '#6366f1', fontWeight: 500 }}>
                       {(exp.description?.length || 0) < 10
                         ? 'Add 10+ characters to unlock AI Draft.'
-                        : sp.experience.descriptionHelper}
+                        : outOfAICredits
+                          ? aiOutOfCreditsHelper
+                          : sp.experience.descriptionHelper}
                     </Typography>
-                    <Tooltip title="Costs 1 AI credit">
+                    <Tooltip title={aiDraftTooltip}>
                       <span>
                         <NavButton
                           $primary
                           type="button"
-                          disabled={(exp.description?.length || 0) < 10 || aiDraftKey === `experience-${idx}`}
+                          disabled={(exp.description?.length || 0) < 10 || aiDraftKey === `experience-${idx}` || outOfAICredits}
                           onClick={() => draftWithAI('experience', 'experience', idx, { company: exp.company, title: exp.title, sector: data.sector, hint: sp.experience.aiContextHint })}
                           style={{ padding: '6px 12px', fontSize: 12 }}
                         >
@@ -1646,17 +1667,19 @@ const JobPreferencesWizard = () => {
                   Experience. Helps candidates turn a rough sentence into
                   a recruiter-friendly bullet (problem / approach / result). */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.75, gap: 1, flexWrap: 'wrap' }}>
-                <Typography sx={{ fontSize: 11.5, color: (p.description?.length || 0) < 10 ? '#94a3b8' : '#6366f1', fontWeight: 500 }}>
+                <Typography sx={{ fontSize: 11.5, color: (p.description?.length || 0) < 10 ? '#94a3b8' : outOfAICredits ? '#dc2626' : '#6366f1', fontWeight: 500 }}>
                   {(p.description?.length || 0) < 10
                     ? 'Add 10+ characters to unlock AI Draft.'
-                    : 'AI rewrites as problem → approach → impact.'}
+                    : outOfAICredits
+                      ? aiOutOfCreditsHelper
+                      : 'AI rewrites as problem → approach → impact.'}
                 </Typography>
-                <Tooltip title="Costs 1 AI credit">
+                <Tooltip title={aiDraftTooltip}>
                   <span>
                     <NavButton
                       $primary
                       type="button"
-                      disabled={(p.description?.length || 0) < 10 || aiDraftKey === `projects-${idx}`}
+                      disabled={(p.description?.length || 0) < 10 || aiDraftKey === `projects-${idx}` || outOfAICredits}
                       onClick={() => draftWithAI('project', 'projects', idx, { title: p.title, role: p.role })}
                       style={{ padding: '6px 12px', fontSize: 12 }}
                     >

@@ -57,6 +57,7 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LanguageIcon from '@mui/icons-material/Language';
+import TwitterIcon from '@mui/icons-material/Twitter';
 import AddIcon from '@mui/icons-material/Add';
 import SchoolIcon from '@mui/icons-material/School';
 import CodeIcon from '@mui/icons-material/Code';
@@ -74,6 +75,7 @@ import EmojiObjectsIcon from '@mui/icons-material/EmojiObjects';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAuth } from '@/contexts/AuthContext';
+import { featureFlags } from '@/config/featureFlags';
 import { profileAPI, tailoredProfileAPI, subscriptionAPI, postAPI, resolveImageUrl } from '@/services/api';
 import { formatDateRange } from '@/utils/dateRange';
 import { diag } from '@/utils/diagLogger';
@@ -1370,7 +1372,7 @@ const Dashboard = () => {
               The avatar / name / title / location / "Edit Profile" / "Open to work"
               badge are all surfaced in the ProfileHero at the top of the page,
               so this card is now contact-only to avoid duplication. */}
-          {(user?.email || profile?.phone || profile?.linkedinUrl || profile?.githubUrl || profile?.portfolioUrl) && (
+          {(user?.email || profile?.phone || profile?.linkedinUrl || profile?.githubUrl || profile?.portfolioUrl || profile?.twitterUrl || profile?.websiteUrl) && (
             <ProfileCard>
               <CardHeader>
                 <CardTitle>Contact</CardTitle>
@@ -1396,9 +1398,19 @@ const Dashboard = () => {
                     <GitHubIcon /> GitHub
                   </ContactItem>
                 )}
+                {profile?.twitterUrl && (
+                  <ContactItem href={profile.twitterUrl} target="_blank" rel="noopener noreferrer">
+                    <TwitterIcon /> Twitter
+                  </ContactItem>
+                )}
                 {profile?.portfolioUrl && (
                   <ContactItem href={profile.portfolioUrl} target="_blank" rel="noopener noreferrer">
                     <WebsiteIcon /> Portfolio
+                  </ContactItem>
+                )}
+                {profile?.websiteUrl && (
+                  <ContactItem href={profile.websiteUrl} target="_blank" rel="noopener noreferrer">
+                    <WebsiteIcon /> Website
                   </ContactItem>
                 )}
               </ContactInfo>
@@ -1509,7 +1521,13 @@ const Dashboard = () => {
                 <Tab label="Education" id="profile-tab-2" aria-controls="profile-tabpanel-2" />
                 <Tab label="Projects" id="profile-tab-3" aria-controls="profile-tabpanel-3" />
                 <Tab label="Tailored Profiles" id="profile-tab-4" aria-controls="profile-tabpanel-4" />
-                <Tab label="Posts" id="profile-tab-5" aria-controls="profile-tabpanel-5" />
+                {/* Posts tab is gated on the social-feed feature flag.
+                    When the /feed route is off (VITE_ENABLE_FEED=false),
+                    showing the tab would send users to a blank no-route
+                    page via Create Post. */}
+                {featureFlags.feed && (
+                  <Tab label="Posts" id="profile-tab-5" aria-controls="profile-tabpanel-5" />
+                )}
               </Tabs>
             </TabsHeader>
             
@@ -1933,8 +1951,8 @@ const Dashboard = () => {
                 </Section>
               )}
               
-              {/* Posts Tab */}
-              {activeTab === 5 && (
+              {/* Posts Tab — gated by the social-feed feature flag. */}
+              {featureFlags.feed && activeTab === 5 && (
                 <>
                   {/* My Posts Section */}
                   <Section>

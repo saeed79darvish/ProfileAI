@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   inferDefaultEmploymentType,
   mapWizardExperienceToEditor,
+  mapWizardProjectToEditor,
+  isSourceCodeUrl,
   wizardEmploymentTypeToEditorValue,
   wizardDataToProfileShape,
 } from './handoff.js';
@@ -215,4 +217,107 @@ test('wizard parity: addRow("projects", EMPTY_PROJECT) leaves the meter unchange
     wizardDataToProfileShape({ ...base, projects: [WIZARD_EMPTY_PROJECT] }),
   );
   assert.equal(afterClick.pct, before.pct);
+});
+
+// ── isSourceCodeUrl + mapWizardProjectToEditor ──────────────────────────────
+// The wizard has one URL input per project; the editor has two (Live Demo /
+// GitHub). Route by hostname so users don't have to think about which slot
+// their link belongs in.
+
+test('isSourceCodeUrl: github.com / gitlab.com / bitbucket.org match', () => {
+  assert.equal(isSourceCodeUrl('https://github.com/octocat/repo'), true);
+  assert.equal(isSourceCodeUrl('https://www.github.com/octocat'), true);
+  assert.equal(isSourceCodeUrl('https://gitlab.com/group/repo'), true);
+  assert.equal(isSourceCodeUrl('https://bitbucket.org/user/repo'), true);
+  assert.equal(isSourceCodeUrl('http://github.com/octocat'), true);
+});
+
+test('isSourceCodeUrl: hostname comparison is exact — no substring leakage', () => {
+  // Critical: never let "github.com.evil.com" be treated as a source-code
+  // link. Substring/`includes` checks would let this through.
+  assert.equal(isSourceCodeUrl('https://github.com.evil.com/foo'), false);
+  assert.equal(isSourceCodeUrl('https://evil.com/github.com'), false);
+  assert.equal(isSourceCodeUrl('https://notgithub.com/foo'), false);
+});
+
+test('isSourceCodeUrl: rejects empty / non-http / invalid', () => {
+  assert.equal(isSourceCodeUrl(''), false);
+  assert.equal(isSourceCodeUrl('   '), false);
+  assert.equal(isSourceCodeUrl('not-a-url'), false);
+  assert.equal(isSourceCodeUrl('javascript:alert(1)'), false);
+  assert.equal(isSourceCodeUrl('ftp://github.com/foo'), false);
+  assert.equal(isSourceCodeUrl(null), false);
+  assert.equal(isSourceCodeUrl(undefined), false);
+});
+
+test('mapWizardProjectToEditor: github URL lands in githubUrl, not url', () => {
+  const out = mapWizardProjectToEditor({
+    title: 'Library',
+    role: 'Maintainer',
+    description: 'OSS library.',
+    url: 'https://github.com/octocat/lib',
+  });
+  assert.equal(out.githubUrl, 'https://github.com/octocat/lib');
+  assert.equal(out.url, '');
+});
+
+test('mapWizardProjectToEditor: live-demo URL lands in url, not githubUrl', () => {
+  const out = mapWizardProjectToEditor({
+    title: 'Landing page',
+    description: 'A nice landing page.',
+    url: 'https://example.com/demo',
+  });
+  assert.equal(out.url, 'https://example.com/demo');
+  assert.equal(out.githubUrl, '');
+});
+
+test('mapWizardProjectToEditor: gitlab and bitbucket also route to githubUrl', () => {
+  const gl = mapWizardProjectToEditor({ title: 'P', url: 'https://gitlab.com/g/r' });
+  assert.equal(gl.githubUrl, 'https://gitlab.com/g/r');
+  assert.equal(gl.url, '');
+
+  const bb = mapWizardProjectToEditor({ title: 'P', url: 'https://bitbucket.org/u/r' });
+  assert.equal(bb.githubUrl, 'https://bitbucket.org/u/r');
+  assert.equal(bb.url, '');
+});
+
+test('mapWizardProjectToEditor: empty URL leaves both fields empty', () => {
+  const out = mapWizardProjectToEditor({ title: 'Untitled', description: 'wip' });
+  assert.equal(out.url, '');
+  assert.equal(out.githubUrl, '');
+});
+
+test('mapWizardProjectToEditor: invalid URL falls through to url (live demo) without crashing', () => {
+  // We don't double-validate here — the wizard already blocks Continue
+  // on invalid URLs via canProceed + urlErrorsAll. If something slips
+  // through, treat it as a live-demo URL so the editor's per-project URL
+  // validator can surface its own error.
+  const out = mapWizardProjectToEditor({ title: 'P', url: 'not-a-valid-url' });
+  assert.equal(out.url, 'not-a-valid-url');
+  assert.equal(out.githubUrl, '');
+});
+
+test('mapWizardProjectToEditor: hostname-not-substring guard — github.com.evil.com goes to live demo', () => {
+  // Phishing host shaped like a source-code link must NOT land in the
+  // editor's source-code field — that would be even more confusing /
+  // dangerous than landing in Live Demo. URL validation elsewhere
+  // already blocks bad URLs from being saved.
+  const out = mapWizardProjectToEditor({
+    title: 'Phishy',
+    url: 'https://github.com.evil.com/octocat',
+  });
+  assert.equal(out.githubUrl, '');
+  assert.equal(out.url, 'https://github.com.evil.com/octocat');
+});
+
+test('mapWizardProjectToEditor: passes through title / role / description', () => {
+  const out = mapWizardProjectToEditor({
+    title: 'OpenProj',
+    role: 'Maintainer',
+    description: 'A library that does things.',
+    url: 'https://github.com/me/openproj',
+  });
+  assert.equal(out.title, 'OpenProj');
+  assert.equal(out.role, 'Maintainer');
+  assert.equal(out.description, 'A library that does things.');
 });

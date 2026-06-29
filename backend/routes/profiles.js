@@ -1217,7 +1217,7 @@ router.get('/:id', async (req, res) => {
     if (!isUuid(id)) {
       const userBySlug = await User.findOne({
         where: { slug: id },
-        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug'],
+        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug', 'profilePictureUrl'],
       });
       if (!userBySlug) {
         return res.status(404).json({ error: 'Profile not found or not public' });
@@ -1235,14 +1235,14 @@ router.get('/:id', async (req, res) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug']
+        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug', 'profilePictureUrl']
       }]
     });
 
     // If no candidate profile found, check if it's a recruiter
     if (!profile) {
       const user = await User.findByPk(userId, {
-        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug']
+        attributes: ['id', 'firstName', 'lastName', 'email', 'role', 'slug', 'profilePictureUrl']
       });
 
       if (user && user.role === 'recruiter') {

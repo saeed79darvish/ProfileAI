@@ -40,6 +40,7 @@ const useAICredits = (featureType = 'profile_enhance') => {
     used: 0,
     limit: -1,
     isUnlimited: false,
+    period: 'week', // 'week' | 'month' — which cap is binding
     loading: true,
     error: null,
   });
@@ -52,15 +53,32 @@ const useAICredits = (featureType = 'profile_enhance') => {
         setState((p) => ({ ...p, loading: false, error: 'no-data' }));
         return;
       }
-      // `-1` means unlimited in the backend's getUsageSummary contract.
-      // Free tier has a weekly cap; we surface "this week" rather than
-      // monthly because that's the tighter constraint candidates feel.
-      const isUnlimited = feature.weeklyLimit === -1 || feature.weeklyRemaining === -1;
+      // Critical: a feature is only "Unlimited" when BOTH the weekly and
+      // the monthly caps are -1. Free tier has e.g.
+      //   profile_enhance: { monthly: 1, weekly: -1 }
+      // — a -1 weekly here just means "no weekly check", not "unlimited".
+      // Reading weekly alone made the badge claim "Unlimited" while the
+      // monthly cap was actually binding (and at 0 remaining the user
+      // hit the paywall).
+      //
+      // The user-facing number is the BINDING limit — whichever of
+      // weekly/monthly has the fewer remaining credits. We treat -1 as
+      // Infinity so the min picks the real cap.
+      const weeklyUncapped = feature.weeklyLimit === -1;
+      const monthlyUncapped = feature.monthlyLimit === -1;
+      const isUnlimited = weeklyUncapped && monthlyUncapped;
+      const wRem = weeklyUncapped ? Infinity : feature.weeklyRemaining;
+      const mRem = monthlyUncapped ? Infinity : feature.monthlyRemaining;
+      const binding = wRem <= mRem ? 'week' : 'month';
+      const remaining = isUnlimited ? -1 : Math.min(wRem, mRem);
+      const used = binding === 'week' ? feature.week || 0 : feature.month || 0;
+      const limit = binding === 'week' ? feature.weeklyLimit : feature.monthlyLimit;
       setState({
-        remaining: isUnlimited ? -1 : feature.weeklyRemaining,
-        used: feature.week || 0,
-        limit: feature.weeklyLimit,
+        remaining,
+        used,
+        limit,
         isUnlimited,
+        period: binding, // 'week' | 'month' — which cap is binding
         loading: false,
         error: null,
       });

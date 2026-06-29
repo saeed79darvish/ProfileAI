@@ -120,3 +120,72 @@ export const wizardDataToProfileShape = (data = {}) => {
     portfolioUrl: data.portfolioUrl || '',
   };
 };
+
+// Source-code hosts that should populate the editor's "GitHub / Source Code"
+// field instead of "Live Demo". Matched on registrable hostname (parsed via
+// URL — substring matching is too lax and would route a phishing host like
+// "github.com.evil.com" to the source-code field).
+const SOURCE_CODE_HOSTS = new Set([
+  'github.com',
+  'www.github.com',
+  'gitlab.com',
+  'www.gitlab.com',
+  'bitbucket.org',
+  'www.bitbucket.org',
+]);
+
+/**
+ * Return true when `value` is a syntactically valid http(s) URL whose
+ * hostname is one of the well-known source-code hosts above.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export const isSourceCodeUrl = (value) => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch (_) {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  return SOURCE_CODE_HOSTS.has(parsed.hostname.toLowerCase());
+};
+
+/**
+ * Transform a single wizard project row into the shape the ProfileForm
+ * editor expects.
+ *
+ * The wizard has ONE URL input per project; the editor has two — Live Demo
+ * (`url`) and GitHub / Source Code (`githubUrl`). To preserve user intent
+ * without making the wizard more complex, we route by hostname:
+ *
+ *   - github.com / gitlab.com / bitbucket.org  → editor `githubUrl`
+ *   - everything else valid                    → editor `url` (live demo)
+ *   - empty / unparseable                      → both empty
+ *
+ * Other fields (title, role, description) pass through unchanged so the
+ * editor's existing project schema (technologies, imageUrl, startDate,
+ * endDate) defaults to empty for fields the wizard doesn't collect.
+ *
+ * @param {{ title?: string, role?: string, description?: string, url?: string }} p
+ * @returns {object} editor-shaped project row
+ */
+export const mapWizardProjectToEditor = (p = {}) => {
+  const rawUrl = (p.url || '').trim();
+  const routesToSource = isSourceCodeUrl(rawUrl);
+  return {
+    title: p.title || '',
+    role: p.role || '',
+    description: p.description || '',
+    url: routesToSource ? '' : rawUrl,
+    githubUrl: routesToSource ? rawUrl : '',
+    technologies: [],
+    imageUrl: '',
+    startDate: '',
+    endDate: '',
+  };
+};

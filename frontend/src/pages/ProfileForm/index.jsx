@@ -1892,7 +1892,7 @@ const ProfileForm = () => {
               <DeleteIcon /> Clear Resume
             </AIButton>
           )}
-          <Tooltip title="Costs 1 AI credit per use">
+          <Tooltip title="Rewrite your profile with AI">
             <span>
               <AIButton
                 onClick={() => setShowEnhancePrompt(true)}
@@ -1900,18 +1900,18 @@ const ProfileForm = () => {
                 $mobileHide
               >
                 {enhancing ? <CircularProgress size={16} color="inherit" /> : <AIIcon />}
-                {enhancing ? 'Enhancing...' : <>Enhance<HideOnMobile> · 1 credit</HideOnMobile></>}
+                {enhancing ? 'Enhancing...' : 'Enhance'}
               </AIButton>
             </span>
           </Tooltip>
-          <Tooltip title="Costs 1 AI credit per use">
+          <Tooltip title="Tailor your profile to a job description">
             <span>
               <AIButton
                 onClick={() => setShowJobTailor(!showJobTailor)}
                 disabled={!formData.title}
                 $mobileHide
               >
-                <TailorIcon /> Tailor<HideOnMobile> · 1 credit</HideOnMobile>
+                <TailorIcon /> Tailor
               </AIButton>
             </span>
           </Tooltip>
@@ -3176,6 +3176,160 @@ const ProfileForm = () => {
             ))}
           </Paper>
 
+          <Paper ref={educationRef} sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 1.5, sm: 3 }, background: 'white', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ color: '#1a1a2e', fontWeight: 600 }}>Education</Typography>
+              <Button startIcon={<AddIcon />} onClick={handleAddEducation} sx={{ color: '#667eea' }}>
+                Add Education
+              </Button>
+            </Box>
+            {formData.education.map((edu, index) => (
+              <Box key={index} sx={{ mb: 2, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                  <Tooltip title="Remove this education entry">
+                    <IconButton
+                      size="small"
+                      onClick={() => setDeleteConfirm({ open: true, type: 'education', index, label: edu.degree || edu.institution || `Education ${index + 1}` })}
+                      sx={{ color: 'rgba(239, 68, 68, 0.7)' }}
+                      aria-label="Remove education"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Degree/Program"
+                      value={edu.degree}
+                      onChange={(e) => handleEducationChange(index, 'degree', e.target.value)}
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Institution"
+                      value={edu.institution}
+                      onChange={(e) => handleEducationChange(index, 'institution', e.target.value)}
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Field of Study"
+                      value={edu.fieldOfStudy || edu.field || edu.major || ''}
+                      onChange={(e) => handleEducationChange(index, 'fieldOfStudy', e.target.value)}
+                      placeholder="e.g., Computer Science"
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Location"
+                      value={edu.location || ''}
+                      onChange={(e) => handleEducationChange(index, 'location', e.target.value)}
+                      placeholder="e.g., Berkeley, CA"
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="month"
+                      label="Start Date"
+                      value={toIsoMonth(edu.startDate)}
+                      onChange={(e) => handleEducationChange(index, 'startDate', e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      helperText={!toIsoMonth(edu.startDate) && edu.startDate ? `Saved as: ${edu.startDate}` : ''}
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="month"
+                      label="End Date"
+                      value={isPresentValue(edu.endDate) ? '' : toIsoMonth(edu.endDate)}
+                      onChange={(e) => handleEducationChange(index, 'endDate', e.target.value)}
+                      disabled={isPresentValue(edu.endDate)}
+                      InputLabelProps={{ shrink: true }}
+                      helperText={isPresentValue(edu.endDate) ? 'Currently enrolled' : (!toIsoMonth(edu.endDate) && edu.endDate ? `Saved as: ${edu.endDate}` : (edu.year ? `Legacy year: ${edu.year}` : ''))}
+                      sx={darkTextFieldSx}
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={isPresentValue(edu.endDate)}
+                          onChange={(e) => handleEducationChange(index, 'endDate', e.target.checked ? 'Present' : '')}
+                          size="small"
+                          sx={{ color: '#9ca3af', '&.Mui-checked': { color: '#667eea' } }}
+                        />
+                      }
+                      label={<Typography variant="caption" sx={{ color: '#6b7280' }}>Currently enrolled</Typography>}
+                      sx={{ ml: 0, mt: -1 }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="GPA"
+                      value={edu.gpa || ''}
+                      onChange={(e) => handleEducationChange(index, 'gpa', e.target.value)}
+                      placeholder="e.g., 3.8/4.0"
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={8}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Honors / Awards"
+                      value={edu.honors || ''}
+                      onChange={(e) => handleEducationChange(index, 'honors', e.target.value)}
+                      placeholder="e.g., Magna Cum Laude, Dean's List"
+                      sx={darkTextFieldSx}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={3}
+                      size="small"
+                      label="Description / Coursework"
+                      value={edu.description || ''}
+                      onChange={(e) => handleEducationChange(index, 'description', e.target.value)}
+                      placeholder="Relevant coursework, thesis, activities, or extracurriculars..."
+                      sx={darkTextFieldSx}
+                    />
+                    <InlineAIEnhanceButton
+                      loading={enhancingField === `edu-${index}`}
+                      disabled={(edu.description?.length || 0) < 10}
+                      label="Polish description"
+                      helperText={
+                        (edu.description?.length || 0) < 10
+                          ? 'Add coursework, thesis or activities \u2014 AI will tighten the wording.'
+                          : 'Rewrite for clarity and recruiter-friendly tone.'
+                      }
+                      onClick={() => handleEnhanceField(`edu-${index}`, 'summary', edu.description, { degree: edu.degree, institution: edu.institution, fieldOfStudy: edu.fieldOfStudy }, (enhanced) => handleEducationChange(index, 'description', enhanced), `${edu.degree || 'education'} description`)}
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+            ))}
+          </Paper>
+
           <Paper ref={projectsRef} sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 1.5, sm: 3 }, background: 'white', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6" sx={{ color: '#1a1a2e', fontWeight: 600 }}>Projects</Typography>
@@ -3384,160 +3538,6 @@ const ProfileForm = () => {
                 </Typography>
               </Box>
             )}
-          </Paper>
-
-          <Paper ref={educationRef} sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 1.5, sm: 3 }, background: 'white', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" sx={{ color: '#1a1a2e', fontWeight: 600 }}>Education</Typography>
-              <Button startIcon={<AddIcon />} onClick={handleAddEducation} sx={{ color: '#667eea' }}>
-                Add Education
-              </Button>
-            </Box>
-            {formData.education.map((edu, index) => (
-              <Box key={index} sx={{ mb: 2, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                  <Tooltip title="Remove this education entry">
-                    <IconButton
-                      size="small"
-                      onClick={() => setDeleteConfirm({ open: true, type: 'education', index, label: edu.degree || edu.institution || `Education ${index + 1}` })}
-                      sx={{ color: 'rgba(239, 68, 68, 0.7)' }}
-                      aria-label="Remove education"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={12}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Degree/Program"
-                      value={edu.degree}
-                      onChange={(e) => handleEducationChange(index, 'degree', e.target.value)}
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Institution"
-                      value={edu.institution}
-                      onChange={(e) => handleEducationChange(index, 'institution', e.target.value)}
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Field of Study"
-                      value={edu.fieldOfStudy || edu.field || edu.major || ''}
-                      onChange={(e) => handleEducationChange(index, 'fieldOfStudy', e.target.value)}
-                      placeholder="e.g., Computer Science"
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Location"
-                      value={edu.location || ''}
-                      onChange={(e) => handleEducationChange(index, 'location', e.target.value)}
-                      placeholder="e.g., Berkeley, CA"
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      type="month"
-                      label="Start Date"
-                      value={toIsoMonth(edu.startDate)}
-                      onChange={(e) => handleEducationChange(index, 'startDate', e.target.value)}
-                      InputLabelProps={{ shrink: true }}
-                      helperText={!toIsoMonth(edu.startDate) && edu.startDate ? `Saved as: ${edu.startDate}` : ''}
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      type="month"
-                      label="End Date"
-                      value={isPresentValue(edu.endDate) ? '' : toIsoMonth(edu.endDate)}
-                      onChange={(e) => handleEducationChange(index, 'endDate', e.target.value)}
-                      disabled={isPresentValue(edu.endDate)}
-                      InputLabelProps={{ shrink: true }}
-                      helperText={isPresentValue(edu.endDate) ? 'Currently enrolled' : (!toIsoMonth(edu.endDate) && edu.endDate ? `Saved as: ${edu.endDate}` : (edu.year ? `Legacy year: ${edu.year}` : ''))}
-                      sx={darkTextFieldSx}
-                    />
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={isPresentValue(edu.endDate)}
-                          onChange={(e) => handleEducationChange(index, 'endDate', e.target.checked ? 'Present' : '')}
-                          size="small"
-                          sx={{ color: '#9ca3af', '&.Mui-checked': { color: '#667eea' } }}
-                        />
-                      }
-                      label={<Typography variant="caption" sx={{ color: '#6b7280' }}>Currently enrolled</Typography>}
-                      sx={{ ml: 0, mt: -1 }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="GPA"
-                      value={edu.gpa || ''}
-                      onChange={(e) => handleEducationChange(index, 'gpa', e.target.value)}
-                      placeholder="e.g., 3.8/4.0"
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={8}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Honors / Awards"
-                      value={edu.honors || ''}
-                      onChange={(e) => handleEducationChange(index, 'honors', e.target.value)}
-                      placeholder="e.g., Magna Cum Laude, Dean's List"
-                      sx={darkTextFieldSx}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={3}
-                      size="small"
-                      label="Description / Coursework"
-                      value={edu.description || ''}
-                      onChange={(e) => handleEducationChange(index, 'description', e.target.value)}
-                      placeholder="Relevant coursework, thesis, activities, or extracurriculars..."
-                      sx={darkTextFieldSx}
-                    />
-                    <InlineAIEnhanceButton
-                      loading={enhancingField === `edu-${index}`}
-                      disabled={(edu.description?.length || 0) < 10}
-                      label="Polish description"
-                      helperText={
-                        (edu.description?.length || 0) < 10
-                          ? 'Add coursework, thesis or activities \u2014 AI will tighten the wording.'
-                          : 'Rewrite for clarity and recruiter-friendly tone.'
-                      }
-                      onClick={() => handleEnhanceField(`edu-${index}`, 'summary', edu.description, { degree: edu.degree, institution: edu.institution, fieldOfStudy: edu.fieldOfStudy }, (enhanced) => handleEducationChange(index, 'description', enhanced), `${edu.degree || 'education'} description`)}
-                    />
-                  </Grid>
-                </Grid>
-              </Box>
-            ))}
           </Paper>
 
           {(() => {

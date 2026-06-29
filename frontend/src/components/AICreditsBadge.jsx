@@ -22,10 +22,14 @@ const AICreditsBadge = ({
   style,
   className,
 }) => {
-  const { remaining, isUnlimited, loading, error } = useAICredits(feature);
+  const { remaining, isUnlimited, period, loading, error } = useAICredits(feature);
 
   // Hide entirely while loading or on soft errors — never block UI.
   if (loading || error) return null;
+
+  // `period` is which cap is currently binding (weekly vs monthly) so the
+  // copy doesn't say "this week" when the monthly limit is the real one.
+  const periodSuffix = period === 'month' ? 'this month' : 'this week';
 
   let text;
   let color;
@@ -34,11 +38,11 @@ const AICreditsBadge = ({
     color = tone === 'dark' ? '#86efac' : '#16a34a';
   } else if (remaining > 0) {
     text = showLabel
-      ? `AI · ${remaining} credit${remaining === 1 ? '' : 's'} left this week`
-      : `${remaining} AI credit${remaining === 1 ? '' : 's'} left this week`;
+      ? `AI · ${remaining} credit${remaining === 1 ? '' : 's'} left ${periodSuffix}`
+      : `${remaining} AI credit${remaining === 1 ? '' : 's'} left ${periodSuffix}`;
     color = tone === 'dark' ? '#c4b5fd' : '#6366f1';
   } else {
-    text = 'No AI credits left — upgrade for more';
+    text = `No AI credits left ${periodSuffix} — upgrade for more`;
     color = tone === 'dark' ? '#fca5a5' : '#dc2626';
   }
 
