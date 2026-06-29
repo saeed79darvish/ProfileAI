@@ -1081,6 +1081,22 @@ router.post(
         profile = await Profile.create(profileData);
       }
 
+      // Mark onboarding complete once the profile has a title AND at least
+      // a summary or one experience entry — i.e. it's a real first profile.
+      // This flips the AI rate limiter from the generous 'onboarding' tier
+      // to the user's actual subscription tier.
+      if (!req.user.aiOnboardingCompleted) {
+        const hasTitle = !!(profileData.title && profileData.title.trim());
+        const hasSummary = !!(profileData.summary && profileData.summary.trim());
+        const hasExperience = Array.isArray(profileData.experience) && profileData.experience.length > 0;
+        if (hasTitle && (hasSummary || hasExperience)) {
+          await User.update(
+            { aiOnboardingCompleted: true },
+            { where: { id: req.user.id } }
+          );
+        }
+      }
+
       res.json(profile);
     } catch (error) {
       console.error('Error creating/updating profile:', error);

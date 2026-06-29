@@ -13,6 +13,10 @@ const anthropic = new Anthropic.default({
 // Default Claude model. Override via ANTHROPIC_MODEL env var.
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
 
+// Fast/cheap model for low-stakes features (post enhancement, career tips, etc.)
+// ~80% cheaper than Sonnet — used for features where quality is good enough.
+const HAIKU_MODEL = process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-5-haiku-20241022';
+
 /**
  * Centralized AI call function
  * Includes retry with exponential backoff for transient failures
@@ -61,5 +65,7 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
 module.exports = {
   callAI,
   safeParseJSON,
-  validateAIScores
+  validateAIScores,
+  DEFAULT_MODEL,
+  HAIKU_MODEL
 };

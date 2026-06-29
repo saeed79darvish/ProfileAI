@@ -19,7 +19,7 @@ const Subscription = sequelize.define('Subscription', {
   planType: {
     // 'enterprise' is retained for legacy rows; new candidate signups use
     // 'pro_plus'. A migration adds these values to the Postgres ENUM.
-    type: DataTypes.ENUM('free', 'pro', 'pro_plus', 'enterprise'),
+    type: DataTypes.ENUM('free', 'starter', 'pro', 'pro_plus', 'enterprise'),
     allowNull: false
   },
   userRole: {
@@ -101,11 +101,36 @@ const SUBSCRIPTION_PLANS = {
         applyPilotAuto: false
       },
       limits: {
-        resume_parse: '1/month',
-        profile_enhance: '1/month',
-        tailor_profile: '3 free trials (lifetime)',
-        cover_letter: '2/month',
-        career_suggestions: '5/month'
+        resume_parse: '2/month',
+        profile_enhance: '2/month',
+        tailor_profile: '5/month',
+        cover_letter: '5/month',
+        career_suggestions: '10/month'
+      }
+    },
+    starter: {
+      name: 'Starter',
+      price: 6.99,
+      yearlyPrice: 55.99, // ~$4.67/mo (save ~33%)
+      features: {
+        profileCreation: true,
+        basicAIEnhancement: true,
+        communityAccess: true,
+        profileViews: 100,
+        jobAlerts: true,
+        prioritySupport: false,
+        advancedAI: false,
+        coverLetterGen: true,
+        resumeTailoring: true,
+        watermarkedExports: false,
+        applyPilotAuto: false
+      },
+      limits: {
+        resume_parse: '5/month',
+        profile_enhance: '10/month',
+        tailor_profile: '20/month',
+        cover_letter: '20/month',
+        career_suggestions: 'Unlimited'
       }
     },
     pro: {

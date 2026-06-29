@@ -124,8 +124,15 @@ const aiRateLimiter = (featureType) => {
       }
 
       const role = user.role || 'candidate';
-      const tier = user.subscriptionTier || 'free';
-      
+      let tier = user.subscriptionTier || 'free';
+
+      // Onboarding override: candidate who hasn't completed their first profile
+      // gets the generous 'onboarding' tier regardless of subscription.
+      // This lets new users experience all profile-building AI features for free.
+      if (role === 'candidate' && !user.aiOnboardingCompleted) {
+        tier = 'onboarding';
+      }
+
       // Get limits for this feature
       const limits = getLimits(role, tier, featureType);
       

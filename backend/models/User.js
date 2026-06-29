@@ -63,7 +63,7 @@ const User = sequelize.define('User', {
     allowNull: false
   },
   subscriptionTier: {
-    type: DataTypes.ENUM('free', 'pro', 'pro_plus', 'enterprise'),
+    type: DataTypes.ENUM('free', 'starter', 'pro', 'pro_plus', 'enterprise'),
     defaultValue: 'free',
     allowNull: false
   },
@@ -115,6 +115,14 @@ const User = sequelize.define('User', {
     defaultValue: false,
     allowNull: false,
     comment: 'When true, the candidate is excluded from the daily job-match digest email'
+  },
+  // Set to true once the candidate publishes their first complete profile.
+  // While false the aiRateLimiter uses the generous 'onboarding' tier so
+  // new users can experience all profile-building AI features for free.
+  aiOnboardingCompleted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   timestamps: true,

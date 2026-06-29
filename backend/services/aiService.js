@@ -14,7 +14,7 @@
  *   - screening.js - Screening and matching prompts
  */
 
-const { callAI, safeParseJSON, validateAIScores } = require('./ai/core');
+const { callAI, safeParseJSON, validateAIScores, HAIKU_MODEL } = require('./ai/core');
 const {
   profile: profilePrompts,
   job: jobPrompts,
@@ -580,7 +580,8 @@ Return as JSON array:
       const response = await callAI({
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1200,
-        temperature: 0.7
+        temperature: 0.7,
+        model: HAIKU_MODEL  // career tips don't need Sonnet quality
       });
       return response.choices[0].message.content.trim();
     } catch (error) {
@@ -628,7 +629,8 @@ Return as JSON array:
       const response = await callAI({
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 400,
-        temperature: 0.3  // Lower temperature for more consistent output
+        temperature: 0.3,  // Lower temperature for more consistent output
+        model: HAIKU_MODEL  // post enhancement is cost-sensitive
       });
       const responseContent = response.choices[0].message.content.trim();
       const result = safeParseJSON(responseContent, { enhanced: responseContent });
@@ -723,12 +725,13 @@ Respond with ONLY valid JSON in this exact format:
       const response = await callAI({
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 1000,
-        temperature: 0.8
+        temperature: 0.8,
+        model: HAIKU_MODEL  // post suggestions don't need Sonnet quality
       });
       const content = response.choices[0].message.content.trim();
       // Extract JSON from response (handle if wrapped in markdown code blocks)
       const result = safeParseJSON(content, {});
-      
+
       return {
         topicIdeas: result.topicIdeas || [],
         contentTemplates: result.contentTemplates || [],

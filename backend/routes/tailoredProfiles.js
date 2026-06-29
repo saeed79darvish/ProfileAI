@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
 const { TailoredProfile, Profile } = require('../models');
 const resumeParserService = require('../services/resumeParserService');
 
@@ -256,7 +257,7 @@ router.get('/:id/gaps', auth, async (req, res) => {
 // @route   POST /api/tailored-profiles/:id/generate-interview-prep
 // @desc    Generate personalized interview prep based on interview level and profile gaps
 // @access  Private
-router.post('/:id/generate-interview-prep', auth, async (req, res) => {
+router.post('/:id/generate-interview-prep', auth, aiRateLimiter('interview_prep'), async (req, res) => {
   try {
     const { interviewLevel, interviewFormat, specificConcerns } = req.body;
 
@@ -315,6 +316,12 @@ router.post('/:id/generate-interview-prep', auth, async (req, res) => {
     };
 
     await tailoredProfile.update({ tailoredData: updatedTailoredData });
+
+    // Record AI usage — interview_prep is expensive ($0.145) so it's gated
+    await recordAIUsage(req.user.id, 'interview_prep', {
+      jobTitle: tailoredProfile.jobTitle,
+      interviewLevel
+    });
 
     res.json({
       success: true,

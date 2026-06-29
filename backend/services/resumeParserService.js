@@ -128,12 +128,12 @@ function repairTruncatedJSON(text) {
   }
 }
 
-async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, retries = 3 }) {
+async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, retries = 3, model }) {
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const response = await anthropic.messages.create({
-        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
+        model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
         max_tokens,
         temperature,
         system: system || 'You are a helpful AI assistant.',
@@ -1007,7 +1007,8 @@ Be specific and actionable. Return ONLY valid JSON.`;
         system: 'You are a career coach providing specific, actionable feedback to improve professional profiles.',
         prompt,
         temperature: 0.7,
-        max_tokens: 2000
+        max_tokens: 2000,
+        model: process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-5-haiku-20241022'  // cost-sensitive feature
       });
       
       let jsonText = responseText;
