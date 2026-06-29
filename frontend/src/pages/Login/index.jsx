@@ -131,8 +131,16 @@ const Login = () => {
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
         : navigate(dest, { replace: true });
     } catch (err) {
-      if (err.response?.status === 404) {
+      // 5xx from /auth/google almost always means the backend lost its DB
+      // connection (Render Postgres restart / brief recovery -> Postgres
+      // returns 57P03 'cannot_connect_now', which surfaces here as a 500).
+      // The Google credential itself is fine and a retry in a few seconds
+      // typically works, so don't blame Google for it.
+      const status = err.response?.status;
+      if (status === 404) {
         setError(TEXT.ERROR_GOOGLE_NO_ACCOUNT);
+      } else if (status >= 500) {
+        setError(TEXT.ERROR_SERVER_UNAVAILABLE);
       } else {
         setError(err.response?.data?.error || TEXT.ERROR_GOOGLE_LOGIN);
       }

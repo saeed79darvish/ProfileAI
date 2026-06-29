@@ -27,6 +27,7 @@ export const TEXT = {
   ERROR_GOOGLE_NO_ACCOUNT: 'No account found. Please sign up with Google first.',
   ERROR_GOOGLE_LOGIN: 'Google login failed. Please try again.',
   ERROR_GOOGLE_SIGNIN: 'Google sign-in failed. Please try again.',
+  ERROR_SERVER_UNAVAILABLE: 'Our server is briefly unavailable. Please try again in a moment.',
   ERROR_LOGIN: 'Login failed. Please try again.',
   SIGN_IN_LINKEDIN: 'Sign in with LinkedIn',
   DIVIDER_TEXT: 'Or sign in with email',
