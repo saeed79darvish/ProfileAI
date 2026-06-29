@@ -64,15 +64,31 @@ const useAICredits = (featureType = 'profile_enhance') => {
       // The user-facing number is the BINDING limit — whichever of
       // weekly/monthly has the fewer remaining credits. We treat -1 as
       // Infinity so the min picks the real cap.
-      const weeklyUncapped = feature.weeklyLimit === -1;
-      const monthlyUncapped = feature.monthlyLimit === -1;
-      const isUnlimited = weeklyUncapped && monthlyUncapped;
-      const wRem = weeklyUncapped ? Infinity : feature.weeklyRemaining;
-      const mRem = monthlyUncapped ? Infinity : feature.monthlyRemaining;
-      const binding = wRem <= mRem ? 'week' : 'month';
-      const remaining = isUnlimited ? -1 : Math.min(wRem, mRem);
-      const used = binding === 'week' ? feature.week || 0 : feature.month || 0;
-      const limit = binding === 'week' ? feature.weeklyLimit : feature.monthlyLimit;
+      const weeklyUncapped   = feature.weeklyLimit   === -1;
+      const monthlyUncapped  = feature.monthlyLimit  === -1;
+      const dailyUncapped    = (feature.dailyLimit   ?? -1) === -1;
+      const lifetimeUncapped = (feature.lifetimeLimit ?? -1) === -1;
+      const isUnlimited = weeklyUncapped && monthlyUncapped && dailyUncapped && lifetimeUncapped;
+      const wRem = weeklyUncapped   ? Infinity : feature.weeklyRemaining;
+      const mRem = monthlyUncapped  ? Infinity : feature.monthlyRemaining;
+      const dRem = dailyUncapped    ? Infinity : (feature.dailyRemaining   ?? 0);
+      const lRem = lifetimeUncapped ? Infinity : (feature.lifetimeRemaining ?? 0);
+      const candidates = [
+        { period: 'week', rem: wRem },
+        { period: 'month', rem: mRem },
+        { period: 'day', rem: dRem },
+        { period: 'lifetime', rem: lRem },
+      ];
+      const { period: binding } = candidates.reduce((a, b) => a.rem <= b.rem ? a : b);
+      const remaining = isUnlimited ? -1 : Math.min(wRem, mRem, dRem, lRem);
+      const used = binding === 'week' ? feature.week || 0
+        : binding === 'day' ? feature.day || 0
+        : binding === 'lifetime' ? feature.lifetime || 0
+        : feature.month || 0;
+      const limit = binding === 'week' ? feature.weeklyLimit
+        : binding === 'day' ? feature.dailyLimit
+        : binding === 'lifetime' ? feature.lifetimeLimit
+        : feature.monthlyLimit;
       setState({
         remaining,
         used,

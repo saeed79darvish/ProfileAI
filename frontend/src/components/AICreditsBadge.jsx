@@ -29,7 +29,10 @@ const AICreditsBadge = ({
 
   // `period` is which cap is currently binding (weekly vs monthly) so the
   // copy doesn't say "this week" when the monthly limit is the real one.
-  const periodSuffix = period === 'month' ? 'this month' : 'this week';
+  const periodSuffix = period === 'month' ? 'this month'
+    : period === 'day' ? 'today'
+    : period === 'lifetime' ? 'lifetime'
+    : 'this week';
 
   let text;
   let color;

@@ -6,18 +6,37 @@ import assert from 'node:assert/strict';
 // limit math is the part that broke (weekly -1 sentinel was wrongly treated
 // as "Unlimited" while monthly was the real cap), so we factor it out into a
 // pure function here and exercise the table of cases.
+//
+// v2: also covers the daily + lifetime cap axes that the backend now returns
+// (e.g. free tailor_profile: { daily: 1, lifetime: 3, monthly: -1, weekly: -1 }).
 
 const deriveCreditsState = (feature) => {
   if (!feature) return null;
-  const weeklyUncapped = feature.weeklyLimit === -1;
-  const monthlyUncapped = feature.monthlyLimit === -1;
-  const isUnlimited = weeklyUncapped && monthlyUncapped;
-  const wRem = weeklyUncapped ? Infinity : feature.weeklyRemaining;
-  const mRem = monthlyUncapped ? Infinity : feature.monthlyRemaining;
-  const binding = wRem <= mRem ? 'week' : 'month';
-  const remaining = isUnlimited ? -1 : Math.min(wRem, mRem);
-  const used = binding === 'week' ? feature.week || 0 : feature.month || 0;
-  const limit = binding === 'week' ? feature.weeklyLimit : feature.monthlyLimit;
+  const weeklyUncapped   = feature.weeklyLimit   === -1;
+  const monthlyUncapped  = feature.monthlyLimit  === -1;
+  const dailyUncapped    = (feature.dailyLimit   ?? -1) === -1;
+  const lifetimeUncapped = (feature.lifetimeLimit ?? -1) === -1;
+  const isUnlimited = weeklyUncapped && monthlyUncapped && dailyUncapped && lifetimeUncapped;
+  const wRem = weeklyUncapped   ? Infinity : feature.weeklyRemaining;
+  const mRem = monthlyUncapped  ? Infinity : feature.monthlyRemaining;
+  const dRem = dailyUncapped    ? Infinity : (feature.dailyRemaining   ?? 0);
+  const lRem = lifetimeUncapped ? Infinity : (feature.lifetimeRemaining ?? 0);
+  const candidates = [
+    { period: 'week', rem: wRem },
+    { period: 'month', rem: mRem },
+    { period: 'day', rem: dRem },
+    { period: 'lifetime', rem: lRem },
+  ];
+  const { period: binding } = candidates.reduce((a, b) => a.rem <= b.rem ? a : b);
+  const remaining = isUnlimited ? -1 : Math.min(wRem, mRem, dRem, lRem);
+  const used = binding === 'week' ? feature.week || 0
+    : binding === 'day' ? feature.day || 0
+    : binding === 'lifetime' ? feature.lifetime || 0
+    : feature.month || 0;
+  const limit = binding === 'week' ? feature.weeklyLimit
+    : binding === 'day' ? feature.dailyLimit
+    : binding === 'lifetime' ? feature.lifetimeLimit
+    : feature.monthlyLimit;
   return { remaining, used, limit, isUnlimited, period: binding };
 };
 
@@ -60,13 +79,13 @@ test('free tier with one credit left: remaining is 1 month, period=month', () =>
 // ── Genuinely unlimited ─────────────────────────────────────────────────────
 
 test('genuinely unlimited: both caps -1 → isUnlimited; remaining sentinel -1', () => {
-  // Pro tier tailor_profile is { monthly: -1, weekly: -1 } — uncapped on
-  // both axes. THIS is the only legitimate "Unlimited" case.
+  // Pro tier tailor_profile is { monthly: -1, weekly: -1, daily: -1, lifetime: -1 } — uncapped on
+  // all axes. THIS is the only legitimate "Unlimited" case.
   const out = deriveCreditsState({
-    weeklyLimit: -1,
-    weeklyRemaining: -1,
-    monthlyLimit: -1,
-    monthlyRemaining: -1,
+    weeklyLimit: -1, weeklyRemaining: -1,
+    monthlyLimit: -1, monthlyRemaining: -1,
+    dailyLimit: -1, dailyRemaining: -1,
+    lifetimeLimit: -1, lifetimeRemaining: -1,
   });
   assert.equal(out.isUnlimited, true);
   assert.equal(out.remaining, -1);
@@ -123,7 +142,59 @@ test('returns null when feature is missing from the usage payload', () => {
   assert.equal(deriveCreditsState(undefined), null);
 });
 
-// ── Seam test: rendered badge value === min(weeklyRemaining, monthlyRemaining)
+// ── Daily / lifetime cap (the "Tailor" bug) ──────────────────────────────────
+
+test('free tailor_profile: daily=1/lifetime=3, monthly=-1, weekly=-1 → NOT unlimited; binding=day', () => {
+  // This is the exact config that made the badge show "Unlimited" before.
+  // Backend now returns dailyRemaining + lifetimeRemaining.
+  const out = deriveCreditsState({
+    weeklyLimit: -1, weeklyRemaining: -1,
+    monthlyLimit: -1, monthlyRemaining: -1,
+    dailyLimit: 1, dailyRemaining: 0,        // already used today
+    lifetimeLimit: 3, lifetimeRemaining: 2,  // 1 use so far
+    day: 1, lifetime: 1,
+  });
+  assert.equal(out.isUnlimited, false, 'daily cap makes it NOT unlimited');
+  assert.equal(out.remaining, 0, 'daily is tighter (0) than lifetime (2)');
+  assert.equal(out.period, 'day');
+});
+
+test('free tailor_profile: daily=1 unused, lifetime=3 with 2 remaining → daily is binding', () => {
+  const out = deriveCreditsState({
+    weeklyLimit: -1, weeklyRemaining: -1,
+    monthlyLimit: -1, monthlyRemaining: -1,
+    dailyLimit: 1, dailyRemaining: 1,
+    lifetimeLimit: 3, lifetimeRemaining: 2,
+  });
+  assert.equal(out.isUnlimited, false);
+  assert.equal(out.remaining, 1, 'daily (1) is tighter than lifetime (2)');
+  assert.equal(out.period, 'day');
+});
+
+test('lifetime is the tighter cap when daily is fresh but lifetime exhausted', () => {
+  const out = deriveCreditsState({
+    weeklyLimit: -1, weeklyRemaining: -1,
+    monthlyLimit: -1, monthlyRemaining: -1,
+    dailyLimit: 1, dailyRemaining: 1,
+    lifetimeLimit: 3, lifetimeRemaining: 0,
+  });
+  assert.equal(out.isUnlimited, false);
+  assert.equal(out.remaining, 0);
+  assert.equal(out.period, 'lifetime');
+});
+
+test('genuinely unlimited: all four axes are -1', () => {
+  const out = deriveCreditsState({
+    weeklyLimit: -1, weeklyRemaining: -1,
+    monthlyLimit: -1, monthlyRemaining: -1,
+    dailyLimit: -1, dailyRemaining: -1,
+    lifetimeLimit: -1, lifetimeRemaining: -1,
+  });
+  assert.equal(out.isUnlimited, true);
+  assert.equal(out.remaining, -1);
+});
+
+// ── Seam test: rendered badge value === min of all four effective remainders ──
 // This is the exact regression gate for the bug where the Dashboard's
 // getUsageBadge read only weeklyRemaining, saw -1, and printed "UNLIMITED"
 // while the monthly cap was the actual binding constraint (and at 0).

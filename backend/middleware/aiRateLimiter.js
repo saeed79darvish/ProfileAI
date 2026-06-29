@@ -375,6 +375,9 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
   const nextMonth = new Date(monthStart);
   nextMonth.setMonth(nextMonth.getMonth() + 1);
 
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+
   const featureTypes = [
     'resume_parse',
     'profile_enhance',
@@ -413,6 +416,20 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
       }
     });
 
+    // Count today's usage (for features with a daily cap, e.g. tailor_profile free tier)
+    const dayUsage = await AIUsage.count({
+      where: {
+        userId,
+        featureType,
+        usedAt: { [Op.gte]: dayStart }
+      }
+    });
+
+    // Count lifetime usage (for features with a lifetime trial cap)
+    const lifetimeUsage = await AIUsage.count({
+      where: { userId, featureType }
+    });
+
     // Get credit pack credits
     const { totalCredits: creditPackCredits } = await getAvailableCreditPackCredits(userId, featureType);
 
@@ -420,11 +437,17 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
       name: FEATURE_NAMES[featureType],
       week: weekUsage,
       month: monthUsage,
+      day: dayUsage,
+      lifetime: lifetimeUsage,
       weeklyLimit: effectiveWeeklyLimit,
       baseWeeklyLimit: limits.weekly,
       monthlyLimit: limits.monthly,
+      dailyLimit: limits.daily ?? -1,
+      lifetimeLimit: limits.lifetime ?? -1,
       weeklyRemaining: isUnlimited(effectiveWeeklyLimit) ? -1 : Math.max(0, effectiveWeeklyLimit - weekUsage),
       monthlyRemaining: isUnlimited(limits.monthly) ? -1 : Math.max(0, limits.monthly - monthUsage),
+      dailyRemaining: (!limits.daily || isUnlimited(limits.daily)) ? -1 : Math.max(0, limits.daily - dayUsage),
+      lifetimeRemaining: (!limits.lifetime || isUnlimited(limits.lifetime)) ? -1 : Math.max(0, limits.lifetime - lifetimeUsage),
       creditPackCredits,
       hasPromoBonus: !!promoBonus
     };

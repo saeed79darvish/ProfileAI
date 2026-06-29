@@ -599,21 +599,29 @@ const Dashboard = () => {
   };
 
   // Compute the binding credit limit for a feature from the batch usage payload.
-  // A feature is truly unlimited only when BOTH weekly AND monthly caps are -1.
-  // Otherwise the binding remaining = min(weeklyRemaining, monthlyRemaining),
-  // treating -1 as Infinity so the real cap wins. This mirrors the logic in
-  // useAICredits.js and prevents the "UNLIMITED" lie for free-tier users whose
-  // weekly limit is -1 but monthly limit is small (e.g. profile_enhance = 1/mo).
+  // A feature is truly unlimited only when ALL four cap axes (lifetime, daily,
+  // weekly, monthly) are -1. Otherwise the binding remaining = the smallest
+  // non-(-1) remaining value, and we label it with the matching period.
   const computeBindingFromPayload = (feature) => {
     if (!feature) return { isUnlimited: true, remaining: -1, period: 'week' };
-    const weeklyUncapped = feature.weeklyLimit === -1;
-    const monthlyUncapped = feature.monthlyLimit === -1;
-    const isUnlimited = weeklyUncapped && monthlyUncapped;
-    const wRem = weeklyUncapped ? Infinity : (feature.weeklyRemaining ?? 0);
-    const mRem = monthlyUncapped ? Infinity : (feature.monthlyRemaining ?? 0);
-    const binding = wRem <= mRem ? 'week' : 'month';
-    const remaining = isUnlimited ? -1 : Math.min(wRem, mRem);
-    return { isUnlimited, remaining, period: binding };
+    const weeklyUncapped   = feature.weeklyLimit   === -1;
+    const monthlyUncapped  = feature.monthlyLimit  === -1;
+    const dailyUncapped    = (feature.dailyLimit   ?? -1) === -1;
+    const lifetimeUncapped = (feature.lifetimeLimit ?? -1) === -1;
+    const isUnlimited = weeklyUncapped && monthlyUncapped && dailyUncapped && lifetimeUncapped;
+    const wRem = weeklyUncapped   ? Infinity : (feature.weeklyRemaining   ?? 0);
+    const mRem = monthlyUncapped  ? Infinity : (feature.monthlyRemaining  ?? 0);
+    const dRem = dailyUncapped    ? Infinity : (feature.dailyRemaining    ?? 0);
+    const lRem = lifetimeUncapped ? Infinity : (feature.lifetimeRemaining ?? 0);
+    const candidates = [
+      { period: 'week', rem: wRem },
+      { period: 'month', rem: mRem },
+      { period: 'day', rem: dRem },
+      { period: 'lifetime', rem: lRem },
+    ];
+    const binding = candidates.reduce((a, b) => a.rem <= b.rem ? a : b);
+    const remaining = isUnlimited ? -1 : Math.min(wRem, mRem, dRem, lRem);
+    return { isUnlimited, remaining, period: binding.period };
   };
 
   const getUsageBadge = (featureKey) => {
@@ -622,7 +630,10 @@ const Dashboard = () => {
     const { isUnlimited, remaining, period } = computeBindingFromPayload(
       aiUsage?.usage?.[featureKey]
     );
-    const periodSuffix = period === 'month' ? 'this month' : 'this week';
+    const periodSuffix = period === 'month' ? 'this month'
+      : period === 'day' ? 'today'
+      : period === 'lifetime' ? 'lifetime'
+      : 'this week';
     if (isUnlimited) {
       return (
         <span className="usage-info">
