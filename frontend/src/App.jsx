@@ -477,6 +477,10 @@ function AppContent() {
               path="/interviews"
               element={<Navigate to="/profile" replace />}
             />
+            {/* Catch-all: any unmatched path redirects to home rather than
+                rendering a blank page. This covers disabled feature routes
+                (e.g. /feed when VITE_ENABLE_FEED=false) and any typos. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
         </ErrorBoundary>

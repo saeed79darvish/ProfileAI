@@ -57,6 +57,7 @@ import { formatDateRange } from '@/utils/dateRange';
 import { useAuth } from '@/contexts/AuthContext';
 import FollowButton from '@/components/FollowButton';
 import SEO from '@/components/SEO';
+import { featureFlags } from '@/config/featureFlags';
 import { ROUTES, LIMITS, DEFAULTS, ANIMATION } from './constants';
 
 // Icon aliases for consistency
@@ -1662,8 +1663,8 @@ const PublicProfile = () => {
               </Card>
             )}
 
-            {/* Posts & Sessions - only show if there are any */}
-            {userPosts.length > 0 && (
+            {/* Posts & Sessions - only show if there are any AND the feed is enabled */}
+            {featureFlags.feed && userPosts.length > 0 && (
               <Grid container spacing={3}>
                 {userPosts.length > 0 && (
                   <Grid item xs={12}>

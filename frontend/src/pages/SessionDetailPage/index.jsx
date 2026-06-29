@@ -254,7 +254,7 @@ const SessionDetailPage = () => {
     return (
       <PageContainer>
         <Header>
-          <BackButton onClick={() => navigate('/feed')}>
+          <BackButton onClick={() => navigate('/profile')}>
             <BackIcon />
           </BackButton>
         </Header>
