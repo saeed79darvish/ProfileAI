@@ -794,7 +794,10 @@ const PublicProfile = () => {
   const location = profile.location || '';
   const title = profile.title || '';
   const bio = profile.summary || profile.aiSummary || '';
-  const headline = profile.headline || profile.title || '';
+  // profile.title is the user's explicitly-entered job title (canonical).
+  // profile.headline is an optional AI-generated tagline that can differ.
+  // Always prefer the explicit title so the public profile matches the editor.
+  const headline = profile.title || profile.headline || '';
   
   // Skills can be stored either as a flat array or as a categorized object
   // ({ core: [], technical: [], software: [], tools: [], soft: [] }). Flatten
