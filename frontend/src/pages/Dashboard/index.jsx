@@ -598,30 +598,46 @@ const Dashboard = () => {
     }
   };
 
+  // Compute the binding credit limit for a feature from the batch usage payload.
+  // A feature is truly unlimited only when BOTH weekly AND monthly caps are -1.
+  // Otherwise the binding remaining = min(weeklyRemaining, monthlyRemaining),
+  // treating -1 as Infinity so the real cap wins. This mirrors the logic in
+  // useAICredits.js and prevents the "UNLIMITED" lie for free-tier users whose
+  // weekly limit is -1 but monthly limit is small (e.g. profile_enhance = 1/mo).
+  const computeBindingFromPayload = (feature) => {
+    if (!feature) return { isUnlimited: true, remaining: -1, period: 'week' };
+    const weeklyUncapped = feature.weeklyLimit === -1;
+    const monthlyUncapped = feature.monthlyLimit === -1;
+    const isUnlimited = weeklyUncapped && monthlyUncapped;
+    const wRem = weeklyUncapped ? Infinity : (feature.weeklyRemaining ?? 0);
+    const mRem = monthlyUncapped ? Infinity : (feature.monthlyRemaining ?? 0);
+    const binding = wRem <= mRem ? 'week' : 'month';
+    const remaining = isUnlimited ? -1 : Math.min(wRem, mRem);
+    return { isUnlimited, remaining, period: binding };
+  };
+
   const getUsageBadge = (featureKey) => {
-    if (!aiUsage?.usage?.[featureKey]) {
+    // Download Resume has no credit cost — suppress the badge entirely.
+    if (!featureKey) return null;
+    const { isUnlimited, remaining, period } = computeBindingFromPayload(
+      aiUsage?.usage?.[featureKey]
+    );
+    const periodSuffix = period === 'month' ? 'this month' : 'this week';
+    if (isUnlimited) {
       return (
         <span className="usage-info">
           <span className="usage-dot" />
-          <span className="usage-count">UNLIMITED</span>
+          <span className="usage-count">Unlimited</span>
         </span>
       );
     }
-    const data = aiUsage.usage[featureKey];
-    const remaining = data.weeklyRemaining ?? data.weeklyLimit;
-    if (remaining === -1 || remaining == null) {
-      return (
-        <span className="usage-info">
-          <span className="usage-dot" />
-          <span className="usage-count">UNLIMITED</span>
-        </span>
-      );
-    }
-    const cls = remaining === 0 ? 'danger' : remaining <= 1 ? 'warning' : '';
+    const cls = remaining === 0 ? 'danger' : remaining === 1 ? 'warning' : '';
     return (
       <span className="usage-info">
         <span className={`usage-dot ${cls}`} />
-        <span className={`usage-count ${cls}`}>{remaining} CREDITS LEFT</span>
+        <span className={`usage-count ${cls}`}>
+          {remaining === 0 ? `None left ${periodSuffix}` : `${remaining} left ${periodSuffix}`}
+        </span>
       </span>
     );
   };
@@ -1318,41 +1334,34 @@ const Dashboard = () => {
             </div>
           </AIToolsHeader>
           <AIToolsGrid>
-            <Tooltip title="Costs 1 AI credit per use">
-              <AIToolButton
-                onClick={() => setShowEnhancePrompt(true)}
-                disabled={enhancing}
-              >
-                <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}><EnhanceIcon /></span>
-                <span className="label">Enhance</span>
-                <span className="description">Optimize your profile content automatically. · 1 credit</span>
-                {getUsageBadge('profile_enhance')}
-              </AIToolButton>
-            </Tooltip>
-            <Tooltip title="Costs 1 AI credit per use">
-              <AIToolButton onClick={() => setShowTailorJobInput(true)} disabled={analyzingGaps || tailoring}>
-                <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><TailorIcon /></span>
-                <span className="label">Tailor</span>
-                <span className="description">Customize for specific job descriptions. · 1 credit</span>
-                {getUsageBadge('tailor_profile')}
-              </AIToolButton>
-            </Tooltip>
-            <Tooltip title="Costs 1 AI credit per use">
-              <AIToolButton 
-                onClick={handleGetTipsInPlace}
-                disabled={gettingTips}
-              >
-                <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}><TipsIcon /></span>
-                <span className="label">Career Tips</span>
-                <span className="description">Get AI feedback on your profile. · 1 credit</span>
-                {getUsageBadge('career_suggestions')}
-              </AIToolButton>
-            </Tooltip>
+            <AIToolButton
+              onClick={() => setShowEnhancePrompt(true)}
+              disabled={enhancing}
+            >
+              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}><EnhanceIcon /></span>
+              <span className="label">Enhance</span>
+              <span className="description">Optimize your profile content automatically. · 1 credit</span>
+              {getUsageBadge('profile_enhance')}
+            </AIToolButton>
+            <AIToolButton onClick={() => setShowTailorJobInput(true)} disabled={analyzingGaps || tailoring}>
+              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><TailorIcon /></span>
+              <span className="label">Tailor</span>
+              <span className="description">Customize for specific job descriptions. · 1 credit</span>
+              {getUsageBadge('tailor_profile')}
+            </AIToolButton>
+            <AIToolButton 
+              onClick={handleGetTipsInPlace}
+              disabled={gettingTips}
+            >
+              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}><TipsIcon /></span>
+              <span className="label">Career Tips</span>
+              <span className="description">Get AI feedback on your profile. · 1 credit</span>
+              {getUsageBadge('career_suggestions')}
+            </AIToolButton>
             <AIToolButton onClick={() => handleDownloadResume()}>
               <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><DownloadIcon /></span>
               <span className="label">Download Resume</span>
               <span className="description">Export your profile as a PDF resume.</span>
-              {getUsageBadge()}
             </AIToolButton>
           </AIToolsGrid>
         </AIToolsCard>
