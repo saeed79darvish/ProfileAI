@@ -44,6 +44,7 @@ const {
 const { Op } = require('sequelize');
 const { enqueue, QUEUES } = require('../lib/queue');
 const featureFlags = require('../config/featureFlags');
+const { userCanAccessApplyPilot } = featureFlags;
 
 const ALLOWED_CONFIG_KEYS = new Set(['criteria', 'approval', 'rails', 'demographics', 'profile']);
 const ALLOWED_CRITERIA_KEYS = new Set([
@@ -348,14 +349,22 @@ function appendResolution(receipt, resolution) {
   return { ...base, resolutions };
 }
 
-// Every ApplyPilot endpoint needs a logged-in candidate. Admins are
-// allowed through too so they can dogfood / QA the wizard from their
-// own account without standing up a candidate user. Recruiters stay
-// blocked — ApplyPilot is a candidate surface and shouldn't appear
-// for them.
+// Every ApplyPilot endpoint needs a logged-in user that's allowed to
+// use the feature. Admins are allowed through too so they can dogfood /
+// QA the wizard from their own account. Recruiters stay blocked —
+// ApplyPilot is a candidate surface.
+//
+// When the global ENABLE_APPLYPILOT flag is off and the user isn't in
+// APPLYPILOT_ALLOWED_USERS (and isn't an admin), every route returns
+// 404 (not 403) so the feature stays hidden behind the gate — a leaked
+// 403 'forbidden' would tell users the route exists and just isn't
+// enabled for them.
 router.use(auth, (req, res, next) => {
   if (req.user.role !== 'candidate' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'candidate_only' });
+  }
+  if (!userCanAccessApplyPilot(req.user)) {
+    return res.status(404).json({ error: 'not_found' });
   }
   next();
 });

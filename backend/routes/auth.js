@@ -402,7 +402,12 @@ router.get('/me', auth, async (req, res) => {
       emailVerifiedAt: user.emailVerifiedAt,
       profilePicture,
       hasProfile,
-      hasRecruiterProfile
+      hasRecruiterProfile,
+      // Frontend uses this to gate the ApplyPilot navbar link + the
+      // /applypilot/* route group. Resolves admins → true, allowlisted
+      // emails → true, otherwise the global ENABLE_APPLYPILOT flag.
+      // See backend/config/featureFlags.js userCanAccessApplyPilot.
+      canUseApplyPilot: featureFlags.userCanAccessApplyPilot(user),
     });
   } catch (error) {
     console.error('Get user error:', error);

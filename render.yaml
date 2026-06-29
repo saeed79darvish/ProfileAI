@@ -80,6 +80,21 @@ services:
       # over the yaml on every Blueprint Sync.
       - key: APPLYPILOT_AUTOSUBMIT
         sync: false
+      # ApplyPilot master kill-switch. When unset OR 'false' the entire
+      # /api/applypilot/* surface returns 404 and the navbar link is
+      # hidden for everyone EXCEPT:
+      #   - users with role='admin' (always allowed, for dogfooding)
+      #   - emails in APPLYPILOT_ALLOWED_USERS (per-user tester rollout)
+      # Flip to 'true' in the dashboard to expose the feature to all
+      # candidates. See backend/config/featureFlags.js for the
+      # userCanAccessApplyPilot helper.
+      - key: ENABLE_APPLYPILOT
+        sync: false
+      # Comma-separated email allowlist. Lets specific testers see
+      # ApplyPilot while ENABLE_APPLYPILOT is still off for everyone
+      # else. Example: tester1@x.com, tester2@y.com
+      - key: APPLYPILOT_ALLOWED_USERS
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: profileai-db

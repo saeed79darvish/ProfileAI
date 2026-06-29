@@ -102,18 +102,42 @@ const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', 
 
 // `/applypilot` is shared between the public marketing landing page
 // and the candidate auto-apply dashboard. ANY authenticated user that
-// can access ApplyPilot (candidate or admin) is redirected into the
-// shell at /applypilot/welcome so they get the in-app sub-nav
-// (ApplyPilot · Dashboard · Review · Sent). Signed-out visitors see
-// the same LandingPage rendered standalone — the marketing hero is
+// can access ApplyPilot (per /auth/me canUseApplyPilot — driven by
+// ENABLE_APPLYPILOT, APPLYPILOT_ALLOWED_USERS, and admin role) is
+// redirected into the shell at /applypilot/welcome so they get the
+// in-app sub-nav. Authenticated users WITHOUT access bounce to home
+// so they don't land on a route that 404s every API call. Signed-out
+// visitors see the LandingPage standalone — the marketing hero is
 // the entire page for them.
 function ApplyPilotGateway() {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return LazyFallback;
-  if (isAuthenticated && (user?.role === 'candidate' || user?.role === 'admin')) {
-    return <Navigate to="/applypilot/welcome" replace />;
+  if (isAuthenticated) {
+    if (user?.canUseApplyPilot) {
+      return <Navigate to="/applypilot/welcome" replace />;
+    }
+    // Authenticated user without access — feature is gated behind the
+    // global ENABLE_APPLYPILOT flag and they're not on the allowlist.
+    // Send them somewhere useful instead of a dead landing page.
+    return <Navigate to="/jobs" replace />;
   }
   return <ApplyPilotLanding />;
+}
+
+// Wraps the /applypilot/* AgentArena route group. Blocks direct deep
+// links (e.g. /applypilot/dashboard) for users who don't have feature
+// access \u2014 PrivateRoute upstream already enforces auth + allowedRoles,
+// this layer adds the per-user / global-flag gate that mirrors the
+// backend's userCanAccessApplyPilot check. Anyone without access goes
+// to /jobs so the URL never lingers on a screen where every API call
+// 404s.
+function ApplyPilotAccessGate({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return LazyFallback;
+  if (!user?.canUseApplyPilot) {
+    return <Navigate to="/jobs" replace />;
+  }
+  return children;
 }
 
 // Legacy /agent-arena/* → /applypilot/* redirect. Preserves sub-paths
@@ -226,10 +250,15 @@ function AppContent() {
             
             {/* ApplyPilot, candidate-side auto-apply. Primary route is
                 /applypilot; /agent-arena/* kept as a redirect for existing
-                links (deep-links, notifications, old bookmarks). */}
+                links (deep-links, notifications, old bookmarks).
+                Feature-gated via ApplyPilotAccessGate below \u2014 users without
+                canUseApplyPilot bounce to /jobs instead of seeing a route
+                that 404s every API call. */}
             <Route path="/applypilot/*" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
-                <AgentArena />
+                <ApplyPilotAccessGate>
+                  <AgentArena />
+                </ApplyPilotAccessGate>
               </PrivateRoute>
             } />
             <Route path="/agent-arena/negotiate/:jobId" element={<Navigate to="/applypilot" replace />} />

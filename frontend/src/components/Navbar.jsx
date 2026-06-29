@@ -520,12 +520,19 @@ const Navbar = () => {
   const navItems = useMemo(() => {
     if (!isAuthenticated) return PUBLIC_ITEMS;
     if (isRecruiter) return isAdmin ? [...ADMIN_ITEMS, ...RECRUITER_ITEMS] : RECRUITER_ITEMS;
-    const candidateItems = CANDIDATE_ITEMS.map((item) =>
-      item.path === '/profile' ? { ...item, path: candidateProfilePath } : item
-    );
+    // ApplyPilot is behind ENABLE_APPLYPILOT / per-user allowlist (see
+    // backend/config/featureFlags.js). The backend /auth/me response
+    // returns canUseApplyPilot=true for admins, allowlisted emails,
+    // and everyone when the global flag is on. Hide the navbar link
+    // when the user can't access it so it doesn't lead to a dead 404.
+    const candidateItems = CANDIDATE_ITEMS
+      .filter((item) => item.path !== '/applypilot' || user?.canUseApplyPilot)
+      .map((item) =>
+        item.path === '/profile' ? { ...item, path: candidateProfilePath } : item
+      );
     // Admins without the recruiter surface flag still need access to admin pages.
     return isAdmin ? [...ADMIN_ITEMS, ...candidateItems] : candidateItems;
-  }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath]);
+  }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath, user?.canUseApplyPilot]);
 
   const isActive = (path) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
