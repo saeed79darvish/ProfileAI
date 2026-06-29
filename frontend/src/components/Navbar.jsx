@@ -467,7 +467,12 @@ const CANDIDATE_ITEMS = [
 
 const PUBLIC_ITEMS = [
   { label: 'Pricing',    path: '/pricing',    Icon: PricingIcon },
-  { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
+  // ApplyPilot link intentionally omitted from the public navbar while
+  // the feature is gated to admins + tester allowlist. The /applypilot
+  // marketing landing is still reachable via direct URL — just not
+  // advertised to logged-out visitors. Add this entry back when
+  // ENABLE_APPLYPILOT goes live for general candidates.
+  // { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
   { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
 ];
 
