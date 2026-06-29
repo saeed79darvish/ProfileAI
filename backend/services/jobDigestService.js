@@ -229,69 +229,56 @@ function scoreColor(score) {
 function renderJobCard(job) {
   const initial = escapeHtml((job.company || '?').trim().charAt(0).toUpperCase());
   const color = companyColor(job.company);
-  const metaParts = [job.company, job.location].filter(Boolean).map(escapeHtml).join(' · ');
-  const subParts = [
-    job.employmentType ? toTitleCase(job.employmentType) : null,
-    job.salary,
-    job.postedAgo ? `Posted ${job.postedAgo}` : null,
-  ].filter(Boolean).map(escapeHtml).join('  ·  ');
+  const metaParts = [job.company, job.location, job.postedAgo].filter(Boolean).map(escapeHtml).join(' · ');
+  const delta = job.tailoredScore - job.nowScore;
+  const deltaStr = delta > 0 ? `+${delta}` : String(delta);
+  const progressPct = Math.min(100, Math.max(0, job.tailoredScore));
 
-  const presentChips = job.present.map(k =>
-    `<span style="display:inline-block;background:#ECFDF5;color:#047857;border-radius:999px;padding:3px 10px;font-size:12px;margin:2px 4px 2px 0;">&#10003; ${escapeHtml(k)}</span>`
-  ).join('');
-  const missingChips = job.missing.map(k =>
-    `<span style="display:inline-block;background:#FEF2F2;color:#B91C1C;border-radius:999px;padding:3px 10px;font-size:12px;margin:2px 4px 2px 0;">&#10005; ${escapeHtml(k)}</span>`
-  ).join('');
+  const allSkills = [...job.present, ...job.missing].slice(0, 5);
+  const skillChips = allSkills
+    .map(k => `<span style="display:inline-block;background:#F3F4F6;color:#374151;border:1px solid #E5E7EB;border-radius:6px;padding:3px 10px;font-size:12px;margin:2px 4px 2px 0;">${escapeHtml(k)}</span>`)
+    .join('');
 
   const tailorUrl = `${FRONTEND_URL}/jobs?externalJobId=${encodeURIComponent(job.id)}&tailor=1&utm_source=daily_digest`;
   const viewUrl = `${FRONTEND_URL}/jobs?externalJobId=${encodeURIComponent(job.id)}&utm_source=daily_digest`;
 
   return `
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:12px;margin:0 0 16px 0;">
-    <tr><td style="padding:18px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:12px;margin:0 0 16px 0;overflow:hidden;">
+    <tr><td style="padding:16px 18px 18px 18px;">
+      <!-- Company logo + title -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td width="48" valign="top">
-            <div style="width:44px;height:44px;border-radius:10px;background:${color};color:#fff;font-weight:700;font-size:18px;line-height:44px;text-align:center;">${initial}</div>
+          <td width="40" valign="top">
+            <div style="width:40px;height:40px;border-radius:9px;background:${color};color:#fff;font-weight:700;font-size:17px;line-height:40px;text-align:center;">${initial}</div>
           </td>
           <td valign="top" style="padding-left:12px;">
-            <div style="font-size:16px;font-weight:700;color:#111827;">${escapeHtml(job.title)}</div>
-            <div style="font-size:13px;color:#6B7280;margin-top:2px;">${metaParts}</div>
-            <div style="font-size:12px;color:#9CA3AF;margin-top:2px;">${subParts}</div>
-          </td>
-          <td valign="top" align="right" width="150">
-            <table role="presentation" cellpadding="0" cellspacing="0" align="right">
-              <tr>
-                <td style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:6px 10px;text-align:center;">
-                  <div style="font-size:16px;font-weight:700;color:${scoreColor(job.nowScore)};">${job.nowScore}%</div>
-                  <div style="font-size:9px;letter-spacing:.5px;color:#9CA3AF;">NOW</div>
-                </td>
-                <td style="padding:0 6px;color:#9CA3AF;">&#8594;</td>
-                <td style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:6px 10px;text-align:center;">
-                  <div style="font-size:16px;font-weight:700;color:#059669;">${job.tailoredScore}%</div>
-                  <div style="font-size:9px;letter-spacing:.5px;color:#9CA3AF;">TAILORED</div>
-                </td>
-              </tr>
-            </table>
+            <div style="font-size:16px;font-weight:700;color:#111827;line-height:1.3;">${escapeHtml(job.title)}</div>
+            <div style="font-size:13px;color:#6B7280;margin-top:3px;">${metaParts}</div>
           </td>
         </tr>
       </table>
-
-      ${(presentChips || missingChips) ? `<div style="margin-top:12px;">${presentChips}${missingChips}</div>` : ''}
-
-      ${job.missing.length > 0 ? `
-      <div style="background:#EEF2FF;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:13px;color:#4338CA;">
-        &#10024; AI can add the missing keywords to your profile — safe, additive edits only. No fabrication.
-      </div>` : ''}
-
+      <!-- Inline score -->
+      <div style="margin-top:12px;font-size:13px;color:#6B7280;">
+        Match <span style="font-weight:600;color:#374151;">${job.nowScore}%</span>
+        &nbsp;&rarr;&nbsp;
+        <span style="font-weight:700;color:#059669;">${job.tailoredScore}% after tailoring</span>
+        <span style="color:#059669;font-weight:600;">(${deltaStr})</span>
+      </div>
+      <!-- Progress bar -->
+      <div style="margin-top:7px;background:#E5E7EB;border-radius:999px;height:6px;overflow:hidden;">
+        <div style="background:#059669;width:${progressPct}%;height:6px;border-radius:999px;"></div>
+      </div>
+      <!-- Skill chips -->
+      ${skillChips ? `<div style="margin-top:12px;">${skillChips}</div>` : ''}
+      <!-- Actions -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
         <tr>
           <td>
-            <a href="${tailorUrl}" style="display:block;background:#4F46E5;color:#fff;text-decoration:none;text-align:center;font-weight:600;font-size:14px;padding:12px;border-radius:8px;">&#10024; Tailor Resume to Boost Score</a>
+            <a href="${tailorUrl}" style="display:block;background:#4F46E5;color:#fff;text-decoration:none;text-align:center;font-weight:600;font-size:14px;padding:11px 16px;border-radius:8px;">Tailor &amp; apply</a>
           </td>
-          <td width="12"></td>
-          <td width="110">
-            <a href="${viewUrl}" style="display:block;border:1px solid #C7D2FE;color:#4F46E5;text-decoration:none;text-align:center;font-weight:600;font-size:14px;padding:12px;border-radius:8px;">View Job</a>
+          <td width="16"></td>
+          <td width="90" valign="middle" align="right">
+            <a href="${viewUrl}" style="color:#6B7280;text-decoration:none;font-size:13px;font-weight:500;white-space:nowrap;">View job &rarr;</a>
           </td>
         </tr>
       </table>
@@ -305,93 +292,116 @@ function renderDigestHtml({ user, matches, jobsScanned }) {
   const allMatchesUrl = `${FRONTEND_URL}/jobs?utm_source=daily_digest`;
   const prefsUrl = `${FRONTEND_URL}/settings?utm_source=daily_digest`;
 
-  const stat = (value, label) =>
-    `<td align="center" style="padding:14px 8px;border-right:1px solid #EEF0F4;">
-       <div style="font-size:20px;font-weight:700;color:#4F46E5;">${escapeHtml(value)}</div>
-       <div style="font-size:11px;color:#6B7280;margin-top:2px;">${escapeHtml(label)}</div>
-     </td>`;
+  const DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+  const now = new Date();
+  const digestDate = `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
+  const WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+  const matchCount = matches.length;
+  const matchWord = matchCount >= 0 && matchCount <= 10 ? WORDS[matchCount] : String(matchCount);
+  const scannedFormatted = jobsScanned.toLocaleString('en-US');
 
   return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+<html><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    @media only screen and (max-width: 480px) {
+      .email-body { padding: 0 !important; }
+      .email-container { border-radius: 0 !important; }
+      .stat-cell { display: block !important; width: 100% !important; border-right: none !important; border-bottom: 1px solid #EEF0F4 !important; }
+      .stat-cell:last-child { border-bottom: none !important; }
+    }
+  </style>
+</head>
+<body class="email-body" style="margin:0;padding:0;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F4F6;padding:24px 0;">
     <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;">
+      <table class="email-container" role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;">
 
-        <!-- Header -->
-        <tr><td style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px;text-align:center;">
-          <div style="color:#fff;font-size:20px;font-weight:700;">&#128142; ProfilleAI</div>
-          <div style="color:#C7D2FE;font-size:13px;margin-top:4px;">Your AI-powered job match engine</div>
-        </td></tr>
-
-        <!-- Greeting -->
-        <tr><td style="padding:28px 28px 8px 28px;">
-          <h1 style="margin:0;font-size:22px;color:#111827;">Hi ${firstName} &#128075;</h1>
-          <p style="margin:12px 0 0 0;font-size:15px;line-height:1.6;color:#374151;">
-            We scanned <strong>${jobsScanned} postings</strong> and found
-            <strong>${matches.length} role${matches.length === 1 ? '' : 's'} that match your profile</strong>.
-            See your current match score for each — then tailor your resume with AI to maximize your shot
-            at landing a human reviewer.
-          </p>
-        </td></tr>
-
-        <!-- ATS callout -->
-        <tr><td style="padding:18px 28px 0 28px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;">
-            <tr><td style="padding:14px 16px;font-size:13px;line-height:1.6;color:#92400E;">
-              <strong>&#9889; Most applications never reach a human reviewer.</strong> ATS systems filter out
-              ~75% of resumes before anyone reads them. Your match score shows how well your profile aligns
-              with each job's keywords — tailoring it above 80% puts you in the zone where applications get through.
-            </td></tr>
-          </table>
-        </td></tr>
-
-        <!-- Stats -->
-        <tr><td style="padding:18px 28px 4px 28px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EEF0F4;border-radius:10px;">
+        <!-- Header bar -->
+        <tr><td style="padding:20px 24px;border-bottom:1px solid #EEF0F4;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr>
-              ${stat(String(jobsScanned), 'Jobs scanned')}
-              ${stat(String(matches.length), 'Matches found')}
-              ${stat('75%', 'ATS rejection rate')}
-              <td align="center" style="padding:14px 8px;">
-                <div style="font-size:20px;font-weight:700;color:#4F46E5;">&lt; 2 min</div>
-                <div style="font-size:11px;color:#6B7280;margin-top:2px;">To tailor &amp; apply</div>
+              <td>
+                <span style="font-size:18px;font-weight:700;color:#111827;letter-spacing:-0.5px;">profile<span style="color:#4F46E5;">ai</span></span>
+              </td>
+              <td align="right">
+                <span style="font-size:11px;font-weight:600;letter-spacing:1.5px;color:#9CA3AF;text-transform:uppercase;">ApplyPilot Digest</span>
               </td>
             </tr>
           </table>
         </td></tr>
 
-        <!-- Section label -->
-        <tr><td style="padding:22px 28px 10px 28px;">
-          <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#9CA3AF;text-transform:uppercase;">
-            Your matches — current score &#8594; after tailoring
+        <!-- Hero -->
+        <tr><td style="padding:28px 24px 20px 24px;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#4F46E5;text-transform:uppercase;margin-bottom:10px;">${escapeHtml(String(matchCount))} new matches &middot; ${escapeHtml(digestDate)}</div>
+          <h1 style="margin:0;font-size:28px;font-weight:800;color:#111827;line-height:1.25;">${matchWord} role${matchCount === 1 ? '' : 's'} match your profile, ${firstName}.</h1>
+          <p style="margin:12px 0 0 0;font-size:15px;line-height:1.6;color:#374151;">
+            We read through <strong>${scannedFormatted} postings</strong> overnight and found ${matchCount} worth your time. Each one shows your match score today, and where a two-minute tailor would take it.
+          </p>
+        </td></tr>
+
+        <!-- Stats -->
+        <tr><td style="padding:0 24px 20px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #EEF0F4;border-radius:10px;">
+            <tr>
+              <td class="stat-cell" align="center" style="padding:16px 8px;border-right:1px solid #EEF0F4;">
+                <div style="font-size:24px;font-weight:700;color:#111827;">${scannedFormatted}</div>
+                <div style="font-size:10px;letter-spacing:1px;color:#9CA3AF;text-transform:uppercase;margin-top:3px;">Scanned</div>
+              </td>
+              <td class="stat-cell" align="center" style="padding:16px 8px;border-right:1px solid #EEF0F4;">
+                <div style="font-size:24px;font-weight:700;color:#111827;">${matchCount}</div>
+                <div style="font-size:10px;letter-spacing:1px;color:#9CA3AF;text-transform:uppercase;margin-top:3px;">Matched</div>
+              </td>
+              <td class="stat-cell" align="center" style="padding:16px 8px;">
+                <div style="font-size:24px;font-weight:700;color:#111827;">2 min</div>
+                <div style="font-size:10px;letter-spacing:1px;color:#9CA3AF;text-transform:uppercase;margin-top:3px;">To Apply</div>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- ATS callout -->
+        <tr><td style="padding:0 24px 20px 24px;">
+          <div style="border-left:4px solid #4F46E5;padding:12px 16px;background:#F9FAFB;border-radius:0 8px 8px 0;font-size:14px;line-height:1.6;color:#374151;">
+            Roughly <strong>three in four r&eacute;sum&eacute;s</strong> are filtered out by applicant-tracking software before a person ever reads them. Your match score tracks how well you line up with each posting&#39;s keywords &mdash; clearing <strong>80%</strong> is what gets you past the filter.
           </div>
         </td></tr>
 
+        <!-- Section label -->
+        <tr><td style="padding:4px 24px 12px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:11px;font-weight:700;letter-spacing:1.5px;color:#9CA3AF;text-transform:uppercase;">Your Matches</td>
+              <td align="right" style="font-size:11px;color:#9CA3AF;">today &rarr; tailored</td>
+            </tr>
+          </table>
+        </td></tr>
+
         <!-- Job cards -->
-        <tr><td style="padding:0 28px 8px 28px;">
+        <tr><td style="padding:0 24px 8px 24px;">
           ${matches.map(renderJobCard).join('')}
         </td></tr>
 
-        <!-- CTA to all matches -->
-        <tr><td style="padding:8px 28px 24px 28px;" align="center">
-          <a href="${allMatchesUrl}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 28px;border-radius:10px;">View all matches on ProfilleAI</a>
+        <!-- See all link -->
+        <tr><td style="padding:0 24px 24px 24px;" align="center">
+          <a href="${allMatchesUrl}" style="color:#4F46E5;text-decoration:none;font-weight:600;font-size:14px;">See all ${matchCount} matches in ApplyPilot &rarr;</a>
         </td></tr>
 
         <!-- Footer -->
-        <tr><td style="background:#F9FAFB;padding:22px 28px;border-top:1px solid #EEF0F4;">
-          <div style="font-size:13px;font-weight:700;color:#4F46E5;">&#128142; ProfilleAI</div>
-          <p style="margin:8px 0 0 0;font-size:11px;line-height:1.6;color:#9CA3AF;">
-            You're receiving this because you enabled job alerts. Scores are calculated by comparing your
-            current profile against each job's listed requirements.
+        <tr><td style="background:#F9FAFB;padding:22px 24px;border-top:1px solid #EEF0F4;">
+          <div style="font-size:15px;font-weight:700;color:#111827;letter-spacing:-0.5px;">profile<span style="color:#4F46E5;">ai</span></div>
+          <p style="margin:6px 0 0 0;font-size:12px;line-height:1.5;color:#9CA3AF;">
+            You&#39;re receiving this because ApplyPilot is on for your search.<br>
+            548 Market Street, San Francisco, CA 94104
           </p>
-          <p style="margin:10px 0 0 0;font-size:11px;color:#9CA3AF;">
-            <a href="${prefsUrl}" style="color:#6B7280;">Update preferences</a>
+          <p style="margin:10px 0 0 0;font-size:12px;color:#9CA3AF;">
+            <a href="${prefsUrl}" style="color:#6B7280;text-decoration:none;">Match settings</a>
             &nbsp;&middot;&nbsp;
-            <a href="${allMatchesUrl}" style="color:#6B7280;">View all matches</a>
+            <a href="${prefsUrl}" style="color:#6B7280;text-decoration:none;">Pause emails</a>
             &nbsp;&middot;&nbsp;
-            <a href="${unsubUrl}" style="color:#6B7280;">Unsubscribe</a>
+            <a href="${unsubUrl}" style="color:#6B7280;text-decoration:none;">Unsubscribe</a>
           </p>
         </td></tr>
 
