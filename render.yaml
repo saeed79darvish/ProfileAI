@@ -55,12 +55,31 @@ services:
         value: production
       - key: PORT
         value: "10000"
-      # Skip puppeteer's Chromium download during build (would exceed disk
-      # quota and isn't needed for candidate-only surface). If we later
-      # enable browser-based scraping, switch to puppeteer-core + a system
-      # chromium binary.
+      # Allow puppeteer to download Chromium during build. ApplyPilot's
+      # auto-submit and dry-run preview adapters (greenhouse, lever,
+      # ashby, workday) all use Puppeteer to fill ATS forms. With this
+      # set to "true" the API container shipped without Chromium, so
+      # POST /applications/:appId/preview crashed with "Could not find
+      # Chrome" and the submit worker would do the same if turned on.
+      # Set to "false" so the build installs Chromium into
+      # /opt/render/.cache/puppeteer. Adds ~130MB to the image — if disk
+      # gets tight, upgrade the API plan from starter to standard.
       - key: PUPPETEER_SKIP_DOWNLOAD
-        value: "true"
+        value: "false"
+      # ApplyPilot auto-submit master switch. STAGED ROLLOUT:
+      #   1) ship this commit (Chromium installs but auto-submit stays OFF).
+      #   2) hit POST /applications/:appId/preview from the UI — should
+      #      now return real screenshots instead of the
+      #      'browser_unavailable' fallback. That confirms Chromium is
+      #      actually loadable in the runtime container, not just present
+      #      in the build image.
+      #   3) only then flip this env var to "true" via the Render
+      #      dashboard (not yaml — easier to revert if a submit run
+      #      misbehaves). Each approve will enqueue the submit worker.
+      # Marked sync:false so the dashboard value (whichever it is) wins
+      # over the yaml on every Blueprint Sync.
+      - key: APPLYPILOT_AUTOSUBMIT
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: profileai-db
