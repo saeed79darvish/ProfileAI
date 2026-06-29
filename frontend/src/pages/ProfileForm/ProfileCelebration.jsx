@@ -14,6 +14,7 @@ import {
 } from '@mui/icons-material';
 import { Snackbar, Alert } from '@mui/material';
 import { referralAPI } from '../../services/api';
+import { pluralize } from '../../utils/pluralize';
 
 /* ═══════════════════════════════════════════════
    ANIMATIONS
@@ -496,10 +497,24 @@ const ProfileCelebration = ({
         </RingWrap>
 
         <Stats>
-          <Stat $delay="0s"><div className="num">{counts.skills || 0}</div><div className="lbl">Skills</div></Stat>
-          <Stat $delay="0.08s"><div className="num">{counts.experience || 0}</div><div className="lbl">Roles</div></Stat>
-          <Stat $delay="0.16s"><div className="num">{counts.education || 0}</div><div className="lbl">Education</div></Stat>
-          <Stat $delay="0.24s"><div className="num">{counts.projects || 0}</div><div className="lbl">Projects</div></Stat>
+          <Stat $delay="0s">
+            <div className="num">{counts.skills || 0}</div>
+            <div className="lbl">{pluralize(counts.skills || 0, 'Skill')}</div>
+          </Stat>
+          <Stat $delay="0.08s">
+            <div className="num">{counts.experience || 0}</div>
+            <div className="lbl">{pluralize(counts.experience || 0, 'Role')}</div>
+          </Stat>
+          {/* Education is a mass noun — same label for any count. Pass
+              singular twice to opt out of "s" pluralisation explicitly. */}
+          <Stat $delay="0.16s">
+            <div className="num">{counts.education || 0}</div>
+            <div className="lbl">{pluralize(counts.education || 0, 'Education', 'Education')}</div>
+          </Stat>
+          <Stat $delay="0.24s">
+            <div className="num">{counts.projects || 0}</div>
+            <div className="lbl">{pluralize(counts.projects || 0, 'Project')}</div>
+          </Stat>
         </Stats>
 
         {publicProfileUrl && (

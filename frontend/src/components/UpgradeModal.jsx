@@ -1,6 +1,7 @@
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useNavigate, useLocation } from 'react-router-dom';
+import AICreditsBadge from './AICreditsBadge';
 import {
   Dialog,
   DialogContent,
@@ -250,6 +251,14 @@ const UpgradeModal = ({
         <Subtitle>
           {featureMessages[feature] || featureMessages.default}
         </Subtitle>
+        {/* Same source of truth as the in-app badges — confirms the
+            paywall trigger matches the displayed count. */}
+        <div style={{ marginTop: 8 }}>
+          <AICreditsBadge
+            feature={feature && feature !== 'default' ? feature : 'profile_enhance'}
+            tone="light"
+          />
+        </div>
       </Header>
       
       <Content>

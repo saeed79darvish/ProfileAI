@@ -110,7 +110,9 @@ import ProfileWelcomeOnboardingModal from '@/components/ProfileWelcomeOnboarding
 import GapReviewDialog from '@/components/GapReviewDialog';
 import AIProcessingModal from '@/components/AIProcessingModal';
 import UpgradeModal from '@/components/UpgradeModal';
+import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
+import { validateHttpUrl } from '@/utils/urlValidation';
 
 // (Date helpers live in @/utils/dateRange so ProfileForm, Dashboard, and
 // PublicProfile all render periods identically.)
@@ -846,6 +848,16 @@ const ProfileForm = () => {
     educationDescription: 1000
   };
 
+  // User-facing labels for the three per-project URL fields. Used by the
+  // validation summary ("Project 2 — Live Demo URL: ...") and as the
+  // fieldLabel passed to the shared URL validator.
+  const PROJECT_URL_LABELS = {
+    url: 'Live Demo URL',
+    githubUrl: 'GitHub / Source Code URL',
+    imageUrl: 'Project Image URL',
+  };
+  const PROJECT_URL_FIELDS = Object.keys(PROJECT_URL_LABELS);
+
   const validateField = useCallback((name, value) => {
     const v = (value ?? '').toString().trim();
     switch (name) {
@@ -862,25 +874,17 @@ const ProfileForm = () => {
         return '';
       }
       case 'linkedinUrl':
+        return validateHttpUrl(value, {
+          fieldLabel: 'LinkedIn URL',
+          hostMatch: { regex: /linkedin\./i, message: 'Enter a linkedin.com URL.' },
+        });
       case 'githubUrl':
-      case 'portfolioUrl': {
-        if (!v) return '';
-        try {
-          const u = new URL(v);
-          if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-            return 'URL must start with http:// or https://';
-          }
-          if (name === 'linkedinUrl' && !/linkedin\./i.test(u.hostname)) {
-            return 'Enter a linkedin.com URL.';
-          }
-          if (name === 'githubUrl' && !/github\./i.test(u.hostname)) {
-            return 'Enter a github.com URL.';
-          }
-          return '';
-        } catch (_) {
-          return 'Enter a valid URL (e.g., https://example.com).';
-        }
-      }
+        return validateHttpUrl(value, {
+          fieldLabel: 'GitHub URL',
+          hostMatch: { regex: /github\./i, message: 'Enter a github.com URL.' },
+        });
+      case 'portfolioUrl':
+        return validateHttpUrl(value, { fieldLabel: 'Portfolio URL' });
       case 'email': {
         if (!v) return '';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Enter a valid email address.';
@@ -912,6 +916,16 @@ const ProfileForm = () => {
     fields.forEach((f) => {
       const msg = validateField(f, formData[f]);
       if (msg) errs[f] = msg;
+    });
+    // Per-project URL fields (Live Demo / Source Code / Image). Submit is
+    // blocked the same way as Basic Info.
+    (formData.projects || []).forEach((project, i) => {
+      PROJECT_URL_FIELDS.forEach((field) => {
+        const msg = validateHttpUrl(project?.[field], {
+          fieldLabel: PROJECT_URL_LABELS[field],
+        });
+        if (msg) errs[`projects.${i}.${field}`] = msg;
+      });
     });
     return errs;
   }, [formData, validateField]);
@@ -1036,7 +1050,31 @@ const ProfileForm = () => {
         i === index ? { ...row, [field]: value } : row
       ),
     }));
+    // Clear any previously-shown URL error for this field as soon as the
+    // user edits it; re-validation happens on blur.
+    if (PROJECT_URL_FIELDS.includes(field)) {
+      const key = `projects.${index}.${field}`;
+      setFieldErrors((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
   };
+
+  // onBlur handler for per-project URL inputs. Mirrors the top-level
+  // handleBlur but uses composite keys (`projects.${i}.${field}`).
+  const handleProjectUrlBlur = useCallback((index, field, value) => {
+    const msg = validateHttpUrl(value, { fieldLabel: PROJECT_URL_LABELS[field] });
+    const key = `projects.${index}.${field}`;
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (msg) next[key] = msg;
+      else delete next[key];
+      return next;
+    });
+  }, []);
 
   const handleDeleteProject = (index) => {
     setFormData({
@@ -1176,19 +1214,27 @@ const ProfileForm = () => {
         portfolioUrl: 'Portfolio URL',
         summary: 'Professional Summary'
       };
-      const summary = Object.entries(errs).map(([name, msg]) => ({
-        name,
-        label: labels[name] || name,
-        message: msg
-      }));
+      const summary = Object.entries(errs).map(([name, msg]) => {
+        // Project-URL keys look like "projects.0.url"; derive a friendly
+        // "Project 1 — Live Demo URL" label.
+        if (name.startsWith('projects.')) {
+          const [, idx, field] = name.split('.');
+          const human = PROJECT_URL_LABELS[field] || field;
+          return { name, label: `Project ${parseInt(idx, 10) + 1} — ${human}`, message: msg };
+        }
+        return { name, label: labels[name] || name, message: msg };
+      });
       setValidationSummary(summary);
       // Focus first invalid field
       const firstName = summary[0]?.name;
       if (firstName) {
-        // Scroll basic info section into view first
-        basicInfoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const targetRef = firstName.startsWith('projects.') ? projectsRef : basicInfoRef;
+        targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setTimeout(() => {
-          const el = document.querySelector(`[name="${firstName}"]`);
+          // Project inputs use composite names ("projects.0.url"); the
+          // selector escapes the dots so querySelector treats them as part
+          // of the attribute value, not as CSS class separators.
+          const el = document.querySelector(`[name="${firstName.replace(/\./g, '\\.')}"]`);
           if (el && typeof el.focus === 'function') el.focus({ preventScroll: true });
         }, 250);
       }
@@ -1812,6 +1858,7 @@ const ProfileForm = () => {
           </Breadcrumbs>
         </AIToolsLeft>
         <AIToolsButtons>
+          <AICreditsBadge style={{ marginRight: 8, alignSelf: 'center' }} />
           <Tooltip title="Show the AI features tour again">
             <AIButton
               onClick={() => setShowWelcome(true)}
@@ -3209,9 +3256,22 @@ const ProfileForm = () => {
                       fullWidth
                       size="small"
                       label="Live Demo URL"
+                      name={`projects.${index}.url`}
                       value={project.url || ''}
                       onChange={(e) => handleProjectChange(index, 'url', e.target.value)}
+                      onBlur={(e) => handleProjectUrlBlur(index, 'url', e.target.value)}
+                      type="url"
+                      inputMode="url"
                       placeholder="https://myproject.com"
+                      inputProps={{
+                        'aria-invalid': !!fieldErrors[`projects.${index}.url`],
+                        'aria-describedby': fieldErrors[`projects.${index}.url`]
+                          ? `projects-${index}-url-error`
+                          : undefined,
+                      }}
+                      error={!!fieldErrors[`projects.${index}.url`]}
+                      helperText={fieldErrors[`projects.${index}.url`] || ''}
+                      FormHelperTextProps={{ id: `projects-${index}-url-error` }}
                       sx={darkTextFieldSx}
                     />
                   </Grid>
@@ -3220,9 +3280,22 @@ const ProfileForm = () => {
                       fullWidth
                       size="small"
                       label="GitHub / Source Code URL"
+                      name={`projects.${index}.githubUrl`}
                       value={project.githubUrl || ''}
                       onChange={(e) => handleProjectChange(index, 'githubUrl', e.target.value)}
+                      onBlur={(e) => handleProjectUrlBlur(index, 'githubUrl', e.target.value)}
+                      type="url"
+                      inputMode="url"
                       placeholder="https://github.com/user/project"
+                      inputProps={{
+                        'aria-invalid': !!fieldErrors[`projects.${index}.githubUrl`],
+                        'aria-describedby': fieldErrors[`projects.${index}.githubUrl`]
+                          ? `projects-${index}-githubUrl-error`
+                          : undefined,
+                      }}
+                      error={!!fieldErrors[`projects.${index}.githubUrl`]}
+                      helperText={fieldErrors[`projects.${index}.githubUrl`] || ''}
+                      FormHelperTextProps={{ id: `projects-${index}-githubUrl-error` }}
                       sx={darkTextFieldSx}
                     />
                   </Grid>
@@ -3231,10 +3304,25 @@ const ProfileForm = () => {
                       fullWidth
                       size="small"
                       label="Project Image URL"
+                      name={`projects.${index}.imageUrl`}
                       value={project.imageUrl || ''}
                       onChange={(e) => handleProjectChange(index, 'imageUrl', e.target.value)}
+                      onBlur={(e) => handleProjectUrlBlur(index, 'imageUrl', e.target.value)}
+                      type="url"
+                      inputMode="url"
                       placeholder="https://example.com/project-screenshot.png"
-                      helperText="Add a screenshot or preview image of your project"
+                      inputProps={{
+                        'aria-invalid': !!fieldErrors[`projects.${index}.imageUrl`],
+                        'aria-describedby': fieldErrors[`projects.${index}.imageUrl`]
+                          ? `projects-${index}-imageUrl-error`
+                          : undefined,
+                      }}
+                      error={!!fieldErrors[`projects.${index}.imageUrl`]}
+                      helperText={
+                        fieldErrors[`projects.${index}.imageUrl`] ||
+                        'Add a screenshot or preview image of your project'
+                      }
+                      FormHelperTextProps={{ id: `projects-${index}-imageUrl-error` }}
                       sx={darkTextFieldSx}
                     />
                   </Grid>

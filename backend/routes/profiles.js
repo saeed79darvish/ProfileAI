@@ -12,6 +12,16 @@ const { checkGrounding } = require('../utils/groundingCheck');
 const multer = require('multer');
 const { profileStorage, cloudinary } = require('../config/cloudinary');
 
+// Defense-in-depth URL validation options. Mirrors the frontend
+// `isValidHttpUrl` helper in @/utils/urlValidation — must accept only
+// http:/https: and reject schemes like javascript:, data:, file:, mailto:
+// that the client-side validator also rejects.
+const STRICT_URL_OPTS = {
+  protocols: ['http', 'https'],
+  require_protocol: true,
+  require_tld: true,
+};
+
 // Configure multer for profile image upload with Cloudinary
 const imageUpload = multer({
   storage: profileStorage,
@@ -1003,8 +1013,12 @@ router.post(
     body('summary').optional(),
     body('location').optional(),
     body('phone').optional(),
-    body('linkedinUrl').optional({ checkFalsy: true }).isURL().withMessage('Invalid LinkedIn URL'),
-    body('githubUrl').optional({ checkFalsy: true }).isURL().withMessage('Invalid GitHub URL')
+    body('linkedinUrl').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Invalid LinkedIn URL'),
+    body('githubUrl').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Invalid GitHub URL'),
+    body('portfolioUrl').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Invalid Portfolio URL'),
+    body('projects.*.url').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Project Live Demo URL must start with http:// or https://'),
+    body('projects.*.githubUrl').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Project Source Code URL must start with http:// or https://'),
+    body('projects.*.imageUrl').optional({ checkFalsy: true }).isURL(STRICT_URL_OPTS).withMessage('Project Image URL must start with http:// or https://')
   ],
   async (req, res) => {
     try {

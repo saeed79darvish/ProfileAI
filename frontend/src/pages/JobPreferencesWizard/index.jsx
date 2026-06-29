@@ -66,6 +66,12 @@ import {
 } from './styled';
 import { ROUTES, STEPS, EXPERIENCE_LEVELS, EMPLOYMENT_TYPES, AVAILABILITY_OPTIONS, AI_TIPS, LIMITS, LOCALSTORAGE_KEY, TEXT, JOB_SECTORS, SECTOR_TITLES, ALL_TITLES, SECTOR_SKILLS, ALL_SKILLS, CAREER_STAGES } from './constants';
 import { getSectorProfile, getStageCopy } from './sectorProfiles';
+import { mapWizardExperienceToEditor, wizardDataToProfileShape } from './handoff';
+import { validateHttpUrl } from '@/utils/urlValidation';
+import { validateYear, validateYearRange } from './yearValidation';
+import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
+import BrandWordmark from '@/components/BrandWordmark';
+import AICreditsBadge from '@/components/AICreditsBadge';
 
 const POPULAR_LOCATIONS = [
   // United States
@@ -227,6 +233,18 @@ const JobPreferencesWizard = () => {
   const [aiDraftKey, setAiDraftKey] = useState(null);
   const [aiDraftError, setAiDraftError] = useState('');
 
+  // URL validation errors for inline display. Keys: `portfolio` for the
+  // Step 5 portfolio link, `projects.${idx}.url` for each project row.
+  // Empty when no errors. Cleared on field edit, set on blur, and
+  // re-checked at Finish time as a guard against bypass via skipping
+  // blur events.
+  const [urlErrors, setUrlErrors] = useState({});
+
+  // Education year validation errors. Keys: `education.${idx}.startDate`
+  // and `education.${idx}.endDate`. Same blur-vs-finish semantics as the
+  // URL errors above.
+  const [yearErrors, setYearErrors] = useState({});
+
   // Hydrate from localStorage so a user who refreshed or came back from
   // the form/skip flow doesn't have to re-enter everything.
   const [data, setData] = useState(() => {
@@ -303,7 +321,138 @@ const JobPreferencesWizard = () => {
     navigate('/profile/create-form');
   };
 
+  // Re-run URL validation over the whole wizard. Used as a guard in
+  // handleFinish so users can't bypass blur-driven inline validation by
+  // pasting bad URLs and clicking through quickly. Mirrors the per-field
+  // validation rules so the messages match exactly.
+  const validateAllUrls = useCallback(() => {
+    const errs = {};
+    const sp = getSectorProfile(data.sector);
+    // Portfolio URL is only validated when the field is in URL mode. In
+    // 'githubUsername' mode the wizard's handoff strips a github URL down
+    // to a bare username, so either input shape is fine.
+    if (sp.portfolio.field !== 'githubUsername') {
+      const msg = validateHttpUrl(data.portfolioUrl, { fieldLabel: 'Portfolio URL' });
+      if (msg) errs.portfolio = msg;
+    }
+    (data.projects || []).forEach((p, idx) => {
+      const msg = validateHttpUrl(p?.url, { fieldLabel: 'Project URL' });
+      if (msg) errs[`projects.${idx}.url`] = msg;
+    });
+    return errs;
+  }, [data]);
+
+  // Helper used by onChange to clear a single key as soon as the user
+  // edits the field; re-validation happens on blur.
+  const clearUrlError = useCallback((key) => {
+    setUrlErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  // onBlur handler used by every URL input in the wizard.
+  const handleUrlBlur = useCallback((key, value, opts) => {
+    const msg = validateHttpUrl(value, opts);
+    setUrlErrors((prev) => {
+      const next = { ...prev };
+      if (msg) next[key] = msg;
+      else delete next[key];
+      return next;
+    });
+  }, []);
+
+  // Education year validation. Same pattern as the URL validators:
+  // `yearErrorsAll` is the derived truth used to gate Continue / Finish,
+  // while `yearErrors` is the state that surfaces inline on blur.
+  const yearErrorsAll = useMemo(() => {
+    const errs = {};
+    (data.education || []).forEach((edu, idx) => {
+      const startKey = `education.${idx}.startDate`;
+      const endKey = `education.${idx}.endDate`;
+      const startMsg = validateYear(edu.startDate, { fieldLabel: 'Start year' });
+      const endMsg = validateYear(edu.endDate, { fieldLabel: 'End year' });
+      if (startMsg) errs[startKey] = startMsg;
+      if (endMsg) errs[endKey] = endMsg;
+      // Only run the cross-field check when both per-field shapes are
+      // fine — otherwise the per-field message owns the surfacing.
+      if (!startMsg && !endMsg) {
+        const rangeMsg = validateYearRange(edu.startDate, edu.endDate);
+        if (rangeMsg) errs[endKey] = rangeMsg;
+      }
+    });
+    return errs;
+  }, [data.education]);
+
+  const clearYearError = useCallback((key) => {
+    setYearErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  // Re-validate both start and end on every blur so a fixed end clears a
+  // stale range error, and so the cross-field rule is always evaluated
+  // off the latest values for the row.
+  const handleYearBlur = useCallback((idx, field, value) => {
+    setYearErrors((prev) => {
+      const next = { ...prev };
+      const startKey = `education.${idx}.startDate`;
+      const endKey = `education.${idx}.endDate`;
+      const row = data.education?.[idx] || {};
+      const startValue = field === 'startDate' ? value : row.startDate;
+      const endValue = field === 'endDate' ? value : row.endDate;
+      const startMsg = validateYear(startValue, { fieldLabel: 'Start year' });
+      const endMsg = validateYear(endValue, { fieldLabel: 'End year' });
+      if (startMsg) next[startKey] = startMsg;
+      else delete next[startKey];
+      if (endMsg) next[endKey] = endMsg;
+      else delete next[endKey];
+      if (!startMsg && !endMsg) {
+        const rangeMsg = validateYearRange(startValue, endValue);
+        if (rangeMsg) next[endKey] = rangeMsg;
+      }
+      return next;
+    });
+  }, [data.education]);
+
   const handleFinish = () => {
+    // Guard: block navigation if any URL field is invalid. Bounce the
+    // user back to the Projects step (index 5) where every URL input
+    // lives, and surface the field-level errors so they can fix them.
+    const urlErrs = validateAllUrls();
+    if (Object.keys(urlErrs).length > 0) {
+      setUrlErrors(urlErrs);
+      setAnimDir('left');
+      setCurrentStep(5);
+      // Focus the first invalid field once the step renders.
+      const firstKey = Object.keys(urlErrs)[0];
+      setTimeout(() => {
+        const selector = `[name="${firstKey.replace(/\./g, '\\.')}"]`;
+        const el = document.querySelector(selector);
+        if (el && typeof el.focus === 'function') el.focus({ preventScroll: false });
+      }, 250);
+      return;
+    }
+
+    // Same guard for education year errors — bounce to step 4 if any.
+    if (Object.keys(yearErrorsAll).length > 0) {
+      setYearErrors(yearErrorsAll);
+      setAnimDir('left');
+      setCurrentStep(4);
+      const firstKey = Object.keys(yearErrorsAll)[0];
+      setTimeout(() => {
+        const selector = `[name="${firstKey.replace(/\./g, '\\.')}"]`;
+        const el = document.querySelector(selector);
+        if (el && typeof el.focus === 'function') el.focus({ preventScroll: false });
+      }, 250);
+      return;
+    }
+
     try {
       localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(data));
     } catch {
@@ -311,10 +460,18 @@ const JobPreferencesWizard = () => {
     }
 
     // Strip empty rows so the ProfileForm doesn't render a bunch of blank
-    // cards when the candidate skipped a section.
-    const cleanedExperience = (data.experience || []).filter(
-      (e) => (e.title || '').trim() || (e.company || '').trim() || (e.description || '').trim()
-    );
+    // cards when the candidate skipped a section. Experience rows are then
+    // transformed via mapWizardExperienceToEditor so currently-working
+    // state and a default employmentType survive the handoff.
+    const experiencePrefs = {
+      employmentTypes: data.employmentTypes,
+      careerStage: data.careerStage,
+    };
+    const cleanedExperience = (data.experience || [])
+      .filter(
+        (e) => (e.title || '').trim() || (e.company || '').trim() || (e.description || '').trim()
+      )
+      .map((row) => mapWizardExperienceToEditor(row, experiencePrefs));
     const cleanedEducation = (data.education || []).filter(
       (e) => (e.degree || '').trim() || (e.institution || '').trim() || (e.fieldOfStudy || '').trim()
     );
@@ -363,33 +520,22 @@ const JobPreferencesWizard = () => {
       case 1: return data.employmentTypes.length > 0 || data.workSetups.length > 0;
       case 2: return true; // skills are optional
       case 3: return true; // experience optional — branched by careerStage
-      case 4: return true; // education optional
+      case 4: return Object.keys(yearErrorsAll).length === 0; // years must validate
       case 5: return true; // projects optional
       case 6: return true;
       default: return true;
     }
-  }, [currentStep, data]);
+  }, [currentStep, data, yearErrorsAll]);
 
-  // Live profile-strength score. 7 signals × ~14% each. Used in the meter
-  // at the top of the wizard so candidates can see momentum build as they
-  // fill things in — turns a long form into a progress game.
-  const profileStrength = useMemo(() => {
-    const signals = [
-      !!data.title.trim(),                                  // role
-      !!data.sector,                                        // industry
-      data.employmentTypes.length + data.workSetups.length > 0,
-      data.skills.length >= 3,                              // some skills
-      data.experience.length > 0 || data.careerStage !== '',// stage chosen
-      data.education.length > 0,                            // education
-      data.projects.length > 0 || !!data.githubUsername || !!data.portfolioUrl,
-    ];
-    const pct = Math.round((signals.filter(Boolean).length / signals.length) * 100);
-    const tier = pct >= 85 ? { label: 'Outstanding', color: '#16a34a' }
-      : pct >= 60 ? { label: 'Strong', color: '#6366f1' }
-      : pct >= 35 ? { label: 'Building', color: '#f59e0b' }
-      : { label: 'Just starting', color: '#94a3b8' };
-    return { pct, ...tier };
-  }, [data]);
+  // Live profile-completion score. Single source of truth shared with the
+  // editor sidebar, the success modal, and the Dashboard card via
+  // computeProfileCompletion. Wizard state is adapted to the Profile
+  // shape the rubric expects (no summary / photo at this stage — those
+  // are added in the editor and correctly cost ~22% here).
+  const profileStrength = useMemo(
+    () => computeProfileCompletion(wizardDataToProfileShape(data)),
+    [data],
+  );
 
   // Helpers for repeating sections — Experience / Education / Projects.
   const addRow = useCallback((field, template) => {
@@ -767,6 +913,20 @@ const JobPreferencesWizard = () => {
 
   const renderStepSkills = () => {
     const sp = getSectorProfile(data.sector);
+    // Custom-skill affordance. The wizard's catalog is curated per sector,
+    // but the editor accepts arbitrary skills — mirror that here so a
+    // search like "Selenium" / "Cypress" isn't a dead end. Dedup is
+    // case-insensitive to match the editor's `handleAddSkillUnified`.
+    const trimmedQuery = skillSearch.trim();
+    const noResults = trimmedQuery.length > 0 && Object.keys(filteredSkills).length === 0;
+    const alreadyAdded = trimmedQuery.length > 0 && data.skills.some(
+      (s) => String(s).toLowerCase() === trimmedQuery.toLowerCase(),
+    );
+    const handleAddCustomSkill = () => {
+      if (!trimmedQuery || alreadyAdded) return;
+      setData((prev) => ({ ...prev, skills: [...prev.skills, trimmedQuery] }));
+      setSkillSearch('');
+    };
     return (
     <StepContent $dir={animDir} key="step-2">
       <TipBubble>
@@ -854,6 +1014,14 @@ const JobPreferencesWizard = () => {
         placeholder="Search skills..."
         value={skillSearch}
         onChange={e => setSkillSearch(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter on a no-match query is a fast path to add the typed
+          // skill as a custom entry.
+          if (e.key === 'Enter' && noResults && !alreadyAdded) {
+            e.preventDefault();
+            handleAddCustomSkill();
+          }
+        }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
@@ -866,23 +1034,59 @@ const JobPreferencesWizard = () => {
 
       {/* Skill categories */}
       <Box sx={{ maxHeight: 300, overflowY: 'auto', pr: 1 }}>
-        {Object.entries(filteredSkills).map(([cat, skills]) => (
-          <div key={cat}>
-            <CategoryLabel>{cat}</CategoryLabel>
-            <SkillChipGrid>
-              {skills.map(sk => (
-                <SkillChip
-                  key={sk}
-                  $selected={data.skills.includes(sk)}
-                  onClick={() => toggleArrayItem('skills', sk)}
+        {noResults ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 1.25,
+              p: 3,
+              borderRadius: 2,
+              border: '1px dashed #d4d9e6',
+              background: '#fafbfd',
+              textAlign: 'center',
+            }}
+          >
+            {alreadyAdded ? (
+              <Typography sx={{ fontSize: 13, color: '#7a7f96' }}>
+                <strong>&ldquo;{trimmedQuery}&rdquo;</strong> is already in your skills.
+              </Typography>
+            ) : (
+              <>
+                <Typography sx={{ fontSize: 13, color: '#7a7f96' }}>
+                  No matches in our list. Don&rsquo;t see your skill? Add it anyway.
+                </Typography>
+                <NavButton
+                  $primary
+                  type="button"
+                  onClick={handleAddCustomSkill}
+                  style={{ padding: '6px 14px', fontSize: 12.5 }}
                 >
-                  {data.skills.includes(sk) && <CheckIcon />}
-                  {sk}
-                </SkillChip>
-              ))}
-            </SkillChipGrid>
-          </div>
-        ))}
+                  <AddIcon style={{ fontSize: 16 }} /> Add &ldquo;{trimmedQuery}&rdquo; as a skill
+                </NavButton>
+              </>
+            )}
+          </Box>
+        ) : (
+          Object.entries(filteredSkills).map(([cat, skills]) => (
+            <div key={cat}>
+              <CategoryLabel>{cat}</CategoryLabel>
+              <SkillChipGrid>
+                {skills.map(sk => (
+                  <SkillChip
+                    key={sk}
+                    $selected={data.skills.includes(sk)}
+                    onClick={() => toggleArrayItem('skills', sk)}
+                  >
+                    {data.skills.includes(sk) && <CheckIcon />}
+                    {sk}
+                  </SkillChip>
+                ))}
+              </SkillChipGrid>
+            </div>
+          ))
+        )}
       </Box>
     </StepContent>
   );
@@ -1239,12 +1443,50 @@ const JobPreferencesWizard = () => {
                 </NavButton>
               </Box>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                <TextField fullWidth size="small" placeholder="Degree (e.g. B.S. Computer Science)" value={edu.degree} onChange={(e) => updateRow('education', idx, 'degree', e.target.value)} sx={inputSx} />
+                <TextField fullWidth size="small" placeholder="Degree (e.g. B.S.)" value={edu.degree} onChange={(e) => updateRow('education', idx, 'degree', e.target.value)} sx={inputSx} />
                 <TextField fullWidth size="small" placeholder="Field of study" value={edu.fieldOfStudy} onChange={(e) => updateRow('education', idx, 'fieldOfStudy', e.target.value)} sx={inputSx} />
                 <TextField fullWidth size="small" placeholder={sp.education.institutionPlaceholder} value={edu.institution} onChange={(e) => updateRow('education', idx, 'institution', e.target.value)} sx={inputSx} />
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                  <TextField fullWidth size="small" placeholder="Start year" value={edu.startDate} onChange={(e) => updateRow('education', idx, 'startDate', e.target.value)} sx={inputSx} />
-                  <TextField fullWidth size="small" placeholder="End year" value={edu.endDate} onChange={(e) => updateRow('education', idx, 'endDate', e.target.value)} sx={inputSx} />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    name={`education.${idx}.startDate`}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Start year"
+                    value={edu.startDate}
+                    inputProps={{ maxLength: 4, pattern: '\\d{4}', inputMode: 'numeric' }}
+                    onChange={(e) => {
+                      updateRow('education', idx, 'startDate', e.target.value);
+                      clearYearError(`education.${idx}.startDate`);
+                      // A change to start can also resolve a stale range
+                      // error reported under the end field; clear that
+                      // optimistically and let onBlur re-evaluate.
+                      clearYearError(`education.${idx}.endDate`);
+                    }}
+                    onBlur={(e) => handleYearBlur(idx, 'startDate', e.target.value)}
+                    error={!!yearErrors[`education.${idx}.startDate`]}
+                    helperText={yearErrors[`education.${idx}.startDate`] || ''}
+                    sx={inputSx}
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    name={`education.${idx}.endDate`}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="End year"
+                    value={edu.endDate}
+                    inputProps={{ maxLength: 4, pattern: '\\d{4}', inputMode: 'numeric' }}
+                    onChange={(e) => {
+                      updateRow('education', idx, 'endDate', e.target.value);
+                      clearYearError(`education.${idx}.endDate`);
+                    }}
+                    onBlur={(e) => handleYearBlur(idx, 'endDate', e.target.value)}
+                    error={!!yearErrors[`education.${idx}.endDate`]}
+                    helperText={yearErrors[`education.${idx}.endDate`] || ''}
+                    sx={inputSx}
+                  />
                 </Box>
               </Box>
             </Box>
@@ -1269,13 +1511,29 @@ const JobPreferencesWizard = () => {
     const portfolioValue = isGithubField ? data.githubUsername : data.portfolioUrl;
     const setPortfolio = (v) => set(sp.portfolio.field, v);
 
+    // Pick the right tip for the user's situation. AI_TIPS[5] is the
+    // new-grad framing ("No work history yet? Side projects are how new
+    // grads stand out.") which made no sense for a self-identified
+    // experienced candidate. Logic:
+    //   - careerStage === 'new_grad'                  → new-grad copy
+    //   - has ≥1 experience entry                     → work-history copy
+    //   - careerStage === 'experienced' (even if 0)   → work-history copy
+    //   - otherwise (zero roles, no stage chosen)     → new-grad copy
+    const hasWorkHistory = (data.experience || []).length > 0;
+    const isNewGrad = data.careerStage === 'new_grad';
+    const claimsExperience = data.careerStage === 'experienced';
+    const useNewGradTip = isNewGrad || (!hasWorkHistory && !claimsExperience);
+    const projectsTip = useNewGradTip
+      ? AI_TIPS[5]
+      : 'Highlight 1–3 projects with measurable impact — it’s how recruiters see what you’ve actually shipped.';
+
     return (
     <StepContent $dir={animDir} key="step-5">
       <TipBubble>
         <Avatar sx={{ width: 28, height: 28, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 12 }}>
           <AIIcon sx={{ fontSize: 16 }} />
         </Avatar>
-        <Typography sx={{ fontSize: 13, color: '#555c72' }}>{AI_TIPS[5]}</Typography>
+        <Typography sx={{ fontSize: 13, color: '#555c72' }}>{projectsTip}</Typography>
       </TipBubble>
 
       <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.6rem' }, fontWeight: 700, color: '#1a1a2e', mb: 1 }}>
@@ -1305,9 +1563,23 @@ const JobPreferencesWizard = () => {
         <TextField
           fullWidth
           size="small"
+          name="portfolio"
+          type={isGithubField ? 'text' : 'url'}
+          inputMode={isGithubField ? 'text' : 'url'}
           placeholder={sp.portfolio.placeholder}
           value={portfolioValue}
-          onChange={(e) => setPortfolio(e.target.value)}
+          onChange={(e) => {
+            setPortfolio(e.target.value);
+            if (!isGithubField) clearUrlError('portfolio');
+          }}
+          onBlur={(e) => {
+            // Skip URL validation in githubUsername mode — the handoff
+            // accepts either a bare handle or a full URL and normalises it.
+            if (isGithubField) return;
+            handleUrlBlur('portfolio', e.target.value, { fieldLabel: 'Portfolio URL' });
+          }}
+          error={!isGithubField && !!urlErrors.portfolio}
+          helperText={!isGithubField ? (urlErrors.portfolio || '') : ''}
           InputProps={sp.portfolio.prefix ? {
             startAdornment: (
               <InputAdornment position="start">
@@ -1400,9 +1672,20 @@ const JobPreferencesWizard = () => {
               <TextField
                 fullWidth
                 size="small"
+                name={`projects.${idx}.url`}
+                type="url"
+                inputMode="url"
                 placeholder={sp.projects.urlPlaceholder}
                 value={p.url}
-                onChange={(e) => updateRow('projects', idx, 'url', e.target.value)}
+                onChange={(e) => {
+                  updateRow('projects', idx, 'url', e.target.value);
+                  clearUrlError(`projects.${idx}.url`);
+                }}
+                onBlur={(e) =>
+                  handleUrlBlur(`projects.${idx}.url`, e.target.value, { fieldLabel: 'Project URL' })
+                }
+                error={!!urlErrors[`projects.${idx}.url`]}
+                helperText={urlErrors[`projects.${idx}.url`] || ''}
                 sx={{ ...inputSx, mt: 1.5 }}
               />
             </Box>
@@ -1436,19 +1719,24 @@ const JobPreferencesWizard = () => {
         <Logo onClick={() => navigate('/')}>
           <AIIcon />
           <Typography
+            component="span"
             sx={{
-              fontWeight: 700,
-              fontSize: '1.1rem',
-              letterSpacing: '-0.3px',
-              color: '#1a1a2e'
+              fontWeight: 900,
+              fontSize: '1.25rem',
+              letterSpacing: '-0.02em',
+              color: '#1a1a2e',
+              lineHeight: 1,
             }}
           >
-            ProfilleAI
+            <BrandWordmark accentColor="#6366f1" />
           </Typography>
         </Logo>
-        <SkipLink onClick={handleSkip}>
-          Skip for now →
-        </SkipLink>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <AICreditsBadge />
+          <SkipLink onClick={handleSkip}>
+            Skip for now →
+          </SkipLink>
+        </Box>
       </TopBar>
 
       <MainContent>

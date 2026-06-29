@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled, { createGlobalStyle } from 'styled-components';
+import BrandWordmark from './BrandWordmark';
 import {
   ExitToApp as LogoutIcon,
   Menu as MenuIcon,
@@ -1020,7 +1021,7 @@ const Navbar = () => {
             }}
             aria-label="profilleai home"
           >
-            <LogoText>profille<LogoAccent>ai</LogoAccent></LogoText>
+            <LogoText><BrandWordmark /></LogoText>
           </Logo>
 
           <NavRow role="menubar" aria-label="Primary">

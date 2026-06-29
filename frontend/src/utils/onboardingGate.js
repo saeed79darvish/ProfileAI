@@ -23,6 +23,21 @@ const ALLOWED_PREFIXES = [
   '/logout',
 ];
 
+// Exact-match paths that bypass the gate WITHOUT a startsWith side-effect.
+// These are destinations that fetch the profile from the server themselves
+// and self-redirect on a confirmed 404, so the route guard must NOT redirect
+// based on the (possibly stale / cold-cache-missing) `user.hasProfile`
+// in-memory hint. This is what fixes the bug where a hard refresh of
+// `/profile` or `/profile/edit` for a user with a saved profile bounced
+// them to `/profile/create` because the cached user blob lagged behind.
+//
+// Specifically:
+//   - `/profile` (Dashboard)       — fetches profile, redirects on 404
+//   - `/profile/edit` (ProfileForm) — fetches profile, renders empty form on 404
+//
+// Server is the source of truth for "does this user have a profile?"
+const EXACT_ALLOWED = ['/profile', '/profile/edit'];
+
 // True for the application flow (…/apply) — these stay gated so we can
 // prompt the candidate to finish their profile before applying / using AI.
 function isJobApplyPath(pathname) {
@@ -41,6 +56,9 @@ export function isOnboardingAllowedPath(pathname) {
   if (pathname === '/jobs' || (pathname.startsWith('/jobs/') && !isJobApplyPath(pathname))) {
     return true;
   }
+  // Exact-match bypass for destinations that fetch the profile themselves
+  // (see comment on EXACT_ALLOWED above).
+  if (EXACT_ALLOWED.includes(pathname)) return true;
   return ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
 }
 

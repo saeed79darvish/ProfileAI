@@ -50,7 +50,21 @@ api.interceptors.request.use(
 
 // Handle 401 responses (unauthorized) - be very careful not to logout unnecessarily
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // After any successful AI action, ping mounted AICreditsBadge / useAICredits
+    // consumers to re-fetch. This is what guarantees the displayed
+    // "X credits left" matches the rate-limiter-driven paywall trigger.
+    // Path whitelist covers every endpoint that runs through
+    // backend/middleware/aiRateLimiter (enhance / tailor / analyze /
+    // generate-* / autofill-* / posts/ai/*).
+    try {
+      const url = response?.config?.url || '';
+      if (url && /\/(enhance|tailor|analyze|generate-|autofill-)|\/ai\//.test(url)) {
+        window.dispatchEvent(new CustomEvent('profileai:ai-usage-updated'));
+      }
+    } catch (_) { /* SSR / test envs without window */ }
+    return response;
+  },
   (error) => {
     // Network error - backend might be down, DON'T clear auth
     if (!error.response) {
