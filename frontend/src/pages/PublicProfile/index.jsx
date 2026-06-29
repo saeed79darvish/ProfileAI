@@ -1114,24 +1114,8 @@ const PublicProfile = () => {
               </Box>
             </Box>
             
-            {/* Share/Copy Buttons - desktop only */}
+            {/* Copy Link Button - desktop only */}
             <Box sx={{ display: 'flex', gap: 1.5 }}>
-              <Button
-                variant="contained"
-                startIcon={<ShareIcon />}
-                onClick={handleShare}
-                sx={{
-                  bgcolor: 'rgba(255,255,255,0.2)',
-                  backdropFilter: 'blur(10px)',
-                  color: 'white',
-                  borderRadius: 2,
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' },
-                }}
-              >
-                Share
-              </Button>
               <Button
                 variant="contained"
                 startIcon={<CopyIcon />}
