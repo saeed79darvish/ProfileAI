@@ -1839,9 +1839,6 @@ const ProfileForm = () => {
           }}
           publicProfileUrl={`${window.location.origin}/profile/${user?.slug || user?.username || user?.id || ''}`}
           onContinue={() => navigate('/profile')}
-          onViewProfile={() =>
-            window.open(`${window.location.origin}/profile/${user?.slug || user?.username || user?.id || ''}`, '_blank')
-          }
         />
       )}
       {/* AI Tools Bar - matches Dashboard */}

@@ -326,23 +326,6 @@ const PrimaryBtn = styled.button`
   svg { font-size: 19px; }
 `;
 
-const GhostBtn = styled.button`
-  width: 100%;
-  border: 1px solid rgba(255,255,255,0.18);
-  cursor: pointer;
-  padding: 12px;
-  border-radius: 14px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.85);
-  background: transparent;
-  transition: background 0.15s ease;
-
-  &:hover { background: rgba(255,255,255,0.06); }
-  &:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
-`;
-
 /* ═══════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════ */
@@ -374,15 +357,14 @@ const strengthCopy = (pct) => {
  * Celebration + share screen shown after a candidate creates their FIRST
  * profile. Surfaces profile strength, what was captured, a public-profile link,
  * and one-tap invite/share actions (the referral lever) before sending the
- * user to their dashboard.
+ * user to their profile.
  *
  * Props:
  *  - firstName: string
  *  - completion: { pct, label }
  *  - counts: { skills, experience, education, projects }
  *  - publicProfileUrl: string
- *  - onContinue: () => void   (go to dashboard)
- *  - onViewProfile: () => void
+ *  - onContinue: () => void   (go to profile)
  */
 const ProfileCelebration = ({
   firstName,
@@ -390,7 +372,6 @@ const ProfileCelebration = ({
   counts = {},
   publicProfileUrl = '',
   onContinue,
-  onViewProfile,
 }) => {
   const [referralLink, setReferralLink] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -543,13 +524,8 @@ const ProfileCelebration = ({
 
         <Actions>
           <PrimaryBtn onClick={onContinue}>
-            Go to my dashboard <ArrowIcon />
+            Go to my profile <ArrowIcon />
           </PrimaryBtn>
-          {publicProfileUrl && (
-            <GhostBtn onClick={onViewProfile || (() => window.open(publicProfileUrl, '_blank'))}>
-              View my public profile
-            </GhostBtn>
-          )}
         </Actions>
       </Card>
 
