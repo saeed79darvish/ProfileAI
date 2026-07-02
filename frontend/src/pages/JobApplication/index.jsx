@@ -49,6 +49,8 @@ import {
 } from './styled';
 import { ROUTES, MONTH_MAP, VALID_FILE_TYPES, LIMITS, TEXT as CONST_TEXT } from './constants';
 import { parseDateFromPeriod, parsePeriodDates } from './utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
 
 let startDate = '';
 

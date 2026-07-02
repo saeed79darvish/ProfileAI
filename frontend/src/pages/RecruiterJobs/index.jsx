@@ -90,6 +90,8 @@ import {
   FormGroupRelative
 } from './styled';
 import { ROUTES, SECTION_PATTERNS, TIMINGS, LIMITS } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 // Helper function to render formatted content - detects clean text structure
 const renderFormattedContent = (text, placeholder) => {

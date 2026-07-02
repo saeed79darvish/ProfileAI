@@ -46,6 +46,7 @@ import {
 } from './styled';
 import { QUICK_TIME_SLOTS, SCORE_THRESHOLDS, TIMINGS, LIMITS } from './constants';
 import { formatPhoneNumber, formatDateTime, getEffectiveStatus, isInterviewTimePassed, getTimeUntilInterview, getTimeSinceScheduled } from './utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 const newCountdowns = {};
 

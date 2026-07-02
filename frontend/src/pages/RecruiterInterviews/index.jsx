@@ -38,6 +38,7 @@ import {
   Tab
 } from './styled';
 import { ROUTES, TEXT, RECOMMENDATION_MAP, STATUS_MAP, THRESHOLDS } from './constants';
+import { useNavigate } from 'react-router-dom';
 
 const RecruiterInterviews = () => {
   const navigate = useNavigate();

@@ -47,6 +47,9 @@ import {
   LoadingContainer
 } from './styled';
 import { ROUTES, EXTERNAL_LINKS, LIMITS, TEXT as CONST_TEXT } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useParams} from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const formatDateTime = (dateString) => {
   const date = new Date(dateString);

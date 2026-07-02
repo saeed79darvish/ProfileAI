@@ -48,6 +48,8 @@ import {
   ArchiveCards
 } from './styled';
 import { ROUTES, STATUS_CONFIG, KANBAN_COLUMNS, ARCHIVE_STATUSES, COMPANY_COLORS, TIMINGS, LIMITS, TEXT } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';

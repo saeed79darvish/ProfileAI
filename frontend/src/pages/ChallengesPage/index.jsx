@@ -30,6 +30,8 @@ import {
   RankBadge
 } from './styled';
 import { ROUTES, STATUS_CONFIG, CATEGORY_CONFIG, LIMITS, TEXT } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 export default function ChallengesPage() {
   const { user, isAuthenticated } = useAuth();

@@ -30,6 +30,7 @@ import {
   EmptyState
 } from './styled';
 import { WEEK_DAYS, TEXT, UPCOMING_INTERVIEWS_LIMIT, DEFAULT_PHONE_SCREENING_DURATION } from './constants';
+import { useNavigate } from 'react-router-dom';
 
 const RecruiterCalendar = () => {
   const navigate = useNavigate();

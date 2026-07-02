@@ -14,6 +14,9 @@ import {
   MilestoneCard
 } from './styled';
 import { ROUTES, MOOD_EMOJIS, GRADIENTS, TEXT, LIMITS } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useParams} from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 export default function ChallengeDetailPage() {
   const { id } = useParams();

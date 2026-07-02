@@ -45,6 +45,9 @@ import {
 } from './styled';
 import { ROUTES, COMMON_SKILLS, EXPERIENCE_LEVELS, SORT_OPTIONS, LIMITS, AI_WEIGHTS, COMPLETENESS_WEIGHTS, TEXT } from './constants';
 import { featureFlags } from '../../config/featureFlags';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const BrowseProfiles = () => {
   const navigate = useNavigate();

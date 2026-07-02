@@ -49,8 +49,6 @@ const pollsRoutes = require('./routes/polls');
 const candidatesRoutes = require('./routes/candidates');
 const invitationsRoutes = require('./routes/invitations');
 const guestScreeningRoutes = require('./routes/guestScreening');
-const challengesRoutes = require('./routes/challenges');
-const sessionsRoutes = require('./routes/sessions');
 const promoRoutes = require('./routes/promo');
 const creditPackRoutes = require('./routes/creditPacks');
 const externalApplicationRoutes = require('./routes/externalApplications');
@@ -250,8 +248,6 @@ app.use('/api/notifications', authMiddleware, requireVerifiedEmail, notification
 app.use('/api/referrals', referralRoutes);
 app.use('/api/kudos', kudosRoutes);
 app.use('/api/polls', pollsRoutes);
-app.use('/api/challenges', challengesRoutes);
-app.use('/api/sessions', sessionsRoutes);
 
 if (featureFlags.recruiterSurface) {
   app.use('/api/candidates', candidatesRoutes);

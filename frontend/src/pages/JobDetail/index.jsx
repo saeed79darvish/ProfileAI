@@ -72,6 +72,7 @@ import {
 import { ROUTES, WORK_TYPES, EMPLOYMENT_TYPES, LEVELS, TIMINGS, TEXT as CONST_TEXT } from './constants';
 import { renderFormattedContent } from './utils';
 import JobAIToolsPanel from '../../components/JobAIToolsPanel';
+import { useAuth } from '@/contexts/AuthContext';
 
 const JobDetail = () => {
   const { id } = useParams();

@@ -32,6 +32,8 @@ import {
   SkipLink
 } from './styled';
 import { ROUTES, SLIDES, TEXT, TIMINGS } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 /* ═══════════════════════════════════════════════
    PAGINATION DOTS

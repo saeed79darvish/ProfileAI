@@ -40,6 +40,8 @@ import {
   ModalBody
 } from './styled';
 import { ROUTES, CUSTOM_LABELS, STATUS_OPTIONS, THRESHOLDS, TEXT } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useParams} from 'react-router-dom';
 
 // Flatten the answers - expand nested objects like customAnswers
     const flattened = {};

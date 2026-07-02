@@ -12,6 +12,9 @@ import {
   TypeCard
 } from './styled';
 import { ROUTES, STEPS, CHALLENGE_TYPES, TEXT, LIMITS } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 
 export default function ChallengeCreationWizard() {
   const { user } = useAuth();

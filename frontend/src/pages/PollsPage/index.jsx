@@ -17,6 +17,9 @@ import {
   StatsBar
 } from './styled';
 import { CATEGORIES, TEXT, PAGINATION } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useSearchParams} from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const PollsPage = () => {
   const { user } = useAuth();

@@ -12,6 +12,9 @@ import {
   StatsRow
 } from './styled';
 import { TEXT, TIME_UNITS } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useParams} from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const PollDetailPage = () => {
   const { id } = useParams();

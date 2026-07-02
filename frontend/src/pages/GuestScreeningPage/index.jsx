@@ -56,6 +56,7 @@ import {
   ErrorTitle
 } from './styled';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, LIMITS } from './constants';
+import { useNavigate, useParams} from 'react-router-dom';
 
 // ─── Component ──────────────────────────────────
 export default function GuestScreeningPage() {

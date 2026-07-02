@@ -33,6 +33,8 @@ import {
   LoadingSpinner
 } from './styled';
 import { ROUTES, TEXT, REDIRECT_DELAY_MS, PASSWORD_MIN_LENGTH } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useParams, useSearchParams} from 'react-router-dom';
 
 const InvitationAcceptPage = () => {
   const { token } = useParams();

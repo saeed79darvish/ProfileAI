@@ -32,6 +32,9 @@ import {
   ChipInput
 } from './styled';
 import { ROUTES, COMPANY_SIZES, INDUSTRIES, TIMINGS, VALIDATION, AVATAR_SIZE } from './constants';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 const RecruiterProfileForm = () => {
   const navigate = useNavigate();

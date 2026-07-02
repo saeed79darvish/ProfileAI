@@ -35,6 +35,7 @@ import {
   ErrorMessage
 } from './styled';
 import { ROUTES, TEXT, INTERVIEW_TYPES, FORMAT_OPTIONS, DURATION_OPTIONS, SCREENING_DURATION_OPTIONS, DEFAULTS } from './constants';
+import { useState, useEffect } from 'react';
 
 const ScheduleInterview = () => {
   const navigate = useNavigate();
