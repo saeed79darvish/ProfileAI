@@ -293,8 +293,24 @@ router.get('/usage', auth, async (req, res) => {
 
     res.json(usage);
   } catch (error) {
-    console.error('Error fetching AI usage:', error);
-    res.status(500).json({ error: 'Failed to fetch AI usage' });
+    // Log the FULL error so it shows up in Render logs — the generic message
+    // hid the real cause of intermittent 500s (Sequelize errors, missing
+    // columns from unmigrated schemas, etc.).
+    console.error('[GET /api/subscriptions/usage] failed', {
+      userId: req.userId,
+      name: error?.name,
+      message: error?.message,
+      sql: error?.sql,
+      original: error?.original?.message,
+      stack: error?.stack,
+    });
+    res.status(500).json({
+      error: 'Failed to fetch AI usage',
+      // Surface a short reason in non-production so testers can screenshot it;
+      // still safe in prod because we only return the error name/message,
+      // not the SQL or stack.
+      reason: error?.message || error?.name || 'unknown',
+    });
   }
 });
 

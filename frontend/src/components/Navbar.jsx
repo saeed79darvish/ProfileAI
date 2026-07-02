@@ -199,6 +199,41 @@ const Hamburger = styled.button`
   ${media.mobile} { display: inline-flex; }
 `;
 
+/* Mobile-only quick-action row shown between the logo and hamburger. Surfaces
+   the notifications bell + Upgrade pill so authenticated users don't have to
+   open the drawer for the two most-used actions. */
+const MobileQuickActions = styled.div`
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+
+  ${media.mobile} { display: inline-flex; }
+`;
+
+const MobileUpgradePill = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124, 58, 237, 0.5); }
+  &:active { transform: translateY(0); }
+  &:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  svg { font-size: 14px; }
+`;
+
 /* User pill */
 const UserPill = styled.button`
   display: inline-flex;
@@ -974,6 +1009,26 @@ const Navbar = () => {
                 <PersonIcon aria-hidden="true" />
                 {isRecruiter ? 'My Company' : 'My Profile'}
               </DrawerItem>
+              <DrawerItem
+                type="button"
+                $active={isActive('/pricing')}
+                aria-current={isActive('/pricing') ? 'page' : undefined}
+                onClick={() => go('/pricing')}
+                style={
+                  user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise'
+                    ? {
+                        background: 'linear-gradient(135deg, rgba(167,139,250,0.15) 0%, rgba(124,58,237,0.15) 100%)',
+                        color: '#c4b5fd',
+                        fontWeight: 700,
+                      }
+                    : undefined
+                }
+              >
+                <UpgradeIcon aria-hidden="true" />
+                {user?.subscriptionTier === 'pro' || user?.subscriptionTier === 'enterprise'
+                  ? 'Plans & Billing'
+                  : 'Upgrade to Pro'}
+              </DrawerItem>
               <DrawerSeparator />
               <DrawerItem type="button" $danger onClick={handleLogout}>
                 <LogoutIcon aria-hidden="true" /> Sign Out
@@ -1038,6 +1093,40 @@ const Navbar = () => {
 
             {!isAuthenticated && renderAuthCTAs()}
           </NavRow>
+
+          {/* Mobile-only quick actions (auth users only). Keeps the two most
+              important surfaces one tap away without opening the drawer. */}
+          {isAuthenticated && (
+            <MobileQuickActions>
+              <IconBtn
+                type="button"
+                onClick={openNotifications}
+                aria-label={
+                  unreadNotifications > 0
+                    ? `Notifications, ${unreadNotifications} unread`
+                    : 'Notifications'
+                }
+              >
+                <Badge
+                  badgeContent={unreadNotifications}
+                  color="error"
+                  max={99}
+                  invisible={unreadNotifications === 0}
+                >
+                  <NotificationsIcon />
+                </Badge>
+              </IconBtn>
+              {user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise' && (
+                <MobileUpgradePill
+                  type="button"
+                  onClick={() => go('/pricing')}
+                  aria-label="Upgrade your plan"
+                >
+                  <UpgradeIcon /> Upgrade
+                </MobileUpgradePill>
+              )}
+            </MobileQuickActions>
+          )}
 
           <Hamburger
             type="button"
