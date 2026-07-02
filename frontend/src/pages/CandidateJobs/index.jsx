@@ -1693,6 +1693,18 @@ const CandidateJobs = () => {
       }
       const yearsExp = Math.round(totalMonths / 12);
 
+      // Fall back to a locally-computed score when the server didn't return
+      // a relevanceScore (e.g. job opened via direct link/detail fetch,
+      // which doesn't carry the search-time ranking). Mirrors the fallback
+      // used by the inline "Match Card V2" panel on the job detail view —
+      // without this, the dialog showed "0%" while the panel right above it
+      // showed a real score, for the same job.
+      const serverScore = job.relevanceScore ? Math.round(job.relevanceScore) : 0;
+      let effectiveScore = serverScore;
+      if (!effectiveScore && matched.length > 0) {
+        effectiveScore = Math.min(95, Math.round((matched.length / Math.max(candidateSkills.length, 1)) * 100));
+      }
+
       setMatchBreakdown({
         matchedSkills: matched,
         missingSkills: unmatched,
@@ -1703,6 +1715,7 @@ const CandidateJobs = () => {
         locationType,
         yearsExp,
         jobExpLevel: job.experienceLevel,
+        effectiveScore,
       });
     } catch (err) {
       console.error('Failed to compute match breakdown:', err);
@@ -3428,28 +3441,35 @@ const CandidateJobs = () => {
             </div>
 
             {/* Score */}
-            {matchDialogJob && (
+            {matchDialogJob && (() => {
+              // Prefer the locally-computed fallback score (matchBreakdown.effectiveScore)
+              // over the raw server relevanceScore, which can be 0/missing when the
+              // job wasn't opened from a search result (e.g. direct link). Falls back
+              // to relevanceScore while matchBreakdown is still loading.
+              const displayScore = matchBreakdown?.effectiveScore ?? (matchDialogJob.relevanceScore || 0);
+              return (
               <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '16px 20px', background: '#F9FAFB', borderRadius: 12, marginBottom: 20, border: '1px solid #EAECF0' }}>
                 <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
                   <svg width="72" height="72" viewBox="0 0 72 72">
                     <circle cx="36" cy="36" r="30" fill="none" stroke="#EAECF0" strokeWidth="6" />
-                    <circle cx="36" cy="36" r="30" fill="none" stroke={getMatchColor(matchDialogJob.relevanceScore)} strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 30} strokeDashoffset={2 * Math.PI * 30 * (1 - (matchDialogJob.relevanceScore || 0) / 100)} transform="rotate(-90 36 36)" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+                    <circle cx="36" cy="36" r="30" fill="none" stroke={getMatchColor(displayScore)} strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 30} strokeDashoffset={2 * Math.PI * 30 * (1 - displayScore / 100)} transform="rotate(-90 36 36)" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
                   </svg>
                   <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: '#101828' }}>{Math.round(matchDialogJob.relevanceScore || 0)}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#101828' }}>{Math.round(displayScore)}</div>
                     <div style={{ fontSize: 10, fontWeight: 600, color: '#98A2B3' }}>%</div>
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: getMatchColor(matchDialogJob.relevanceScore), marginBottom: 4 }}>
-                    {matchDialogJob.relevanceScore >= 70 ? 'Excellent Match' : matchDialogJob.relevanceScore >= 50 ? 'Strong Match' : matchDialogJob.relevanceScore >= 25 ? 'Good Match' : 'Low Match'}
+                  <div style={{ fontSize: 15, fontWeight: 700, color: getMatchColor(displayScore), marginBottom: 4 }}>
+                    {displayScore >= 70 ? 'Excellent Match' : displayScore >= 50 ? 'Strong Match' : displayScore >= 25 ? 'Good Match' : 'Low Match'}
                   </div>
                   <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5 }}>
                     Based on your skills, experience, and career preferences.
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Why this is a match */}
             {matchBreakdown ? (() => {
