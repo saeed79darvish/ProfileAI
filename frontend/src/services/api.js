@@ -1038,6 +1038,49 @@ export const pollsAPI = {
   checkVote: (pollId) => api.get(`/polls/check/${pollId}`)
 };
 
+// Challenges API - group/community challenges
+export const challengesAPI = {
+  getTemplates: () => api.get('/challenges/templates'),
+  getAll: (params = {}) => api.get('/challenges', { params }),
+  getMy: (filter = 'all') => api.get('/challenges/my', { params: { filter } }),
+  getById: (challengeId) => api.get(`/challenges/${challengeId}`),
+  create: (data, isFormData = false) =>
+    api.post('/challenges', data, isFormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
+  update: (challengeId, data, isFormData = false) =>
+    api.put(`/challenges/${challengeId}`, data, isFormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
+  publish: (challengeId) => api.post(`/challenges/${challengeId}/publish`),
+  start: (challengeId, startDate) => api.post(`/challenges/${challengeId}/start`, { startDate }),
+  join: (challengeId, invitedBy) => api.post(`/challenges/${challengeId}/join`, { invitedBy }),
+  joinByInviteCode: (inviteCode) => api.post(`/challenges/join/${inviteCode}`),
+  leave: (challengeId) => api.post(`/challenges/${challengeId}/leave`),
+  invite: (challengeId, data) => api.post(`/challenges/${challengeId}/invite`, data),
+  checkIn: (challengeId, data, isFormData = false) =>
+    api.post(`/challenges/${challengeId}/check-in`, data, isFormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
+  getCheckIns: (challengeId, params = {}) => api.get(`/challenges/${challengeId}/check-ins`, { params }),
+  getLeaderboard: (challengeId, params = {}) => api.get(`/challenges/${challengeId}/leaderboard`, { params }),
+  nudge: (challengeId, userId) => api.post(`/challenges/${challengeId}/nudge/${userId}`),
+  delete: (challengeId) => api.delete(`/challenges/${challengeId}`),
+  complete: (challengeId) => api.post(`/challenges/${challengeId}/complete`)
+};
+
+// Sessions API - live collaboration sessions (teaching, showcase, mentorship)
+export const sessionAPI = {
+  getAll: (params = {}) => api.get('/sessions', { params }),
+  getMy: (type = 'hosted') => api.get('/sessions/my', { params: { type } }),
+  getUpcoming: () => api.get('/sessions/upcoming'),
+  getTrending: () => api.get('/sessions/trending'),
+  getById: (sessionId) => api.get(`/sessions/${sessionId}`),
+  create: (data) => api.post('/sessions', data),
+  update: (sessionId, data) => api.put(`/sessions/${sessionId}`, data),
+  join: (sessionId, asMentor = false) => api.post(`/sessions/${sessionId}/join`, { asMentor }),
+  leave: (sessionId) => api.post(`/sessions/${sessionId}/leave`),
+  start: (sessionId, meetingLink) => api.post(`/sessions/${sessionId}/start`, { meetingLink }),
+  end: (sessionId) => api.post(`/sessions/${sessionId}/end`),
+  cancel: (sessionId) => api.post(`/sessions/${sessionId}/cancel`),
+  submitReview: (sessionId, data) => api.post(`/sessions/${sessionId}/reviews`, data),
+  getReviews: (sessionId) => api.get(`/sessions/${sessionId}/reviews`)
+};
+
 // Candidate Import API (Recruiters only)
 export const candidateAPI = {
   // Upload CSV file for import

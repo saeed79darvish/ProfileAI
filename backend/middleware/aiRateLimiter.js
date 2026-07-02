@@ -398,66 +398,82 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
   const usage = {};
 
   for (const featureType of featureTypes) {
-    const limits = getLimits(role, tier, featureType);
+    try {
+      const limits = getLimits(role, tier, featureType);
 
-    let effectiveWeeklyLimit = limits.weekly;
-    if (promoBonus && !isUnlimited(limits.weekly) && limits.weekly > 0) {
-      effectiveWeeklyLimit = Math.floor(limits.weekly * promoBonus.multiplier) + promoBonus.flatBonus;
+      let effectiveWeeklyLimit = limits.weekly;
+      if (promoBonus && !isUnlimited(limits.weekly) && limits.weekly > 0) {
+        effectiveWeeklyLimit = Math.floor(limits.weekly * promoBonus.multiplier) + promoBonus.flatBonus;
+      }
+
+      // Count this week's usage
+      const weekUsage = await AIUsage.count({
+        where: {
+          userId,
+          featureType,
+          usedAt: { [Op.gte]: weekStart }
+        }
+      });
+
+      // Count this month's usage
+      const monthUsage = await AIUsage.count({
+        where: {
+          userId,
+          featureType,
+          usedAt: { [Op.gte]: monthStart }
+        }
+      });
+
+      // Count today's usage (for features with a daily cap, e.g. tailor_profile free tier)
+      const dayUsage = await AIUsage.count({
+        where: {
+          userId,
+          featureType,
+          usedAt: { [Op.gte]: dayStart }
+        }
+      });
+
+      // Count lifetime usage (for features with a lifetime trial cap)
+      const lifetimeUsage = await AIUsage.count({
+        where: { userId, featureType }
+      });
+
+      // Get credit pack credits
+      const { totalCredits: creditPackCredits } = await getAvailableCreditPackCredits(userId, featureType);
+
+      usage[featureType] = {
+        name: FEATURE_NAMES[featureType],
+        week: weekUsage,
+        month: monthUsage,
+        day: dayUsage,
+        lifetime: lifetimeUsage,
+        weeklyLimit: effectiveWeeklyLimit,
+        baseWeeklyLimit: limits.weekly,
+        monthlyLimit: limits.monthly,
+        dailyLimit: limits.daily ?? -1,
+        lifetimeLimit: limits.lifetime ?? -1,
+        weeklyRemaining: isUnlimited(effectiveWeeklyLimit) ? -1 : Math.max(0, effectiveWeeklyLimit - weekUsage),
+        monthlyRemaining: isUnlimited(limits.monthly) ? -1 : Math.max(0, limits.monthly - monthUsage),
+        dailyRemaining: (!limits.daily || isUnlimited(limits.daily)) ? -1 : Math.max(0, limits.daily - dayUsage),
+        lifetimeRemaining: (!limits.lifetime || isUnlimited(limits.lifetime)) ? -1 : Math.max(0, limits.lifetime - lifetimeUsage),
+        creditPackCredits,
+        hasPromoBonus: !!promoBonus
+      };
+    } catch (featureError) {
+      // Don't let one bad feature type take down the whole usage summary —
+      // log which feature + error caused it so it's diagnosable, and fall
+      // back to a safe "everything unlimited-looking is off" default.
+      console.error(`[getUsageSummary] Failed to compute usage for feature "${featureType}" (user ${userId}, role ${role}, tier ${tier}):`, featureError);
+      usage[featureType] = {
+        name: FEATURE_NAMES[featureType] || featureType,
+        week: 0, month: 0, day: 0, lifetime: 0,
+        weeklyLimit: 0, baseWeeklyLimit: 0, monthlyLimit: 0, dailyLimit: -1, lifetimeLimit: -1,
+        weeklyRemaining: 0, monthlyRemaining: 0, dailyRemaining: -1, lifetimeRemaining: -1,
+        creditPackCredits: 0,
+        hasPromoBonus: !!promoBonus,
+        error: true
+      };
     }
-
-    // Count this week's usage
-    const weekUsage = await AIUsage.count({
-      where: {
-        userId,
-        featureType,
-        usedAt: { [Op.gte]: weekStart }
-      }
-    });
-
-    // Count this month's usage
-    const monthUsage = await AIUsage.count({
-      where: {
-        userId,
-        featureType,
-        usedAt: { [Op.gte]: monthStart }
-      }
-    });
-
-    // Count today's usage (for features with a daily cap, e.g. tailor_profile free tier)
-    const dayUsage = await AIUsage.count({
-      where: {
-        userId,
-        featureType,
-        usedAt: { [Op.gte]: dayStart }
-      }
-    });
-
-    // Count lifetime usage (for features with a lifetime trial cap)
-    const lifetimeUsage = await AIUsage.count({
-      where: { userId, featureType }
-    });
-
-    // Get credit pack credits
-    const { totalCredits: creditPackCredits } = await getAvailableCreditPackCredits(userId, featureType);
-
-    usage[featureType] = {
-      name: FEATURE_NAMES[featureType],
-      week: weekUsage,
-      month: monthUsage,
-      day: dayUsage,
-      lifetime: lifetimeUsage,
-      weeklyLimit: effectiveWeeklyLimit,
-      baseWeeklyLimit: limits.weekly,
-      monthlyLimit: limits.monthly,
-      dailyLimit: limits.daily ?? -1,
-      lifetimeLimit: limits.lifetime ?? -1,
-      weeklyRemaining: isUnlimited(effectiveWeeklyLimit) ? -1 : Math.max(0, effectiveWeeklyLimit - weekUsage),
-      monthlyRemaining: isUnlimited(limits.monthly) ? -1 : Math.max(0, limits.monthly - monthUsage),
-      dailyRemaining: (!limits.daily || isUnlimited(limits.daily)) ? -1 : Math.max(0, limits.daily - dayUsage),
-      lifetimeRemaining: (!limits.lifetime || isUnlimited(limits.lifetime)) ? -1 : Math.max(0, limits.lifetime - lifetimeUsage),
-      creditPackCredits,
-      hasPromoBonus: !!promoBonus
-    };
   }
 
   return {

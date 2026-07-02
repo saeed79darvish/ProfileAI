@@ -49,6 +49,8 @@ const pollsRoutes = require('./routes/polls');
 const candidatesRoutes = require('./routes/candidates');
 const invitationsRoutes = require('./routes/invitations');
 const guestScreeningRoutes = require('./routes/guestScreening');
+const challengesRoutes = require('./routes/challenges');
+const sessionsRoutes = require('./routes/sessions');
 const promoRoutes = require('./routes/promo');
 const creditPackRoutes = require('./routes/creditPacks');
 const externalApplicationRoutes = require('./routes/externalApplications');
@@ -248,6 +250,8 @@ app.use('/api/notifications', authMiddleware, requireVerifiedEmail, notification
 app.use('/api/referrals', referralRoutes);
 app.use('/api/kudos', kudosRoutes);
 app.use('/api/polls', pollsRoutes);
+app.use('/api/challenges', challengesRoutes);
+app.use('/api/sessions', sessionsRoutes);
 
 if (featureFlags.recruiterSurface) {
   app.use('/api/candidates', candidatesRoutes);
@@ -587,20 +591,6 @@ const startServer = async () => {
       }
     } catch (recoveryErr) {
       console.warn('[startup] Preparing-app recovery failed (non-blocking):', recoveryErr.message);
-    }
-
-    // ApplyPilotConfigs.lastScoutRun — funnel snapshot written by the
-    // scout cron so the dashboard can explain *why* a running pilot has
-    // produced no applications (e.g. criteria too narrow, profile too
-    // sparse, daily cap hit). Idempotent ADD COLUMN IF NOT EXISTS so the
-    // boot is safe to run on every deploy.
-    try {
-      await sequelize.query(`
-        ALTER TABLE "ApplyPilotConfigs"
-        ADD COLUMN IF NOT EXISTS "lastScoutRun" jsonb
-      `);
-    } catch (e) {
-      console.warn('[startup] ApplyPilotConfigs.lastScoutRun ensure skipped:', e.message);
     }
 
     // Start server
