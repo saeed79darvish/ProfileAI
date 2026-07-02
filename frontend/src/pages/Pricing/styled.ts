@@ -12,6 +12,10 @@ export const Header = styled.header`
   text-align: center;
   padding: 60px 20px 40px;
   background: ${COLORS.BG_WHITE};
+
+  @media (max-width: 640px) {
+    padding: 24px 16px 28px;
+  }
 `;
 
 export const SpecialBadge = styled.div`
@@ -25,9 +29,15 @@ export const SpecialBadge = styled.div`
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 24px;
-  
+
   svg {
     font-size: 16px;
+  }
+
+  @media (max-width: 640px) {
+    font-size: 12px;
+    padding: 6px 12px;
+    margin-bottom: 16px;
   }
 `;
 
@@ -36,9 +46,15 @@ export const Title = styled.h1`
   font-weight: 700;
   color: ${COLORS.TEXT_PRIMARY};
   margin: 0 0 16px;
-  
+  line-height: 1.1;
+
   @media (max-width: 768px) {
     font-size: 32px;
+  }
+
+  @media (max-width: 640px) {
+    font-size: 26px;
+    margin: 0 0 10px;
   }
 `;
 
@@ -50,6 +66,11 @@ export const Subtitle = styled.p`
   margin-left: auto;
   margin-right: auto;
   line-height: 1.6;
+
+  @media (max-width: 640px) {
+    font-size: 14px;
+    line-height: 1.5;
+  }
 `;
 
 export const BillingToggle = styled.div`
@@ -60,6 +81,11 @@ export const BillingToggle = styled.div`
   padding: 4px;
   background: ${COLORS.BG_GRAY};
   border-radius: 50px;
+
+  @media (max-width: 640px) {
+    margin-top: 20px;
+    gap: 4px;
+  }
 `;
 
 export const BillingOption = styled.button`
@@ -89,6 +115,10 @@ export const PlansSection = styled.section`
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 20px 60px;
+
+  @media (max-width: 640px) {
+    padding: 20px 14px 32px;
+  }
 `;
 
 export const PlansGrid = styled.div`
@@ -118,6 +148,11 @@ export const PlanCard = styled.div`
   position: relative;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   transition: all 0.3s;
+
+  @media (max-width: 640px) {
+    padding: 22px 20px;
+    border-radius: 16px;
+  }
 
   ${props => props.$popular && `
     transform: scale(1.04);
@@ -190,11 +225,20 @@ export const PriceRow = styled.div`
 export const Price = styled.span`
   font-size: 48px;
   font-weight: 700;
+  line-height: 1;
+
+  @media (max-width: 640px) {
+    font-size: 40px;
+  }
 `;
 
 export const PricePeriod = styled.span`
   font-size: 16px;
   color: ${props => props.$popular ? 'rgba(255,255,255,0.7)' : COLORS.TEXT_SECONDARY};
+
+  @media (max-width: 640px) {
+    font-size: 14px;
+  }
 `;
 
 export const BilledText = styled.p`
@@ -315,14 +359,21 @@ export const PromoButton = styled.button`
   }
 
   @media (max-width: 768px) {
-    position: relative;
-    top: auto;
-    right: auto;
-    margin: 12px auto 0;
-    display: flex;
-    justify-content: center;
-    font-size: 13px;
-    padding: 8px 16px;
+    /* Mobile: pin flush to the top of the header (no floating gap) so
+       it reads as part of the page, not an orphaned banner. */
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    margin: 0;
+    font-size: 12px;
+    padding: 6px 12px;
+
+    .icon {
+      width: 22px;
+      height: 22px;
+
+      svg { font-size: 13px; }
+    }
   }
 `;
 

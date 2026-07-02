@@ -199,13 +199,15 @@ const Hamburger = styled.button`
   ${media.mobile} { display: inline-flex; }
 `;
 
-/* Mobile-only quick-action row shown between the logo and hamburger. Surfaces
-   the notifications bell + Upgrade pill so authenticated users don't have to
-   open the drawer for the two most-used actions. */
+/* Mobile-only quick-action row shown between the logo and hamburger.
+   Priorities on mobile (per real-estate order of importance):
+     1. Upgrade pill  — clearest revenue path for free users
+     2. Profile avatar — one-tap access to the user's own profile
+   The notifications bell lives inside the drawer to keep the header calm. */
 const MobileQuickActions = styled.div`
   display: none;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   margin-left: auto;
 
   ${media.mobile} { display: inline-flex; }
@@ -214,24 +216,55 @@ const MobileQuickActions = styled.div`
 const MobileUpgradePill = styled.button`
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 7px 12px 7px 10px;
   border-radius: 999px;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
-  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
   color: #fff;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  line-height: 1;
+  transition: transform 0.15s ease, filter 0.15s ease;
 
-  &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124, 58, 237, 0.5); }
-  &:active { transform: translateY(0); }
-  &:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  &:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  &:active { transform: translateY(0); filter: brightness(0.95); }
+  &:focus-visible { outline: 2px solid #c4b5fd; outline-offset: 2px; }
 
   svg { font-size: 14px; }
+`;
+
+const MobileAvatarButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  padding: 0;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  background: rgba(30, 41, 59, 0.6);
+  color: #cbd5e1;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+
+  &:hover { border-color: #a78bfa; }
+  &:active { transform: scale(0.96); }
+  &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  svg { font-size: 20px; }
 `;
 
 /* User pill */
@@ -1098,24 +1131,6 @@ const Navbar = () => {
               important surfaces one tap away without opening the drawer. */}
           {isAuthenticated && (
             <MobileQuickActions>
-              <IconBtn
-                type="button"
-                onClick={openNotifications}
-                aria-label={
-                  unreadNotifications > 0
-                    ? `Notifications, ${unreadNotifications} unread`
-                    : 'Notifications'
-                }
-              >
-                <Badge
-                  badgeContent={unreadNotifications}
-                  color="error"
-                  max={99}
-                  invisible={unreadNotifications === 0}
-                >
-                  <NotificationsIcon />
-                </Badge>
-              </IconBtn>
               {user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise' && (
                 <MobileUpgradePill
                   type="button"
@@ -1125,6 +1140,17 @@ const Navbar = () => {
                   <UpgradeIcon /> Upgrade
                 </MobileUpgradePill>
               )}
+              <MobileAvatarButton
+                type="button"
+                onClick={() => go(isRecruiter ? '/recruiter/profile' : candidateProfilePath)}
+                aria-label={isRecruiter ? 'My Company' : 'My Profile'}
+              >
+                {user?.profilePicture ? (
+                  <img src={user.profilePicture} alt="" />
+                ) : (
+                  <PersonIcon />
+                )}
+              </MobileAvatarButton>
             </MobileQuickActions>
           )}
 
