@@ -3356,7 +3356,19 @@ const CandidateJobs = () => {
             </MobileFooterToolsRow>
             <MobileFooterActionsRow>
               {selectedJob.url ? (
-                <MobileFooterApply onClick={() => window.open(selectedJob.url, '_blank', 'noopener,noreferrer')}>
+                // Render as a real anchor so mobile Safari/Chrome don't
+                // popup-block the tab and (worse) navigate the current
+                // frame away from the SPA — several users reported the
+                // Apply tap silently sending them back to the job list
+                // because window.open('_blank') was being demoted to a
+                // same-frame navigation by iOS's tab-switch heuristics.
+                <MobileFooterApply
+                  as="a"
+                  href={selectedJob.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: 'none' }}
+                >
                   Apply now <NorthEastIcon style={{ fontSize: 16 }} />
                 </MobileFooterApply>
               ) : (

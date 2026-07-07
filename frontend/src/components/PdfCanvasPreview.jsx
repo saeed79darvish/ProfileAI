@@ -58,8 +58,31 @@ const Overlay = styled.div`
 `;
 
 export default function PdfCanvasPreview({ url, title }) {
+  const wrapRef = useRef(null);
   const pagesRef = useRef(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
+  // Track the container's real pixel width so we render at the correct
+  // resolution. Mobile Safari sometimes lays this out to 0 during the modal
+  // open animation, which used to produce a "blank" (120px, clamped) canvas
+  // that never re-rendered. Now we watch the container size and retrigger
+  // the pdf.js render as soon as we have a real width to draw into.
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = pagesRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setContainerWidth(w);
+    };
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +90,12 @@ export default function PdfCanvasPreview({ url, title }) {
 
     async function render() {
       if (!url) return;
+      // Wait until we have a real container width. We render at 240px
+      // minimum (retina-friendly) so a "blank" flash never ships.
+      if (containerWidth < 100) {
+        setStatus('loading');
+        return;
+      }
       setStatus('loading');
       try {
         const pdfjs = await import('pdfjs-dist');
@@ -84,14 +113,14 @@ export default function PdfCanvasPreview({ url, title }) {
 
         // Render at a crisp scale capped to the container width.
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const containerWidth = Math.max(container.clientWidth - 20, 120); // minus padding
+        const usable = Math.max(containerWidth - 20, 240); // minus horizontal padding
 
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum);
           if (cancelled) return;
 
           const baseViewport = page.getViewport({ scale: 1 });
-          const scale = (containerWidth / baseViewport.width) * dpr;
+          const scale = (usable / baseViewport.width) * dpr;
           const viewport = page.getViewport({ scale });
 
           const canvas = document.createElement('canvas');
@@ -117,10 +146,17 @@ export default function PdfCanvasPreview({ url, title }) {
       cancelled = true;
       try { loadingTask?.destroy?.(); } catch { /* ignore */ }
     };
-  }, [url]);
+  }, [url, containerWidth]);
+
+  const openInNewTab = () => {
+    if (!url) return;
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch { /* ignore */ }
+  };
 
   return (
-    <Wrap>
+    <Wrap ref={wrapRef}>
       <Pages ref={pagesRef} aria-label={title || 'Resume preview'} />
       {status === 'loading' && (
         <Overlay>
@@ -130,7 +166,22 @@ export default function PdfCanvasPreview({ url, title }) {
       )}
       {status === 'error' && (
         <Overlay>
-          <span>Couldn’t render the preview here. Use the Download button below to open your resume.</span>
+          <span>Couldn’t render the preview here.</span>
+          <button
+            type="button"
+            onClick={openInNewTab}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: '1px solid #6366f1',
+              background: '#6366f1',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Open PDF in new tab
+          </button>
         </Overlay>
       )}
     </Wrap>
