@@ -3355,27 +3355,44 @@ const CandidateJobs = () => {
               </MobileFooterToolBtn>
             </MobileFooterToolsRow>
             <MobileFooterActionsRow>
-              {selectedJob.url ? (
-                // Render as a real anchor so mobile Safari/Chrome don't
-                // popup-block the tab and (worse) navigate the current
-                // frame away from the SPA — several users reported the
-                // Apply tap silently sending them back to the job list
-                // because window.open('_blank') was being demoted to a
-                // same-frame navigation by iOS's tab-switch heuristics.
-                <MobileFooterApply
-                  as="a"
-                  href={selectedJob.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ textDecoration: 'none' }}
-                >
-                  Apply now <NorthEastIcon style={{ fontSize: 16 }} />
-                </MobileFooterApply>
-              ) : (
-                <MobileFooterApply onClick={() => navigate(`/jobs/${selectedJob.id}/apply`)}>
-                  Apply now <NorthEastIcon style={{ fontSize: 16 }} />
-                </MobileFooterApply>
-              )}
+              {(() => {
+                // Resolve the correct URL for this job:
+                //   External jobs: applyUrl → sourceUrl → url (belt-and-braces)
+                //   Internal jobs: navigate to the in-app application flow
+                // The previous code only checked `selectedJob.url`, which
+                // isn't a field on the ExternalJob model — the tap
+                // silently fell through to navigate('/jobs/:id/apply'),
+                // and for external jobs that route can't find a matching
+                // internal job so it bounces the user back to /jobs (the
+                // "back to job list" bug the user reported).
+                const applyHref =
+                  selectedJob.applyUrl ||
+                  selectedJob.sourceUrl ||
+                  selectedJob.url ||
+                  null;
+
+                if (applyHref) {
+                  return (
+                    // Render as a real anchor so mobile Safari/Chrome
+                    // don't popup-block the tab and (worse) navigate the
+                    // current frame away from the SPA.
+                    <MobileFooterApply
+                      as="a"
+                      href={applyHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      Apply now <NorthEastIcon style={{ fontSize: 16 }} />
+                    </MobileFooterApply>
+                  );
+                }
+                return (
+                  <MobileFooterApply onClick={() => navigate(`/jobs/${selectedJob.id}/apply`)}>
+                    Apply now <NorthEastIcon style={{ fontSize: 16 }} />
+                  </MobileFooterApply>
+                );
+              })()}
               <MobileFooterTailorV2 onClick={() => {
                 window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: selectedJob.id } }));
               }}>

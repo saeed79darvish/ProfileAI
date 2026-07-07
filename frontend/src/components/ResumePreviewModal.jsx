@@ -1286,19 +1286,38 @@ export default function ResumePreviewModal({
     }
   }, [open]);
 
+  const [previewError, setPreviewError] = useState('');
   const loadPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     setLoadingPreview(true);
+    setPreviewError('');
     try {
       const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
       if (res.data?.preview) {
         setPreviewUrl(res.data.preview);
+      } else {
+        // API returned 200 but no preview payload — treat as failure so
+        // the UI shows a retry instead of silently sitting on "Preview
+        // not available".
+        setPreviewError('Server didn’t return a preview.');
       }
     } catch (err) {
       console.error('Preview error:', err);
+      const msg = err?.response?.data?.message
+        || err?.response?.data?.error
+        || err?.message
+        || 'Something went wrong generating your preview.';
+      setPreviewError(msg);
     } finally {
       setLoadingPreview(false);
     }
   }, [templateId, accentColor, bulletStyle, sectionOrder]);
+
+  // Convenience so the "Retry" button on the empty state re-runs whatever
+  // profile data the modal was opened with.
+  const retryPreview = useCallback(() => {
+    const data = tailoredProfileData || profileData || editData;
+    loadPreview(data, templateId, accentColor, bulletStyle, sectionOrder);
+  }, [loadPreview, tailoredProfileData, profileData, editData, templateId, accentColor, bulletStyle, sectionOrder]);
 
   const loadOriginalPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     try {
@@ -1573,7 +1592,39 @@ export default function ResumePreviewModal({
               />
             )
           ) : (
-            <LoadingBox><span>Preview not available</span></LoadingBox>
+            // Empty-state / failure. Surface the real error (from the API)
+            // + a Retry button — silently sitting on "Preview not available"
+            // gave users no way to recover from a transient backend hiccup.
+            <LoadingBox style={{ gap: 12, textAlign: 'center', padding: '16px' }}>
+              <span style={{ color: '#475569', fontWeight: 600 }}>
+                {previewError && !showingOriginal
+                  ? 'Preview failed to load'
+                  : 'Preview not available'}
+              </span>
+              {previewError && !showingOriginal && (
+                <span style={{ color: '#94a3b8', fontSize: 13, maxWidth: 320 }}>
+                  {previewError}
+                </span>
+              )}
+              {!showingOriginal && (
+                <button
+                  type="button"
+                  onClick={retryPreview}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: '1px solid #6366f1',
+                    background: '#6366f1',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                  }}
+                >
+                  Retry preview
+                </button>
+              )}
+            </LoadingBox>
           )}
         </PreviewCard>
         <TemplateRow>
