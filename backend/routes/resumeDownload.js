@@ -145,8 +145,22 @@ router.post('/preview', auth, async (req, res) => {
       templateId 
     });
   } catch (error) {
-    console.error('Error generating preview:', error);
-    res.status(500).json({ message: 'Failed to generate preview', error: error.message });
+    // Log the full detail server-side so we can diagnose without asking
+    // the user to reproduce, AND return a diagnostic `error` field to
+    // the client so the modal's Retry state shows the real reason.
+    console.error('[POST /api/resume/preview] generation failed', {
+      userId: req.user?.id,
+      templateId: req.body?.templateId,
+      hasTailoredProfileId: !!req.body?.tailoredProfileId,
+      hasTailoredProfileData: !!req.body?.tailoredProfileData,
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+    });
+    res.status(500).json({
+      message: 'Failed to generate preview',
+      error: error?.message || error?.name || 'Unknown error',
+    });
   }
 });
 

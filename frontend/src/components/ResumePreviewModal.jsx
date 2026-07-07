@@ -92,6 +92,15 @@ const ModalContainer = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  /* On mobile the modal is fullscreen; let the entire modal be one
+     natural scroll container instead of a nested scroll inside
+     TwoColLayout. Without this the preview stayed pinned at the top
+     while only the Save/Format/Template section scrolled. */
+  @media (max-width: 768px) {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 `;
 
 const Header = styled.div`
@@ -106,6 +115,14 @@ const Header = styled.div`
     flex-wrap: wrap;
     row-gap: 10px;
     column-gap: 8px;
+    /* Keep the header visible at the top of the natural scroll so users
+       always see 'Download Resume' + close button no matter how far
+       they've scrolled into the form. */
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 11;
+    border-bottom: 1px solid #f3f4f6;
   }
 `;
 
@@ -260,7 +277,11 @@ const TwoColLayout = styled.div`
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
-    overflow-y: auto;
+    /* No inner scroll on mobile — ModalContainer handles it so the
+       preview scrolls up along with the form fields below. */
+    overflow: visible;
+    min-height: 0;
+    flex: 0 0 auto;
   }
 `;
 
@@ -273,7 +294,11 @@ const LeftPane = styled.div`
 
   @media (max-width: 768px) {
     padding: 16px;
-    min-height: 400px;
+    /* Fixed, natural block-height on mobile so the preview scrolls with
+       the rest of the modal instead of being pinned to a flex-filled
+       zone that stole the scroll gesture. */
+    overflow: visible;
+    min-height: 0;
   }
 `;
 
@@ -294,6 +319,16 @@ const PreviewCard = styled.div`
     width: 100%;
     height: 100%;
     border: none;
+  }
+
+  /* Mobile: give the preview a specific viewport-relative height so it
+     doesn't collapse to 0 (once the flex-1 stretch is removed) and so
+     the rasterised canvas has real pixels to draw into. */
+  @media (max-width: 768px) {
+    flex: 0 0 auto;
+    height: 60vh;
+    min-height: 380px;
+    max-height: 640px;
   }
 `;
 
@@ -346,6 +381,9 @@ const RightPane = styled.div`
     padding: 16px;
     border-left: none;
     border-top: 1px solid #f3f4f6;
+    /* Let it grow naturally so its content flows into the modal-level
+       scroll — no local scrollbar. */
+    overflow: visible;
   }
 `;
 
@@ -1302,8 +1340,13 @@ export default function ResumePreviewModal({
       }
     } catch (err) {
       console.error('Preview error:', err);
-      const msg = err?.response?.data?.message
-        || err?.response?.data?.error
+      // The /api/resume/preview 500 handler returns BOTH a friendly
+      // message ("Failed to generate preview") AND the real error
+      // detail on `error`. We want the detail — the friendly message
+      // alone tells the user nothing they don't already see.
+      const server = err?.response?.data || {};
+      const detail = server.error || server.message;
+      const msg = detail
         || err?.message
         || 'Something went wrong generating your preview.';
       setPreviewError(msg);
