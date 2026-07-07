@@ -1636,38 +1636,90 @@ export default function ResumePreviewModal({
             )
           ) : (
             // Empty-state / failure. Surface the real error (from the API)
-            // + a Retry button — silently sitting on "Preview not available"
-            // gave users no way to recover from a transient backend hiccup.
-            <LoadingBox style={{ gap: 12, textAlign: 'center', padding: '16px' }}>
-              <span style={{ color: '#475569', fontWeight: 600 }}>
-                {previewError && !showingOriginal
-                  ? 'Preview failed to load'
-                  : 'Preview not available'}
-              </span>
-              {previewError && !showingOriginal && (
-                <span style={{ color: '#94a3b8', fontSize: 13, maxWidth: 320 }}>
-                  {previewError}
-                </span>
-              )}
-              {!showingOriginal && (
-                <button
-                  type="button"
-                  onClick={retryPreview}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #6366f1',
-                    background: '#6366f1',
-                    color: '#fff',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontSize: 14,
-                  }}
-                >
-                  Retry preview
-                </button>
-              )}
-            </LoadingBox>
+            // + a Retry button + a "try a different template" hint +
+            // "Download anyway" escape hatch — silently sitting on
+            // "Preview not available" gave users no way to recover from
+            // a transient backend hiccup or a bad-template case.
+            (() => {
+              const failed = !!previewError && !showingOriginal;
+              const currentTemplateLabel =
+                (TEMPLATE_OPTIONS.find((t) => t.id === templateId)?.label) || templateId;
+              // Best "other template to try" — pick the first template
+              // that isn't the current one.
+              const altTemplate = TEMPLATE_OPTIONS.find((t) => t.id !== templateId);
+              return (
+                <LoadingBox style={{ gap: 12, textAlign: 'center', padding: '20px 16px' }}>
+                  <span style={{ color: '#475569', fontWeight: 600, fontSize: 15 }}>
+                    {failed
+                      ? `Preview failed for the ${currentTemplateLabel} template`
+                      : 'Preview not available'}
+                  </span>
+                  {failed && (
+                    <span style={{ color: '#94a3b8', fontSize: 13, maxWidth: 320, lineHeight: 1.5 }}>
+                      {previewError}
+                    </span>
+                  )}
+                  {!showingOriginal && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 4 }}>
+                      <button
+                        type="button"
+                        onClick={retryPreview}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: 8,
+                          border: '1px solid #6366f1',
+                          background: '#6366f1',
+                          color: '#fff',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          fontSize: 14,
+                        }}
+                      >
+                        Retry preview
+                      </button>
+                      {failed && altTemplate && (
+                        <button
+                          type="button"
+                          onClick={() => handleTemplateChange(altTemplate.id)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 8,
+                            border: '1px solid #cbd5e1',
+                            background: 'white',
+                            color: '#334155',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            fontSize: 14,
+                          }}
+                        >
+                          Try {altTemplate.label} template
+                        </button>
+                      )}
+                      {failed && (
+                        <button
+                          type="button"
+                          onClick={handleDownload}
+                          disabled={downloading}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 8,
+                            border: '1px solid #10b981',
+                            background: 'white',
+                            color: '#047857',
+                            fontWeight: 600,
+                            cursor: downloading ? 'not-allowed' : 'pointer',
+                            fontSize: 14,
+                            opacity: downloading ? 0.6 : 1,
+                          }}
+                        >
+                          Skip preview & download
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </LoadingBox>
+              );
+            })()
           )}
         </PreviewCard>
         <TemplateRow>
