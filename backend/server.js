@@ -48,8 +48,7 @@ const pollsRoutes = require('./routes/polls');
 
 const candidatesRoutes = require('./routes/candidates');
 const invitationsRoutes = require('./routes/invitations');
-const guestScreeningRoutes = require('./routes/guestScreening');
-const promoRoutes = require('./routes/promo');
+const guestScreeningRoutes = require('./routes/guestScreening');const promoRoutes = require('./routes/promo');
 const creditPackRoutes = require('./routes/creditPacks');
 const externalApplicationRoutes = require('./routes/externalApplications');
 const externalJobRoutes = require('./routes/externalJobs');
@@ -432,6 +431,18 @@ const startServer = async () => {
       await addUserJobDigestOptOut();
     } catch (err) {
       console.warn('⚠️  Users.jobDigestOptOut column ensure skipped:', err.message);
+    }
+
+    // Same pattern for Users.aiOnboardingCompleted — the User model declares
+    // this column, so every User.find* that includes it (auth middleware,
+    // /api/resume/preview, etc.) errors with `column ... does not exist` if
+    // the DB is missing it. This was the actual cause of the mobile Download
+    // Resume "Preview failed to load" bug.
+    try {
+      const { up: ensureUserAiOnboardingCompleted } = require('./scripts/migrations/ensureUserAiOnboardingCompleted');
+      await ensureUserAiOnboardingCompleted();
+    } catch (err) {
+      console.warn('⚠️  Users.aiOnboardingCompleted column ensure skipped:', err.message);
     }
 
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
