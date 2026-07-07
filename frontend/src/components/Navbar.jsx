@@ -241,19 +241,20 @@ const MobileAvatarButton = styled.button`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   padding: 0;
-  border: 1px solid rgba(167, 139, 250, 0.35);
+  border: 1.5px solid rgba(167, 139, 250, 0.45);
   background: rgba(30, 41, 59, 0.6);
   color: #cbd5e1;
   cursor: pointer;
   overflow: hidden;
   flex-shrink: 0;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  position: relative;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 
-  &:hover { border-color: #a78bfa; }
+  &:hover { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.15); }
   &:active { transform: scale(0.96); }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 
@@ -264,7 +265,22 @@ const MobileAvatarButton = styled.button`
     display: block;
   }
 
-  svg { font-size: 20px; }
+  svg { font-size: 22px; }
+
+  /* Tiny caret hint so the avatar reads as a menu, not just a link. */
+  &::after {
+    content: '';
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 2px solid #0f172a;
+    background-image: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
 `;
 
 /* User pill */
@@ -1140,10 +1156,17 @@ const Navbar = () => {
                   <UpgradeIcon /> Upgrade
                 </MobileUpgradePill>
               )}
+              {/* Avatar doubles as the drawer trigger on mobile so we can
+                  drop the extra hamburger button — one round tap-target on
+                  the right feels cleaner and matches LinkedIn/X/GitHub. */}
               <MobileAvatarButton
                 type="button"
-                onClick={() => go(isRecruiter ? '/recruiter/profile' : candidateProfilePath)}
-                aria-label={isRecruiter ? 'My Company' : 'My Profile'}
+                ref={hamburgerRef}
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open menu"
+                aria-haspopup="dialog"
+                aria-expanded={drawerOpen}
+                aria-controls="primary-mobile-menu"
               >
                 {user?.profilePicture ? (
                   <img src={user.profilePicture} alt="" />
@@ -1154,17 +1177,21 @@ const Navbar = () => {
             </MobileQuickActions>
           )}
 
-          <Hamburger
-            type="button"
-            ref={hamburgerRef}
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open menu"
-            aria-haspopup="dialog"
-            aria-expanded={drawerOpen}
-            aria-controls="primary-mobile-menu"
-          >
-            <MenuIcon />
-          </Hamburger>
+          {/* Hamburger only for logged-out visitors — auth users use the
+              avatar above as the drawer trigger. */}
+          {!isAuthenticated && (
+            <Hamburger
+              type="button"
+              ref={hamburgerRef}
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu"
+              aria-haspopup="dialog"
+              aria-expanded={drawerOpen}
+              aria-controls="primary-mobile-menu"
+            >
+              <MenuIcon />
+            </Hamburger>
+          )}
         </NavContent>
       </Container>
 
