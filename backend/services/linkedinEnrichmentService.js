@@ -307,10 +307,144 @@ async function batchEnrichEmails(emails, options = {}) {
   return results;
 }
 
+/**
+ * Enrich a person's professional profile via NinjaPear (formerly Proxycurl).
+ *
+ * Nubela deprecated the old /proxycurl/api/v2/linkedin endpoint (it now
+ * returns HTTP 410) — LinkedIn URLs can no longer be resolved directly.
+ * The replacement Person Profile endpoint takes one of:
+ *   - workEmail                          (corporate email, not gmail/free)
+ *   - firstName + employerWebsite        (+ optional lastName/role)
+ *   - employerWebsite + role
+ *
+ * Docs: https://nubela.co/proxycurl/docs → GET /api/v2/employee/profile
+ * Cost: 3 credits per request (charged even when nothing is found).
+ *
+ * @param {Object} params
+ * @param {string} [params.workEmail]
+ * @param {string} [params.firstName]
+ * @param {string} [params.lastName]
+ * @param {string} [params.employerWebsite]
+ * @param {string} [params.role]
+ * @returns {Object} { success, enriched, data?, error?, errorCode? }
+ */
+async function enrichPersonProfile({ workEmail, firstName, lastName, employerWebsite, role } = {}) {
+  const hasEmailInput = !!workEmail;
+  const hasNameInput = !!(firstName && employerWebsite);
+  const hasRoleInput = !!(employerWebsite && role);
+  if (!hasEmailInput && !hasNameInput && !hasRoleInput) {
+    return {
+      success: false,
+      enriched: false,
+      error: 'Provide a work email, or your name plus your current employer\u2019s website.'
+    };
+  }
+
+  if (!PROXYCURL_API_KEY) {
+    return {
+      success: false,
+      enriched: false,
+      errorCode: 'NOT_CONFIGURED',
+      error: 'Profile enrichment API not configured. Set PROXYCURL_API_KEY in .env'
+    };
+  }
+
+  const params = { use_cache: 'if-recent' };
+  if (workEmail) params.work_email = workEmail.trim();
+  if (firstName) params.first_name = firstName.trim();
+  if (lastName) params.last_name = lastName.trim();
+  if (employerWebsite) params.employer_website = employerWebsite.trim();
+  if (role) params.role = role.trim();
+
+  try {
+    // Detailed enrichment averages ~12s; hard-cap at 85s to stay under
+    // Cloudflare's ~100s origin timeout.
+    const response = await axios.get('https://nubela.co/api/v2/employee/profile', {
+      params,
+      headers: { 'Authorization': `Bearer ${PROXYCURL_API_KEY}` },
+      timeout: 85000
+    });
+
+    const d = response.data || {};
+
+    // "YYYY-MM" → "YYYY-MM-01"; null/undefined stays null.
+    const ymToDate = (ym) => (ym ? `${ym}-01` : null);
+    // Prefer the human-readable location_display ("California, United
+    // States") the live API returns; fall back to assembling from the
+    // *_name fields, then raw ISO codes.
+    const location = d.location_display
+      || [d.state_name || (d.state && d.state.includes('-') ? d.state.split('-')[1] : d.state), d.country_name || d.country]
+        .filter(Boolean).join(', ')
+      || null;
+
+    return {
+      success: true,
+      enriched: true,
+      source: 'ninjapear',
+      data: {
+        firstName: d.first_name || firstName || '',
+        lastName: d.last_name || lastName || '',
+        fullName: d.full_name || '',
+        headline: d.bio || '',
+        summary: d.bio || '',
+        location,
+        profilePicture: d.profile_pic_url || '',
+        personalWebsite: d.personal_website || '',        linkedinUrl: d.linkedin_profile_url || '',        currentCompany: d.work_experience?.[0]?.company_name,
+        currentTitle: d.work_experience?.[0]?.role,
+        experience: (d.work_experience || []).map((exp) => ({
+          company: exp.company_name || '',
+          title: exp.role || '',
+          startDate: ymToDate(exp.start_date),
+          endDate: ymToDate(exp.end_date),
+          current: !exp.end_date,
+          description: exp.description || ''
+        })),
+        education: (d.education || []).map((edu) => ({
+          school: edu.school || '',
+          degree: edu.major || '',
+          field: '',
+          startYear: edu.start_date ? Number(edu.start_date.slice(0, 4)) : null,
+          endYear: edu.end_date ? Number(edu.end_date.slice(0, 4)) : null
+        })),
+        skills: [] // Person Profile endpoint does not return skills
+      }
+    };
+  } catch (error) {
+    const status = error.response?.status;
+    const isTimeout =
+      error.code === 'ECONNABORTED' ||
+      error.code === 'ETIMEDOUT' ||
+      /timeout/i.test(error.message || '');
+
+    let friendly;
+    let errorCode;
+    if (isTimeout) {
+      friendly = 'The profile lookup is taking too long. Try again in a minute, or upload your resume instead.';
+      errorCode = 'TIMEOUT';
+    } else if (status === 400) {
+      friendly = error.response?.data?.description || error.response?.data?.error ||
+        'That looks like a personal email (e.g. gmail). Please use your work email, or enter your name and employer website instead.';
+      errorCode = 'BAD_INPUT';
+    } else if (status === 403) {
+      friendly = 'Profile import is temporarily unavailable (out of enrichment credits).';
+      errorCode = 'OUT_OF_CREDITS';
+    } else if (status === 404) {
+      friendly = 'We couldn\u2019t find a public professional profile matching those details. Double-check the spelling, or upload your resume instead.';
+      errorCode = 'NOT_FOUND';
+    } else {
+      friendly = error.response?.data?.description || error.response?.data?.message || error.message;
+    }
+
+    console.error(`[Person Enrichment] NinjaPear API error (${status || error.code || 'network'}):`, error.message);
+    return { success: false, enriched: false, error: friendly, errorCode };
+  }
+}
+
 module.exports = {
   extractLinkedInUsername,
   isValidLinkedInUrl,
   enrichFromLinkedInUrl,
+  enrichPersonProfile,
   enrichFromEmail,
   batchEnrichLinkedIn,
   batchEnrichEmails

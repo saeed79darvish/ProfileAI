@@ -222,10 +222,12 @@ export const profileAPI = {
   // LinkedIn import — check which options the server has enabled
   // ({ urlImportAvailable, oauthAvailable }) so the UI can hide dead-end cards.
   getLinkedInImportStatus: () => api.get('/profiles/import-linkedin/status'),
-  // Import a full profile from a LinkedIn URL (requires PROXYCURL_API_KEY on
-  // the server). Returns the same shape as uploadResume so it can flow
-  // through the same /profile/create-form handoff.
-  importLinkedInUrl: (linkedinUrl) => api.post('/profiles/import-linkedin', { linkedinUrl }),
+  // Import a full profile via the NinjaPear Person Profile API (requires
+  // PROXYCURL_API_KEY on the server). Takes { workEmail } OR
+  // { firstName, lastName, employerWebsite, role? }. Returns the same shape
+  // as uploadResume so it can flow through the same /profile/create-form
+  // handoff.
+  importLinkedInUrl: (params) => api.post('/profiles/import-linkedin', params),
   // Exchange a LinkedIn OAuth code for the OIDC basics (name/email/photo)
   // and prefill a new profile with them. Does not create a session.
   linkedinOAuthPrefill: (code, redirectUri) =>

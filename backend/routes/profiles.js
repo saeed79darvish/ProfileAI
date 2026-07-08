@@ -9,8 +9,7 @@ const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
 const {
-  enrichFromLinkedInUrl,
-  isValidLinkedInUrl
+  enrichPersonProfile
 } = require('../services/linkedinEnrichmentService');
 const { fetchLinkedInProfile } = require('../services/linkedinOAuth');
 const { checkGrounding } = require('../utils/groundingCheck');
@@ -128,11 +127,11 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
 });
 
 // ═════════════════════════════════════════════════════════════════
-// LinkedIn profile import (URL paste + OAuth prefill)
+// LinkedIn / professional profile import (NinjaPear + OAuth prefill)
 // ═════════════════════════════════════════════════════════════════
 
-// Transform the Proxycurl-style payload returned by
-// linkedinEnrichmentService.enrichFromLinkedInUrl into the same "resume data"
+// Transform the NinjaPear-style payload returned by
+// linkedinEnrichmentService.enrichPersonProfile into the same "resume data"
 // shape the frontend ProfileForm consumes on `location.state.resumeData`.
 // Keeping the shape identical means the /profile/create-form loader doesn't
 // need any special handling for LinkedIn-sourced data.
@@ -184,17 +183,21 @@ router.get('/import-linkedin/status', authMiddleware, (req, res) => {
 });
 
 // @route   POST /api/profiles/import-linkedin
-// @desc    Import a candidate profile from a LinkedIn URL. Returns the
-//          parsed data in the same shape as /upload-resume so the frontend
-//          can pass it directly to /profile/create-form.
+// @desc    Import a candidate profile via the NinjaPear Person Profile API.
+//          NOTE: Nubela/Proxycurl killed direct LinkedIn-URL lookups (410),
+//          so this now takes EITHER a work email OR first name + employer
+//          website (+ optional last name / role). Returns data in the same
+//          shape as /upload-resume for the /profile/create-form handoff.
 // @access  Private
 router.post(
   '/import-linkedin',
   [
     authMiddleware,
-    body('linkedinUrl')
-      .notEmpty().withMessage('LinkedIn URL is required')
-      .isURL(STRICT_URL_OPTS).withMessage('LinkedIn URL must start with http:// or https://')
+    body('workEmail').optional({ checkFalsy: true }).isEmail().withMessage('Invalid work email'),
+    body('firstName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+    body('lastName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
+    body('employerWebsite').optional({ checkFalsy: true }).isString().trim().isLength({ max: 300 }),
+    body('role').optional({ checkFalsy: true }).isString().trim().isLength({ max: 150 })
   ],
   async (req, res) => {
     try {
@@ -203,59 +206,50 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { linkedinUrl } = req.body;
+      const { workEmail, firstName, lastName, employerWebsite, role } = req.body;
 
-      if (!isValidLinkedInUrl(linkedinUrl)) {
+      if (!workEmail && !(firstName && employerWebsite)) {
         return res.status(400).json({
-          error: "That doesn't look like a LinkedIn profile URL. It should look like https://www.linkedin.com/in/yourname"
+          error: 'Enter your work email, or your first name plus your current employer\u2019s website.'
         });
       }
 
       if (!process.env.PROXYCURL_API_KEY) {
         return res.status(503).json({
-          error: 'LinkedIn URL import is not enabled on this server yet. Please upload your resume or create your profile manually.',
+          error: 'Profile import is not enabled on this server yet. Please upload your resume or create your profile manually.',
           code: 'LINKEDIN_IMPORT_NOT_CONFIGURED'
         });
       }
 
-      console.log(`[LinkedIn Import] User ${req.user.id} importing from ${linkedinUrl}`);
+      console.log(`[Profile Import] User ${req.user.id} importing via ${workEmail ? 'work email' : 'name+employer'}`);
 
-      const result = await enrichFromLinkedInUrl(linkedinUrl);
+      const result = await enrichPersonProfile({ workEmail, firstName, lastName, employerWebsite, role });
 
       if (!result || !result.success || !result.enriched) {
-        return res.status(502).json({
-          error: result?.error || 'Could not import your LinkedIn profile right now. Please try again or upload your resume.',
-          detail: result?.message
+        const status = result?.errorCode === 'NOT_FOUND' ? 404
+          : result?.errorCode === 'BAD_INPUT' ? 400
+          : 502;
+        return res.status(status).json({
+          error: result?.error || 'Could not import your profile right now. Please try again or upload your resume.',
+          code: result?.errorCode
         });
       }
 
-      const data = normalizeLinkedInDataToResumeShape(result.data, linkedinUrl);
-
-      // Persist the LinkedIn URL on the profile immediately so it isn't lost
-      // if the user drops off before saving the full form (mirrors what
-      // /upload-resume does with originalResumeText).
-      try {
-        const existing = await Profile.findOne({ where: { userId: req.user.id } });
-        if (existing) {
-          await existing.update({ linkedinUrl });
-        }
-      } catch (persistErr) {
-        console.warn('[LinkedIn Import] Could not auto-persist linkedinUrl:', persistErr?.message);
-      }
+      const data = normalizeLinkedInDataToResumeShape(result.data, null);
 
       res.json({
         success: true,
-        message: 'LinkedIn profile imported successfully',
+        message: 'Profile imported successfully',
         data
       });
     } catch (error) {
-      console.error('[LinkedIn Import] Error:', {
+      console.error('[Profile Import] Error:', {
         message: error?.message,
         stack: error?.stack,
         userId: req.user?.id
       });
       res.status(500).json({
-        error: 'Error importing LinkedIn profile',
+        error: 'Error importing profile',
         detail: error?.message || 'unknown'
       });
     }
