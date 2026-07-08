@@ -42,6 +42,34 @@ export const isValidHttpUrl = (raw) => {
 };
 
 /**
+ * Auto-fixer for URLs pasted without a protocol. Users type
+ * `www.linkedin.com/in/name` or `linkedin.com/in/name`; the strict
+ * validator above rejects those. Call this on blur / before validation
+ * to promote them to `https://…` when they clearly look like a URL.
+ *
+ *  - Returns unchanged input for empty / non-string / already-prefixed
+ *    values, and for schemes we don't touch (`mailto:`, `tel:`, etc.).
+ *  - Only prepends `https://` when the token looks like `host[/…]` with
+ *    a dot in the host (so it won't turn "not-a-url" into a fake URL).
+ *
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export const normalizeHttpUrl = (raw) => {
+  if (typeof raw !== 'string') return raw == null ? '' : String(raw);
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  // Already has a scheme of some kind — leave it alone. (Includes
+  // http/https, and non-web schemes we don't want to rewrite.)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  // Bail on values that clearly aren't URLs (whitespace, no dot).
+  if (/\s/.test(trimmed)) return trimmed;
+  const hostPart = trimmed.split('/')[0];
+  if (!hostPart.includes('.')) return trimmed;
+  return `https://${trimmed}`;
+};
+
+/**
  * Inline validator. Returns an error string for the UI (helperText) or
  * '' when the value is acceptable.
  *

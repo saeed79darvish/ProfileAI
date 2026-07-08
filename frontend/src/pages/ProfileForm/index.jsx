@@ -112,7 +112,7 @@ import AIProcessingModal from '@/components/AIProcessingModal';
 import UpgradeModal from '@/components/UpgradeModal';
 import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
-import { validateHttpUrl } from '@/utils/urlValidation';
+import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 
 // (Date helpers live in @/utils/dateRange so ProfileForm, Dashboard, and
 // PublicProfile all render periods identically.)
@@ -901,7 +901,19 @@ const ProfileForm = () => {
 
   const handleBlur = (e) => {
     const { name, value } = e.target;
-    const msg = validateField(name, value);
+    // Auto-prepend https:// so users pasting bare "www.linkedin.com/in/x" or
+    // "linkedin.com/in/x" don't hit the strict validator's error. Only rewrite
+    // recognised URL fields; leave everything else untouched.
+    const URL_FIELDS = ['linkedinUrl', 'githubUrl', 'portfolioUrl'];
+    let nextValue = value;
+    if (URL_FIELDS.includes(name)) {
+      const normalized = normalizeHttpUrl(value);
+      if (normalized !== value) {
+        nextValue = normalized;
+        setFormData((prev) => ({ ...prev, [name]: normalized }));
+      }
+    }
+    const msg = validateField(name, nextValue);
     setFieldErrors((prev) => {
       const next = { ...prev };
       if (msg) next[name] = msg;
@@ -913,13 +925,35 @@ const ProfileForm = () => {
   const validateAll = useCallback(() => {
     const errs = {};
     const fields = ['title', 'phone', 'linkedinUrl', 'githubUrl', 'portfolioUrl', 'summary'];
+    // Auto-normalise all URL fields once before we validate, so a save
+    // attempt with bare "linkedin.com/in/x" gets the https:// prefix
+    // applied and passes instead of blocking submit with a red error.
+    const urlFields = ['linkedinUrl', 'githubUrl', 'portfolioUrl'];
+    const normalisedUpdates = {};
+    urlFields.forEach((f) => {
+      const n = normalizeHttpUrl(formData[f]);
+      if (n !== formData[f]) normalisedUpdates[f] = n;
+    });
+    (formData.projects || []).forEach((project, i) => {
+      PROJECT_URL_FIELDS.forEach((field) => {
+        const n = normalizeHttpUrl(project?.[field]);
+        if (n !== project?.[field]) {
+          normalisedUpdates.projects = normalisedUpdates.projects || formData.projects.map(p => ({ ...p }));
+          normalisedUpdates.projects[i][field] = n;
+        }
+      });
+    });
+    if (Object.keys(normalisedUpdates).length > 0) {
+      setFormData((prev) => ({ ...prev, ...normalisedUpdates }));
+    }
+    const nextForm = { ...formData, ...normalisedUpdates };
     fields.forEach((f) => {
-      const msg = validateField(f, formData[f]);
+      const msg = validateField(f, nextForm[f]);
       if (msg) errs[f] = msg;
     });
     // Per-project URL fields (Live Demo / Source Code / Image). Submit is
     // blocked the same way as Basic Info.
-    (formData.projects || []).forEach((project, i) => {
+    (nextForm.projects || []).forEach((project, i) => {
       PROJECT_URL_FIELDS.forEach((field) => {
         const msg = validateHttpUrl(project?.[field], {
           fieldLabel: PROJECT_URL_LABELS[field],
@@ -1066,7 +1100,19 @@ const ProfileForm = () => {
   // onBlur handler for per-project URL inputs. Mirrors the top-level
   // handleBlur but uses composite keys (`projects.${i}.${field}`).
   const handleProjectUrlBlur = useCallback((index, field, value) => {
-    const msg = validateHttpUrl(value, { fieldLabel: PROJECT_URL_LABELS[field] });
+    // Same https:// auto-prefix as the top-level handleBlur.
+    const normalised = normalizeHttpUrl(value);
+    let effectiveValue = value;
+    if (normalised !== value) {
+      effectiveValue = normalised;
+      setFormData((prev) => ({
+        ...prev,
+        projects: prev.projects.map((row, i) =>
+          i === index ? { ...row, [field]: normalised } : row
+        ),
+      }));
+    }
+    const msg = validateHttpUrl(effectiveValue, { fieldLabel: PROJECT_URL_LABELS[field] });
     const key = `projects.${index}.${field}`;
     setFieldErrors((prev) => {
       const next = { ...prev };

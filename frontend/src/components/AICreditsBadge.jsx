@@ -45,7 +45,7 @@ const AICreditsBadge = ({
       : `${remaining} AI credit${remaining === 1 ? '' : 's'} left ${periodSuffix}`;
     color = tone === 'dark' ? '#c4b5fd' : '#6366f1';
   } else {
-    text = `No AI credits left ${periodSuffix} — upgrade for more`;
+    text = `No AI credits left ${periodSuffix}, upgrade for more`;
     color = tone === 'dark' ? '#fca5a5' : '#dc2626';
   }
 

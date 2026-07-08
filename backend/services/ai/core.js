@@ -4,6 +4,7 @@
  */
 const Anthropic = require('@anthropic-ai/sdk');
 const { withRetry, safeParseJSON, validateAIScores } = require('../../utils/aiUtils');
+const { stripAiTellChars } = require('../../utils/aiTextCleanup');
 
 const anthropic = new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -42,11 +43,16 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
       messages: userMsgs.map(m => ({ role: m.role, content: m.content })),
     });
     
+    // Strip AI-tell characters (em/en dashes, non-breaking spaces) so all
+    // downstream consumers get clean text without touching each caller.
+    const rawText = response.content[0].text;
+    const cleaned = stripAiTellChars(rawText);
+
     // Return in OpenAI-compatible shape so existing code works unchanged
     return {
       choices: [{
         message: {
-          content: response.content[0].text
+          content: cleaned
         }
       }],
       usage: {
