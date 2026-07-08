@@ -9,7 +9,8 @@ const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
 const {
-  enrichPersonProfile
+  enrichFromLinkedInUrl,
+  isValidLinkedInUrl
 } = require('../services/linkedinEnrichmentService');
 const { fetchLinkedInProfile } = require('../services/linkedinOAuth');
 const { checkGrounding } = require('../utils/groundingCheck');
@@ -177,27 +178,23 @@ function normalizeLinkedInDataToResumeShape(enrichedData, linkedinUrl) {
 // @access  Private
 router.get('/import-linkedin/status', authMiddleware, (req, res) => {
   res.json({
-    urlImportAvailable: !!process.env.PROXYCURL_API_KEY,
+    urlImportAvailable: !!process.env.ENRICHLAYER_API_KEY,
     oauthAvailable: !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET)
   });
 });
 
 // @route   POST /api/profiles/import-linkedin
-// @desc    Import a candidate profile via the NinjaPear Person Profile API.
-//          NOTE: Nubela/Proxycurl killed direct LinkedIn-URL lookups (410),
-//          so this now takes EITHER a work email OR first name + employer
-//          website (+ optional last name / role). Returns data in the same
-//          shape as /upload-resume for the /profile/create-form handoff.
+// @desc    Import a candidate profile from a LinkedIn URL via EnrichLayer.
+//          Returns the parsed data in the same shape as /upload-resume so
+//          the frontend can pass it directly to /profile/create-form.
 // @access  Private
 router.post(
   '/import-linkedin',
   [
     authMiddleware,
-    body('workEmail').optional({ checkFalsy: true }).isEmail().withMessage('Invalid work email'),
-    body('firstName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
-    body('lastName').optional({ checkFalsy: true }).isString().trim().isLength({ max: 100 }),
-    body('employerWebsite').optional({ checkFalsy: true }).isString().trim().isLength({ max: 300 }),
-    body('role').optional({ checkFalsy: true }).isString().trim().isLength({ max: 150 })
+    body('linkedinUrl')
+      .notEmpty().withMessage('LinkedIn URL is required')
+      .isURL(STRICT_URL_OPTS).withMessage('LinkedIn URL must start with http:// or https://')
   ],
   async (req, res) => {
     try {
@@ -206,50 +203,59 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { workEmail, firstName, lastName, employerWebsite, role } = req.body;
+      const { linkedinUrl } = req.body;
 
-      if (!workEmail && !(firstName && employerWebsite)) {
+      if (!isValidLinkedInUrl(linkedinUrl)) {
         return res.status(400).json({
-          error: 'Enter your work email, or your first name plus your current employer\u2019s website.'
+          error: "That doesn't look like a LinkedIn profile URL. It should look like https://www.linkedin.com/in/yourname"
         });
       }
 
-      if (!process.env.PROXYCURL_API_KEY) {
+      if (!process.env.ENRICHLAYER_API_KEY) {
         return res.status(503).json({
-          error: 'Profile import is not enabled on this server yet. Please upload your resume or create your profile manually.',
+          error: 'LinkedIn URL import is not enabled on this server yet. Please upload your resume or create your profile manually.',
           code: 'LINKEDIN_IMPORT_NOT_CONFIGURED'
         });
       }
 
-      console.log(`[Profile Import] User ${req.user.id} importing via ${workEmail ? 'work email' : 'name+employer'}`);
+      console.log(`[LinkedIn Import] User ${req.user.id} importing from ${linkedinUrl}`);
 
-      const result = await enrichPersonProfile({ workEmail, firstName, lastName, employerWebsite, role });
+      const result = await enrichFromLinkedInUrl(linkedinUrl);
 
       if (!result || !result.success || !result.enriched) {
-        const status = result?.errorCode === 'NOT_FOUND' ? 404
-          : result?.errorCode === 'BAD_INPUT' ? 400
-          : 502;
-        return res.status(status).json({
-          error: result?.error || 'Could not import your profile right now. Please try again or upload your resume.',
-          code: result?.errorCode
+        return res.status(502).json({
+          error: result?.error || 'Could not import your LinkedIn profile right now. Please try again or upload your resume.',
+          detail: result?.message
         });
       }
 
-      const data = normalizeLinkedInDataToResumeShape(result.data, null);
+      const data = normalizeLinkedInDataToResumeShape(result.data, linkedinUrl);
+
+      // Persist the LinkedIn URL on the profile immediately so it isn't lost
+      // if the user drops off before saving the full form (mirrors what
+      // /upload-resume does with originalResumeText).
+      try {
+        const existing = await Profile.findOne({ where: { userId: req.user.id } });
+        if (existing) {
+          await existing.update({ linkedinUrl });
+        }
+      } catch (persistErr) {
+        console.warn('[LinkedIn Import] Could not auto-persist linkedinUrl:', persistErr?.message);
+      }
 
       res.json({
         success: true,
-        message: 'Profile imported successfully',
+        message: 'LinkedIn profile imported successfully',
         data
       });
     } catch (error) {
-      console.error('[Profile Import] Error:', {
+      console.error('[LinkedIn Import] Error:', {
         message: error?.message,
         stack: error?.stack,
         userId: req.user?.id
       });
       res.status(500).json({
-        error: 'Error importing profile',
+        error: 'Error importing LinkedIn profile',
         detail: error?.message || 'unknown'
       });
     }

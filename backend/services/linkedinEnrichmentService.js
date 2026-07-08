@@ -1,18 +1,22 @@
 /**
  * LinkedIn Enrichment Service
- * 
+ *
  * Provides profile enrichment from LinkedIn URLs and email addresses.
- * 
- * STUB IMPLEMENTATION - Replace with real API integration:
- * - Proxycurl (https://proxycurl.com) - ~$0.01-0.03 per profile
- * - People Data Labs (https://peopledatalabs.com) - ~$0.01-0.05 per profile
- * - Clearbit (https://clearbit.com) - Enterprise pricing
- * - Hunter.io (https://hunter.io) - Email verification + enrichment
+ *
+ * Primary provider: EnrichLayer (https://enrichlayer.com) — the direct
+ * successor to Proxycurl's people-data API. Same response schema, still
+ * accepts LinkedIn profile URLs. 1 credit / profile.
+ * Set ENRICHLAYER_API_KEY in .env.
+ *
+ * (Nubela/Proxycurl itself pivoted to NinjaPear B2B company data and
+ * returns HTTP 410 for LinkedIn URL lookups — do not use PROXYCURL_API_KEY
+ * for URL enrichment anymore.)
  */
 
 const axios = require('axios');
 
 // Configuration - set these in .env
+const ENRICHLAYER_API_KEY = process.env.ENRICHLAYER_API_KEY;
 const PROXYCURL_API_KEY = process.env.PROXYCURL_API_KEY;
 const PEOPLE_DATA_LABS_API_KEY = process.env.PEOPLE_DATA_LABS_API_KEY;
 
@@ -73,51 +77,60 @@ async function enrichFromLinkedInUrl(linkedinUrl) {
     };
   }
   
-  // If Proxycurl API key is configured, use real enrichment
-  if (PROXYCURL_API_KEY) {
+  // If EnrichLayer API key is configured, use real enrichment
+  if (ENRICHLAYER_API_KEY) {
     try {
       // Notes on the params:
-      //  - use_cache=if-recent  → Proxycurl serves a cached copy (if <29 days
-      //    old) in <1s instead of scraping live for 30–120s. Massive latency
-      //    win on repeat lookups; fresh lookups still hit live scrape.
-      //  - fallback_to_cache=on-error → if live scrape times out or errors,
-      //    return a cached copy (even older than 29 days) rather than fail.
+      //  - skills=include        → free; limited coverage but worth asking.
+      //  - use_cache=if-recent   → fresh profile no older than 29 days
+      //    (costs +1 credit); cached hits return in <1s.
+      //  - fallback_to_cache=on-error → if the live fetch errors, serve an
+      //    older cached copy rather than fail.
       //  - timeout 85_000ms      → Cloudflare kills the origin request at
       //    ~100s. Bail before that so we can return a friendly JSON error
       //    instead of a 502 Bad Gateway page.
-      const response = await axios.get('https://nubela.co/proxycurl/api/v2/linkedin', {
+      const response = await axios.get('https://enrichlayer.com/api/v2/profile', {
         params: {
-          url: linkedinUrl,
+          profile_url: linkedinUrl,
+          skills: 'include',
           use_cache: 'if-recent',
           fallback_to_cache: 'on-error'
         },
-        headers: { 'Authorization': `Bearer ${PROXYCURL_API_KEY}` },
+        headers: { 'Authorization': `Bearer ${ENRICHLAYER_API_KEY}` },
         timeout: 85000
       });
-      
+
       const data = response.data;
-      
+
+      // EnrichLayer dates are { day, month, year } objects.
+      const dmyToDate = (d) =>
+        (d && d.year
+          ? `${d.year}-${String(d.month || 1).padStart(2, '0')}-${String(d.day || 1).padStart(2, '0')}`
+          : null);
+
       return {
         success: true,
         linkedinUrl,
         username,
         enriched: true,
-        source: 'proxycurl',
+        source: 'enrichlayer',
         data: {
           firstName: data.first_name,
           lastName: data.last_name,
           fullName: data.full_name,
           headline: data.headline,
           summary: data.summary,
-          location: data.city ? `${data.city}, ${data.state}, ${data.country}` : data.country,
+          location: data.location_str
+            || [data.city, data.state, data.country_full_name || data.country].filter(Boolean).join(', ')
+            || null,
           profilePicture: data.profile_pic_url,
           currentCompany: data.experiences?.[0]?.company,
-          currentTitle: data.experiences?.[0]?.title,
+          currentTitle: data.experiences?.[0]?.title || data.occupation,
           experience: (data.experiences || []).map(exp => ({
             company: exp.company,
             title: exp.title,
-            startDate: exp.starts_at ? `${exp.starts_at.year}-${exp.starts_at.month || 1}` : null,
-            endDate: exp.ends_at ? `${exp.ends_at.year}-${exp.ends_at.month || 1}` : null,
+            startDate: dmyToDate(exp.starts_at),
+            endDate: dmyToDate(exp.ends_at),
             current: !exp.ends_at,
             description: exp.description
           })),
@@ -134,37 +147,46 @@ async function enrichFromLinkedInUrl(linkedinUrl) {
     } catch (error) {
       // Distinguish timeout from other errors so callers can surface a
       // useful message. axios uses ECONNABORTED for its own timeout.
+      const status = error.response?.status;
       const isTimeout =
         error.code === 'ECONNABORTED' ||
         error.code === 'ETIMEDOUT' ||
         /timeout/i.test(error.message || '');
       console.error(
-        `[LinkedIn Enrichment] Proxycurl API error (${isTimeout ? 'timeout' : (error.response?.status || 'network')}):`,
+        `[LinkedIn Enrichment] EnrichLayer API error (${isTimeout ? 'timeout' : (status || 'network')}):`,
         error.message
       );
+      let friendly;
+      if (isTimeout) {
+        friendly = 'LinkedIn is being slow to respond right now. Try again in a minute, or upload your resume instead.';
+      } else if (status === 404) {
+        friendly = 'We couldn\u2019t find that LinkedIn profile. Double-check the URL, or upload your resume instead.';
+      } else if (status === 403) {
+        friendly = 'Profile import is temporarily unavailable (out of enrichment credits).';
+      } else {
+        friendly = error.response?.data?.description || error.response?.data?.message || error.message;
+      }
       return {
         success: false,
         linkedinUrl,
         username,
-        error: isTimeout
-          ? 'LinkedIn is being slow to respond right now. Try again in a minute, or upload your resume instead.'
-          : (error.response?.data?.message || error.message),
-        errorCode: isTimeout ? 'PROXYCURL_TIMEOUT' : undefined,
+        error: friendly,
+        errorCode: isTimeout ? 'ENRICHLAYER_TIMEOUT' : undefined,
         enriched: false
       };
     }
   }
-  
+
   // STUB: Return minimal data when no API is configured
   console.log(`[LinkedIn Enrichment] STUB: No API configured for ${linkedinUrl}`);
-  
+
   return {
     success: true,
     linkedinUrl,
     username,
     enriched: false,
     source: 'stub',
-    message: 'LinkedIn enrichment API not configured. Set PROXYCURL_API_KEY in .env',
+    message: 'LinkedIn enrichment API not configured. Set ENRICHLAYER_API_KEY in .env',
     data: {
       linkedinUrl,
       linkedinUsername: username

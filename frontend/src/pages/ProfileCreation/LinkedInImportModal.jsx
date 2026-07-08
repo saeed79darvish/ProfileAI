@@ -15,35 +15,32 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  AutoAwesome as AIIcon,
-  Business as BusinessIcon,
   Close as CloseIcon,
-  Email as EmailIcon,
   LinkedIn as LinkedInIcon,
 } from '@mui/icons-material';
 import { profileAPI, authAPI } from '../../services/api';
 import { ROUTES, TEXT } from './constants';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Same relaxed pattern the backend uses in linkedinEnrichmentService.
+const LINKEDIN_URL_REGEX = /^https?:\/\/(www\.)?linkedin\.com\/(in|pub|profile)\/[a-zA-Z0-9_-]+\/?/i;
 
 // sessionStorage key used to guard against CSRF on the OAuth popup roundtrip.
 const OAUTH_STATE_KEY = 'profileai_linkedin_oauth_state';
 
 /**
- * "Smart Profile Import" modal shown from /profile/create.
+ * "Import from LinkedIn" modal shown from /profile/create.
  *
- * Primary flow: user enters a WORK EMAIL or NAME + EMPLOYER WEBSITE →
- * POST /api/profiles/import-linkedin (NinjaPear Person Profile API on the
- * backend) → parent receives resume-shaped data via `onImported(data)` and
- * reuses the ResumeMagicOverlay + /profile/create-form handoff.
- *
- * (Historical note: this used to take a LinkedIn profile URL, but
- * Nubela/Proxycurl deprecated URL-based lookups — HTTP 410 — when they
- * became NinjaPear. Person lookup now works by email or name+employer.)
+ * Primary flow: user pastes a LinkedIn profile URL → we POST it to
+ * /api/profiles/import-linkedin and hand the parsed resume-shaped data
+ * back to the parent via `onImported(data)`. The parent reuses the same
+ * ResumeMagicOverlay + /profile/create-form handoff as the resume upload
+ * flow, so LinkedIn imports look identical to the user.
  *
  * Secondary flow: "Sign in with LinkedIn instead" opens the LinkedIn
  * OAuth popup, exchanges the code via /api/profiles/linkedin-oauth-prefill
- * and prefills only the OIDC basics (name/email/photo).
+ * and prefills only the OIDC basics (name/email/photo). This is what the
+ * user gets when a full-profile enrichment API (Proxycurl / PDL) isn't
+ * configured yet — good enough to jumpstart the profile without typing.
  *
  * Both `urlImportAvailable` and `oauthAvailable` are driven by the
  * server's /api/profiles/import-linkedin/status response so we don't
@@ -56,12 +53,8 @@ const LinkedInImportModal = ({
   urlImportAvailable,
   oauthAvailable,
 }) => {
-  const [workEmail, setWorkEmail] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [employerWebsite, setEmployerWebsite] = useState('');
-  const [role, setRole] = useState('');
-  const [inputError, setInputError] = useState('');
+  const [url, setUrl] = useState('');
+  const [urlError, setUrlError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -74,12 +67,8 @@ const LinkedInImportModal = ({
   // Reset state each time the modal opens.
   useEffect(() => {
     if (open) {
-      setWorkEmail('');
-      setFirstName('');
-      setLastName('');
-      setEmployerWebsite('');
-      setRole('');
-      setInputError('');
+      setUrl('');
+      setUrlError('');
       setApiError('');
       setSubmitting(false);
       setOauthLoading(false);
@@ -112,20 +101,22 @@ const LinkedInImportModal = ({
     onClose?.();
   };
 
-  // Either a valid work email OR first name + employer website unlocks submit.
-  const hasEmailInput = EMAIL_REGEX.test(workEmail.trim());
-  const hasNameInput = firstName.trim().length > 0 && employerWebsite.trim().length > 1;
-  const canSubmit = hasEmailInput || hasNameInput;
+  const validateUrl = (value) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return 'Please paste your LinkedIn profile URL.';
+    if (!LINKEDIN_URL_REGEX.test(trimmed)) return TEXT.LINKEDIN_ERROR_INVALID_URL;
+    return '';
+  };
 
-  const handleSubmit = async () => {
+  const handleUrlSubmit = async () => {
     if (submitting || oauthLoading) return;
     setApiError('');
-
-    if (!canSubmit) {
-      setInputError(TEXT.LINKEDIN_ERROR_MISSING_INPUT);
+    const err = validateUrl(url);
+    if (err) {
+      setUrlError(err);
       return;
     }
-    setInputError('');
+    setUrlError('');
 
     if (!urlImportAvailable) {
       setApiError(TEXT.LINKEDIN_MODAL_UNAVAILABLE);
@@ -134,14 +125,7 @@ const LinkedInImportModal = ({
 
     setSubmitting(true);
     try {
-      const payload = {};
-      if (hasEmailInput) payload.workEmail = workEmail.trim();
-      if (firstName.trim()) payload.firstName = firstName.trim();
-      if (lastName.trim()) payload.lastName = lastName.trim();
-      if (employerWebsite.trim()) payload.employerWebsite = employerWebsite.trim();
-      if (role.trim()) payload.role = role.trim();
-
-      const { data: response } = await profileAPI.importLinkedInUrl(payload);
+      const { data: response } = await profileAPI.importLinkedInUrl(url.trim());
       if (!response?.success || !response?.data) {
         setApiError(response?.error || TEXT.LINKEDIN_ERROR_GENERIC);
         setSubmitting(false);
@@ -155,6 +139,8 @@ const LinkedInImportModal = ({
       const serverMessage = error?.response?.data?.error;
       if (status === 503) {
         setApiError(serverMessage || TEXT.LINKEDIN_MODAL_UNAVAILABLE);
+      } else if (status === 400) {
+        setApiError(serverMessage || TEXT.LINKEDIN_ERROR_INVALID_URL);
       } else {
         setApiError(serverMessage || TEXT.LINKEDIN_ERROR_GENERIC);
       }
@@ -165,7 +151,7 @@ const LinkedInImportModal = ({
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      handleSubmit();
+      handleUrlSubmit();
     }
   };
 
@@ -323,7 +309,7 @@ const LinkedInImportModal = ({
             color: 'white',
           }}
         >
-          <AIIcon sx={{ fontSize: 22 }} />
+          <LinkedInIcon sx={{ fontSize: 22 }} />
         </Box>
         {TEXT.LINKEDIN_MODAL_TITLE}
         <IconButton
@@ -359,105 +345,32 @@ const LinkedInImportModal = ({
           </Alert>
         )}
 
-        {inputError && (
-          <Alert severity="warning" sx={{ mb: 2, borderRadius: '10px' }}>
-            {inputError}
-          </Alert>
-        )}
-
         <TextField
           fullWidth
-          type="email"
-          label={TEXT.LINKEDIN_MODAL_EMAIL_LABEL}
-          placeholder={TEXT.LINKEDIN_MODAL_EMAIL_PLACEHOLDER}
-          value={workEmail}
+          label={TEXT.LINKEDIN_MODAL_LABEL}
+          placeholder={TEXT.LINKEDIN_MODAL_PLACEHOLDER}
+          value={url}
           onChange={(e) => {
-            setWorkEmail(e.target.value);
-            if (inputError) setInputError('');
+            setUrl(e.target.value);
+            if (urlError) setUrlError('');
           }}
           onKeyDown={handleKeyDown}
-          helperText={TEXT.LINKEDIN_MODAL_EMAIL_HINT}
+          error={!!urlError}
+          helperText={urlError || TEXT.LINKEDIN_MODAL_HINT}
           disabled={submitting || oauthLoading || !urlImportAvailable}
           autoFocus
-          // Chrome's saved addresses are typically personal (gmail etc.),
-          // which the enrichment API rejects — suppress autofill so users
-          // type their corporate address instead. "new-password"-style
-          // tricks aren't needed; a non-standard name + off works here.
-          name="work-email-lookup"
-          inputProps={{ autoComplete: 'off' }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <EmailIcon sx={{ color: '#0a66c2' }} />
+                <LinkedInIcon sx={{ color: '#0a66c2' }} />
               </InputAdornment>
             ),
           }}
           sx={{
-            '& .MuiOutlinedInput-root': { borderRadius: '10px' },
+            '& .MuiOutlinedInput-root': {
+              borderRadius: '10px',
+            },
           }}
-        />
-
-        <Divider sx={{ my: 2.5, color: '#999', fontSize: 13 }}>
-          {TEXT.LINKEDIN_MODAL_NAME_DIVIDER}
-        </Divider>
-
-        <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
-          <TextField
-            fullWidth
-            label={TEXT.LINKEDIN_MODAL_FIRSTNAME_LABEL}
-            value={firstName}
-            onChange={(e) => {
-              setFirstName(e.target.value);
-              if (inputError) setInputError('');
-            }}
-            onKeyDown={handleKeyDown}
-            disabled={submitting || oauthLoading || !urlImportAvailable}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
-          />
-          <TextField
-            fullWidth
-            label={TEXT.LINKEDIN_MODAL_LASTNAME_LABEL}
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={submitting || oauthLoading || !urlImportAvailable}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
-          />
-        </Box>
-
-        <TextField
-          fullWidth
-          label={TEXT.LINKEDIN_MODAL_EMPLOYER_LABEL}
-          placeholder={TEXT.LINKEDIN_MODAL_EMPLOYER_PLACEHOLDER}
-          value={employerWebsite}
-          onChange={(e) => {
-            setEmployerWebsite(e.target.value);
-            if (inputError) setInputError('');
-          }}
-          onKeyDown={handleKeyDown}
-          disabled={submitting || oauthLoading || !urlImportAvailable}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <BusinessIcon sx={{ color: '#0a66c2' }} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            mb: 1.5,
-            '& .MuiOutlinedInput-root': { borderRadius: '10px' },
-          }}
-        />
-
-        <TextField
-          fullWidth
-          label={TEXT.LINKEDIN_MODAL_ROLE_LABEL}
-          placeholder={TEXT.LINKEDIN_MODAL_ROLE_PLACEHOLDER}
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={submitting || oauthLoading || !urlImportAvailable}
-          sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
         />
 
         {oauthAvailable && (
@@ -502,8 +415,8 @@ const LinkedInImportModal = ({
           {TEXT.LINKEDIN_MODAL_CANCEL}
         </Button>
         <Button
-          onClick={handleSubmit}
-          disabled={submitting || oauthLoading || !urlImportAvailable || !canSubmit}
+          onClick={handleUrlSubmit}
+          disabled={submitting || oauthLoading || !urlImportAvailable}
           variant="contained"
           startIcon={submitting ? <CircularProgress size={18} sx={{ color: 'white' }} /> : null}
           sx={{
