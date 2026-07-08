@@ -379,6 +379,12 @@ const LinkedInImportModal = ({
           helperText={TEXT.LINKEDIN_MODAL_EMAIL_HINT}
           disabled={submitting || oauthLoading || !urlImportAvailable}
           autoFocus
+          // Chrome's saved addresses are typically personal (gmail etc.),
+          // which the enrichment API rejects — suppress autofill so users
+          // type their corporate address instead. "new-password"-style
+          // tricks aren't needed; a non-standard name + off works here.
+          name="work-email-lookup"
+          inputProps={{ autoComplete: 'off' }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
