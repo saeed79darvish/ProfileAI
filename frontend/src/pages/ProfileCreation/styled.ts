@@ -1,5 +1,5 @@
 // @ts-nocheck — styled-components transient ($) props and theme keys are dynamic; TS strict typing adds no value here.
-import styled, { keyframes } from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 
 export const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(20px); }
@@ -428,9 +428,11 @@ export const SkeletonLine = styled.div`
     ? (p.$accent || 'linear-gradient(90deg,#667eea,#764ba2)')
     : 'linear-gradient(90deg,#eef0f4 25%,#e3e6ee 37%,#eef0f4 63%)'};
   background-size: 320px 100%;
+  /* Keyframes MUST be interpolated via the css\`\` helper — an untagged
+     string here throws styled-components error #12 at runtime in prod. */
   ${p => p.$filled
-    ? `animation: ${fillRow} 0.45s ease both;`
-    : `animation: ${shimmer} 1.3s linear infinite;`}
+    ? css`animation: ${fillRow} 0.45s ease both;`
+    : css`animation: ${shimmer} 1.3s linear infinite;`}
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
