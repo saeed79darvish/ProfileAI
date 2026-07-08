@@ -58,6 +58,7 @@ const GuestScreeningPage = lazyWithReload(() => import('./pages/GuestScreeningPa
 const TrackApplicationPage = lazyWithReload(() => import('./pages/TrackApplicationPage'));
 const ExtensionAuthSuccess = lazyWithReload(() => import('./pages/ExtensionAuthSuccess'));
 const ResumeDownloadPage = lazyWithReload(() => import('./pages/ResumeDownloadPage'));
+const LinkedInOAuthCallback = lazyWithReload(() => import('./pages/LinkedInOAuthCallback'));
 const PrivacyPolicy = lazyWithReload(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = lazyWithReload(() => import('./pages/TermsOfService'));
 const AdminDashboard = lazyWithReload(() => import('./pages/AdminDashboard'));
@@ -196,6 +197,7 @@ function AppContent() {
                 </PrivateRoute>
               } />
               <Route path="/extension-auth-success" element={<ExtensionAuthSuccess />} />
+              <Route path="/auth/linkedin/callback" element={<LinkedInOAuthCallback />} />
               <Route path="/resume/download" element={<ResumeDownloadPage />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password/:token" element={<ResetPassword />} />

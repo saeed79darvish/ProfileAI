@@ -8,6 +8,11 @@ const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
+const {
+  enrichFromLinkedInUrl,
+  isValidLinkedInUrl
+} = require('../services/linkedinEnrichmentService');
+const { fetchLinkedInProfile } = require('../services/linkedinOAuth');
 const { checkGrounding } = require('../utils/groundingCheck');
 const multer = require('multer');
 const { profileStorage, cloudinary } = require('../config/cloudinary');
@@ -118,6 +123,212 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
       // Surface the underlying message so the frontend / browser console
       // shows something actionable instead of an opaque 500.
       detail: error?.message || 'unknown'
+    });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════
+// LinkedIn profile import (URL paste + OAuth prefill)
+// ═════════════════════════════════════════════════════════════════
+
+// Transform the Proxycurl-style payload returned by
+// linkedinEnrichmentService.enrichFromLinkedInUrl into the same "resume data"
+// shape the frontend ProfileForm consumes on `location.state.resumeData`.
+// Keeping the shape identical means the /profile/create-form loader doesn't
+// need any special handling for LinkedIn-sourced data.
+function normalizeLinkedInDataToResumeShape(enrichedData, linkedinUrl) {
+  const d = enrichedData || {};
+  const yearToDate = (year) => (year ? `${year}-01-01` : '');
+  return {
+    firstName: d.firstName || '',
+    lastName: d.lastName || '',
+    title: d.currentTitle || d.headline || '',
+    location: d.location || '',
+    phone: '',
+    linkedinUrl: linkedinUrl || d.linkedinUrl || '',
+    githubUrl: '',
+    summary: d.summary || '',
+    profilePicture: d.profilePicture || '',
+    skills: Array.isArray(d.skills) ? d.skills : [],
+    experience: (d.experience || []).map((exp) => ({
+      company: exp.company || '',
+      title: exp.title || '',
+      startDate: exp.startDate || '',
+      endDate: exp.current ? null : (exp.endDate || null),
+      current: !!exp.current,
+      description: exp.description || ''
+    })),
+    education: (d.education || []).map((edu) => ({
+      institution: edu.school || '',
+      degree: edu.degree || '',
+      field: edu.field || '',
+      startDate: yearToDate(edu.startYear),
+      endDate: edu.endYear ? yearToDate(edu.endYear) : null,
+      current: !edu.endYear,
+      gpa: null
+    })),
+    projects: []
+  };
+}
+
+// @route   GET /api/profiles/import-linkedin/status
+// @desc    Report which LinkedIn import options are enabled on the server so
+//          the frontend can gracefully hide / disable the buttons instead of
+//          letting the user click into a dead-end flow.
+// @access  Private
+router.get('/import-linkedin/status', authMiddleware, (req, res) => {
+  res.json({
+    urlImportAvailable: !!process.env.PROXYCURL_API_KEY,
+    oauthAvailable: !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET)
+  });
+});
+
+// @route   POST /api/profiles/import-linkedin
+// @desc    Import a candidate profile from a LinkedIn URL. Returns the
+//          parsed data in the same shape as /upload-resume so the frontend
+//          can pass it directly to /profile/create-form.
+// @access  Private
+router.post(
+  '/import-linkedin',
+  [
+    authMiddleware,
+    body('linkedinUrl')
+      .notEmpty().withMessage('LinkedIn URL is required')
+      .isURL(STRICT_URL_OPTS).withMessage('LinkedIn URL must start with http:// or https://')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { linkedinUrl } = req.body;
+
+      if (!isValidLinkedInUrl(linkedinUrl)) {
+        return res.status(400).json({
+          error: "That doesn't look like a LinkedIn profile URL. It should look like https://www.linkedin.com/in/yourname"
+        });
+      }
+
+      if (!process.env.PROXYCURL_API_KEY) {
+        return res.status(503).json({
+          error: 'LinkedIn URL import is not enabled on this server yet. Please upload your resume or create your profile manually.',
+          code: 'LINKEDIN_IMPORT_NOT_CONFIGURED'
+        });
+      }
+
+      console.log(`[LinkedIn Import] User ${req.user.id} importing from ${linkedinUrl}`);
+
+      const result = await enrichFromLinkedInUrl(linkedinUrl);
+
+      if (!result || !result.success || !result.enriched) {
+        return res.status(502).json({
+          error: result?.error || 'Could not import your LinkedIn profile right now. Please try again or upload your resume.',
+          detail: result?.message
+        });
+      }
+
+      const data = normalizeLinkedInDataToResumeShape(result.data, linkedinUrl);
+
+      // Persist the LinkedIn URL on the profile immediately so it isn't lost
+      // if the user drops off before saving the full form (mirrors what
+      // /upload-resume does with originalResumeText).
+      try {
+        const existing = await Profile.findOne({ where: { userId: req.user.id } });
+        if (existing) {
+          await existing.update({ linkedinUrl });
+        }
+      } catch (persistErr) {
+        console.warn('[LinkedIn Import] Could not auto-persist linkedinUrl:', persistErr?.message);
+      }
+
+      res.json({
+        success: true,
+        message: 'LinkedIn profile imported successfully',
+        data
+      });
+    } catch (error) {
+      console.error('[LinkedIn Import] Error:', {
+        message: error?.message,
+        stack: error?.stack,
+        userId: req.user?.id
+      });
+      res.status(500).json({
+        error: 'Error importing LinkedIn profile',
+        detail: error?.message || 'unknown'
+      });
+    }
+  }
+);
+
+// @route   POST /api/profiles/linkedin-oauth-prefill
+// @desc    Exchange a LinkedIn OAuth code for the basics LinkedIn OIDC
+//          exposes (name, email, photo) and return them for prefill. Does
+//          NOT create a session — the user is already authenticated when
+//          this is called from /profile/create.
+// @access  Private
+router.post('/linkedin-oauth-prefill', authMiddleware, async (req, res) => {
+  try {
+    const { code, redirectUri } = req.body || {};
+    if (!code || !redirectUri) {
+      return res.status(400).json({ error: 'code and redirectUri are required' });
+    }
+    if (!process.env.LINKEDIN_CLIENT_ID || !process.env.LINKEDIN_CLIENT_SECRET) {
+      return res.status(503).json({
+        error: 'Sign in with LinkedIn is not configured on this server yet.',
+        code: 'LINKEDIN_OAUTH_NOT_CONFIGURED'
+      });
+    }
+
+    const profile = await fetchLinkedInProfile(code, redirectUri);
+    // profile = { linkedinId, email, firstName, lastName, picture }
+
+    // Best-effort: link the LinkedIn identity to the user record so they can
+    // sign in with LinkedIn next time. Non-fatal if it fails (e.g. someone
+    // else already claimed that linkedinId).
+    try {
+      const currentUser = await User.findByPk(req.user.id);
+      if (currentUser) {
+        const updates = {};
+        if (!currentUser.linkedinId) updates.linkedinId = profile.linkedinId;
+        if (!currentUser.profilePictureUrl && profile.picture) {
+          updates.profilePictureUrl = profile.picture;
+        }
+        if (Object.keys(updates).length > 0) {
+          await currentUser.update(updates);
+        }
+      }
+    } catch (linkErr) {
+      console.warn('[LinkedIn Prefill] Could not link LinkedIn id to user:', linkErr?.message);
+    }
+
+    // Same shape as /upload-resume so the frontend can pass this as
+    // `resumeData` without any special-casing.
+    res.json({
+      success: true,
+      message: 'LinkedIn profile fetched',
+      data: {
+        firstName: profile.firstName || '',
+        lastName: profile.lastName || '',
+        email: profile.email || '',
+        profilePicture: profile.picture || '',
+        title: '',
+        location: '',
+        phone: '',
+        linkedinUrl: '',
+        githubUrl: '',
+        summary: '',
+        skills: [],
+        experience: [],
+        education: [],
+        projects: []
+      }
+    });
+  } catch (error) {
+    console.error('[LinkedIn Prefill] Error:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'LinkedIn prefill failed'
     });
   }
 });

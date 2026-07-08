@@ -9,6 +9,7 @@ const { User, Profile, RecruiterProfile, PasswordReset } = require('../models');
 const auth = require('../middleware/auth');
 const { sendPasswordResetEmail, sendEmailVerification } = require('../services/emailService');
 const { buildUniqueUserSlug } = require('../utils/slug');
+const { fetchLinkedInProfile } = require('../services/linkedinOAuth');
 const rateLimit = require('express-rate-limit');
 const featureFlags = require('../config/featureFlags');
 
@@ -1434,44 +1435,9 @@ router.get('/linkedin/authorize-url', (req, res) => {
 });
 
 // Exchange a LinkedIn authorization code for an access token + OIDC userinfo.
-async function fetchLinkedInProfile(code, redirectUri) {
-  const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-      client_id: process.env.LINKEDIN_CLIENT_ID || '',
-      client_secret: process.env.LINKEDIN_CLIENT_SECRET || ''
-    })
-  });
-
-  const tokenData = await tokenResponse.json();
-  if (!tokenResponse.ok || tokenData.error) {
-    const err = new Error(tokenData.error_description || tokenData.error || 'LinkedIn token exchange failed');
-    err.status = 401;
-    throw err;
-  }
-
-  const userinfoResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
-    headers: { Authorization: `Bearer ${tokenData.access_token}` }
-  });
-  const profile = await userinfoResponse.json();
-  if (!userinfoResponse.ok) {
-    const err = new Error(profile.message || 'Failed to load LinkedIn profile');
-    err.status = 401;
-    throw err;
-  }
-
-  return {
-    linkedinId: String(profile.sub),
-    email: profile.email,
-    firstName: profile.given_name || profile.name?.split(' ')[0] || 'User',
-    lastName: profile.family_name || profile.name?.split(' ').slice(1).join(' ') || '',
-    picture: profile.picture || null
-  };
-}
+// Implementation lives in services/linkedinOAuth.js so /api/profiles routes
+// can reuse the same helper for the "prefill profile from LinkedIn" flow.
+// `fetchLinkedInProfile` is imported at the top of this file.
 
 // @route   POST /api/auth/linkedin
 // @desc    Authenticate with LinkedIn OAuth code from frontend

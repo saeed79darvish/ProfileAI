@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Avatar, Box, CircularProgress, Typography } from '@mui/material';
 import {
@@ -7,6 +7,7 @@ import {
   CloudUpload as CloudUploadIcon,
   Description as DocIcon,
   Edit as EditIcon,
+  LinkedIn as LinkedInIcon,
 } from '@mui/icons-material';
 import {
   fadeIn,
@@ -26,6 +27,7 @@ import {
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
 import { profileAPI } from '../../services/api';
 import ResumeMagicOverlay from './ResumeMagicOverlay';
+import LinkedInImportModal from './LinkedInImportModal';
 
 /* ═══════════════════════════════════════════════
    ANIMATIONS
@@ -61,6 +63,34 @@ const ProfileCreation = () => {
   const [parsing, setParsing] = useState(false);
   const [parseReady, setParseReady] = useState(false);
   const [parsedData, setParsedData] = useState(null);
+
+  // LinkedIn import modal + server availability flags.
+  const [linkedinModalOpen, setLinkedinModalOpen] = useState(false);
+  const [linkedinStatus, setLinkedinStatus] = useState({
+    urlImportAvailable: false,
+    oauthAvailable: false,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    profileAPI.getLinkedInImportStatus()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setLinkedinStatus({
+          urlImportAvailable: !!data?.urlImportAvailable,
+          oauthAvailable: !!data?.oauthAvailable,
+          loaded: true,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fail closed — treat as unavailable so the modal shows the
+        // "not enabled" message instead of letting users hit a 500.
+        setLinkedinStatus({ urlImportAvailable: false, oauthAvailable: false, loaded: true });
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const triggerUpload = () => {
     if (uploading) return;
@@ -137,6 +167,30 @@ const ProfileCreation = () => {
     navigate(ROUTES.PREFERENCES);
   };
 
+  // LinkedIn import — the modal handles URL validation + API call and
+  // hands us the same parsed-resume shape /upload-resume returns, so we
+  // reuse the exact same magic-overlay → /profile/create-form flow.
+  const handleLinkedInOpen = () => {
+    if (uploading) return;
+    setError('');
+    setLinkedinModalOpen(true);
+  };
+
+  const handleLinkedInImported = (data) => {
+    setLinkedinModalOpen(false);
+    setParsing(true);
+    setParsedData(data);
+    setParseReady(true);
+  };
+
+  const handleLinkedInKeyDown = (e) => {
+    if (uploading) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleLinkedInOpen();
+    }
+  };
+
   return (
     <PageContainer>
       {parsing && (
@@ -146,6 +200,13 @@ const ProfileCreation = () => {
           onFinish={handleMagicFinish}
         />
       )}
+      <LinkedInImportModal
+        open={linkedinModalOpen}
+        onClose={() => setLinkedinModalOpen(false)}
+        onImported={handleLinkedInImported}
+        urlImportAvailable={linkedinStatus.urlImportAvailable}
+        oauthAvailable={linkedinStatus.oauthAvailable}
+      />
       <TopBar>
         <Logo onClick={() => navigate(ROUTES.HOME)}>
           <AIIcon />
@@ -272,6 +333,47 @@ const ProfileCreation = () => {
 
               <CardButton style={{ marginTop: 20 }}>
                 <CloudUploadIcon /> {TEXT.UPLOAD_TITLE}
+              </CardButton>
+            </ChoiceCard>
+
+            {/* LinkedIn Import */}
+            <ChoiceCard
+              $disabled={uploading}
+              role="button"
+              tabIndex={uploading ? -1 : 0}
+              aria-disabled={uploading}
+              aria-label={TEXT.LINKEDIN_TITLE}
+              onClick={handleLinkedInOpen}
+              onKeyDown={handleLinkedInKeyDown}
+            >
+              <IconCircle
+                $gradient="linear-gradient(135deg, #0a66c2, #004182)"
+                $shadow="rgba(10,102,194,0.3)"
+              >
+                <LinkedInIcon />
+              </IconCircle>
+
+              <Typography
+                sx={{ fontWeight: 700, fontSize: 17, color: '#1a1a2e', mb: 0.5 }}
+              >
+                {TEXT.LINKEDIN_TITLE}
+              </Typography>
+              <Typography
+                sx={{ fontSize: 13.5, color: '#666', lineHeight: 1.5, mb: 2 }}
+              >
+                {TEXT.LINKEDIN_DESCRIPTION}
+              </Typography>
+              <FeatureTag $bg="rgba(10,102,194,0.08)" $color="#0a66c2">
+                <AIIcon sx={{ fontSize: 14 }} /> {TEXT.LINKEDIN_TAG}
+              </FeatureTag>
+
+              <Box sx={{ flexGrow: 1 }} />
+
+              <CardButton
+                $bg="linear-gradient(135deg, #0a66c2, #004182)"
+                style={{ marginTop: 20 }}
+              >
+                <LinkedInIcon /> {TEXT.LINKEDIN_BUTTON}
               </CardButton>
             </ChoiceCard>
 

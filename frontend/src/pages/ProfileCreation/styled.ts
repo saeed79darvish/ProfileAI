@@ -49,7 +49,7 @@ export const MainContent = styled.main`
 `;
 
 export const ContentWrapper = styled.div`
-  max-width: 720px;
+  max-width: 960px;
   width: 100%;
   animation: ${fadeIn} 0.5s ease;
 `;
@@ -74,9 +74,13 @@ export const WelcomeBubble = styled.div`
 
 export const ChoiceGrid = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 24px;
   margin-top: 36px;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr 1fr;
+  }
 
   @media (max-width: 640px) {
     grid-template-columns: 1fr;
