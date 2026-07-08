@@ -76,9 +76,23 @@ async function enrichFromLinkedInUrl(linkedinUrl) {
   // If Proxycurl API key is configured, use real enrichment
   if (PROXYCURL_API_KEY) {
     try {
+      // Notes on the params:
+      //  - use_cache=if-recent  → Proxycurl serves a cached copy (if <29 days
+      //    old) in <1s instead of scraping live for 30–120s. Massive latency
+      //    win on repeat lookups; fresh lookups still hit live scrape.
+      //  - fallback_to_cache=on-error → if live scrape times out or errors,
+      //    return a cached copy (even older than 29 days) rather than fail.
+      //  - timeout 85_000ms      → Cloudflare kills the origin request at
+      //    ~100s. Bail before that so we can return a friendly JSON error
+      //    instead of a 502 Bad Gateway page.
       const response = await axios.get('https://nubela.co/proxycurl/api/v2/linkedin', {
-        params: { url: linkedinUrl },
-        headers: { 'Authorization': `Bearer ${PROXYCURL_API_KEY}` }
+        params: {
+          url: linkedinUrl,
+          use_cache: 'if-recent',
+          fallback_to_cache: 'on-error'
+        },
+        headers: { 'Authorization': `Bearer ${PROXYCURL_API_KEY}` },
+        timeout: 85000
       });
       
       const data = response.data;
@@ -118,12 +132,24 @@ async function enrichFromLinkedInUrl(linkedinUrl) {
         }
       };
     } catch (error) {
-      console.error('[LinkedIn Enrichment] Proxycurl API error:', error.message);
+      // Distinguish timeout from other errors so callers can surface a
+      // useful message. axios uses ECONNABORTED for its own timeout.
+      const isTimeout =
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT' ||
+        /timeout/i.test(error.message || '');
+      console.error(
+        `[LinkedIn Enrichment] Proxycurl API error (${isTimeout ? 'timeout' : (error.response?.status || 'network')}):`,
+        error.message
+      );
       return {
         success: false,
         linkedinUrl,
         username,
-        error: error.response?.data?.message || error.message,
+        error: isTimeout
+          ? 'LinkedIn is being slow to respond right now. Try again in a minute, or upload your resume instead.'
+          : (error.response?.data?.message || error.message),
+        errorCode: isTimeout ? 'PROXYCURL_TIMEOUT' : undefined,
         enriched: false
       };
     }
