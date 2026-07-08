@@ -53,7 +53,7 @@ export const TEXT = {
   LINKEDIN_PDF_DIVIDER: 'or use your LinkedIn PDF',
   LINKEDIN_PDF_INTRO: 'LinkedIn can export your full profile as a PDF. Upload it here and AI imports everything:',
   LINKEDIN_PDF_STEP_1: 'On LinkedIn, open your own profile',
-  LINKEDIN_PDF_STEP_2: 'Click the \u201CMore\u201D (or \u201CResources\u201D) button \u2192 \u201CSave to PDF\u201D',
+  LINKEDIN_PDF_STEP_2: 'Click the \u2022\u2022\u2022 (three dots) button below your name \u2192 \u201CSave to PDF\u201D',
   LINKEDIN_PDF_STEP_3: 'Upload the downloaded PDF below',
   LINKEDIN_PDF_BUTTON: 'Upload LinkedIn PDF',
   LINKEDIN_PDF_UPLOADING: 'Importing your LinkedIn PDF\u2026',
