@@ -314,8 +314,6 @@ const LinkedInImportModal = ({
     }
   };
 
-  const nothingAvailable = !urlImportAvailable && !oauthAvailable;
-
   return (
     <Dialog
       open={open}
@@ -367,20 +365,8 @@ const LinkedInImportModal = ({
 
       <DialogContent dividers sx={{ p: 3 }}>
         <Typography sx={{ fontSize: 14, color: '#555', mb: 2.5 }}>
-          {TEXT.LINKEDIN_MODAL_SUBTITLE}
+          {urlImportAvailable ? TEXT.LINKEDIN_MODAL_SUBTITLE : TEXT.LINKEDIN_MODAL_SUBTITLE_PDF}
         </Typography>
-
-        {nothingAvailable && (
-          <Alert severity="warning" sx={{ mb: 2, borderRadius: '10px' }}>
-            {TEXT.LINKEDIN_MODAL_ALL_UNAVAILABLE}
-          </Alert>
-        )}
-
-        {!nothingAvailable && !urlImportAvailable && (
-          <Alert severity="info" sx={{ mb: 2, borderRadius: '10px' }}>
-            {TEXT.LINKEDIN_MODAL_UNAVAILABLE}
-          </Alert>
-        )}
 
         {apiError && (
           <Alert severity="error" sx={{ mb: 2, borderRadius: '10px' }}>
@@ -388,100 +374,138 @@ const LinkedInImportModal = ({
           </Alert>
         )}
 
-        <TextField
-          fullWidth
-          label={TEXT.LINKEDIN_MODAL_LABEL}
-          placeholder={TEXT.LINKEDIN_MODAL_PLACEHOLDER}
-          value={url}
-          onChange={(e) => {
-            setUrl(e.target.value);
-            if (urlError) setUrlError('');
-          }}
-          onKeyDown={handleKeyDown}
-          error={!!urlError}
-          helperText={urlError || TEXT.LINKEDIN_MODAL_HINT}
-          disabled={submitting || oauthLoading || pdfUploading || !urlImportAvailable}
-          autoFocus
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <LinkedInIcon sx={{ color: '#0a66c2' }} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: '10px',
-            },
-          }}
-        />
+        {/* Instant URL import — only rendered when the server has an
+            enrichment key. When it doesn't, the PDF flow below is the
+            primary (and only) content, with no dead inputs or banners. */}
+        {urlImportAvailable && (
+          <>
+            <TextField
+              fullWidth
+              label={TEXT.LINKEDIN_MODAL_LABEL}
+              placeholder={TEXT.LINKEDIN_MODAL_PLACEHOLDER}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (urlError) setUrlError('');
+              }}
+              onKeyDown={handleKeyDown}
+              error={!!urlError}
+              helperText={urlError || TEXT.LINKEDIN_MODAL_HINT}
+              disabled={submitting || oauthLoading || pdfUploading}
+              autoFocus
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LinkedInIcon sx={{ color: '#0a66c2' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: '10px',
+                },
+              }}
+            />
+
+            <Divider sx={{ my: 2.5, color: '#999', fontSize: 13 }}>
+              {TEXT.LINKEDIN_PDF_DIVIDER}
+            </Divider>
+          </>
+        )}
 
         {/* LinkedIn official "Save to PDF" path — always available */}
-        <Divider sx={{ my: 2.5, color: '#999', fontSize: 13 }}>
-          {TEXT.LINKEDIN_PDF_DIVIDER}
-        </Divider>
-
         <Box
           sx={{
             background: 'rgba(10,102,194,0.04)',
             border: '1px solid rgba(10,102,194,0.15)',
             borderRadius: '12px',
-            p: 2,
+            p: 2.5,
           }}
         >
-          <Typography sx={{ fontSize: 13.5, color: '#444', mb: 1 }}>
-            {TEXT.LINKEDIN_PDF_INTRO}
-          </Typography>
-          <Box component="ol" sx={{ m: 0, pl: 2.5, mb: 1.5 }}>
-            {[TEXT.LINKEDIN_PDF_STEP_1, TEXT.LINKEDIN_PDF_STEP_2, TEXT.LINKEDIN_PDF_STEP_3].map((step) => (
-              <Typography key={step} component="li" sx={{ fontSize: 13, color: '#555', mb: 0.25 }}>
-                {step}
+          {/* Numbered steps with the action inline on each row so users
+              read top-to-bottom and never hunt for the next click. */}
+          {[
+            { n: 1, text: TEXT.LINKEDIN_PDF_STEP_1, action: (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<OpenIcon />}
+                component="a"
+                href="https://www.linkedin.com/in/me/"
+                target="_blank"
+                rel="noopener noreferrer"
+                disabled={submitting || oauthLoading || pdfUploading}
+                sx={{
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  borderColor: '#0a66c2',
+                  color: '#0a66c2',
+                  flexShrink: 0,
+                }}
+              >
+                {TEXT.LINKEDIN_PDF_OPEN_PROFILE}
+              </Button>
+            ) },
+            { n: 2, text: TEXT.LINKEDIN_PDF_STEP_2, action: null },
+            { n: 3, text: TEXT.LINKEDIN_PDF_STEP_3, action: (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={pdfUploading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <UploadIcon />}
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={submitting || oauthLoading || pdfUploading}
+                sx={{
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  background: 'linear-gradient(135deg, #0a66c2, #004182)',
+                  flexShrink: 0,
+                }}
+              >
+                {pdfUploading ? TEXT.LINKEDIN_PDF_UPLOADING : TEXT.LINKEDIN_PDF_BUTTON}
+              </Button>
+            ) },
+          ].map(({ n, text, action }) => (
+            <Box
+              key={n}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                mb: n < 3 ? 1.75 : 0,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #0a66c2, #004182)',
+                  color: 'white',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {n}
+              </Box>
+              <Typography sx={{ fontSize: 14, color: '#333', flexGrow: 1 }}>
+                {text}
               </Typography>
-            ))}
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<OpenIcon />}
-              component="a"
-              href="https://www.linkedin.com/in/me/"
-              target="_blank"
-              rel="noopener noreferrer"
-              disabled={submitting || oauthLoading || pdfUploading}
-              sx={{
-                borderRadius: '8px',
-                textTransform: 'none',
-                fontWeight: 600,
-                borderColor: '#0a66c2',
-                color: '#0a66c2',
-              }}
-            >
-              {TEXT.LINKEDIN_PDF_OPEN_PROFILE}
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={pdfUploading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <UploadIcon />}
-              onClick={() => pdfInputRef.current?.click()}
-              disabled={submitting || oauthLoading || pdfUploading}
-              sx={{
-                borderRadius: '8px',
-                textTransform: 'none',
-                fontWeight: 600,
-                background: 'linear-gradient(135deg, #0a66c2, #004182)',
-              }}
-            >
-              {pdfUploading ? TEXT.LINKEDIN_PDF_UPLOADING : TEXT.LINKEDIN_PDF_BUTTON}
-            </Button>
-            <input
-              ref={pdfInputRef}
-              type="file"
-              hidden
-              accept=".pdf,.doc,.docx"
-              onChange={handlePdfSelected}
-            />
-          </Box>
+              {action}
+            </Box>
+          ))}
+          <input
+            ref={pdfInputRef}
+            type="file"
+            hidden
+            accept=".pdf,.doc,.docx"
+            onChange={handlePdfSelected}
+          />
         </Box>
 
         {oauthAvailable && (
@@ -525,28 +549,30 @@ const LinkedInImportModal = ({
         >
           {TEXT.LINKEDIN_MODAL_CANCEL}
         </Button>
-        <Button
-          onClick={handleUrlSubmit}
-          disabled={submitting || oauthLoading || pdfUploading || !urlImportAvailable}
-          variant="contained"
-          startIcon={submitting ? <CircularProgress size={18} sx={{ color: 'white' }} /> : null}
-          sx={{
-            background: 'linear-gradient(135deg, #0a66c2, #004182)',
-            textTransform: 'none',
-            fontWeight: 600,
-            borderRadius: '10px',
-            px: 3,
-            '&:hover': {
-              background: 'linear-gradient(135deg, #004182, #002d5e)',
-            },
-            '&.Mui-disabled': {
-              background: '#c0c0c0',
-              color: '#fff',
-            },
-          }}
-        >
-          {submitting ? 'Importing…' : TEXT.LINKEDIN_MODAL_SUBMIT}
-        </Button>
+        {urlImportAvailable && (
+          <Button
+            onClick={handleUrlSubmit}
+            disabled={submitting || oauthLoading || pdfUploading}
+            variant="contained"
+            startIcon={submitting ? <CircularProgress size={18} sx={{ color: 'white' }} /> : null}
+            sx={{
+              background: 'linear-gradient(135deg, #0a66c2, #004182)',
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '10px',
+              px: 3,
+              '&:hover': {
+                background: 'linear-gradient(135deg, #004182, #002d5e)',
+              },
+              '&.Mui-disabled': {
+                background: '#c0c0c0',
+                color: '#fff',
+              },
+            }}
+          >
+            {submitting ? 'Importing…' : TEXT.LINKEDIN_MODAL_SUBMIT}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

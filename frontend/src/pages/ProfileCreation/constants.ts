@@ -32,6 +32,7 @@ export const TEXT = {
   // LinkedIn modal copy
   LINKEDIN_MODAL_TITLE: 'Import from LinkedIn',
   LINKEDIN_MODAL_SUBTITLE: 'Paste the full URL of your LinkedIn profile below.',
+  LINKEDIN_MODAL_SUBTITLE_PDF: 'Export your profile from LinkedIn as a PDF \u2014 AI imports your experience, education, and skills in seconds.',
   LINKEDIN_MODAL_LABEL: 'LinkedIn profile URL',
   LINKEDIN_MODAL_PLACEHOLDER: 'https://www.linkedin.com/in/yourname',
   LINKEDIN_MODAL_HINT: "On LinkedIn, open your profile and copy the URL from your browser's address bar.",
