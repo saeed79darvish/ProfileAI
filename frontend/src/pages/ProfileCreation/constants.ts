@@ -40,14 +40,23 @@ export const TEXT = {
   LINKEDIN_MODAL_OAUTH_DIVIDER: 'or',
   LINKEDIN_MODAL_OAUTH_BUTTON: 'Sign in with LinkedIn instead',
   LINKEDIN_MODAL_OAUTH_NOTE: "We'll only fetch your name, email, and photo \u2014 you'll add experience and education yourself.",
-  LINKEDIN_MODAL_UNAVAILABLE: "LinkedIn URL import isn't enabled on this server yet. Try uploading your resume, or use \u201CSign in with LinkedIn\u201D below to prefill your basics.",
-  LINKEDIN_MODAL_ALL_UNAVAILABLE: "LinkedIn import isn't enabled on this server yet. Please upload your resume or create your profile manually.",
+  LINKEDIN_MODAL_UNAVAILABLE: 'Instant URL import isn\u2019t enabled on this server yet \u2014 use the LinkedIn PDF option below instead, it imports everything just as well.',
+  LINKEDIN_MODAL_ALL_UNAVAILABLE: 'Instant URL import isn\u2019t enabled on this server yet \u2014 use the LinkedIn PDF option below instead, it imports everything just as well.',
   LINKEDIN_MODAL_OAUTH_UNAVAILABLE: 'Sign in with LinkedIn is not configured on this server.',
   LINKEDIN_ERROR_INVALID_URL: "That doesn't look like a LinkedIn profile URL. It should look like https://www.linkedin.com/in/yourname",
   LINKEDIN_ERROR_GENERIC: 'Could not import your LinkedIn profile. Try again, upload your resume, or start from scratch.',
   LINKEDIN_ERROR_OAUTH: 'Could not sign in with LinkedIn. Try again or use another option.',
   LINKEDIN_ERROR_POPUP_BLOCKED: 'Popup blocked. Allow popups for this site and try again.',
   LINKEDIN_ERROR_POPUP_CLOSED: 'LinkedIn sign-in was cancelled.',
+  // LinkedIn official PDF export path — always works, no third-party API.
+  LINKEDIN_PDF_DIVIDER: 'or use your LinkedIn PDF',
+  LINKEDIN_PDF_INTRO: 'LinkedIn can export your full profile as a PDF \u2014 upload it here and AI imports everything:',
+  LINKEDIN_PDF_STEP_1: 'On LinkedIn, open your own profile',
+  LINKEDIN_PDF_STEP_2: 'Click the \u201CMore\u201D (or \u201CResources\u201D) button \u2192 \u201CSave to PDF\u201D',
+  LINKEDIN_PDF_STEP_3: 'Upload the downloaded PDF below',
+  LINKEDIN_PDF_BUTTON: 'Upload LinkedIn PDF',
+  LINKEDIN_PDF_UPLOADING: 'Importing your LinkedIn PDF\u2026',
+  LINKEDIN_PDF_OPEN_PROFILE: 'Open my LinkedIn',
 } as const;
 
 export const ALLOWED_FILE_TYPES = [

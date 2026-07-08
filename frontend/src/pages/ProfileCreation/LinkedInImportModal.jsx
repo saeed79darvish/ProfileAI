@@ -16,10 +16,13 @@ import {
 } from '@mui/material';
 import {
   Close as CloseIcon,
+  Description as PdfIcon,
   LinkedIn as LinkedInIcon,
+  OpenInNew as OpenIcon,
+  UploadFile as UploadIcon,
 } from '@mui/icons-material';
 import { profileAPI, authAPI } from '../../services/api';
-import { ROUTES, TEXT } from './constants';
+import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
 
 // Same relaxed pattern the backend uses in linkedinEnrichmentService.
 const LINKEDIN_URL_REGEX = /^https?:\/\/(www\.)?linkedin\.com\/(in|pub|profile)\/[a-zA-Z0-9_-]+\/?/i;
@@ -57,7 +60,11 @@ const LinkedInImportModal = ({
   const [urlError, setUrlError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [pdfUploading, setPdfUploading] = useState(false);
   const [apiError, setApiError] = useState('');
+
+  // Hidden file input for the LinkedIn "Save to PDF" upload path.
+  const pdfInputRef = useRef(null);
 
   // Track any open OAuth popup so we can close/reject it on modal close.
   const popupRef = useRef(null);
@@ -72,6 +79,7 @@ const LinkedInImportModal = ({
       setApiError('');
       setSubmitting(false);
       setOauthLoading(false);
+      setPdfUploading(false);
     }
   }, [open]);
 
@@ -96,9 +104,44 @@ const LinkedInImportModal = ({
   };
 
   const handleClose = () => {
-    if (submitting || oauthLoading) return;
+    if (submitting || oauthLoading || pdfUploading) return;
     cleanupOAuth();
     onClose?.();
+  };
+
+  // LinkedIn's official "Save to PDF" export, run through the exact same
+  // /profiles/upload-resume AI parser as the resume-upload card. Always
+  // available — no third-party enrichment API required.
+  const handlePdfSelected = async (event) => {
+    const file = event.target.files?.[0];
+    // Allow re-selecting the same file next time.
+    event.target.value = '';
+    if (!file) return;
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      setApiError(TEXT.ERROR_FILE_TYPE);
+      return;
+    }
+    if (file.size > VALIDATION.MAX_FILE_SIZE) {
+      setApiError(TEXT.ERROR_FILE_SIZE);
+      return;
+    }
+
+    setApiError('');
+    setPdfUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('resume', file);
+      const response = await profileAPI.uploadResume(formData);
+      if (response.data?.success && response.data?.data) {
+        onImported?.(response.data.data);
+      } else {
+        setApiError(response.data?.error || TEXT.ERROR_PARSE);
+        setPdfUploading(false);
+      }
+    } catch (error) {
+      setApiError(error?.message || TEXT.ERROR_UPLOAD);
+      setPdfUploading(false);
+    }
   };
 
   const validateUrl = (value) => {
@@ -315,7 +358,7 @@ const LinkedInImportModal = ({
         <IconButton
           aria-label="Close"
           onClick={handleClose}
-          disabled={submitting || oauthLoading}
+          disabled={submitting || oauthLoading || pdfUploading}
           sx={{ position: 'absolute', top: 12, right: 12, color: '#999' }}
         >
           <CloseIcon />
@@ -357,7 +400,7 @@ const LinkedInImportModal = ({
           onKeyDown={handleKeyDown}
           error={!!urlError}
           helperText={urlError || TEXT.LINKEDIN_MODAL_HINT}
-          disabled={submitting || oauthLoading || !urlImportAvailable}
+          disabled={submitting || oauthLoading || pdfUploading || !urlImportAvailable}
           autoFocus
           InputProps={{
             startAdornment: (
@@ -373,6 +416,74 @@ const LinkedInImportModal = ({
           }}
         />
 
+        {/* LinkedIn official "Save to PDF" path — always available */}
+        <Divider sx={{ my: 2.5, color: '#999', fontSize: 13 }}>
+          {TEXT.LINKEDIN_PDF_DIVIDER}
+        </Divider>
+
+        <Box
+          sx={{
+            background: 'rgba(10,102,194,0.04)',
+            border: '1px solid rgba(10,102,194,0.15)',
+            borderRadius: '12px',
+            p: 2,
+          }}
+        >
+          <Typography sx={{ fontSize: 13.5, color: '#444', mb: 1 }}>
+            {TEXT.LINKEDIN_PDF_INTRO}
+          </Typography>
+          <Box component="ol" sx={{ m: 0, pl: 2.5, mb: 1.5 }}>
+            {[TEXT.LINKEDIN_PDF_STEP_1, TEXT.LINKEDIN_PDF_STEP_2, TEXT.LINKEDIN_PDF_STEP_3].map((step) => (
+              <Typography key={step} component="li" sx={{ fontSize: 13, color: '#555', mb: 0.25 }}>
+                {step}
+              </Typography>
+            ))}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<OpenIcon />}
+              component="a"
+              href="https://www.linkedin.com/in/me/"
+              target="_blank"
+              rel="noopener noreferrer"
+              disabled={submitting || oauthLoading || pdfUploading}
+              sx={{
+                borderRadius: '8px',
+                textTransform: 'none',
+                fontWeight: 600,
+                borderColor: '#0a66c2',
+                color: '#0a66c2',
+              }}
+            >
+              {TEXT.LINKEDIN_PDF_OPEN_PROFILE}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={pdfUploading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <UploadIcon />}
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={submitting || oauthLoading || pdfUploading}
+              sx={{
+                borderRadius: '8px',
+                textTransform: 'none',
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #0a66c2, #004182)',
+              }}
+            >
+              {pdfUploading ? TEXT.LINKEDIN_PDF_UPLOADING : TEXT.LINKEDIN_PDF_BUTTON}
+            </Button>
+            <input
+              ref={pdfInputRef}
+              type="file"
+              hidden
+              accept=".pdf,.doc,.docx"
+              onChange={handlePdfSelected}
+            />
+          </Box>
+        </Box>
+
         {oauthAvailable && (
           <>
             <Divider sx={{ my: 3, color: '#999', fontSize: 13 }}>
@@ -383,7 +494,7 @@ const LinkedInImportModal = ({
               variant="outlined"
               startIcon={oauthLoading ? <CircularProgress size={18} /> : <LinkedInIcon />}
               onClick={handleOAuthSignIn}
-              disabled={submitting || oauthLoading}
+              disabled={submitting || oauthLoading || pdfUploading}
               sx={{
                 borderRadius: '10px',
                 borderColor: '#0a66c2',
@@ -409,14 +520,14 @@ const LinkedInImportModal = ({
       <DialogActions sx={{ p: 2.5, background: '#fafbfc' }}>
         <Button
           onClick={handleClose}
-          disabled={submitting || oauthLoading}
+          disabled={submitting || oauthLoading || pdfUploading}
           sx={{ color: '#666', textTransform: 'none', fontWeight: 600 }}
         >
           {TEXT.LINKEDIN_MODAL_CANCEL}
         </Button>
         <Button
           onClick={handleUrlSubmit}
-          disabled={submitting || oauthLoading || !urlImportAvailable}
+          disabled={submitting || oauthLoading || pdfUploading || !urlImportAvailable}
           variant="contained"
           startIcon={submitting ? <CircularProgress size={18} sx={{ color: 'white' }} /> : null}
           sx={{
