@@ -23,6 +23,10 @@ interface JobMatchSectionProps {
   isTailoring?: boolean;
   /** When a tailored result is showing, collapse to just the job row. */
   hasTailored?: boolean;
+  /** Suppress the whole section entirely when we know the tab is not a job
+   *  page (e.g. LinkedIn profile). Prevents the misleading "On a job page?"
+   *  empty state from taking up a huge chunk of vertical space. */
+  suppressWhenNotJob?: boolean;
 }
 
 const impactLabel: Record<Impact, string> = {
@@ -64,20 +68,36 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   onTailor,
   isTailoring,
   hasTailored,
+  suppressWhenNotJob,
 }) => {
   const [showAllMissing, setShowAllMissing] = useState(false);
 
   if (!currentJob) {
+    // Hide entirely when the caller knows this isn't a job page. Prevents the
+    // misleading "On a job page?" prompt on LinkedIn profiles, Google, etc.
+    if (suppressWhenNotJob) return null;
+    // Compact empty state — single row, no big icon block. Half the vertical
+    // footprint of the old version.
     return (
-      <div className="panel-section job-match-section">
-        <div className="job-detect-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="M21 21l-4.35-4.35"></path>
+      <div className="panel-section job-match-section job-detect-compact">
+        <div className="jd-compact-row">
+          <svg
+            className="jd-compact-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
           </svg>
-          <p>On a job page? Click below to analyze it.</p>
-          <button className="btn primary small" onClick={onAnalyze} disabled={isAnalyzing} style={{ marginTop: 8 }}>
-            {isAnalyzing ? 'Analyzing...' : 'Analyze This Job'}
+          <span className="jd-compact-text">Analyze current job page</span>
+          <button
+            className="btn primary small jd-compact-btn"
+            onClick={onAnalyze}
+            disabled={isAnalyzing}
+          >
+            {isAnalyzing ? 'Analyzing…' : 'Analyze'}
           </button>
         </div>
       </div>

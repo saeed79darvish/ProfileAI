@@ -824,6 +824,7 @@ export const SidePanel: React.FC = () => {
               onTailor={handleTailor}
               isTailoring={isTailoring || isAnalyzingGaps}
               hasTailored={!!tailoredProfile}
+              suppressWhenNotJob={isOnLinkedInProfile}
             />
             
             <QuickActions 
