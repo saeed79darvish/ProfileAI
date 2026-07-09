@@ -23,6 +23,7 @@ import {
 } from '@mui/icons-material';
 import { profileAPI, authAPI } from '../../services/api';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
+import LinkedInPdfHint from './LinkedInPdfHint';
 
 // Same relaxed pattern the backend uses in linkedinEnrichmentService.
 const LINKEDIN_URL_REGEX = /^https?:\/\/(www\.)?linkedin\.com\/(in|pub|profile)\/[a-zA-Z0-9_-]+\/?/i;
@@ -467,37 +468,53 @@ const LinkedInImportModal = ({
               </Button>
             ) },
           ].map(({ n, text, action }) => (
-            <Box
-              key={n}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1.5,
-                mb: n < 3 ? 1.75 : 0,
-              }}
-            >
+            <React.Fragment key={n}>
               <Box
                 sx={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #0a66c2, #004182)',
-                  color: 'white',
-                  fontSize: 13,
-                  fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
+                  gap: 1.5,
+                  mb: n < 3 ? 1.75 : 0,
                 }}
               >
-                {n}
+                <Box
+                  sx={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #0a66c2, #004182)',
+                    color: 'white',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {n}
+                </Box>
+                <Typography sx={{ fontSize: 14, color: '#333', flexGrow: 1 }}>
+                  {text}
+                </Typography>
+                {action}
               </Box>
-              <Typography sx={{ fontSize: 14, color: '#333', flexGrow: 1 }}>
-                {text}
-              </Typography>
-              {action}
-            </Box>
+              {/* Visual guide for step 2: shows where the ••• button is
+                  and what "Save to PDF" looks like in the dropdown. */}
+              {n === 2 && (
+                <Box
+                  sx={{
+                    mb: 1.75,
+                    p: 1,
+                    background: '#fff',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(10,102,194,0.12)',
+                  }}
+                >
+                  <LinkedInPdfHint />
+                </Box>
+              )}
+            </React.Fragment>
           ))}
           <input
             ref={pdfInputRef}
