@@ -1108,7 +1108,7 @@ const Navbar = () => {
               // gets its chance to intercept unfinished candidates.
               if (!isAuthenticated) return go('/');
               if (isRecruiter) return go('/recruiter/dashboard');
-              if (isAdmin) return go('/admin/dashboard');
+              if (isAdmin) return go('/admin');
               return go('/profile');
             }}
             aria-label="profilleai home"

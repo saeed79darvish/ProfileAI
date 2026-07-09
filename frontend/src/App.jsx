@@ -161,7 +161,7 @@ function HomeOrAppRoot() {
   if (loading) return LazyFallback;
   if (!isAuthenticated) return <Home />;
   if (user?.role === 'recruiter') return <Navigate to="/recruiter/dashboard" replace />;
-  if (user?.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  if (user?.role === 'admin') return <Navigate to="/admin" replace />;
   return <Navigate to="/profile" replace />;
 }
 
