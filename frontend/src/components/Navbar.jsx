@@ -818,6 +818,15 @@ const Navbar = () => {
           </>
         )}
         <DropdownDivider />
+        {/* Utility items \u2014 mirror the mobile account menu so users get the
+            same Privacy + Help entry-points on every device. */}
+        <DropdownItem role="menuitem" onClick={() => go('/privacy')}>
+          <PrivacyIcon /> Privacy Policy
+        </DropdownItem>
+        <DropdownItem role="menuitem" onClick={() => go('/help')}>
+          <HelpIcon /> Help
+        </DropdownItem>
+        <DropdownDivider />
         <DropdownItem role="menuitem" $danger onClick={handleLogout}>
           <LogoutIcon /> Sign Out
         </DropdownItem>
