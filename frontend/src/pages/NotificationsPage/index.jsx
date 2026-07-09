@@ -29,7 +29,6 @@ import {
   Delete as DeleteIcon,
   CheckCircle as CheckIcon,
   MoreVert as MoreVertIcon,
-  Settings as SettingsIcon,
   Star as StarIcon,
   CheckCircleOutline as SuccessIcon,
 } from '@mui/icons-material';
@@ -143,26 +142,6 @@ const HeaderLink = styled.button`
   &:disabled {
     opacity: 0.4;
     cursor: default;
-  }
-`;
-
-const PrefsBtn = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  cursor: pointer;
-  transition: all 0.15s;
-
-  &:hover {
-    border-color: #d1d5db;
-    background: #f9fafb;
   }
 `;
 
@@ -649,6 +628,8 @@ const NotificationsPage = () => {
     { label: 'Network' },
   ];
 
+  const hasAnyNotifs = notifications.length > 0;
+
   return (
     <PageWrapper>
       {/* ── Header ── */}
@@ -666,31 +647,31 @@ const NotificationsPage = () => {
               : 'All caught up!'}
           </Typography>
         </div>
-        <HeaderActions>
-          <HeaderLink
-            onClick={handleMarkAllAsRead}
-            disabled={actionLoading || unreadCount === 0}
-          >
-            Mark all as read
-          </HeaderLink>
-          <PrefsBtn>
-            <SettingsIcon sx={{ fontSize: 16 }} />
-            Preferences
-          </PrefsBtn>
-        </HeaderActions>
+        {unreadCount > 0 && (
+          <HeaderActions>
+            <HeaderLink
+              onClick={handleMarkAllAsRead}
+              disabled={actionLoading}
+            >
+              Mark all as read
+            </HeaderLink>
+          </HeaderActions>
+        )}
       </PageHeader>
 
-      {/* ── Tabs ── */}
-      <TabRow>
-        {TABS.map((tab, i) => (
-          <TabBtn key={tab.label} $active={activeTab === i} onClick={() => handleTabChange(i)}>
-            {tab.label}
-            {tab.count > 0 && (
-              <TabBadge $active={activeTab === i}>{tab.count}</TabBadge>
-            )}
-          </TabBtn>
-        ))}
-      </TabRow>
+      {/* ── Tabs (only when there's something to filter) ── */}
+      {hasAnyNotifs && (
+        <TabRow>
+          {TABS.map((tab, i) => (
+            <TabBtn key={tab.label} $active={activeTab === i} onClick={() => handleTabChange(i)}>
+              {tab.label}
+              {tab.count > 0 && (
+                <TabBadge $active={activeTab === i}>{tab.count}</TabBadge>
+              )}
+            </TabBtn>
+          ))}
+        </TabRow>
+      )}
 
       {/* ── Error ── */}
       {error && (

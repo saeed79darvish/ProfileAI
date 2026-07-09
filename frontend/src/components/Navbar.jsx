@@ -1101,11 +1101,15 @@ const Navbar = () => {
           <Logo
             type="button"
             onClick={() => {
-              // Always route through go() so the onboarding gate can
-              // intercept candidates without a finished profile and show
-              // the "please finish your profile" banner instead of letting
-              // the logo silently bounce them to the home/hub.
-              go('/');
+              // Signed-in users have "converted" — clicking the logo
+              // should take them to their app root, not the marketing
+              // landing page they haven't seen since sign-up. Route
+              // through go() either way so the onboarding gate still
+              // gets its chance to intercept unfinished candidates.
+              if (!isAuthenticated) return go('/');
+              if (isRecruiter) return go('/recruiter/dashboard');
+              if (isAdmin) return go('/admin/dashboard');
+              return go('/profile');
             }}
             aria-label="profilleai home"
           >

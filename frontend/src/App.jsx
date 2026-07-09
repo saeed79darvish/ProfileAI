@@ -153,6 +153,18 @@ function ArenaLegacyRedirect() {
   return <Navigate to={target + (location.search || '')} replace />;
 }
 
+// The `/` route is the marketing landing page for signed-out visitors,
+// but signed-in users should never see it — they've already converted
+// and want their app. Send them to their role-appropriate root.
+function HomeOrAppRoot() {
+  const { isAuthenticated, user, loading } = useAuth();
+  if (loading) return LazyFallback;
+  if (!isAuthenticated) return <Home />;
+  if (user?.role === 'recruiter') return <Navigate to="/recruiter/dashboard" replace />;
+  if (user?.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  return <Navigate to="/profile" replace />;
+}
+
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -178,7 +190,7 @@ function AppContent() {
       <ErrorBoundary>
       <Suspense fallback={LazyFallback}>
       <Routes>
-              <Route path="/" element={<Home />} />
+              <Route path="/" element={<HomeOrAppRoot />} />
               <Route path="/applypilot" element={<ApplyPilotGateway />} />
               <Route path="/extension" element={<ExtensionPage />} />
               <Route path="/login" element={<Login />} />
