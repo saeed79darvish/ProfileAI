@@ -4423,6 +4423,23 @@ html, body, #root {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
+/* Danger variant of .btn used for the "click again to confirm" state on
+   Re-analyze so users see they're about to spend a credit. */
+.btn.danger {
+  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  animation: profileai-danger-pulse 1.6s ease-in-out infinite;
+}
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+@keyframes profileai-danger-pulse {
+  0%, 100% { box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35); }
+  50%      { box-shadow: 0 4px 20px rgba(220, 38, 38, 0.6); }
+}
+
 /* ============================================================
    Signed-out & setup states (value prop / reconnect / guide)
    ============================================================ */

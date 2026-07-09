@@ -146,12 +146,17 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
   const [editedSuggestions, setEditedSuggestions] = useState<Record<number, string>>({});
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
+  // Two-click confirm on Re-analyze (avoids the ugly native window.confirm
+  // dialog that shows the extension ID in the header). First click primes;
+  // second click within 4s actually triggers the paid refresh.
+  const [reanalyzeConfirming, setReanalyzeConfirming] = useState(false);
 
   // Reset local editing state whenever a new analysis loads.
   useEffect(() => {
     setEditedSuggestions({});
     setEditingIndex(null);
     setCopiedKey(null);
+    setReanalyzeConfirming(false);
   }, [analysis]);
 
   const verdict = useMemo(() => (analysis ? verdictMeta(analysis.verdict) : null), [analysis]);
@@ -434,17 +439,22 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
 
         <div className="modal-footer">
           <button
-            className="btn secondary small"
+            className={`btn small ${reanalyzeConfirming ? 'danger' : 'secondary'}`}
             onClick={() => {
-              // If the user is looking at a cached analysis, confirm before
-              // burning a fresh AI credit. First-run (no analysis yet) or the
-              // error retry path just re-runs without a prompt.
-              if (analysis && cachedAt) {
-                const ok = window.confirm(
-                  'Re-analyze this profile? This will use one AI credit and replace the cached result.',
-                );
-                if (!ok) return;
+              // First-run (no cached analysis yet) or error retry — no
+              // confirm needed since there's nothing to displace.
+              if (!analysis || !cachedAt) {
+                onRefresh();
+                return;
               }
+              // Two-click confirm: first click primes ("Click to confirm"),
+              // second click within 4s runs the fresh (paid) analysis.
+              if (!reanalyzeConfirming) {
+                setReanalyzeConfirming(true);
+                setTimeout(() => setReanalyzeConfirming(false), 4000);
+                return;
+              }
+              setReanalyzeConfirming(false);
               onRefresh();
             }}
             disabled={loading}
@@ -454,7 +464,13 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                 : 'Run analysis'
             }
           >
-            {loading ? 'Analyzing…' : analysis && cachedAt ? 'Re-analyze (uses 1 credit)' : 'Re-analyze'}
+            {loading
+              ? 'Analyzing…'
+              : reanalyzeConfirming
+                ? 'Click again to confirm · uses 1 credit'
+                : analysis && cachedAt
+                  ? 'Re-analyze (uses 1 credit)'
+                  : 'Re-analyze'}
           </button>
           <button className="btn primary small" onClick={onClose}>
             Done

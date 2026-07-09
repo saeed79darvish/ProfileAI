@@ -138,6 +138,19 @@ const JOB_PAGE_PATTERNS = [
   /ziprecruiter\.com.*\/jobs/i,
 ];
 
+// True while the extension context is still alive. After the extension is
+// reloaded/updated, stale content scripts in already-open tabs keep running
+// their timers and MutationObservers — any chrome.* call from them throws
+// "Extension context invalidated" (the anonymous content.js:1 errors seen in
+// the console). Check this before every chrome.* call in async paths.
+function extAlive(): boolean {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
 // Initialize
 async function init() {
   if (isInitialized) return;
@@ -536,6 +549,12 @@ function watchForLinkedInJobContent() {
     if (injected) return;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      // Stale script (extension was reloaded) or we navigated off the job page
+      // mid-observe (e.g. onto a /in/ profile) — stop, don't store phantoms.
+      if (!extAlive() || !isJobPage) {
+        observer.disconnect();
+        return;
+      }
       // Check if job details have loaded
       const jobInfo = getJobInfo();
       if (jobInfo && (jobInfo.title || jobInfo.company)) {
@@ -580,18 +599,34 @@ function handleNavigation() {
   document.getElementById('profileai-li-topbtn')?.remove();
   inlineBannerState = { analyzing: false, tailoring: false, score: null, present: [], missing: [] };
 
-  // Update stored job info for the overlay SidePanel — cascade retries
+  // Update stored job info for the overlay SidePanel — cascade retries.
+  // ONLY store when this is actually a job page: getJobInfo()'s `h1` fallback
+  // happily returns the profile owner's name on linkedin.com/in/* pages, which
+  // used to write a phantom "job" into storage that the SidePanel displayed.
   const tryStoreNav = (attempt: number) => {
+    if (!extAlive()) return; // stale script after extension reload — bail
+    if (!isJobPage) {
+      if (attempt < 4) {
+        // detectJobPage()'s content-analysis pass is async (2s timer) — retry
+        // in case this page turns out to be a job page after all.
+        setTimeout(() => tryStoreNav(attempt + 1), 1500);
+      } else {
+        // Confirmed non-job page — purge any stale job so the panel clears.
+        try { chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']); } catch (_) {}
+      }
+      return;
+    }
     const jobInfo = getJobInfo();
     if (jobInfo) {
       console.log('[ProfileAI] Nav: stored job info (attempt', attempt, '):', jobInfo.title);
-      chrome.storage.local.set({ currentJobInfo: { ...jobInfo, _ts: Date.now() }, currentJobUrl: location.href });
+      try {
+        chrome.storage.local.set({ currentJobInfo: { ...jobInfo, _ts: Date.now() }, currentJobUrl: location.href });
+      } catch (_) { /* context gone mid-flight */ }
     } else if (attempt < 4) {
       // Retry — don't clear storage yet, content might still be loading
       setTimeout(() => tryStoreNav(attempt + 1), 1500);
-    } else if (!isJobPage) {
-      // Only clear if we've confirmed this isn't a job page after all retries
-      chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']);
+    } else {
+      try { chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']); } catch (_) {}
     }
   };
   setTimeout(() => tryStoreNav(1), 800);
