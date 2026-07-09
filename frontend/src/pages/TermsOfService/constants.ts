@@ -1,5 +1,5 @@
-export const LAST_UPDATED = 'January 24, 2026';
-export const EFFECTIVE_DATE = 'January 24, 2026';
+export const LAST_UPDATED = 'July 9, 2026';
+export const EFFECTIVE_DATE = 'July 9, 2026';
 
 export const ROUTES = {
   PRIVACY: '/privacy',

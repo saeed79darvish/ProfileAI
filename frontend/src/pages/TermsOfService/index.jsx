@@ -236,23 +236,57 @@ const TermsOfService = () => {
           <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Refund Policy</Typography>
           <Box sx={{ bgcolor: '#e3f2fd', p: 2, borderRadius: 2, mb: 2 }}>
             <Typography variant="body2">
-              <strong>7-Day Money-Back Guarantee:</strong> New subscribers may request a full refund 
-              within 7 days of their initial subscription purchase if they are not satisfied with 
-              the service.
+              <strong>24-Hour Money-Back Guarantee:</strong> New subscribers may request a full refund
+              within 24 hours of their initial subscription purchase, provided they have not
+              consumed any AI credits and have not violated these Terms. Refund eligibility is
+              determined at ProfilleAI&rsquo;s reasonable discretion.
             </Typography>
           </Box>
           <List dense>
             <ListItem>
-              <ListItemText primary="Refund requests after 7 days will be considered on a case-by-case basis" />
+              <ListItemText
+                primary="Beyond 24 hours: no refunds by default"
+                secondary="Refunds are not issued after the 24-hour window except where required by applicable law or in genuine cases of service failure. Cancellation stops future billing but does not refund past charges."
+              />
             </ListItem>
             <ListItem>
-              <ListItemText primary="Refunds for annual plans are prorated based on unused months" />
+              <ListItemText
+                primary="AI credits already consumed are non-refundable"
+                secondary="Because AI generations, resume tailorings, cover letters, and other credit-based features incur third-party API costs at the time of use, they cannot be refunded once consumed \u2014 even inside the 24-hour window."
+              />
             </ListItem>
             <ListItem>
-              <ListItemText primary="No refunds for partial months or unused features" />
+              <ListItemText
+                primary="No refunds for accounts that violated the Terms"
+                secondary="Accounts suspended or terminated for ToS violations (fraud, spam, abuse, unauthorized scraping, account sharing, etc.) forfeit all refund eligibility."
+              />
             </ListItem>
             <ListItem>
-              <ListItemText primary="To request a refund, contact billing@profileai.com" />
+              <ListItemText
+                primary="No refunds for partial months or unused features"
+                secondary="Once a billing period begins we do not prorate refunds for the remaining days, and we do not refund unused credits or unused features."
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText
+                primary="Annual plan cancellations"
+                secondary="Annual subscribers cancelling inside 24 hours of initial purchase receive a full refund (subject to the conditions above). Cancellations after 24 hours retain access until the annual period ends; no partial-year refunds."
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText
+                primary="Statutory consumer rights"
+                secondary="If you are a consumer in the European Union, United Kingdom, or another jurisdiction whose local law grants you a mandatory right of withdrawal or refund, that right applies regardless of this policy. To exercise it, contact billing@profileai.com within the statutory window."
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText
+                primary="Contact us first \u2014 don\u2019t chargeback"
+                secondary="If something goes wrong, please email billing@profileai.com before disputing the charge with your bank. Chargebacks or payment disputes initiated without first giving us a chance to resolve the issue may result in permanent account suspension and forfeiture of any remaining balance."
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText primary="How to request a refund" secondary="Email billing@profileai.com from the address on your account, with your order or ticket reference. We aim to respond within 3 business days." />
             </ListItem>
           </List>
 
