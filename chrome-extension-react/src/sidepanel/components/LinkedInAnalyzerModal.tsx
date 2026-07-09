@@ -57,7 +57,18 @@ const formatAgo = (ts: number): string => {
   return `${Math.floor(d / 7)}w ago`;
 };
 
-/** Circular score gauge — SVG ring with the score in the middle. */
+/** Plain-language band for a 0-100 score so the number is self-explanatory. */
+const scoreBand = (n: number): string => {
+  if (n >= 85) return 'Excellent';
+  if (n >= 70) return 'Good';
+  if (n >= 50) return 'Needs work';
+  if (n >= 30) return 'Weak';
+  return 'Poor';
+};
+
+/** Circular score gauge — SVG ring with "score/100" in the middle and a
+ *  plain-language grade underneath, so users don't have to guess what the
+ *  number means. */
 const ScoreRing: React.FC<{ score: number; label: string; hint?: string }> = ({
   score,
   label,
@@ -82,10 +93,14 @@ const ScoreRing: React.FC<{ score: number; label: string; hint?: string }> = ({
             strokeDashoffset: offset,
           }}
         />
-        <text x="38" y="43" textAnchor="middle" className="li-ring-num">
+        <text x="38" y="38" textAnchor="middle" className="li-ring-num">
           {clamped}
         </text>
+        <text x="38" y="51" textAnchor="middle" className="li-ring-denom">
+          /100
+        </text>
       </svg>
+      <span className={`li-ring-band ${cls}`}>{scoreBand(clamped)}</span>
       <span className="li-ring-lbl">{label}</span>
       {hint && <span className="li-ring-hint">{hint}</span>}
     </div>
@@ -274,22 +289,27 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
           {!loading && analysis && (
             <div className="linkedin-analysis-content">
               {/* Scores row */}
-              <div className="li-rings-row">
-                <ScoreRing
-                  score={analysis.overallScore}
-                  label="Overall"
-                  hint="Rollup of everything below"
-                />
-                <ScoreRing
-                  score={analysis.recruiterFitScore}
-                  label="Recruiter fit"
-                  hint="Would a recruiter shortlist you?"
-                />
-                <ScoreRing
-                  score={analysis.searchVisibilityScore}
-                  label="Search visibility"
-                  hint="Would you show up in LinkedIn Recruiter search?"
-                />
+              <div className="li-rings-block">
+                <p className="li-rings-caption">
+                  How a recruiter would score this profile (0–100, higher is better)
+                </p>
+                <div className="li-rings-row">
+                  <ScoreRing
+                    score={analysis.overallScore}
+                    label="Overall"
+                    hint="Rollup of everything below"
+                  />
+                  <ScoreRing
+                    score={analysis.recruiterFitScore}
+                    label="Recruiter fit"
+                    hint="Would a recruiter shortlist you?"
+                  />
+                  <ScoreRing
+                    score={analysis.searchVisibilityScore}
+                    label="Search visibility"
+                    hint="Would you show up in LinkedIn Recruiter search?"
+                  />
+                </div>
               </div>
 
               {verdict && (
