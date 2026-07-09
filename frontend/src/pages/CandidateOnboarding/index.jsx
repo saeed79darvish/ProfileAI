@@ -405,8 +405,8 @@ const CandidateOnboarding = () => {
                   </ChoiceCardBody>
                 </ChoiceCard>
 
-                {/* Choice 2: Browse Jobs, Coming Soon */}
-                <ChoiceCard style={{ opacity: 0.5, cursor: 'default', pointerEvents: 'none' }}>
+                {/* Choice 2: Browse Jobs */}
+                <ChoiceCard onClick={goToJobs}>
                   <ChoiceCardVisual $bg="linear-gradient(135deg, #00b4d8 0%, #0077b6 50%, #023e8a 100%)">
                     {/* Decorative circles */}
                     <Box sx={{ position: 'absolute', top: -25, left: -25, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
@@ -472,14 +472,11 @@ const CandidateOnboarding = () => {
                       <Typography sx={{ fontWeight: 700, fontSize: { xs: 16, md: 18 }, color: '#1a1a2e' }}>
                         Browse & Apply to Jobs
                       </Typography>
-                      <Box sx={{ px: 1.2, py: 0.3, borderRadius: '6px', background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 11, fontWeight: 700, color: 'white', whiteSpace: 'nowrap' }}>
-                        Coming Soon
-                      </Box>
                     </Box>
                     <Typography sx={{ fontSize: 13.5, color: '#777', lineHeight: 1.6, mb: 2.5 }}>
                       Explore jobs matched to your skills by ProfilleAI and start applying right away.
                     </Typography>
-                    <ChoiceButton disabled sx={{ opacity: 0.5, cursor: 'default', pointerEvents: 'none' }}>
+                    <ChoiceButton>
                       Browse Jobs
                       <ArrowIcon sx={{ fontSize: 18, ml: 0.5 }} />
                     </ChoiceButton>

@@ -2,7 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-export default defineConfig({
+// `defineConfig` can take a fn so we get `mode` — reliable in `vite build`
+// (always 'production' by default), unlike `process.env.NODE_ENV` which
+// isn't populated by the CLI and left the previous drop-console rule
+// silently disabled in prod.
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     dedupe: [
@@ -50,6 +54,12 @@ export default defineConfig({
     outDir: 'build',
   },
   esbuild: {
-    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+    // Strip chatty logs from prod bundles. Keep warn/error so real issues
+    // still surface for anyone (or Sentry) watching the console. Drops
+    // `debugger` too. Dev builds keep everything.
+    pure: mode === 'production'
+      ? ['console.log', 'console.info', 'console.debug', 'console.trace']
+      : [],
+    drop: mode === 'production' ? ['debugger'] : [],
   },
-});
+}));
