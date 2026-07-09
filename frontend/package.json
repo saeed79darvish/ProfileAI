@@ -38,6 +38,7 @@
     "react-cookie-consent": "^10.0.1",
     "react-dom": "^18.x",
     "react-helmet-async": "^2.0.5",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.x",
     "styled-components": "^6.1.19"
   },

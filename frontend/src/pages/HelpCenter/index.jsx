@@ -30,6 +30,7 @@ import {
 import { supportAPI } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { COLORS, GRADIENTS } from '@/designTokens';
+import ReactMarkdown from 'react-markdown';
 
 // ─── FAQ content (static, cheap to load, most Qs get answered here) ──
 const FAQ = [
@@ -298,11 +299,51 @@ const HelpCenter = () => {
                       borderRadius: '14px',
                       fontSize: 14,
                       lineHeight: 1.55,
-                      whiteSpace: 'pre-wrap',
+                      whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal',
                       wordBreak: 'break-word',
+                      // Trim MUI/browser defaults so the AI's markdown lists
+                      // and paragraphs look native inside the bubble.
+                      '& p': { margin: '0 0 8px 0' },
+                      '& p:last-child': { marginBottom: 0 },
+                      '& ol, & ul': { margin: '4px 0 8px 0', paddingLeft: '20px' },
+                      '& li': { margin: '2px 0' },
+                      '& li > p': { margin: 0 },
+                      '& strong': { fontWeight: 700 },
+                      '& code': {
+                        background: msg.role === 'user' ? 'rgba(255,255,255,0.18)' : COLORS.BG_LIGHT,
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        fontSize: '0.9em',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                      },
+                      '& a': {
+                        color: msg.role === 'user' ? '#fff' : COLORS.PRIMARY,
+                        textDecoration: 'underline',
+                      },
+                      '& h1, & h2, & h3, & h4': {
+                        fontSize: '1.02em',
+                        fontWeight: 700,
+                        margin: '4px 0 6px 0',
+                      },
                     }}
                   >
-                    {msg.content}
+                    {msg.role === 'assistant' ? (
+                      <ReactMarkdown
+                        // Downgrade headings + prevent raw HTML to avoid
+                        // any surprise from AI-generated tags.
+                        components={{
+                          h1: ({ node, ...props }) => <div {...props} style={{ fontWeight: 700, fontSize: '1.02em' }} />,
+                          h2: ({ node, ...props }) => <div {...props} style={{ fontWeight: 700, fontSize: '1.02em' }} />,
+                        }}
+                        // react-markdown@10 is HTML-safe by default; no
+                        // rehype-raw plugin means any inline HTML in the
+                        // AI reply is escaped, not rendered.
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    ) : (
+                      msg.content
+                    )}
                   </Box>
                 </Box>
               ))}
