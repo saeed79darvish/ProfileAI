@@ -65,6 +65,7 @@ const TermsOfService = lazyWithReload(() => import('./pages/TermsOfService'));
 const AdminDashboard = lazyWithReload(() => import('./pages/AdminDashboard'));
 const AdminUsers = lazyWithReload(() => import('./pages/AdminUsers'));
 const AdminPromos = lazyWithReload(() => import('./pages/AdminPromos'));
+const AdminSupport = lazyWithReload(() => import('./pages/AdminSupport'));
 const CandidateOnboarding = lazyWithReload(() => import('./pages/CandidateOnboarding'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
 const JobPreferencesWizard = lazyWithReload(() => import('./pages/JobPreferencesWizard'));
@@ -440,6 +441,14 @@ function AppContent() {
               element={
                 <PrivateRoute allowedRoles={['admin']}>
                   <AdminPromos />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/support"
+              element={
+                <PrivateRoute allowedRoles={['admin']}>
+                  <AdminSupport />
                 </PrivateRoute>
               }
             />

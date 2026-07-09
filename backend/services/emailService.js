@@ -814,6 +814,54 @@ const sendSupportTicketConfirmation = async (ticket) => {
   }
 };
 
+/**
+ * Admin reply to a support ticket. Delivered to the user's email with a
+ * Reply-To of the admin (ADMIN_EMAIL / SUPPORT_EMAIL) so the user can
+ * simply hit Reply to continue the thread.
+ */
+const sendSupportReplyToUser = async ({ ticket, replyBody, adminName }) => {
+  if (!ticket?.email || !replyBody) return false;
+
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL;
+  const displayFrom = adminName || 'ProfilleAI Support';
+  const subject = `Re: ${ticket.subject}`;
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:560px;margin:0 auto;color:#374151;">
+      <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px 24px;border-radius:12px 12px 0 0;">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:0.85;">Reply from ${escapeHtml(displayFrom)}</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;">${escapeHtml(ticket.subject)}</div>
+      </div>
+      <div style="background:white;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;padding:20px 24px;">
+        <p style="font-size:15px;margin:0 0 12px;">Hi ${escapeHtml(ticket.name || 'there')},</p>
+        <div style="font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(replyBody)}</div>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;">
+          <div>Reply to this email to continue the conversation.</div>
+          <div style="margin-top:6px;">Ticket reference: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">${ticket.id.slice(0, 8)}</code></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const text = `Hi ${ticket.name || 'there'},\n\n${replyBody}\n\n` +
+    `Reply to this email to continue the conversation.\n` +
+    `Ticket reference: ${ticket.id.slice(0, 8)}\n\n- ${displayFrom}`;
+
+  try {
+    return await sendEmail({
+      to: ticket.email,
+      subject,
+      html,
+      text,
+      // Route the user's Reply back to the admin inbox so we can see it.
+      replyTo: adminEmail || undefined
+    });
+  } catch (err) {
+    console.warn('[Support] Could not send reply to user:', err?.message);
+    return false;
+  }
+};
+
 module.exports = {
   sendEmail,
   sendShortlistNotification,
@@ -824,5 +872,6 @@ module.exports = {
   sendPasswordResetEmail,
   sendEmailVerification,
   sendSupportTicketToAdmin,
-  sendSupportTicketConfirmation
+  sendSupportTicketConfirmation,
+  sendSupportReplyToUser
 };

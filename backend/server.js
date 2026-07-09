@@ -456,6 +456,15 @@ const startServer = async () => {
       console.warn('⚠️  SupportTickets table ensure skipped:', err.message);
     }
 
+    // Additive column for admin↔user reply threads on existing tickets.
+    // Only relevant if the table pre-existed the initial migration.
+    try {
+      const { up: addSupportTicketReplies } = require('./scripts/migrations/addSupportTicketReplies');
+      await addSupportTicketReplies();
+    } catch (err) {
+      console.warn('⚠️  SupportTickets.replies column ensure skipped:', err.message);
+    }
+
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
     // known companies → false; discovered greenhouse/lever/ashby boards →
     // true). This powers the accurate "Startups" job filter. AWAITED (not

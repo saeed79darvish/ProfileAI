@@ -12,7 +12,8 @@ import {
   TrendingUp as TrendingUpIcon,
   AdminPanelSettings as AdminIcon,
   PersonAdd as NewUserIcon,
-  Article as PostIcon
+  Article as PostIcon,
+  ContactSupport as SupportIcon,
 } from '@mui/icons-material';
 import { adminAPI } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -248,6 +249,11 @@ export default function AdminDashboard() {
               <Chip
                 icon={<PromoIcon />} label="Manage Promos" clickable
                 onClick={() => navigate('/admin/promos')}
+                sx={{ px: 1, py: 2.5, fontSize: '0.875rem' }}
+              />
+              <Chip
+                icon={<SupportIcon />} label="Support inbox" clickable
+                onClick={() => navigate('/admin/support')}
                 sx={{ px: 1, py: 2.5, fontSize: '0.875rem' }}
               />
             </Box>

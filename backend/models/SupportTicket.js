@@ -61,6 +61,15 @@ const SupportTicket = sequelize.define('SupportTicket', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  // Threaded conversation on this ticket: each entry is
+  // { by: 'admin' | 'user', adminId?, body, createdAt }.
+  // Admin replies are appended here AND emailed to the user; the initial
+  // ticket body stays in `message` so we don't duplicate it in the thread.
+  replies: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: []
+  },
   resolvedAt: {
     type: DataTypes.DATE,
     allowNull: true

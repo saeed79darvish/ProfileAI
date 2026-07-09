@@ -953,6 +953,15 @@ export const supportAPI = {
   createTicket: (body) => api.post('/support/ticket', body),
   // List the current user's own tickets.
   myTickets: () => api.get('/support/my-tickets'),
+
+  // ── Admin-only endpoints (require admin role) ──
+  admin: {
+    listTickets: (params) => api.get('/support/admin/tickets', { params }),
+    getTicket: (id) => api.get(`/support/admin/tickets/${id}`),
+    reply: (id, body, markStatus) =>
+      api.post(`/support/admin/tickets/${id}/reply`, { body, markStatus }),
+    update: (id, updates) => api.patch(`/support/admin/tickets/${id}`, updates),
+  },
 };
 
 // Referral API

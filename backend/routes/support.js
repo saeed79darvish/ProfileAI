@@ -4,10 +4,12 @@ const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { SupportTicket, User } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const adminMiddleware = require('../middleware/admin');
 const { callAI } = require('../services/ai/core');
 const {
   sendSupportTicketToAdmin,
-  sendSupportTicketConfirmation
+  sendSupportTicketConfirmation,
+  sendSupportReplyToUser
 } = require('../services/emailService');
 
 // ─── Rate limits ─────────────────────────────────────────────────────
@@ -231,5 +233,179 @@ router.get('/my-tickets', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Could not load your support tickets.' });
   }
 });
+
+// ═════════════════════════════════════════════════════════════════
+// Admin endpoints — inbox, detail, reply, status update
+// All require admin role (adminMiddleware checks req.user.role).
+// ═════════════════════════════════════════════════════════════════
+
+// @route   GET /api/support/admin/tickets
+// @desc    List tickets with filters and pagination.
+// @access  Admin
+router.get('/admin/tickets', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { status, category, search, limit = 50, offset = 0 } = req.query;
+    const where = {};
+    if (status && status !== 'all') where.status = status;
+    if (category && category !== 'all') where.category = category;
+    if (search) {
+      const { Op } = require('sequelize');
+      where[Op.or] = [
+        { subject: { [Op.iLike]: `%${search}%` } },
+        { message: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search}%` } }
+      ];
+    }
+
+    const { rows: tickets, count } = await SupportTicket.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: Math.min(Number(limit) || 50, 200),
+      offset: Number(offset) || 0,
+      attributes: {
+        // Skip large fields on the list view for perf.
+        exclude: ['chatTranscript', 'replies']
+      }
+    });
+
+    // Counts by status for the filter chips.
+    const counts = await SupportTicket.findAll({
+      attributes: [
+        'status',
+        [require('sequelize').fn('COUNT', require('sequelize').col('id')), 'count']
+      ],
+      group: ['status'],
+      raw: true
+    });
+    const countsByStatus = counts.reduce((acc, r) => {
+      acc[r.status] = Number(r.count);
+      return acc;
+    }, { open: 0, in_progress: 0, resolved: 0, closed: 0 });
+
+    res.json({ tickets, total: count, countsByStatus });
+  } catch (error) {
+    console.error('[Support admin] list error:', error);
+    res.status(500).json({ error: 'Could not load tickets.', detail: error?.message });
+  }
+});
+
+// @route   GET /api/support/admin/tickets/:id
+// @desc    Full ticket detail incl. chat transcript + reply thread.
+// @access  Admin
+router.get('/admin/tickets/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const ticket = await SupportTicket.findByPk(req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+    res.json({ ticket });
+  } catch (error) {
+    console.error('[Support admin] detail error:', error);
+    res.status(500).json({ error: 'Could not load ticket.', detail: error?.message });
+  }
+});
+
+// @route   POST /api/support/admin/tickets/:id/reply
+// @desc    Admin replies to a ticket. Appends to the thread and emails
+//          the user. Optionally bumps status to 'in_progress'.
+// @access  Admin
+router.post(
+  '/admin/tickets/:id/reply',
+  authMiddleware,
+  adminMiddleware,
+  [
+    body('body').isString().trim().isLength({ min: 1, max: 8000 }).withMessage('Reply must be 1\u20138000 chars'),
+    body('markStatus').optional().isIn(['open', 'in_progress', 'resolved', 'closed'])
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+      const ticket = await SupportTicket.findByPk(req.params.id);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
+      const admin = await User.findByPk(req.user.id);
+      const adminName = admin
+        ? [admin.firstName, admin.lastName].filter(Boolean).join(' ') || 'ProfilleAI Support'
+        : 'ProfilleAI Support';
+
+      const newReply = {
+        by: 'admin',
+        adminId: req.user.id,
+        adminName,
+        body: req.body.body.trim(),
+        createdAt: new Date().toISOString()
+      };
+
+      const updates = {
+        replies: [...(ticket.replies || []), newReply]
+      };
+      if (req.body.markStatus) {
+        updates.status = req.body.markStatus;
+        if (req.body.markStatus === 'resolved' || req.body.markStatus === 'closed') {
+          updates.resolvedAt = updates.resolvedAt || new Date();
+        }
+      } else if (ticket.status === 'open') {
+        // Auto-promote from 'open' to 'in_progress' once an admin engages.
+        updates.status = 'in_progress';
+      }
+      await ticket.update(updates);
+
+      // Fire-and-forget email so the response isn't gated on SMTP.
+      Promise.resolve(sendSupportReplyToUser({
+        ticket: ticket.toJSON(),
+        replyBody: newReply.body,
+        adminName
+      })).catch((err) => console.warn('[Support] reply email failed:', err?.message));
+
+      res.json({ success: true, ticket });
+    } catch (error) {
+      console.error('[Support admin] reply error:', error);
+      res.status(500).json({ error: 'Could not send reply.', detail: error?.message });
+    }
+  }
+);
+
+// @route   PATCH /api/support/admin/tickets/:id
+// @desc    Update status / category / adminNotes.
+// @access  Admin
+router.patch(
+  '/admin/tickets/:id',
+  authMiddleware,
+  adminMiddleware,
+  [
+    body('status').optional().isIn(['open', 'in_progress', 'resolved', 'closed']),
+    body('category').optional().isIn(['bug', 'feature', 'billing', 'account', 'question', 'other']),
+    body('adminNotes').optional().isString().isLength({ max: 8000 })
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+      const ticket = await SupportTicket.findByPk(req.params.id);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
+      const updates = {};
+      if (req.body.status !== undefined) {
+        updates.status = req.body.status;
+        if (req.body.status === 'resolved' || req.body.status === 'closed') {
+          updates.resolvedAt = ticket.resolvedAt || new Date();
+        }
+        if (req.body.status === 'open' || req.body.status === 'in_progress') {
+          updates.resolvedAt = null;
+        }
+      }
+      if (req.body.category !== undefined) updates.category = req.body.category;
+      if (req.body.adminNotes !== undefined) updates.adminNotes = req.body.adminNotes;
+
+      await ticket.update(updates);
+      res.json({ success: true, ticket });
+    } catch (error) {
+      console.error('[Support admin] patch error:', error);
+      res.status(500).json({ error: 'Could not update ticket.', detail: error?.message });
+    }
+  }
+);
 
 module.exports = router;

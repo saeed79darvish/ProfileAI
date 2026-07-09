@@ -40,6 +40,7 @@ async function up() {
       "chatTranscript" JSONB,
       "status"         "enum_SupportTickets_status" NOT NULL DEFAULT 'open',
       "adminNotes"     TEXT,
+      "replies"        JSONB NOT NULL DEFAULT '[]'::jsonb,
       "resolvedAt"     TIMESTAMP WITH TIME ZONE,
       "source"         VARCHAR(50) NOT NULL DEFAULT 'help_center',
       "metadata"       JSONB,
