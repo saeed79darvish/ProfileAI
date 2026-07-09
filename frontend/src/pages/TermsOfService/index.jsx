@@ -236,8 +236,8 @@ const TermsOfService = () => {
           <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Refund Policy</Typography>
           <Box sx={{ bgcolor: '#e3f2fd', p: 2, borderRadius: 2, mb: 2 }}>
             <Typography variant="body2">
-              <strong>24-Hour Money-Back Guarantee:</strong> New subscribers may request a full refund
-              within 24 hours of their initial subscription purchase, provided they have not
+              <strong>7-Day Money-Back Guarantee:</strong> New subscribers may request a full refund
+              within 7 days of their initial subscription purchase, provided they have not
               consumed any AI credits and have not violated these Terms. Refund eligibility is
               determined at ProfilleAI&rsquo;s reasonable discretion.
             </Typography>
@@ -245,14 +245,14 @@ const TermsOfService = () => {
           <List dense>
             <ListItem>
               <ListItemText
-                primary="Beyond 24 hours: no refunds by default"
-                secondary="Refunds are not issued after the 24-hour window except where required by applicable law or in genuine cases of service failure. Cancellation stops future billing but does not refund past charges."
+                primary="Beyond 7 days: no refunds by default"
+                secondary="Refunds are not issued after the 7-day window except where required by applicable law or in genuine cases of service failure. Cancellation stops future billing but does not refund past charges."
               />
             </ListItem>
             <ListItem>
               <ListItemText
                 primary="AI credits already consumed are non-refundable"
-                secondary="Because AI generations, resume tailorings, cover letters, and other credit-based features incur third-party API costs at the time of use, they cannot be refunded once consumed \u2014 even inside the 24-hour window."
+                secondary="Because AI generations, resume tailorings, cover letters, and other credit-based features incur third-party API costs at the time of use, they cannot be refunded once consumed \u2014 even inside the 7-day window."
               />
             </ListItem>
             <ListItem>
@@ -270,7 +270,7 @@ const TermsOfService = () => {
             <ListItem>
               <ListItemText
                 primary="Annual plan cancellations"
-                secondary="Annual subscribers cancelling inside 24 hours of initial purchase receive a full refund (subject to the conditions above). Cancellations after 24 hours retain access until the annual period ends; no partial-year refunds."
+                secondary="Annual subscribers cancelling inside 7 days of initial purchase receive a full refund (subject to the conditions above). Cancellations after 7 days retain access until the annual period ends; no partial-year refunds."
               />
             </ListItem>
             <ListItem>
