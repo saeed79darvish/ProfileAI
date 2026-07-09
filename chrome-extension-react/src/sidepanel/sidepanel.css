@@ -3866,6 +3866,30 @@ html, body, #root {
   transform: translateX(2px);
 }
 
+/* "Already analyzed" variant — reads as done/free-to-open, not a new spend.
+   Emerald tone + check icon replaces the LinkedIn-blue call-to-action. */
+.profile-analyze-linkedin.analyzed {
+  background: linear-gradient(135deg, #065f46 0%, #059669 60%, #10b981 100%);
+  box-shadow:
+    0 10px 24px -12px rgba(16, 185, 129, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.profile-analyze-linkedin.analyzed:hover:not(:disabled) {
+  box-shadow:
+    0 14px 28px -12px rgba(16, 185, 129, 0.7),
+    0 3px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Container for the pill when shown before profile setup is complete */
+.li-preprofile-section {
+  padding: 12px;
+}
+.li-preprofile-section .profile-analyze-linkedin {
+  margin-top: 0;
+}
+
 /* Modal header — logo badge + title cluster */
 .li-modal-header {
   gap: 12px;

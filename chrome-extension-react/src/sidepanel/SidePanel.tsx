@@ -17,11 +17,45 @@ import { CoverLetterModal } from './components/CoverLetterModal';
 import { SmartAnswersModal } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
+import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis } from '../types';
+
+// --- LinkedIn analysis cache helpers (shared by detector + analyzer) --------
+const LI_CACHE_KEY = 'linkedInAnalysisCache';
+const LI_CACHE_MAX_ENTRIES = 20;
+const LI_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/** Normalized cache key for a LinkedIn profile URL (origin + pathname, no
+ *  trailing slash) or null when the URL isn't a /in/ profile page. */
+const linkedInCacheKey = (url: string | undefined | null): string | null => {
+  if (!url || !/linkedin\.com\/in\//i.test(url)) return null;
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return null;
+  }
+};
+
+/** Returns the cached entry for a profile URL, or null if absent/expired. */
+const readLinkedInCache = async (
+  cacheKeyUrl: string,
+): Promise<{ analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null> => {
+  try {
+    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
+    const hit = cache?.[cacheKeyUrl];
+    if (hit?.analysis && hit?.cachedAt && Date.now() - hit.cachedAt < LI_CACHE_TTL_MS) {
+      return hit;
+    }
+  } catch {
+    /* treat as no cache */
+  }
+  return null;
+};
 
 export const SidePanel: React.FC = () => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -62,6 +96,10 @@ export const SidePanel: React.FC = () => {
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
   const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
   const [linkedInCachedAt, setLinkedInCachedAt] = useState<number | null>(null);
+  // Cached-analysis timestamp for the CURRENT tab's profile URL. Drives the
+  // "View LinkedIn analysis · analyzed X ago" state on the profile-card pill
+  // so users know a click won't spend another credit.
+  const [linkedInTabAnalyzedAt, setLinkedInTabAnalyzedAt] = useState<number | null>(null);
   const [gapReview, setGapReview] = useState<{
     gaps: any[];
     settings: TailorSettings | null;
@@ -337,15 +375,25 @@ export const SidePanel: React.FC = () => {
     setAnswersCount(Object.keys(savedAnswers || {}).length);
   };
 
-  // Detect whether the active tab is a LinkedIn profile page — controls
-  // whether the "Analyze LinkedIn Profile" action shows in QuickActions.
+  // Detect whether the active tab is a LinkedIn profile page — controls the
+  // "Analyze LinkedIn Profile" pill on the profile card. Also checks whether
+  // this specific profile URL already has a cached analysis, so the pill can
+  // flip to "View LinkedIn analysis · analyzed X ago".
   const detectLinkedInProfileTab = useCallback(async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       const isProfile = !!tab?.url && /linkedin\.com\/in\//i.test(tab.url);
       setIsOnLinkedInProfile(isProfile);
+      if (isProfile) {
+        const key = linkedInCacheKey(tab?.url);
+        const hit = key ? await readLinkedInCache(key) : null;
+        setLinkedInTabAnalyzedAt(hit?.cachedAt ?? null);
+      } else {
+        setLinkedInTabAnalyzedAt(null);
+      }
     } catch {
       setIsOnLinkedInProfile(false);
+      setLinkedInTabAnalyzedAt(null);
     }
   }, []);
 
@@ -407,43 +455,24 @@ export const SidePanel: React.FC = () => {
     // Cache the analysis per LinkedIn profile URL so subsequent clicks on the
     // same profile don't burn an AI credit. The "Re-analyze" button in the
     // modal passes force=true to bypass the cache — that's the (metered) path.
-    const CACHE_KEY = 'linkedInAnalysisCache';
-    const MAX_ENTRIES = 20;
-    const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-    // Get the profile URL that keys this cache entry. Strip query + hash so
-    // /in/foo/ and /in/foo/?tracking=x hit the same cache entry.
     let cacheKeyUrl: string | null = null;
     try {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (tab?.url) {
-        try {
-          const u = new URL(tab.url);
-          if (/linkedin\.com\/in\//i.test(tab.url)) {
-            cacheKeyUrl = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
-          }
-        } catch {
-          /* fallthrough — no cache key */
-        }
-      }
+      cacheKeyUrl = linkedInCacheKey(tab?.url);
     } catch {
       /* fallthrough */
     }
 
     // Cache HIT path — instant load, no AI call.
     if (!force && cacheKeyUrl) {
-      try {
-        const { [CACHE_KEY]: cache = {} } = await chrome.storage.local.get(CACHE_KEY);
-        const hit = cache?.[cacheKeyUrl];
-        if (hit?.analysis && hit?.cachedAt && Date.now() - hit.cachedAt < TTL_MS) {
-          setLinkedInAnalysis(hit.analysis as LinkedInProfileAnalysis);
-          setLinkedInTargetTitle(hit.targetTitle);
-          setLinkedInCachedAt(hit.cachedAt);
-          setLinkedInLoading(false);
-          return;
-        }
-      } catch {
-        /* fallthrough — cache read failed, run fresh */
+      const hit = await readLinkedInCache(cacheKeyUrl);
+      if (hit) {
+        setLinkedInAnalysis(hit.analysis);
+        setLinkedInTargetTitle(hit.targetTitle);
+        setLinkedInCachedAt(hit.cachedAt);
+        setLinkedInTabAnalyzedAt(hit.cachedAt);
+        setLinkedInLoading(false);
+        return;
       }
     }
 
@@ -463,21 +492,22 @@ export const SidePanel: React.FC = () => {
         setLinkedInAnalysis(analysis);
         setLinkedInTargetTitle(resolvedTitle);
         setLinkedInCachedAt(cachedAt);
+        setLinkedInTabAnalyzedAt(cachedAt);
 
         // Persist to cache (eviction: keep newest MAX_ENTRIES by cachedAt).
         if (cacheKeyUrl) {
           try {
-            const { [CACHE_KEY]: cache = {} } = await chrome.storage.local.get(CACHE_KEY);
+            const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
             const next: Record<string, any> = { ...cache };
             next[cacheKeyUrl] = { analysis, targetTitle: resolvedTitle, cachedAt };
             const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
-            if (entries.length > MAX_ENTRIES) {
+            if (entries.length > LI_CACHE_MAX_ENTRIES) {
               entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
               const trimmed: Record<string, any> = {};
-              entries.slice(0, MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
-              await chrome.storage.local.set({ [CACHE_KEY]: trimmed });
+              entries.slice(0, LI_CACHE_MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
+              await chrome.storage.local.set({ [LI_CACHE_KEY]: trimmed });
             } else {
-              await chrome.storage.local.set({ [CACHE_KEY]: next });
+              await chrome.storage.local.set({ [LI_CACHE_KEY]: next });
             }
           } catch {
             /* non-fatal — result is still shown, just not cached */
@@ -799,6 +829,19 @@ export const SidePanel: React.FC = () => {
         />
       ) : !profileProgress.hasMinimumProfile ? (
         <>
+          {/* LinkedIn Analyzer works WITHOUT a completed ProfileAI profile —
+              it grades the LinkedIn page itself. Surfacing it before profile
+              setup gives new users instant value (hook), then the setup guide
+              below converts them to the full product. */}
+          {isOnLinkedInProfile && (
+            <div className="panel-section li-preprofile-section">
+              <AnalyzeLinkedInPill
+                onClick={handleAnalyzeLinkedIn}
+                loading={linkedInLoading}
+                analyzedAt={linkedInTabAnalyzedAt}
+              />
+            </div>
+          )}
           <ProfileSetupGuide
             profile={profile}
             currentJob={currentJob}
@@ -814,6 +857,7 @@ export const SidePanel: React.FC = () => {
               isOnLinkedInProfile={isOnLinkedInProfile}
               onAnalyzeLinkedIn={handleAnalyzeLinkedIn}
               isAnalyzingLinkedIn={linkedInLoading}
+              linkedInAnalyzedAt={linkedInTabAnalyzedAt}
             />
             
             <JobMatchSection 
