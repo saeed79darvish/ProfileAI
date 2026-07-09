@@ -62,7 +62,11 @@ export const heroSectionSx = {
   position: 'relative',
   background: `linear-gradient(160deg, ${DARK_BASE} 0%, #1a1040 30%, ${DARK_BASE} 60%, #0f0a1a 100%)`,
   color: COLORS.TEXT_WHITE,
-  pt: { xs: 10, md: 18 },
+  // On mobile the transparent navbar overlays the hero AND the mobile
+  // primary-nav strip renders as a second row below the header — combined
+  // ~118px. Push the hero content below that to stop the strip from
+  // colliding with the H1.
+  pt: { xs: 18, md: 18 },
   pb: { xs: 4, md: 16 },
   overflow: 'hidden',
 } as const;
