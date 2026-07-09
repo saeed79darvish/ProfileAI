@@ -23,10 +23,6 @@ interface JobMatchSectionProps {
   isTailoring?: boolean;
   /** When a tailored result is showing, collapse to just the job row. */
   hasTailored?: boolean;
-  /** Suppress the whole section entirely when we know the tab is not a job
-   *  page (e.g. LinkedIn profile). Prevents the misleading "On a job page?"
-   *  empty state from taking up a huge chunk of vertical space. */
-  suppressWhenNotJob?: boolean;
 }
 
 const impactLabel: Record<Impact, string> = {
@@ -68,16 +64,13 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   onTailor,
   isTailoring,
   hasTailored,
-  suppressWhenNotJob,
 }) => {
   const [showAllMissing, setShowAllMissing] = useState(false);
 
   if (!currentJob) {
-    // Hide entirely when the caller knows this isn't a job page. Prevents the
-    // misleading "On a job page?" prompt on LinkedIn profiles, Google, etc.
-    if (suppressWhenNotJob) return null;
     // Compact empty state — single row, no big icon block. Half the vertical
-    // footprint of the old version.
+    // footprint of the old version. Always visible so the job workflow stays
+    // one click away regardless of what page the user is on.
     return (
       <div className="panel-section job-match-section job-detect-compact">
         <div className="jd-compact-row">
