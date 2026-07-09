@@ -1,12 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
-import styled, { createGlobalStyle } from 'styled-components';
+import styled from 'styled-components';
 import BrandWordmark from './BrandWordmark';
 import {
   ExitToApp as LogoutIcon,
-  Menu as MenuIcon,
-  Close as CloseIcon,
   Person as PersonIcon,
   Notifications as NotificationsIcon,
   KeyboardArrowDown as ArrowDownIcon,
@@ -24,6 +21,8 @@ import {
   Extension as ExtensionIcon,
   AdminPanelSettings as AdminIcon,
   LocalOffer as PromoIcon,
+  PrivacyTip as PrivacyIcon,
+  HelpOutline as HelpIcon,
 } from '@mui/icons-material';
 import { Badge } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -110,7 +109,8 @@ const LogoAccent = styled.span`
 
 /* The single nav row that holds primary items + actions + user menu.
    On tablet (640–1023px) we keep it visible but collapse to icon-only.
-   The hamburger only replaces it below 640px (mobile). */
+   Below 640px (mobile) it hides and primary nav moves into the
+   MobileNavStrip second row rendered below the header. */
 const NavRow = styled.div`
   display: flex;
   align-items: center;
@@ -179,31 +179,11 @@ const Divider = styled.div.attrs({ 'aria-hidden': 'true' })`
   flex-shrink: 0;
 `;
 
-const Hamburger = styled.button`
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 10px;
-  color: #a78bfa;
-  border-radius: 8px;
-  min-width: 44px;
-  min-height: 44px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-
-  svg { font-size: 28px; }
-  &:hover { background: rgba(167, 139, 250, 0.1); }
-  &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
-
-  ${media.mobile} { display: inline-flex; }
-`;
-
-/* Mobile-only quick-action row shown between the logo and hamburger.
+/* Mobile-only quick-action strip on the top row.
    Priorities on mobile (per real-estate order of importance):
      1. Upgrade pill  — clearest revenue path for free users
-     2. Profile avatar — one-tap access to the user's own profile
-   The notifications bell lives inside the drawer to keep the header calm. */
+     2. Profile avatar — opens the compact account/help/sign-out menu
+   The primary nav sits in a scrollable strip on the row below. */
 const MobileQuickActions = styled.div`
   display: none;
   align-items: center;
@@ -281,6 +261,90 @@ const MobileAvatarButton = styled.button`
     background-image: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   }
+`;
+
+/* Compact LinkedIn-style dropdown attached to the mobile avatar button.
+   Distinct from the desktop DropdownMenu because it has to size itself to
+   phone widths and sit outside the tight MobileQuickActions row. */
+const MobileMenuWrap = styled.div`
+  display: none;
+  position: relative;
+
+  ${media.mobile} { display: inline-flex; }
+`;
+
+const MobileUserDropdown = styled.div`
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 8px;
+  z-index: 1150;
+  opacity: ${p => (p.$open ? 1 : 0)};
+  visibility: ${p => (p.$open ? 'visible' : 'hidden')};
+  transform: ${p => (p.$open ? 'translateY(0)' : 'translateY(-6px)')};
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+`;
+
+const MobileUserCard = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px 14px;
+`;
+
+const MobileUserAvatar = styled.span`
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 16px;
+  flex-shrink: 0;
+  img { width: 100%; height: 100%; object-fit: cover; }
+  svg { font-size: 24px; }
+`;
+
+const MobileUserName = styled.div`
+  color: #f1f5f9;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+`;
+
+const MobileUserRole = styled.div`
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 3px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const MobilePlanRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+`;
+
+const MobilePlanLabel = styled.span`
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 `;
 
 /* User pill */
@@ -427,101 +491,60 @@ const NotifPanel = styled.div`
 `;
 
 /* ------------------------------------------------------------------ */
-/* Mobile drawer (rendered via portal)                                 */
+/* Mobile primary-nav strip (below the header row on mobile only)      */
 /* ------------------------------------------------------------------ */
 
-const ScrollLock = createGlobalStyle`
-  body.nav-drawer-open { overflow: hidden; }
-`;
+/* Horizontally-scrollable strip of pill buttons that surfaces the same
+   nav items shown on desktop, so mobile users don't need a hamburger. */
+const MobileNavStrip = styled.div`
+  display: none;
 
-const Scrim = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 17, 26, 0.72);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  z-index: 1200;
-  animation: navScrimIn 0.18s ease-out;
-  @keyframes navScrimIn { from { opacity: 0; } to { opacity: 1; } }
-`;
+  ${media.mobile} {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    background: inherit;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
 
-const Panel = styled.div`
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(360px, 88vw);
-  background: #1a1a2e; /* solid, opaque */
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.45);
-  z-index: 1201;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  overflow-y: auto;
-  animation: navPanelIn 0.22s ease-out;
-  @keyframes navPanelIn {
-    from { transform: translateX(20px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+    &::-webkit-scrollbar { display: none; }
+
+    /* Fade the trailing edge so it reads as "scrollable". */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 `;
 
-const PanelHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-`;
-
-const PanelTitle = styled.h2`
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0;
-`;
-
-const CloseBtn = styled.button`
-  background: none;
-  border: none;
-  color: #fff;
-  padding: 8px;
-  cursor: pointer;
-  border-radius: 50%;
+const MobileNavPill = styled.button`
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  &:hover { background: rgba(255,255,255,0.1); }
-  &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
-`;
-
-const DrawerItem = styled.button`
-  background: ${p => (p.$active ? 'rgba(167,139,250,0.18)' : 'transparent')};
-  border: none;
-  color: ${p => (p.$danger ? '#ef4444' : '#fff')};
-  font-size: 16px;
-  font-weight: 500;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid ${p => (p.$active ? 'rgba(167, 139, 250, 0.55)' : 'rgba(255, 255, 255, 0.08)')};
+  background: ${p => (p.$active ? 'rgba(167, 139, 250, 0.18)' : 'rgba(255, 255, 255, 0.03)')};
+  color: ${p => (p.$active ? '#c4b5fd' : '#cbd5e1')};
+  font-size: 13px;
+  font-weight: ${p => (p.$active ? 600 : 500)};
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  text-align: left;
-  width: 100%;
-  margin-bottom: 4px;
-  min-height: 48px;
+  min-height: 34px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 
-  svg { font-size: 22px; color: ${p => (p.$danger ? '#ef4444' : '#cbd5e1')}; }
-
-  &:hover { background: ${p => (p.$danger ? 'rgba(239,68,68,0.12)' : 'rgba(167,139,250,0.12)')}; }
+  &:hover {
+    background: rgba(167, 139, 250, 0.18);
+    color: #c4b5fd;
+    border-color: rgba(167, 139, 250, 0.45);
+  }
   &:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
-`;
 
-const DrawerSeparator = styled.div.attrs({ 'aria-hidden': 'true' })`
-  height: 1px;
-  background: rgba(255,255,255,0.08);
-  margin: 10px 4px;
+  svg { font-size: 16px; }
 `;
 
 /* ------------------------------------------------------------------ */
@@ -576,17 +599,17 @@ const Navbar = () => {
     if (authDebugEnabled) console.log('[AUTH_FLOW][Navbar]', ...args);
   };
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationPreview, setNotificationPreview] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [mobileUserMenuOpen, setMobileUserMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   const userMenuRef = useRef(null);
+  const mobileUserMenuRef = useRef(null);
   const notifRef = useRef(null);
-  const drawerPanelRef = useRef(null);
-  const hamburgerRef = useRef(null);
+  const mobileAvatarRef = useRef(null);
 
   // Recruiter nav surface is hidden entirely during candidate-only launch.
   // Admins still see the admin items below (handled separately).
@@ -639,8 +662,8 @@ const Navbar = () => {
     // instead of letting them open random pages.
     if (shouldBlockNavigation(user, path)) {
       notifyOnboardingBlocked(path);
-      setDrawerOpen(false);
       setUserMenuOpen(false);
+      setMobileUserMenuOpen(false);
       setNotifOpen(false);
       if (location.pathname !== '/profile/create') {
         navigate('/profile/create');
@@ -648,15 +671,15 @@ const Navbar = () => {
       return;
     }
     navigate(path);
-    setDrawerOpen(false);
     setUserMenuOpen(false);
+    setMobileUserMenuOpen(false);
     setNotifOpen(false);
   };
 
   const handleLogout = () => {
     logout();
-    setDrawerOpen(false);
     setUserMenuOpen(false);
+    setMobileUserMenuOpen(false);
     navigate('/login');
   };
 
@@ -674,16 +697,23 @@ const Navbar = () => {
     const onDown = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
       if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+      if (mobileUserMenuRef.current && !mobileUserMenuRef.current.contains(e.target)) {
+        setMobileUserMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
   }, []);
 
   /* --- Close popovers on route change --- */
   useEffect(() => {
     setUserMenuOpen(false);
+    setMobileUserMenuOpen(false);
     setNotifOpen(false);
-    setDrawerOpen(false);
   }, [location.pathname]);
 
   /* --- Unread message + notification polling (visibility-aware) --- */
@@ -716,60 +746,6 @@ const Navbar = () => {
       } catch { /* silent */ }
     }
   };
-
-  /* --- Drawer: focus trap, Esc to close, body scroll lock, restore focus --- */
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    document.body.classList.add('nav-drawer-open');
-    const previouslyFocused = document.activeElement;
-
-    const focusFirst = () => {
-      const root = drawerPanelRef.current;
-      if (!root) return;
-      const first = root.querySelector(
-        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (first) first.focus();
-    };
-    const t = setTimeout(focusFirst, 0);
-
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setDrawerOpen(false);
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = drawerPanelRef.current;
-      if (!root) return;
-      const focusables = Array.from(
-        root.querySelectorAll(
-          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-      ).filter(el => !el.hasAttribute('aria-hidden') && el.offsetParent !== null);
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('keydown', onKey);
-      document.body.classList.remove('nav-drawer-open');
-      if (hamburgerRef.current && typeof hamburgerRef.current.focus === 'function') {
-        hamburgerRef.current.focus();
-      } else if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
-        previouslyFocused.focus();
-      }
-    };
-  }, [drawerOpen]);
 
   /* ---------------- Renders ---------------- */
 
@@ -936,6 +912,82 @@ const Navbar = () => {
     </DropdownWrap>
   );
 
+  /* Mobile-only compact user menu (LinkedIn-style). Anchored under the
+     avatar in the header. Intentionally minimal: identity + plan + the two
+     "legal/help" links most users ever need + Sign Out. Full nav lives in
+     the mobile nav strip below the header row. */
+  const renderMobileUserMenu = () => {
+    const role = isAdmin
+      ? 'Admin'
+      : isRecruiter
+      ? 'Recruiter'
+      : (user?.headline || 'Candidate');
+    const tier = user?.subscriptionTier || 'free';
+    const tierLabel = tier === 'pro'
+      ? '⭐ Pro'
+      : tier === 'enterprise'
+      ? '👑 Enterprise'
+      : 'Free';
+    return (
+      <MobileMenuWrap ref={mobileUserMenuRef}>
+        <MobileAvatarButton
+          type="button"
+          ref={mobileAvatarRef}
+          onClick={() => setMobileUserMenuOpen(v => !v)}
+          aria-label="Account menu"
+          aria-haspopup="menu"
+          aria-expanded={mobileUserMenuOpen}
+        >
+          {user?.profilePicture ? (
+            <img src={user.profilePicture} alt="" />
+          ) : (
+            <PersonIcon />
+          )}
+        </MobileAvatarButton>
+        <MobileUserDropdown role="menu" $open={mobileUserMenuOpen} aria-label="Account">
+          <MobileUserCard>
+            <MobileUserAvatar>
+              {user?.profilePicture ? (
+                <img src={user.profilePicture} alt="" />
+              ) : (
+                <PersonIcon />
+              )}
+            </MobileUserAvatar>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <MobileUserName>
+                {user?.firstName} {user?.lastName}
+              </MobileUserName>
+              <MobileUserRole>{role}</MobileUserRole>
+              <MobilePlanRow>
+                <MobilePlanLabel>Plan</MobilePlanLabel>
+                <PlanBadge $tier={tier} style={{ marginLeft: 0 }}>
+                  {tierLabel}
+                </PlanBadge>
+              </MobilePlanRow>
+            </div>
+          </MobileUserCard>
+          <DropdownDivider />
+          <DropdownItem role="menuitem" onClick={() => go('/privacy')}>
+            <PrivacyIcon /> Privacy Policy
+          </DropdownItem>
+          <DropdownItem
+            role="menuitem"
+            as="a"
+            href="mailto:support@profileai.com"
+            onClick={() => setMobileUserMenuOpen(false)}
+            style={{ textDecoration: 'none' }}
+          >
+            <HelpIcon /> Help
+          </DropdownItem>
+          <DropdownDivider />
+          <DropdownItem role="menuitem" $danger onClick={handleLogout}>
+            <LogoutIcon /> Sign Out
+          </DropdownItem>
+        </MobileUserDropdown>
+      </MobileMenuWrap>
+    );
+  };
+
   const renderNavItems = () =>
     navItems.map((item) => {
       const active = isActive(item.path);
@@ -977,138 +1029,70 @@ const Navbar = () => {
     </>
   );
 
-  const renderDrawer = () => {
-    if (!drawerOpen) return null;
-    return createPortal(
-      <>
-        <ScrollLock />
-        <Scrim onClick={() => setDrawerOpen(false)} aria-hidden="true" />
-        <Panel
-          ref={drawerPanelRef}
-          id="primary-mobile-menu"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Primary navigation"
+  /* Mobile-only horizontal strip of nav-item pills, rendered as a second
+     row below the header on phones. Replaces the old hamburger drawer so
+     every top-level destination is one visible tap away. */
+  const renderMobileNavStrip = () => (
+    <MobileNavStrip role="tablist" aria-label="Primary">
+      {navItems.map((item) => {
+        const active = isActive(item.path);
+        const Icon = item.Icon;
+        return (
+          <MobileNavPill
+            key={item.path}
+            type="button"
+            $active={active}
+            onClick={() => go(item.path)}
+            aria-current={active ? 'page' : undefined}
+          >
+            <Icon aria-hidden="true" /> {item.label}
+          </MobileNavPill>
+        );
+      })}
+      {isAuthenticated && (
+        <MobileNavPill
+          type="button"
+          $active={isActive('/notifications')}
+          onClick={() => go('/notifications')}
+          aria-current={isActive('/notifications') ? 'page' : undefined}
+          aria-label={
+            unreadNotifications > 0
+              ? `Notifications, ${unreadNotifications} unread`
+              : 'Notifications'
+          }
         >
-          <PanelHeader>
-            <PanelTitle>Menu</PanelTitle>
-            <CloseBtn type="button" aria-label="Close menu" onClick={() => setDrawerOpen(false)}>
-              <CloseIcon />
-            </CloseBtn>
-          </PanelHeader>
-
-          {isAuthenticated && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '12px',
-              borderRadius: 10,
-              background: 'rgba(167,139,250,0.08)',
-              marginBottom: 12,
-            }}>
-              <Avatar>
-                {user?.profilePicture ? <img src={user.profilePicture} alt="" /> : <PersonIcon />}
-              </Avatar>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
-                  {user?.firstName} {user?.lastName}
-                </span>
-                <span style={{ color: '#94a3b8', fontSize: 12 }}>
-                  {isAdmin ? 'Admin' : isRecruiter ? 'Recruiter' : (user?.headline || 'Candidate')}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {navItems.map((item) => {
-            const active = isActive(item.path);
-            const Icon = item.Icon;
-            return (
-              <DrawerItem
-                key={item.path}
-                type="button"
-                $active={active}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => go(item.path)}
-              >
-                <Icon aria-hidden="true" /> {item.label}
-              </DrawerItem>
-            );
-          })}
-
-          {isAuthenticated && (
-            <>
-              <DrawerSeparator />
-              <DrawerItem
-                type="button"
-                $active={isActive('/notifications')}
-                aria-current={isActive('/notifications') ? 'page' : undefined}
-                onClick={() => go('/notifications')}
-              >
-                <NotificationsIcon aria-hidden="true" />
-                Notifications
-                {unreadNotifications > 0 && (
-                  <span style={{ marginLeft: 'auto', color: '#a78bfa', fontSize: 12 }}>
-                    {unreadNotifications}
-                  </span>
-                )}
-              </DrawerItem>
-              <DrawerItem type="button" onClick={() => go(isRecruiter ? '/recruiter/profile' : candidateProfilePath)}>
-                <PersonIcon aria-hidden="true" />
-                {isRecruiter ? 'My Company' : 'My Profile'}
-              </DrawerItem>
-              <DrawerItem
-                type="button"
-                $active={isActive('/pricing')}
-                aria-current={isActive('/pricing') ? 'page' : undefined}
-                onClick={() => go('/pricing')}
-                style={
-                  user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise'
-                    ? {
-                        background: 'linear-gradient(135deg, rgba(167,139,250,0.15) 0%, rgba(124,58,237,0.15) 100%)',
-                        color: '#c4b5fd',
-                        fontWeight: 700,
-                      }
-                    : undefined
-                }
-              >
-                <UpgradeIcon aria-hidden="true" />
-                {user?.subscriptionTier === 'pro' || user?.subscriptionTier === 'enterprise'
-                  ? 'Plans & Billing'
-                  : 'Upgrade to Pro'}
-              </DrawerItem>
-              <DrawerSeparator />
-              <DrawerItem type="button" $danger onClick={handleLogout}>
-                <LogoutIcon aria-hidden="true" /> Sign Out
-              </DrawerItem>
-            </>
-          )}
-
-          {!isAuthenticated && (
-            <>
-              <DrawerSeparator />
-              <DrawerItem type="button" onClick={() => go('/login')}>
-                <PersonIcon aria-hidden="true" /> Sign In
-              </DrawerItem>
-              <DrawerItem
-                type="button"
-                onClick={() => go('/register')}
-                style={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  fontWeight: 700,
-                  justifyContent: 'center',
-                }}
-              >
-                Get Started
-              </DrawerItem>
-            </>
-          )}
-        </Panel>
-      </>,
-      document.body
-    );
-  };
+          <Badge
+            badgeContent={unreadNotifications}
+            color="error"
+            max={99}
+            invisible={unreadNotifications === 0}
+          >
+            <NotificationsIcon />
+          </Badge>
+          Alerts
+        </MobileNavPill>
+      )}
+      {!isAuthenticated && (
+        <>
+          <MobileNavPill type="button" onClick={() => go('/login')}>
+            <PersonIcon aria-hidden="true" /> Sign In
+          </MobileNavPill>
+          <MobileNavPill
+            type="button"
+            onClick={() => go('/register')}
+            style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              border: 'none',
+            }}
+          >
+            Get Started
+          </MobileNavPill>
+        </>
+      )}
+    </MobileNavStrip>
+  );
 
   return (
     <Nav $transparent={isTransparent} $scrolled={scrolled} $isHome={isHome}>
@@ -1143,8 +1127,8 @@ const Navbar = () => {
             {!isAuthenticated && renderAuthCTAs()}
           </NavRow>
 
-          {/* Mobile-only quick actions (auth users only). Keeps the two most
-              important surfaces one tap away without opening the drawer. */}
+          {/* Mobile-only quick actions on the top row: upgrade pill (revenue)
+              + avatar-as-account-menu. Primary nav lives in the strip below. */}
           {isAuthenticated && (
             <MobileQuickActions>
               {user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise' && (
@@ -1156,46 +1140,12 @@ const Navbar = () => {
                   <UpgradeIcon /> Upgrade
                 </MobileUpgradePill>
               )}
-              {/* Avatar doubles as the drawer trigger on mobile so we can
-                  drop the extra hamburger button — one round tap-target on
-                  the right feels cleaner and matches LinkedIn/X/GitHub. */}
-              <MobileAvatarButton
-                type="button"
-                ref={hamburgerRef}
-                onClick={() => setDrawerOpen(true)}
-                aria-label="Open menu"
-                aria-haspopup="dialog"
-                aria-expanded={drawerOpen}
-                aria-controls="primary-mobile-menu"
-              >
-                {user?.profilePicture ? (
-                  <img src={user.profilePicture} alt="" />
-                ) : (
-                  <PersonIcon />
-                )}
-              </MobileAvatarButton>
+              {renderMobileUserMenu()}
             </MobileQuickActions>
           )}
-
-          {/* Hamburger only for logged-out visitors — auth users use the
-              avatar above as the drawer trigger. */}
-          {!isAuthenticated && (
-            <Hamburger
-              type="button"
-              ref={hamburgerRef}
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Open menu"
-              aria-haspopup="dialog"
-              aria-expanded={drawerOpen}
-              aria-controls="primary-mobile-menu"
-            >
-              <MenuIcon />
-            </Hamburger>
-          )}
         </NavContent>
+        {renderMobileNavStrip()}
       </Container>
-
-      {renderDrawer()}
     </Nav>
   );
 };

@@ -364,7 +364,7 @@ const LinkedInImportModal = ({
         </IconButton>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ p: 3 }}>
+      <DialogContent dividers sx={{ p: { xs: 2, sm: 3 } }}>
         <Typography sx={{ fontSize: 14, color: '#555', mb: 2.5 }}>
           {urlImportAvailable ? TEXT.LINKEDIN_MODAL_SUBTITLE : TEXT.LINKEDIN_MODAL_SUBTITLE_PDF}
         </Typography>
@@ -420,7 +420,7 @@ const LinkedInImportModal = ({
             background: 'rgba(10,102,194,0.04)',
             border: '1px solid rgba(10,102,194,0.15)',
             borderRadius: '12px',
-            p: 2.5,
+            p: { xs: 1.75, sm: 2.5 },
           }}
         >
           {/* Numbered steps with the action inline on each row so users
@@ -472,32 +472,51 @@ const LinkedInImportModal = ({
               <Box
                 sx={{
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
+                  // On mobile: text row + full-width button stacked (prevents
+                  // the inline button from squeezing text to 1-2 words wide).
+                  // On tablet+: everything on one row.
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  gap: 1.25,
                   mb: n < 3 ? 1.75 : 0,
                 }}
               >
-                <Box
-                  sx={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #0a66c2, #004182)',
-                    color: 'white',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {n}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1, minWidth: 0 }}>
+                  <Box
+                    sx={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #0a66c2, #004182)',
+                      color: 'white',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {n}
+                  </Box>
+                  <Typography sx={{ fontSize: 14, color: '#333', flexGrow: 1, lineHeight: 1.45 }}>
+                    {text}
+                  </Typography>
                 </Box>
-                <Typography sx={{ fontSize: 14, color: '#333', flexGrow: 1 }}>
-                  {text}
-                </Typography>
-                {action}
+                {action && (
+                  <Box
+                    sx={{
+                      // Indent under the numbered dot on mobile so the
+                      // button visually belongs to its step.
+                      pl: { xs: 4.75, sm: 0 },
+                      '& .MuiButton-root': {
+                        width: { xs: '100%', sm: 'auto' },
+                      },
+                    }}
+                  >
+                    {action}
+                  </Box>
+                )}
               </Box>
               {/* Visual guide for step 2: shows where the ••• button is
                   and what "Save to PDF" looks like in the dropdown. */}
@@ -558,7 +577,16 @@ const LinkedInImportModal = ({
         )}
       </DialogContent>
 
-      <DialogActions sx={{ p: 2.5, background: '#fafbfc' }}>
+      <DialogActions
+        sx={{
+          p: 2.5,
+          background: '#fafbfc',
+          // Centre a lone Cancel button so it doesn't float on the right
+          // (looks like a rejected form). When the URL submit button is
+          // also present, keep the default right-aligned pair.
+          justifyContent: urlImportAvailable ? 'flex-end' : 'center',
+        }}
+      >
         <Button
           onClick={handleClose}
           disabled={submitting || oauthLoading || pdfUploading}
