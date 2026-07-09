@@ -4,7 +4,7 @@ const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { SupportTicket, User } = require('../models');
 const authMiddleware = require('../middleware/auth');
-const { callAI, HAIKU_MODEL } = require('../services/ai/core');
+const { callAI } = require('../services/ai/core');
 const {
   sendSupportTicketToAdmin,
   sendSupportTicketConfirmation
@@ -92,7 +92,9 @@ router.post(
           { role: 'system', content: SUPPORT_SYSTEM_PROMPT },
           ...messages
         ],
-        model: HAIKU_MODEL, // fast/cheap; support chat rarely needs Sonnet
+        // Use the default (Sonnet) model. Prod's Anthropic key doesn't
+        // have Haiku access, so pinning to HAIKU_MODEL was 404-ing.
+        // Support chat is low-volume, so the cost delta is negligible.
         max_tokens: 400,
         temperature: 0.4
       });
