@@ -125,6 +125,43 @@ class AIService {
       throw new Error('Failed to enhance profile with AI');
     }
   }
+
+  /**
+   * Analyze a scraped LinkedIn profile from the recruiter/hiring-manager POV.
+   * Returns rich JSON: overall + recruiter-fit + search-visibility scores,
+   * section-by-section feedback with paste-ready rewrites, keyword lists for
+   * LinkedIn search, and a prioritized fix list. Used by the Chrome extension
+   * "LinkedIn Profile Analyzer" feature.
+   *
+   * @param {object} scraped   Fields pulled from the LinkedIn profile DOM.
+   * @param {string} targetTitle  The role the user wants to get shortlisted for.
+   */
+  async analyzeLinkedInProfile(scraped, targetTitle) {
+    const prompt = profilePrompts.linkedInProfileAnalysisPrompt(scraped || {}, targetTitle || '');
+    const response = await callAI({
+      // Sonnet quality matters here — this is the anchor deliverable for the
+      // feature and users will judge it hard against LinkedIn's own advice.
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2400,
+      temperature: 0.4
+    });
+    const raw = response.choices[0].message.content.trim();
+    // Strip accidental fences if the model added any.
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? safeParseJSON(jsonMatch[0], null) : null;
+    if (!parsed) {
+      throw new Error('AI returned an unparseable analysis');
+    }
+    // Clamp scores 0-100 so a hallucinated 145 doesn't blow up the UI.
+    const clamp = (n) => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    parsed.overallScore = clamp(parsed.overallScore);
+    parsed.recruiterFitScore = clamp(parsed.recruiterFitScore);
+    parsed.searchVisibilityScore = clamp(parsed.searchVisibilityScore);
+    if (Array.isArray(parsed.sections)) {
+      parsed.sections = parsed.sections.map((s) => ({ ...s, score: clamp(s?.score) }));
+    }
+    return parsed;
+  }
   /**
    * RECRUITER FEATURE: Generate interview questions tailored to a candidate
    */

@@ -119,7 +119,8 @@ export type MessageType =
   | 'GENERATE_SMART_ANSWERS'
   | 'GENERATE_SINGLE_ANSWER'
   | 'INSERT_ANSWER'
-  | 'ANALYZE_MATCH';
+  | 'ANALYZE_MATCH'
+  | 'ANALYZE_LINKEDIN_PROFILE';
 
 export interface DetectedQuestion {
   /** Stable ID generated in content script (hash of question + form path) */
@@ -154,6 +155,53 @@ export interface MatchAnalysis {
   gaps: string[];
   talkingPoints: string[];
   summary?: string;
+}
+
+// LinkedIn Profile Analyzer — scraped from the current linkedin.com/in/* tab
+// via the background service worker's scripting API. All fields optional
+// because LinkedIn's DOM changes frequently and sections may be collapsed.
+export interface LinkedInProfileScrape {
+  url?: string;
+  name?: string;
+  headline?: string;
+  location?: string;
+  currentTitle?: string;
+  currentCompany?: string;
+  about?: string;
+  experience?: string;
+  education?: string;
+  skills?: string;
+  featuredCount?: number | null;
+  recommendationsCount?: number | null;
+  followers?: string;
+  connections?: string;
+  /** Fallback: page innerText, truncated. Sent when structured selectors fail. */
+  rawText?: string;
+}
+
+export interface LinkedInSectionAnalysis {
+  name: string;
+  score: number;
+  current?: string;
+  findings: string[];
+  suggestion?: string;
+}
+
+export interface LinkedInProfileAnalysis {
+  overallScore: number;
+  recruiterFitScore: number;
+  searchVisibilityScore: number;
+  verdict: 'shortlist' | 'maybe' | 'pass' | string;
+  summary?: string;
+  sections: LinkedInSectionAnalysis[];
+  recruiterSearch: {
+    targetTitle?: string;
+    presentKeywords: string[];
+    missingKeywords: string[];
+    recommendedKeywords: string[];
+    searchabilityTips: string[];
+  };
+  priorityFixes: string[];
 }
 
 export interface Message {

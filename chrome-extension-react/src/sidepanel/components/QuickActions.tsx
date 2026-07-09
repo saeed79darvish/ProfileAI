@@ -5,7 +5,10 @@ interface QuickActionsProps {
   onQuickFillBasics: () => void;
   onTailor: () => void;
   onCoverLetter: () => void;
+  onAnalyzeLinkedIn?: () => void;
   hasJob: boolean;
+  isOnLinkedInProfile?: boolean;
+  isAnalyzingLinkedIn?: boolean;
   isTailoring?: boolean;
   isDetecting?: boolean;
   detectedCount?: number;
@@ -16,6 +19,9 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
   onQuickFillBasics,
   onTailor,
   onCoverLetter,
+  onAnalyzeLinkedIn,
+  isOnLinkedInProfile,
+  isAnalyzingLinkedIn,
   isTailoring,
   isDetecting,
   detectedCount,
@@ -25,6 +31,52 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       <div className="section-header">
         <h4 className="section-title">Quick Actions</h4>
       </div>
+
+      {/* LinkedIn Profile Analyzer — only surfaces on linkedin.com/in/* pages */}
+      {isOnLinkedInProfile && onAnalyzeLinkedIn && (
+        <button
+          className="action-headline linkedin-analyzer-headline"
+          onClick={onAnalyzeLinkedIn}
+          disabled={isAnalyzingLinkedIn}
+          title="Analyze this LinkedIn profile like a recruiter would"
+        >
+          <div className="headline-icon">
+            {isAnalyzingLinkedIn ? (
+              <div className="tailor-spinner small">
+                <svg viewBox="0 0 36 36">
+                  <circle className="spinner-track" cx="18" cy="18" r="15" fill="none" strokeWidth="3" />
+                  <circle
+                    className="spinner-arc"
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    fill="none"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="spinner-icon">✦</span>
+              </div>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4h16v16H4z" strokeLinejoin="round" />
+                <path d="M8 10v7M8 7v.01M12 17v-5M16 17v-3a2 2 0 0 0-4 0" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+          <div className="headline-text">
+            <div className="headline-title">
+              {isAnalyzingLinkedIn ? 'Analyzing profile…' : 'Analyze LinkedIn Profile'}
+            </div>
+            <div className="headline-subtitle">
+              Recruiter-POV grade + rewrites so you get shortlisted
+            </div>
+          </div>
+          <svg className="headline-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
 
       {/* Headline action — Smart Answers (replaces autofill as primary) */}
       <button

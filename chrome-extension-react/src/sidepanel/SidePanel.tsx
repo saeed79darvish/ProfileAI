@@ -16,11 +16,12 @@ import { Notification, NotificationProps } from './components/Notification';
 import { CoverLetterModal } from './components/CoverLetterModal';
 import { SmartAnswersModal } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
+import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
-import type { FullProfile, JobInfo, AuthState } from '../types';
+import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis } from '../types';
 
 export const SidePanel: React.FC = () => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -53,6 +54,13 @@ export const SidePanel: React.FC = () => {
   const [showMatchAnalysis, setShowMatchAnalysis] = useState(false);
   const [matchAnalysis, setMatchAnalysis] = useState<import('../types').MatchAnalysis | null>(null);
   const [matchLoading, setMatchLoading] = useState(false);
+  // LinkedIn Profile Analyzer state
+  const [isOnLinkedInProfile, setIsOnLinkedInProfile] = useState(false);
+  const [showLinkedInAnalyzer, setShowLinkedInAnalyzer] = useState(false);
+  const [linkedInAnalysis, setLinkedInAnalysis] = useState<LinkedInProfileAnalysis | null>(null);
+  const [linkedInLoading, setLinkedInLoading] = useState(false);
+  const [linkedInError, setLinkedInError] = useState<string | null>(null);
+  const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
   const [gapReview, setGapReview] = useState<{
     gaps: any[];
     settings: TailorSettings | null;
@@ -63,6 +71,7 @@ export const SidePanel: React.FC = () => {
     loadAuthAndProfile();
     loadJobInfo();
     loadAnswersCount();
+    detectLinkedInProfileTab();
 
     // Restore the returning-user summary so the reconnect screen can show
     // before/without a fresh login.
@@ -106,9 +115,13 @@ export const SidePanel: React.FC = () => {
         // Small delay to let SPA content render, then poll
         setTimeout(() => loadJobInfoWithRetry(), 600);
       }
+      // Also refresh the LinkedIn-profile flag whenever a URL changes.
+      if (changeInfo.url) detectLinkedInProfileTab();
     };
     const onTabActivated = () => {
       setTimeout(() => loadJobInfoWithRetry(), 300);
+      // Re-check whether we're on a LinkedIn profile page.
+      detectLinkedInProfileTab();
     };
     chrome.tabs.onUpdated.addListener(onTabUpdated);
     chrome.tabs.onActivated.addListener(onTabActivated);
@@ -318,6 +331,18 @@ export const SidePanel: React.FC = () => {
     setAnswersCount(Object.keys(savedAnswers || {}).length);
   };
 
+  // Detect whether the active tab is a LinkedIn profile page — controls
+  // whether the "Analyze LinkedIn Profile" action shows in QuickActions.
+  const detectLinkedInProfileTab = useCallback(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const isProfile = !!tab?.url && /linkedin\.com\/in\//i.test(tab.url);
+      setIsOnLinkedInProfile(isProfile);
+    } catch {
+      setIsOnLinkedInProfile(false);
+    }
+  }, []);
+
   const handleRefresh = useCallback(async () => {
     await loadAuthAndProfile();
     await loadJobInfo();
@@ -368,6 +393,31 @@ export const SidePanel: React.FC = () => {
       setIsDetectingQuestions(false);
     }
   }, [currentJob]);
+
+  const handleAnalyzeLinkedIn = useCallback(async () => {
+    setShowLinkedInAnalyzer(true);
+    setLinkedInLoading(true);
+    setLinkedInError(null);
+    try {
+      const targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
+      const resp = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_LINKEDIN_PROFILE',
+        data: { targetTitle },
+      });
+      if (resp?.success && resp.analysis) {
+        setLinkedInAnalysis(resp.analysis as LinkedInProfileAnalysis);
+        setLinkedInTargetTitle(resp.targetTitle || targetTitle);
+      } else {
+        setLinkedInAnalysis(null);
+        setLinkedInError(resp?.error || 'Could not analyze this profile');
+      }
+    } catch (e) {
+      setLinkedInAnalysis(null);
+      setLinkedInError((e as Error).message || 'Analysis failed');
+    } finally {
+      setLinkedInLoading(false);
+    }
+  }, [profile]);
 
   const handleAnalyzeMatch = useCallback(async () => {
     setShowMatchAnalysis(true);
@@ -700,7 +750,10 @@ export const SidePanel: React.FC = () => {
               onQuickFillBasics={handleAutofill}
               onTailor={handleTailor}
               onCoverLetter={handleCoverLetter}
+              onAnalyzeLinkedIn={handleAnalyzeLinkedIn}
               hasJob={!!currentJob}
+              isOnLinkedInProfile={isOnLinkedInProfile}
+              isAnalyzingLinkedIn={linkedInLoading}
               isTailoring={isTailoring || isAnalyzingGaps}
               isDetecting={isDetectingQuestions}
               detectedCount={detectedCount}
@@ -856,6 +909,17 @@ export const SidePanel: React.FC = () => {
         analysis={matchAnalysis}
         currentJob={currentJob}
         onRefresh={handleAnalyzeMatch}
+      />
+
+      <LinkedInAnalyzerModal
+        open={showLinkedInAnalyzer}
+        onClose={() => setShowLinkedInAnalyzer(false)}
+        loading={linkedInLoading}
+        analysis={linkedInAnalysis}
+        error={linkedInError}
+        targetTitle={linkedInTargetTitle}
+        onRefresh={handleAnalyzeLinkedIn}
+        onCopy={() => showNotification('Copied to clipboard', 'success')}
       />
       
       {notification && (

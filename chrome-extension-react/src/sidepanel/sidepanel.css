@@ -3735,6 +3735,293 @@ html, body, #root {
 .full-width-btn { width: 100%; }
 
 /* ============================================================
+   LinkedIn Profile Analyzer — recruiter-POV modal
+   ============================================================ */
+
+.linkedin-analyzer-modal {
+  max-width: 640px;
+  width: min(640px, 96vw);
+}
+
+.linkedin-analyzer-headline {
+  background: linear-gradient(135deg, #0a66c2 0%, #0284c7 100%) !important;
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  margin-bottom: 10px;
+}
+
+.linkedin-analyzer-headline .headline-icon {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.linkedin-analyzer-headline:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.linkedin-analysis-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.li-scores-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.li-score-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px;
+  border-radius: var(--border-radius);
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  gap: 4px;
+}
+
+.li-score-tile.good { border-color: #22c55e; color: #86efac; }
+.li-score-tile.medium { border-color: #f59e0b; color: #fcd34d; }
+.li-score-tile.low { border-color: #ef4444; color: #fca5a5; }
+
+.li-score-num {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.li-score-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+  text-align: center;
+}
+
+.li-verdict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: var(--border-radius);
+  border: 1px solid;
+}
+
+.li-verdict-lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+}
+
+.li-verdict-val {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.li-verdict-good { border-color: #22c55e; background: rgba(34, 197, 94, 0.08); color: #86efac; }
+.li-verdict-medium { border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); color: #fcd34d; }
+.li-verdict-low { border-color: #ef4444; background: rgba(239, 68, 68, 0.08); color: #fca5a5; }
+
+.li-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0.92;
+}
+
+.li-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.li-section-title {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.li-section-title.accent { color: #c4b5fd; }
+
+.li-priority {
+  padding: 12px 14px;
+  border-radius: var(--border-radius);
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+}
+
+.li-fix-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.li-kw-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.li-kw-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+.li-kw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.li-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.li-chip-good {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.li-chip-warn {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.li-tip-list {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0.9;
+}
+
+.li-section-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.li-section-card {
+  padding: 12px 14px;
+  border-radius: var(--border-radius);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.li-section-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.li-section-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.li-section-card-score {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.li-section-card-score.good { border-color: #22c55e; color: #86efac; }
+.li-section-card-score.medium { border-color: #f59e0b; color: #fcd34d; }
+.li-section-card-score.low { border-color: #ef4444; color: #fca5a5; }
+
+.li-findings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  opacity: 0.9;
+}
+
+.li-suggestion {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px dashed rgba(124, 58, 237, 0.35);
+}
+
+.li-suggestion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.li-suggestion-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.75;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.li-suggestion-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+}
+
+.li-copy-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.li-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* ============================================================
    Signed-out & setup states (value prop / reconnect / guide)
    ============================================================ */
 

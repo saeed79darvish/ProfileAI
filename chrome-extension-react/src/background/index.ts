@@ -772,6 +772,13 @@ async function handleMessage(
         break;
       }
 
+      case 'ANALYZE_LINKEDIN_PROFILE': {
+        const data = (message.data || {}) as { targetTitle?: string };
+        const result = await analyzeLinkedInProfile(data.targetTitle);
+        sendResponse(result);
+        break;
+      }
+
       default:
         sendResponse({ error: 'Unknown message type' });
     }
@@ -2298,6 +2305,235 @@ async function analyzeMatch(payload: {
   } catch (err) {
     console.error('[ProfileAI] analyzeMatch error', err);
     return { success: false, error: (err as Error).message || 'Match analysis failed' };
+  }
+}
+
+// =============================================================================
+// LINKEDIN PROFILE ANALYZER — scrape the current linkedin.com/in/* tab and
+// send it to the backend for a recruiter-POV analysis.
+// =============================================================================
+
+/**
+ * Scrapes the LinkedIn profile page in the active tab (via scripting API so we
+ * work even if the content script hasn't attached to that frame) and posts it
+ * to the backend for AI analysis. Returns the parsed analysis for the panel.
+ */
+async function analyzeLinkedInProfile(
+  targetTitle?: string
+): Promise<{ success: boolean; analysis?: any; error?: string; targetTitle?: string }> {
+  if (!authToken) return { success: false, error: 'Not authenticated' };
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id || !tab?.url) {
+      return { success: false, error: 'Could not find the active tab' };
+    }
+    if (!/linkedin\.com\/in\//i.test(tab.url)) {
+      return {
+        success: false,
+        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
+      };
+    }
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      // NOTE: everything inside `func` runs in the page context — no imports,
+      // no closures to the extension scope, no `chrome.*`.
+      func: () => {
+        const clean = (s: string | null | undefined) =>
+          (s || '').replace(/\s+/g, ' ').trim();
+        const firstText = (selectors: string[]): string => {
+          for (const sel of selectors) {
+            try {
+              const el = document.querySelector(sel) as HTMLElement | null;
+              const txt = clean(el?.innerText || el?.textContent);
+              if (txt) return txt;
+            } catch {
+              /* invalid selector for the current DOM — skip */
+            }
+          }
+          return '';
+        };
+        const longestText = (selectors: string[], min = 40): string => {
+          let best = '';
+          for (const sel of selectors) {
+            try {
+              document.querySelectorAll(sel).forEach((el) => {
+                const txt = clean((el as HTMLElement).innerText || el.textContent);
+                if (txt.length > best.length) best = txt;
+              });
+            } catch {
+              /* skip */
+            }
+          }
+          return best.length >= min ? best : best;
+        };
+
+        // Section-scoped extractor. LinkedIn sections are marked with
+        // `<section>` containers that include an anchor `<div id="experience">`,
+        // `<div id="about">`, etc. Grab the section that contains that anchor
+        // and pull all visible text from it.
+        const sectionText = (anchorId: string, minLen = 30): string => {
+          try {
+            const anchor = document.getElementById(anchorId);
+            if (!anchor) return '';
+            const section = anchor.closest('section');
+            if (!section) return '';
+            // Strip the "Show all" links which just repeat labels
+            const clone = section.cloneNode(true) as HTMLElement;
+            clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
+            clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
+            const txt = clean(clone.innerText || clone.textContent);
+            return txt.length >= minLen ? txt : txt;
+          } catch {
+            return '';
+          }
+        };
+
+        const name = firstText([
+          'h1.text-heading-xlarge',
+          'h1.top-card-layout__title',
+          'main h1',
+          'h1',
+        ]);
+
+        const headline = firstText([
+          'div.text-body-medium.break-words',
+          '.top-card-layout__headline',
+          '.pv-text-details__left-panel .text-body-medium',
+        ]);
+
+        const location = firstText([
+          'span.text-body-small.inline.t-black--light.break-words',
+          '.top-card__subline-item',
+          '.pv-text-details__left-panel .text-body-small',
+        ]);
+
+        // Current role / company — sometimes appears in the "experience" pill
+        // near the top card; fall back to the first item in the experience section.
+        const currentTop = firstText([
+          'button[aria-label*="Current company"]',
+          '.pv-text-details__right-panel button[aria-label*="Current"]',
+        ]);
+        let currentCompany = currentTop || '';
+        let currentTitle = '';
+
+        const about = sectionText('about', 20);
+        const experience = sectionText('experience', 40);
+        const education = sectionText('education', 20);
+        const skills = sectionText('skills', 5);
+
+        // If we still don't have current role, grab the first non-empty line of
+        // the experience section — that's almost always the current role's title.
+        if (!currentTitle && experience) {
+          const firstLine = experience.split('\n').map((l) => clean(l)).find(Boolean) || '';
+          if (firstLine) {
+            const parts = firstLine.split('·').map((p) => clean(p));
+            currentTitle = parts[0] || firstLine;
+            if (!currentCompany && parts[1]) currentCompany = parts[1];
+          }
+        }
+
+        // Featured / recommendations counts — best-effort.
+        const countFromHeader = (labelRegex: RegExp): number | null => {
+          const headers = Array.from(document.querySelectorAll('h2, h3'));
+          for (const h of headers) {
+            const txt = clean((h as HTMLElement).innerText);
+            const m = txt.match(labelRegex);
+            if (m) {
+              const numMatch = txt.match(/(\d+)/);
+              if (numMatch) return Number(numMatch[1]);
+              // If label exists but no count in the header, at least confirm the
+              // section is present by counting its list items.
+              const sect = h.closest('section');
+              if (sect) {
+                return sect.querySelectorAll('li').length || 0;
+              }
+            }
+          }
+          return null;
+        };
+        const featuredCount = countFromHeader(/^Featured\b/i);
+        const recommendationsCount = countFromHeader(/^Recommendations\b/i);
+
+        // Followers / connections — best-effort.
+        const followers = firstText([
+          '.pv-top-card--list-bullet li',
+          'ul.pv-top-card--list-bullet li',
+        ]);
+        const connections = firstText([
+          'span.t-bold',
+          '.pv-top-card--list-bullet li',
+        ]);
+
+        // Full page innerText fallback (capped) — lets the AI still grade the
+        // profile if section anchors moved / A/B test changed the DOM.
+        const rawText = clean(document.body.innerText).slice(0, 12000);
+
+        return {
+          name,
+          headline,
+          location,
+          currentTitle,
+          currentCompany,
+          about,
+          experience,
+          education,
+          skills,
+          featuredCount,
+          recommendationsCount,
+          followers,
+          connections,
+          rawText,
+        };
+      },
+    });
+
+    const scraped: any = results?.[0]?.result || {};
+    scraped.url = tab.url;
+
+    // Quick client-side guard so we don't burn an API call on an empty page.
+    const hasSignal =
+      (typeof scraped.headline === 'string' && scraped.headline.length > 5) ||
+      (typeof scraped.about === 'string' && scraped.about.length > 20) ||
+      (typeof scraped.experience === 'string' && scraped.experience.length > 40) ||
+      (typeof scraped.rawText === 'string' && scraped.rawText.length > 200);
+    if (!hasSignal) {
+      return {
+        success: false,
+        error:
+          'Could not read the profile. Scroll down so the headline, About, and Experience sections are visible, then try again.',
+      };
+    }
+
+    // Fall back to the user's saved title if the panel didn't send one.
+    let effectiveTitle = (targetTitle || '').trim();
+    if (!effectiveTitle && cachedProfile) {
+      effectiveTitle = (cachedProfile.title || cachedProfile.headline || '').trim();
+    }
+
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/analyze-linkedin`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ scraped, targetTitle: effectiveTitle }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      return { success: false, error: err.error || `Server returned ${response.status}` };
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      analysis: data.analysis,
+      targetTitle: data.targetTitle,
+    };
+  } catch (err) {
+    console.error('[ProfileAI] analyzeLinkedInProfile error', err);
+    return { success: false, error: (err as Error).message || 'Analysis failed' };
   }
 }
 

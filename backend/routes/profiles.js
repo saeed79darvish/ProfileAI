@@ -541,6 +541,59 @@ router.post('/analyze-gaps', authMiddleware, aiRateLimiter('tailor_profile'), as
   }
 });
 
+// @route   POST /api/profiles/analyze-linkedin
+// @desc    Analyze a scraped LinkedIn profile from the recruiter/hiring-manager POV
+//          Used by the Chrome extension "LinkedIn Profile Analyzer" feature.
+// @access  Private
+router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestions'), async (req, res) => {
+  try {
+    const { scraped, targetTitle } = req.body || {};
+
+    if (!scraped || typeof scraped !== 'object') {
+      return res.status(400).json({ error: 'Scraped LinkedIn profile data is required' });
+    }
+
+    // Require SOMETHING to grade — either a headline, an about, or an
+    // experience blob. Otherwise the AI has nothing to work with and will
+    // just hallucinate advice.
+    const hasSignal =
+      (typeof scraped.headline === 'string' && scraped.headline.trim().length > 5) ||
+      (typeof scraped.about === 'string' && scraped.about.trim().length > 20) ||
+      (typeof scraped.experience === 'string' && scraped.experience.trim().length > 40) ||
+      (typeof scraped.rawText === 'string' && scraped.rawText.trim().length > 200);
+
+    if (!hasSignal) {
+      return res.status(400).json({
+        error: 'Could not read enough from the LinkedIn profile. Scroll the page so headline, About, and Experience are visible, then try again.'
+      });
+    }
+
+    // Fall back to the user's saved profile title if the extension didn't send one.
+    let effectiveTitle = (targetTitle || '').trim();
+    if (!effectiveTitle) {
+      const userProfile = await Profile.findOne({
+        where: { userId: req.user.id },
+        attributes: ['title', 'headline'],
+      });
+      effectiveTitle = (userProfile?.title || userProfile?.headline || '').trim();
+    }
+
+    console.log(`Analyzing LinkedIn profile for user ${req.user.id} (target: "${effectiveTitle || 'unspecified'}")`);
+
+    const analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle);
+
+    await recordAIUsage(req.user.id, 'career_suggestions');
+
+    res.json({ success: true, analysis, targetTitle: effectiveTitle });
+  } catch (error) {
+    console.error('Error analyzing LinkedIn profile:', error);
+    if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
+      return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
+    }
+    res.status(500).json({ error: error.message || 'Error analyzing LinkedIn profile' });
+  }
+});
+
 // @route   POST /api/profiles/tailor-for-job
 // @desc    Tailor profile for a specific job description
 // @access  Private
