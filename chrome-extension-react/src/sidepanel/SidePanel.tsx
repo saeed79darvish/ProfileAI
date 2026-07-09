@@ -455,7 +455,12 @@ export const SidePanel: React.FC = () => {
     }
   }, [currentJob]);
 
-  const handleAnalyzeLinkedIn = useCallback(async (force = false) => {
+  const handleAnalyzeLinkedIn = useCallback(async (forceArg?: unknown) => {
+    // STRICT check: this handler is wired directly to button onClick in
+    // several places, where React passes the MouseEvent as the first arg —
+    // which is truthy and was silently forcing a fresh (paid) analysis on
+    // every click. Only an explicit `true` bypasses the cache.
+    const force = forceArg === true;
     setShowLinkedInAnalyzer(true);
     setLinkedInError(null);
 
