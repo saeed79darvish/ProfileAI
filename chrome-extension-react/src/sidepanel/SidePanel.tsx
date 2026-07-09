@@ -18,6 +18,7 @@ import { SmartAnswersModal } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
+import { useWebSignIn } from './components/useWebSignIn';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
@@ -100,6 +101,12 @@ export const SidePanel: React.FC = () => {
   // "View LinkedIn analysis · analyzed X ago" state on the profile-card pill
   // so users know a click won't spend another credit.
   const [linkedInTabAnalyzedAt, setLinkedInTabAnalyzedAt] = useState<number | null>(null);
+
+  // Web sign-in flow for the signed-out LinkedIn-analyzer teaser. Arrow wrapper
+  // defers the loadAuthAndProfile reference (declared below) past the TDZ.
+  const { webSyncing: liTeaserSyncing, signInOnWeb: liTeaserSignIn } = useWebSignIn(() =>
+    loadAuthAndProfile(),
+  );
   const [gapReview, setGapReview] = useState<{
     gaps: any[];
     settings: TailorSettings | null;
@@ -822,11 +829,25 @@ export const SidePanel: React.FC = () => {
       <Header onRefresh={handleRefresh} />
       
       {!authState.isAuthenticated ? (
-        <SignedOut
-          currentJob={currentJob}
-          lastProfile={lastProfile}
-          onAuthSync={loadAuthAndProfile}
-        />
+        <>
+          {/* Signed-out teaser: the analyzer is the acquisition hook, so it
+              must be VISIBLE before sign-in. Click routes to the web sign-in
+              flow; once the session syncs back, the real pill takes over. */}
+          {isOnLinkedInProfile && (
+            <div className="panel-section li-preprofile-section">
+              <AnalyzeLinkedInPill
+                onClick={liTeaserSignIn}
+                loading={liTeaserSyncing}
+                requiresSignIn
+              />
+            </div>
+          )}
+          <SignedOut
+            currentJob={currentJob}
+            lastProfile={lastProfile}
+            onAuthSync={loadAuthAndProfile}
+          />
+        </>
       ) : !profileProgress.hasMinimumProfile ? (
         <>
           {/* LinkedIn Analyzer works WITHOUT a completed ProfileAI profile —
