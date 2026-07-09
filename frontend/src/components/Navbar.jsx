@@ -972,10 +972,7 @@ const Navbar = () => {
           </DropdownItem>
           <DropdownItem
             role="menuitem"
-            as="a"
-            href="mailto:support@profileai.com"
-            onClick={() => setMobileUserMenuOpen(false)}
-            style={{ textDecoration: 'none' }}
+            onClick={() => { setMobileUserMenuOpen(false); go('/help'); }}
           >
             <HelpIcon /> Help
           </DropdownItem>

@@ -43,6 +43,7 @@ const vapiWebhookRoutes = require('./routes/vapi');
 const phoneScreeningRoutes = require('./routes/phoneScreening');
 const notificationRoutes = require('./routes/notifications');
 const referralRoutes = require('./routes/referrals');
+const supportRoutes = require('./routes/support');
 const kudosRoutes = require('./routes/kudos');
 const pollsRoutes = require('./routes/polls');
 
@@ -245,6 +246,7 @@ if (featureFlags.recruiterSurface) {
 }
 app.use('/api/notifications', authMiddleware, requireVerifiedEmail, notificationRoutes);
 app.use('/api/referrals', referralRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/kudos', kudosRoutes);
 app.use('/api/polls', pollsRoutes);
 

@@ -20,6 +20,7 @@ const PhoneScreeningCall = require('./PhoneScreeningCall');
 const PasswordReset = require('./PasswordReset')(sequelize);
 const AIUsage = require('./AIUsage');
 const Notification = require('./Notification');
+const SupportTicket = require('./SupportTicket');
 const SavedPost = require('./SavedPost');
 const Referral = require('./Referral');
 const Kudos = require('./Kudos');
@@ -694,6 +695,16 @@ Notification.belongsTo(User, {
   as: 'user'
 });
 
+// SupportTicket associations
+User.hasMany(SupportTicket, {
+  foreignKey: 'userId',
+  as: 'supportTickets'
+});
+SupportTicket.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
+
 // Kudos associations
 User.hasMany(Kudos, {
   foreignKey: 'senderId',
@@ -1022,6 +1033,7 @@ module.exports = {
   PasswordReset,
   AIUsage,
   Notification,
+  SupportTicket,
   SavedPost,
   Referral,
   Kudos,

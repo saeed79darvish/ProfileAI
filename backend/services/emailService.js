@@ -51,7 +51,7 @@ const normalizeFromAddress = () => {
  * @param {string} html - Email body (HTML)
  * @param {string} text - Email body (Text fallback)
  */
-const sendEmail = async ({ to, subject, html, text }) => {
+const sendEmail = async ({ to, subject, html, text, replyTo }) => {
   try {
     const fromAddress = normalizeFromAddress();
 
@@ -62,7 +62,8 @@ const sendEmail = async ({ to, subject, html, text }) => {
         to,
         subject,
         text,
-        html
+        html,
+        ...(replyTo ? { replyTo } : {})
       });
 
       console.log('Email sent via Gmail:', info.messageId);
@@ -76,7 +77,8 @@ const sendEmail = async ({ to, subject, html, text }) => {
         to: [to],
         subject,
         html,
-        text
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {})
       });
 
       if (error) {
@@ -702,6 +704,116 @@ If you didn't create a ProfilleAI account, you can ignore this email.
   return sendEmail({ to: email, subject, html, text });
 };
 
+// ═════════════════════════════════════════════════════════════════
+// Support ticket notifications
+// ═════════════════════════════════════════════════════════════════
+
+const escapeHtml = (str) => String(str || '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+/**
+ * Notify the admin inbox that a new support ticket was opened.
+ * Silent no-op if ADMIN_EMAIL isn't configured — the ticket is still
+ * persisted, so admins can pick it up from the /admin dashboard.
+ */
+const sendSupportTicketToAdmin = async (ticket) => {
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL;
+  if (!adminEmail) {
+    console.warn('[Support] ADMIN_EMAIL not set — skipping admin notification');
+    return false;
+  }
+
+  const subject = `[Support] ${ticket.category.toUpperCase()}: ${ticket.subject}`;
+  const dashUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin`;
+
+  const transcriptHtml = Array.isArray(ticket.chatTranscript) && ticket.chatTranscript.length > 0
+    ? `<h3 style="margin-top:24px;color:#374151;font-size:14px;">AI chat transcript</h3>
+       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;font-size:13px;max-height:400px;overflow:auto;">
+         ${ticket.chatTranscript.map((m) => `
+           <div style="margin-bottom:10px;">
+             <div style="font-weight:600;color:${m.role === 'user' ? '#0a66c2' : '#7c3aed'};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">${m.role}</div>
+             <div style="color:#374151;white-space:pre-wrap;">${escapeHtml(m.content)}</div>
+           </div>
+         `).join('')}
+       </div>`
+    : '';
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px 24px;border-radius:12px 12px 0 0;">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:0.85;">New support ticket</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;">${escapeHtml(ticket.subject)}</div>
+      </div>
+      <div style="background:white;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;padding:20px 24px;">
+        <table style="width:100%;font-size:13px;color:#374151;">
+          <tr><td style="padding:4px 0;color:#6b7280;">From</td><td style="padding:4px 0;">${escapeHtml(ticket.name || '\u2014')} &lt;${escapeHtml(ticket.email)}&gt;</td></tr>
+          <tr><td style="padding:4px 0;color:#6b7280;">Category</td><td style="padding:4px 0;">${escapeHtml(ticket.category)}</td></tr>
+          <tr><td style="padding:4px 0;color:#6b7280;">Source</td><td style="padding:4px 0;">${escapeHtml(ticket.source || 'help_center')}</td></tr>
+          <tr><td style="padding:4px 0;color:#6b7280;">User ID</td><td style="padding:4px 0;font-family:monospace;font-size:11px;">${ticket.userId || 'guest'}</td></tr>
+          <tr><td style="padding:4px 0;color:#6b7280;">Ticket ID</td><td style="padding:4px 0;font-family:monospace;font-size:11px;">${ticket.id}</td></tr>
+        </table>
+        <h3 style="margin-top:20px;color:#374151;font-size:14px;">Message</h3>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;white-space:pre-wrap;font-size:14px;color:#111827;">${escapeHtml(ticket.message)}</div>
+        ${transcriptHtml}
+        <div style="margin-top:24px;text-align:center;">
+          <a href="${dashUrl}" style="display:inline-block;background:linear-gradient(135deg,#667eea,#764ba2);color:white;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600;font-size:14px;">Open admin dashboard</a>
+        </div>
+        <div style="margin-top:20px;font-size:12px;color:#9ca3af;text-align:center;">Reply directly to this email to respond to the user.</div>
+      </div>
+    </div>
+  `;
+
+  const text = `New support ticket [${ticket.category}]\n\n` +
+    `From: ${ticket.name || '-'} <${ticket.email}>\n` +
+    `Subject: ${ticket.subject}\n` +
+    `Ticket ID: ${ticket.id}\n\n` +
+    `${ticket.message}\n\n` +
+    `Reply directly to this email to respond to the user.`;
+
+  // replyTo lets admins hit reply and land in the user's inbox.
+  return sendEmail({ to: adminEmail, subject, html, text, replyTo: ticket.email });
+};
+
+/**
+ * Confirmation email to the user who opened the ticket. Non-critical —
+ * failure to send is logged but doesn't block ticket creation.
+ */
+const sendSupportTicketConfirmation = async (ticket) => {
+  if (!ticket.email) return false;
+
+  const subject = `We got your message — ProfilleAI support`;
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:24px;border-radius:12px 12px 0 0;text-align:center;">
+        <div style="font-size:22px;font-weight:700;">Thanks for reaching out</div>
+        <div style="font-size:14px;opacity:0.9;margin-top:4px;">We'll get back to you soon.</div>
+      </div>
+      <div style="background:white;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;padding:24px;color:#374151;">
+        <p style="font-size:15px;line-height:1.6;margin:0 0 16px;">Hi ${escapeHtml(ticket.name || 'there')},</p>
+        <p style="font-size:15px;line-height:1.6;margin:0 0 16px;">We received your message and someone from the ProfilleAI team will get back to you shortly. Our typical response time is within 1 business day.</p>
+        <div style="background:#f9fafb;border-left:3px solid #667eea;padding:12px 16px;margin:16px 0;border-radius:4px;">
+          <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px;">Your message</div>
+          <div style="font-size:14px;color:#111827;font-weight:600;margin-bottom:6px;">${escapeHtml(ticket.subject)}</div>
+          <div style="font-size:13px;color:#4b5563;white-space:pre-wrap;">${escapeHtml(ticket.message)}</div>
+        </div>
+        <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">Ticket reference: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">${ticket.id.slice(0, 8)}</code></p>
+      </div>
+    </div>
+  `;
+  const text = `Hi ${ticket.name || 'there'},\n\n` +
+    `We received your message and someone from the ProfilleAI team will get back to you shortly.\n\n` +
+    `Your message:\n${ticket.subject}\n\n${ticket.message}\n\n` +
+    `Ticket reference: ${ticket.id.slice(0, 8)}\n\n- The ProfilleAI Team`;
+
+  try {
+    return await sendEmail({ to: ticket.email, subject, html, text });
+  } catch (err) {
+    console.warn('[Support] Could not send confirmation to user:', err?.message);
+    return false;
+  }
+};
+
 module.exports = {
   sendEmail,
   sendShortlistNotification,
@@ -710,5 +822,7 @@ module.exports = {
   sendNewApplicationNotification,
   sendApplicationStatusUpdate,
   sendPasswordResetEmail,
-  sendEmailVerification
+  sendEmailVerification,
+  sendSupportTicketToAdmin,
+  sendSupportTicketConfirmation
 };

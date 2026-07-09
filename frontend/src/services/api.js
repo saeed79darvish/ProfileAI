@@ -944,6 +944,17 @@ export const notificationAPI = {
     api.delete('/notifications/clear-all', { params: { readOnly: readOnly.toString() } })
 };
 
+// Support / Help center API
+export const supportAPI = {
+  // Send a message to the AI helpdesk assistant. `messages` is an array of
+  // { role: 'user'|'assistant', content: string } — session-only, not persisted.
+  chat: (messages) => api.post('/support/chat', { messages }),
+  // Create a support ticket. Body: { subject, message, category?, chatTranscript?, source? }
+  createTicket: (body) => api.post('/support/ticket', body),
+  // List the current user's own tickets.
+  myTickets: () => api.get('/support/my-tickets'),
+};
+
 // Referral API
 export const referralAPI = {
   // Get user's referral code and stats
