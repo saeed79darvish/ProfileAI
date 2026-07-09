@@ -3767,6 +3767,9 @@ html, body, #root {
 .linkedin-analyzer-modal {
   max-width: 640px;
   width: min(640px, 96vw);
+  /* Anchor for the in-modal Re-analyze confirmation scrim so it covers only
+     this modal, not the whole viewport. */
+  position: relative;
 }
 
 /* Profile-card action: "Analyze this LinkedIn profile" — appears under the
@@ -4423,21 +4426,85 @@ html, body, #root {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-/* Danger variant of .btn used for the "click again to confirm" state on
-   Re-analyze so users see they're about to spend a credit. */
-.btn.danger {
-  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
-  animation: profileai-danger-pulse 1.6s ease-in-out infinite;
+/* In-modal Re-analyze confirmation — replaces the native browser confirm()
+   which rendered an untrusted-looking 'The extension … says' header.
+   The scrim covers only this modal's container, so the user doesn't lose
+   context (analyzer stays visible underneath). */
+.li-confirm-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 20;
+  animation: profileai-confirm-fadeIn 140ms ease-out;
 }
-.btn.danger:hover:not(:disabled) {
-  filter: brightness(1.08);
+@keyframes profileai-confirm-fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-@keyframes profileai-danger-pulse {
-  0%, 100% { box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35); }
-  50%      { box-shadow: 0 4px 20px rgba(220, 38, 38, 0.6); }
+.li-confirm-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(30, 27, 75, 0.98), rgba(20, 18, 50, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  animation: profileai-confirm-slideIn 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes profileai-confirm-slideIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.li-confirm-icon {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+.li-confirm-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.li-confirm-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.li-confirm-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  opacity: 0.92;
+}
+.li-confirm-body strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.li-confirm-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-end;
 }
 
 /* ============================================================

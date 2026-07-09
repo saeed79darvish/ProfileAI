@@ -146,17 +146,16 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
   const [editedSuggestions, setEditedSuggestions] = useState<Record<number, string>>({});
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [openingKey, setOpeningKey] = useState<string | null>(null);
-  // Two-click confirm on Re-analyze (avoids the ugly native window.confirm
-  // dialog that shows the extension ID in the header). First click primes;
-  // second click within 4s actually triggers the paid refresh.
-  const [reanalyzeConfirming, setReanalyzeConfirming] = useState(false);
+  // Inline confirm dialog for the paid Re-analyze action. Replaces the ugly
+  // native window.confirm and the two-click button pattern.
+  const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false);
 
   // Reset local editing state whenever a new analysis loads.
   useEffect(() => {
     setEditedSuggestions({});
     setEditingIndex(null);
     setCopiedKey(null);
-    setReanalyzeConfirming(false);
+    setShowReanalyzeConfirm(false);
   }, [analysis]);
 
   const verdict = useMemo(() => (analysis ? verdictMeta(analysis.verdict) : null), [analysis]);
@@ -439,7 +438,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
 
         <div className="modal-footer">
           <button
-            className={`btn small ${reanalyzeConfirming ? 'danger' : 'secondary'}`}
+            className="btn secondary small"
             onClick={() => {
               // First-run (no cached analysis yet) or error retry — no
               // confirm needed since there's nothing to displace.
@@ -447,15 +446,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                 onRefresh();
                 return;
               }
-              // Two-click confirm: first click primes ("Click to confirm"),
-              // second click within 4s runs the fresh (paid) analysis.
-              if (!reanalyzeConfirming) {
-                setReanalyzeConfirming(true);
-                setTimeout(() => setReanalyzeConfirming(false), 4000);
-                return;
-              }
-              setReanalyzeConfirming(false);
-              onRefresh();
+              setShowReanalyzeConfirm(true);
             }}
             disabled={loading}
             title={
@@ -466,16 +457,57 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
           >
             {loading
               ? 'Analyzing…'
-              : reanalyzeConfirming
-                ? 'Click again to confirm · uses 1 credit'
-                : analysis && cachedAt
-                  ? 'Re-analyze (uses 1 credit)'
-                  : 'Re-analyze'}
+              : analysis && cachedAt
+                ? 'Re-analyze (uses 1 credit)'
+                : 'Re-analyze'}
           </button>
           <button className="btn primary small" onClick={onClose}>
             Done
           </button>
         </div>
+
+        {/* In-modal Re-analyze confirmation — replaces the native browser
+            confirm() dialog. Overlays this modal's body only, so the user
+            never leaves the analyzer context. */}
+        {showReanalyzeConfirm && (
+          <div
+            className="li-confirm-scrim"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowReanalyzeConfirm(false);
+            }}
+          >
+            <div className="li-confirm-card" role="dialog" aria-modal="true">
+              <div className="li-confirm-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 8v4M12 16h.01" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <h4 className="li-confirm-title">Re-analyze this profile?</h4>
+              <p className="li-confirm-body">
+                This uses <strong>1 AI credit</strong> and replaces the cached result.
+                The current analysis will be lost.
+              </p>
+              <div className="li-confirm-actions">
+                <button
+                  className="btn secondary small"
+                  onClick={() => setShowReanalyzeConfirm(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn primary small"
+                  onClick={() => {
+                    setShowReanalyzeConfirm(false);
+                    onRefresh();
+                  }}
+                >
+                  Yes, re-analyze
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
