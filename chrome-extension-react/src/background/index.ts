@@ -56,6 +56,51 @@ async function clearPendingLogin(): Promise<void> {
   try { await chrome.storage.local.remove(PENDING_LOGIN_KEY); } catch (_) {}
 }
 
+// URLs that are DEFINITELY not job pages — we should not run our job-title /
+// company extractor here, because the fallback selectors (`h1`, generic
+// `[class*="company"]`) match unrelated content and populate the panel with
+// phantom job info. Notable example: linkedin.com/in/* → h1 = the person's
+// name, which the panel then displays as "Detected job title".
+//
+// Job-hosting URLs on the SAME domain (e.g. linkedin.com/jobs/) MUST still be
+// matched, so the patterns below are narrow.
+const NON_JOB_URL_PATTERNS = [
+  /^chrome:\/\//i,
+  /^chrome-extension:\/\//i,
+  /^about:/i,
+  /linkedin\.com\/(in|company|school|feed|mynetwork|messaging|notifications|search\/results\/(?!jobs))/i,
+  /(^|\.)google\.com\/(search|maps|images|drive|docs|mail|calendar|photos)/i,
+  /(^|\.)docs\.google\.com/i,
+  /(^|\.)drive\.google\.com/i,
+  /(^|\.)mail\.google\.com/i,
+  /(^|\.)youtube\.com/i,
+  /(^|\.)facebook\.com/i,
+  /(^|\.)instagram\.com/i,
+  /(^|\.)twitter\.com|(^|\.)x\.com/i,
+  /(^|\.)reddit\.com/i,
+  /(^|\.)wikipedia\.org/i,
+  /(^|\.)notion\.so/i,
+  /(^|\.)figma\.com/i,
+  /(^|\.)slack\.com/i,
+  /(^|\.)chat\.openai\.com/i,
+  /(^|\.)claude\.ai/i,
+  /(^|\.)profilleai\.com/i,
+  /localhost:3000/i,
+];
+
+function isNonJobUrl(url: string | undefined | null): boolean {
+  if (!url) return true;
+  return NON_JOB_URL_PATTERNS.some((p) => p.test(url));
+}
+
+/** Clear any stale detected-job info so the SidePanel doesn't keep showing a
+ *  job card for a tab where we now know no job exists. */
+async function clearStoredJobInfo(): Promise<void> {
+  try {
+    await chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']);
+  } catch { /* ignore */ }
+}
+
 // Reads the ProfilleAI auth token from any open web app tab. localStorage is
 // shared per-origin, so any web app tab returns the same value. Returns null if
 // no web app tab is open or no token is stored.
@@ -298,6 +343,15 @@ async function handleMessage(
           const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           const tab = tabs[0];
           console.log('[ProfileAI BG] GET_JOB_INFO_RELAY — tab:', tab?.id, tab?.url?.slice(0, 80));
+          // Bail out on pages that are definitely not job pages. Prevents phantom
+          // "job title" like the person's name being scraped off a LinkedIn
+          // profile via the h1 fallback selector.
+          if (isNonJobUrl(tab?.url)) {
+            console.log('[ProfileAI BG] Skipping job detection — non-job URL');
+            await clearStoredJobInfo();
+            sendResponse(null);
+            break;
+          }
           if (tab?.id && tab?.url && !tab.url.startsWith('chrome://')) {
             try {
               const results = await chrome.scripting.executeScript({
@@ -440,6 +494,14 @@ async function handleMessage(
           const tab = tabs2[0];
           resolvedTabId = tab?.id ?? null;
           console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
+          // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
+          // titles/companies from social/profile/search pages.
+          if (isNonJobUrl(tab?.url)) {
+            console.log('[ProfileAI BG] Skipping analyze — non-job URL');
+            await clearStoredJobInfo();
+            sendResponse({ success: false, error: 'This page does not look like a job posting.' });
+            break;
+          }
           if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
             // Method 1: executeScript (direct DOM access, no content script dependency)
             try {
@@ -775,6 +837,15 @@ async function handleMessage(
       case 'ANALYZE_LINKEDIN_PROFILE': {
         const data = (message.data || {}) as { targetTitle?: string };
         const result = await analyzeLinkedInProfile(data.targetTitle);
+        sendResponse(result);
+        break;
+      }
+
+      case 'OPEN_LINKEDIN_EDITOR': {
+        const data = (message.data || {}) as {
+          section: 'headline' | 'about' | 'skills' | 'featured' | 'experience';
+        };
+        const result = await openLinkedInEditor(data.section);
         sendResponse(result);
         break;
       }
@@ -2534,6 +2605,94 @@ async function analyzeLinkedInProfile(
   } catch (err) {
     console.error('[ProfileAI] analyzeLinkedInProfile error', err);
     return { success: false, error: (err as Error).message || 'Analysis failed' };
+  }
+}
+
+/**
+ * Best-effort click of LinkedIn's own "Edit" pencil button for a given section
+ * so the user lands inside LinkedIn's native editor with focus. We stop short
+ * of pasting the text ourselves — LinkedIn uses React-controlled contenteditables
+ * that ignore programmatic `input.value` writes, and synthetic paste events get
+ * blocked. The modal shows a toast telling the user to press Cmd/Ctrl+V, which
+ * works because the text is already on the system clipboard.
+ *
+ * Falls back to scrolling to the section anchor if no edit button matches.
+ */
+async function openLinkedInEditor(
+  section: 'headline' | 'about' | 'skills' | 'featured' | 'experience'
+): Promise<{ success: boolean; clicked?: boolean; scrolled?: boolean; error?: string }> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id || !tab?.url) {
+      return { success: false, error: 'Could not find the active tab' };
+    }
+    if (!/linkedin\.com\/in\//i.test(tab.url)) {
+      return { success: false, error: 'Open a LinkedIn profile first (linkedin.com/in/…).' };
+    }
+    // Focus the tab so the user can immediately paste.
+    try {
+      await chrome.tabs.update(tab.id, { active: true });
+      if (typeof tab.windowId === 'number') {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+    } catch {
+      /* best-effort */
+    }
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      args: [section],
+      func: (sec: string) => {
+        // aria-label patterns LinkedIn uses across their profile-edit UI.
+        // Multiple hints per section so a small label rename doesn't break us.
+        const patterns: Record<string, string[]> = {
+          headline: ['edit intro', 'edit headline'],
+          about: ['edit about'],
+          skills: ['edit skills', 'add skill'],
+          featured: ['edit featured', 'add featured'],
+          experience: ['edit position', 'edit experience', 'add position'],
+        };
+        const anchorIds: Record<string, string> = {
+          about: 'about',
+          skills: 'skills',
+          featured: 'featured',
+          experience: 'experience',
+          headline: '',
+        };
+        const hints = patterns[sec] || [];
+        // Prefer the FIRST match — for Experience that's the top-most edit
+        // button, which is almost always the current role.
+        for (const hint of hints) {
+          const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+          const btn = buttons.find((b) => {
+            const label = (b.getAttribute('aria-label') || '').toLowerCase();
+            return label.includes(hint);
+          });
+          if (btn) {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Small delay so the smooth-scroll doesn't fight the click.
+            setTimeout(() => btn.click(), 250);
+            return { clicked: true, matched: hint };
+          }
+        }
+        // Fallback: scroll to the anchor. Better than nothing.
+        const anchorId = anchorIds[sec];
+        if (anchorId) {
+          const el = document.getElementById(anchorId);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return { clicked: false, scrolled: true };
+          }
+        }
+        // Headline lives in the top card — jump to top of page.
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return { clicked: false, scrolled: true };
+      },
+    });
+    const r = results?.[0]?.result || {};
+    return { success: true, clicked: !!r.clicked, scrolled: !!r.scrolled };
+  } catch (err) {
+    console.error('[ProfileAI] openLinkedInEditor error', err);
+    return { success: false, error: (err as Error).message || 'Could not open editor' };
   }
 }
 

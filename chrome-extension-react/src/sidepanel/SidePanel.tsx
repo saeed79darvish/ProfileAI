@@ -110,7 +110,7 @@ export const SidePanel: React.FC = () => {
     })();
 
     // Re-fetch job info when the active tab navigates (SPA support)
-    const onTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+    const onTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
       if (changeInfo.url || changeInfo.status === 'complete') {
         // Small delay to let SPA content render, then poll
         setTimeout(() => loadJobInfoWithRetry(), 600);
@@ -129,11 +129,16 @@ export const SidePanel: React.FC = () => {
     // Listen for storage changes — content script writes job info reactively,
     // and the background writes tailoring lifecycle state.
     const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.currentJobInfo?.newValue) {
+      if ('currentJobInfo' in changes) {
         const job = changes.currentJobInfo.newValue;
-        if (job.title || job.company) {
+        if (job && (job.title || job.company)) {
           console.log('[ProfileAI SidePanel] Got job from storage change:', job.title);
           setCurrentJob(job);
+        } else {
+          // Storage was cleared (non-job page detected by background). Drop
+          // any stale job we were showing so the panel doesn't display a
+          // phantom job card scraped from a previous tab.
+          setCurrentJob(null);
         }
       }
       // Tailoring lifecycle (set/cleared by background)
@@ -733,7 +738,12 @@ export const SidePanel: React.FC = () => {
       ) : (
         <>
           <div className="main-content">
-            <ProfileSection profile={profile} />
+            <ProfileSection
+              profile={profile}
+              isOnLinkedInProfile={isOnLinkedInProfile}
+              onAnalyzeLinkedIn={handleAnalyzeLinkedIn}
+              isAnalyzingLinkedIn={linkedInLoading}
+            />
             
             <JobMatchSection 
               currentJob={currentJob} 
@@ -750,10 +760,7 @@ export const SidePanel: React.FC = () => {
               onQuickFillBasics={handleAutofill}
               onTailor={handleTailor}
               onCoverLetter={handleCoverLetter}
-              onAnalyzeLinkedIn={handleAnalyzeLinkedIn}
               hasJob={!!currentJob}
-              isOnLinkedInProfile={isOnLinkedInProfile}
-              isAnalyzingLinkedIn={linkedInLoading}
               isTailoring={isTailoring || isAnalyzingGaps}
               isDetecting={isDetectingQuestions}
               detectedCount={detectedCount}
@@ -919,7 +926,7 @@ export const SidePanel: React.FC = () => {
         error={linkedInError}
         targetTitle={linkedInTargetTitle}
         onRefresh={handleAnalyzeLinkedIn}
-        onCopy={() => showNotification('Copied to clipboard', 'success')}
+        onNotification={showNotification}
       />
       
       {notification && (

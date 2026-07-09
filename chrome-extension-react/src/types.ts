@@ -120,7 +120,8 @@ export type MessageType =
   | 'GENERATE_SINGLE_ANSWER'
   | 'INSERT_ANSWER'
   | 'ANALYZE_MATCH'
-  | 'ANALYZE_LINKEDIN_PROFILE';
+  | 'ANALYZE_LINKEDIN_PROFILE'
+  | 'OPEN_LINKEDIN_EDITOR';
 
 export interface DetectedQuestion {
   /** Stable ID generated in content script (hash of question + form path) */
