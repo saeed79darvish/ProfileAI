@@ -104,9 +104,18 @@ router.post(
 
       res.json({ success: true, message: reply });
     } catch (error) {
-      console.error('[Support chat] Error:', error?.message);
+      // Log everything we can so Render logs surface the real cause. The
+      // response stays user-friendly but includes a `detail` field so the
+      // browser network tab shows what actually broke.
+      console.error('[Support chat] Error:', {
+        message: error?.message,
+        status: error?.status,
+        code: error?.code,
+        stack: error?.stack?.split('\n').slice(0, 4).join('\n')
+      });
       res.status(500).json({
-        error: 'Support assistant is temporarily unavailable. Please try again in a moment, or open a ticket.'
+        error: 'Support assistant is temporarily unavailable. Please try again in a moment, or open a ticket.',
+        detail: error?.message || 'unknown'
       });
     }
   }
@@ -189,8 +198,15 @@ router.post(
         }
       });
     } catch (error) {
-      console.error('[Support ticket] Error:', error?.message);
-      res.status(500).json({ error: 'Could not create your support ticket. Please try again.' });
+      console.error('[Support ticket] Error:', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack?.split('\n').slice(0, 4).join('\n')
+      });
+      res.status(500).json({
+        error: 'Could not create your support ticket. Please try again.',
+        detail: error?.message || 'unknown'
+      });
     }
   }
 );

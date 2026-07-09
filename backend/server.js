@@ -447,6 +447,15 @@ const startServer = async () => {
       console.warn('⚠️  Users.aiOnboardingCompleted column ensure skipped:', err.message);
     }
 
+    // Create SupportTickets table on boot (help center chat + ticket form).
+    // Idempotent CREATE TABLE IF NOT EXISTS + enum guards, safe to re-run.
+    try {
+      const { up: addSupportTicketsTable } = require('./scripts/migrations/addSupportTicketsTable');
+      await addSupportTicketsTable();
+    } catch (err) {
+      console.warn('⚠️  SupportTickets table ensure skipped:', err.message);
+    }
+
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
     // known companies → false; discovered greenhouse/lever/ashby boards →
     // true). This powers the accurate "Startups" job filter. AWAITED (not
