@@ -61,6 +61,7 @@ export const SidePanel: React.FC = () => {
   const [linkedInLoading, setLinkedInLoading] = useState(false);
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
   const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
+  const [linkedInCachedAt, setLinkedInCachedAt] = useState<number | null>(null);
   const [gapReview, setGapReview] = useState<{
     gaps: any[];
     settings: TailorSettings | null;
@@ -399,10 +400,56 @@ export const SidePanel: React.FC = () => {
     }
   }, [currentJob]);
 
-  const handleAnalyzeLinkedIn = useCallback(async () => {
+  const handleAnalyzeLinkedIn = useCallback(async (force = false) => {
     setShowLinkedInAnalyzer(true);
-    setLinkedInLoading(true);
     setLinkedInError(null);
+
+    // Cache the analysis per LinkedIn profile URL so subsequent clicks on the
+    // same profile don't burn an AI credit. The "Re-analyze" button in the
+    // modal passes force=true to bypass the cache — that's the (metered) path.
+    const CACHE_KEY = 'linkedInAnalysisCache';
+    const MAX_ENTRIES = 20;
+    const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+    // Get the profile URL that keys this cache entry. Strip query + hash so
+    // /in/foo/ and /in/foo/?tracking=x hit the same cache entry.
+    let cacheKeyUrl: string | null = null;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab?.url) {
+        try {
+          const u = new URL(tab.url);
+          if (/linkedin\.com\/in\//i.test(tab.url)) {
+            cacheKeyUrl = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+          }
+        } catch {
+          /* fallthrough — no cache key */
+        }
+      }
+    } catch {
+      /* fallthrough */
+    }
+
+    // Cache HIT path — instant load, no AI call.
+    if (!force && cacheKeyUrl) {
+      try {
+        const { [CACHE_KEY]: cache = {} } = await chrome.storage.local.get(CACHE_KEY);
+        const hit = cache?.[cacheKeyUrl];
+        if (hit?.analysis && hit?.cachedAt && Date.now() - hit.cachedAt < TTL_MS) {
+          setLinkedInAnalysis(hit.analysis as LinkedInProfileAnalysis);
+          setLinkedInTargetTitle(hit.targetTitle);
+          setLinkedInCachedAt(hit.cachedAt);
+          setLinkedInLoading(false);
+          return;
+        }
+      } catch {
+        /* fallthrough — cache read failed, run fresh */
+      }
+    }
+
+    // Cache MISS or forced refresh — call the AI.
+    setLinkedInLoading(true);
+    setLinkedInCachedAt(null);
     try {
       const targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
       const resp = await chrome.runtime.sendMessage({
@@ -410,8 +457,32 @@ export const SidePanel: React.FC = () => {
         data: { targetTitle },
       });
       if (resp?.success && resp.analysis) {
-        setLinkedInAnalysis(resp.analysis as LinkedInProfileAnalysis);
-        setLinkedInTargetTitle(resp.targetTitle || targetTitle);
+        const analysis = resp.analysis as LinkedInProfileAnalysis;
+        const resolvedTitle = resp.targetTitle || targetTitle;
+        const cachedAt = Date.now();
+        setLinkedInAnalysis(analysis);
+        setLinkedInTargetTitle(resolvedTitle);
+        setLinkedInCachedAt(cachedAt);
+
+        // Persist to cache (eviction: keep newest MAX_ENTRIES by cachedAt).
+        if (cacheKeyUrl) {
+          try {
+            const { [CACHE_KEY]: cache = {} } = await chrome.storage.local.get(CACHE_KEY);
+            const next: Record<string, any> = { ...cache };
+            next[cacheKeyUrl] = { analysis, targetTitle: resolvedTitle, cachedAt };
+            const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
+            if (entries.length > MAX_ENTRIES) {
+              entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
+              const trimmed: Record<string, any> = {};
+              entries.slice(0, MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
+              await chrome.storage.local.set({ [CACHE_KEY]: trimmed });
+            } else {
+              await chrome.storage.local.set({ [CACHE_KEY]: next });
+            }
+          } catch {
+            /* non-fatal — result is still shown, just not cached */
+          }
+        }
       } else {
         setLinkedInAnalysis(null);
         setLinkedInError(resp?.error || 'Could not analyze this profile');
@@ -925,7 +996,8 @@ export const SidePanel: React.FC = () => {
         analysis={linkedInAnalysis}
         error={linkedInError}
         targetTitle={linkedInTargetTitle}
-        onRefresh={handleAnalyzeLinkedIn}
+        cachedAt={linkedInCachedAt}
+        onRefresh={() => handleAnalyzeLinkedIn(true)}
         onNotification={showNotification}
       />
       

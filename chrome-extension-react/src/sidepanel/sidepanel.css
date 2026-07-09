@@ -3840,6 +3840,26 @@ html, body, #root {
   opacity: 0.75;
 }
 
+/* "Analyzed X ago · cached" pill in the modal header — shown when the current
+   analysis was served from cache instead of a fresh AI call. */
+.li-cached-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 999px;
+}
+.li-cached-pill svg {
+  width: 11px;
+  height: 11px;
+}
+
 /* Loading state */
 .li-loading {
   display: flex;

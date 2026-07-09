@@ -8,6 +8,9 @@ interface LinkedInAnalyzerModalProps {
   analysis: LinkedInProfileAnalysis | null;
   error?: string | null;
   targetTitle?: string;
+  /** ms timestamp when the current `analysis` was produced (or loaded from
+   *  cache). Drives the "Analyzed X ago · cached" indicator. */
+  cachedAt?: number | null;
   onRefresh: () => void;
   /** Toast callback — plumbed from SidePanel so this modal can surface status
    *  after copy / open-on-LinkedIn actions. */
@@ -37,6 +40,21 @@ const sectionKeyFor = (name: string): LinkedInSectionKey | null => {
   if (n.includes('skill')) return 'skills';
   if (n.includes('featured')) return 'featured';
   return null;
+};
+
+/** Human-readable "X ago" for a ms timestamp. */
+const formatAgo = (ts: number): string => {
+  const diffMs = Date.now() - ts;
+  if (diffMs < 0) return 'just now';
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return `${Math.floor(d / 7)}w ago`;
 };
 
 /** Circular score gauge — SVG ring with the score in the middle. */
@@ -105,6 +123,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
   analysis,
   error,
   targetTitle,
+  cachedAt,
   onRefresh,
   onNotification,
 }) => {
@@ -196,6 +215,18 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
               <p className="li-subhead">
                 Recruiter's-eye view{targetTitle ? ` · target: ${targetTitle}` : ''}
               </p>
+              {!loading && analysis && cachedAt && (
+                <span className="li-cached-pill" title="Cached result — Re-analyze to spend a credit and refresh">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path
+                      d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Analyzed {formatAgo(cachedAt)} · cached
+                </span>
+              )}
             </div>
           </div>
           <button className="btn-icon modal-close" onClick={onClose} aria-label="Close">
@@ -382,8 +413,28 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
         </div>
 
         <div className="modal-footer">
-          <button className="btn secondary small" onClick={onRefresh} disabled={loading}>
-            {loading ? 'Analyzing…' : 'Re-analyze'}
+          <button
+            className="btn secondary small"
+            onClick={() => {
+              // If the user is looking at a cached analysis, confirm before
+              // burning a fresh AI credit. First-run (no analysis yet) or the
+              // error retry path just re-runs without a prompt.
+              if (analysis && cachedAt) {
+                const ok = window.confirm(
+                  'Re-analyze this profile? This will use one AI credit and replace the cached result.',
+                );
+                if (!ok) return;
+              }
+              onRefresh();
+            }}
+            disabled={loading}
+            title={
+              analysis && cachedAt
+                ? 'Re-analyze — uses one AI credit'
+                : 'Run analysis'
+            }
+          >
+            {loading ? 'Analyzing…' : analysis && cachedAt ? 'Re-analyze (uses 1 credit)' : 'Re-analyze'}
           </button>
           <button className="btn primary small" onClick={onClose}>
             Done
