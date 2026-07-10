@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, CircularProgress } from '@mui/material';
+import { Box, Button, CircularProgress } from '@mui/material';
+import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import { authAPI } from '@/services/api';
 
 // Callback route that the LinkedIn OAuth popup redirects to. Must match
@@ -9,16 +10,25 @@ const CALLBACK_PATH = '/auth/linkedin/callback';
 const OAUTH_STATE_KEY = 'profileai_linkedin_auth_state';
 const POPUP_MESSAGE_TYPE = 'profileai:linkedin-oauth';
 
-// Official LinkedIn "in" glyph on the app's brand blue tile — matches the
-// visual treatment used elsewhere (LinkedInImportModal, resume tailoring).
+// LinkedIn brand glyph — white "in" tile matching the treatment used in
+// LinkedInImportModal (blue-on-white square, 20px). Kept in its own Box so
+// the tile shape reads correctly against the blue button background.
 const LinkedInLogo = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-    <rect width="24" height="24" rx="3" fill="#ffffff" />
-    <path
-      fill="#0a66c2"
-      d="M6.94 8.5A2.44 2.44 0 1 1 6.94 3.62a2.44 2.44 0 0 1 0 4.88ZM4.9 20.38V9.75h4.08v10.63H4.9Zm6.13-10.63h3.92v1.46h.06a4.3 4.3 0 0 1 3.87-2.13c4.14 0 4.9 2.73 4.9 6.28v5.02h-4.08v-4.45c0-1.06-.02-2.42-1.47-2.42-1.47 0-1.7 1.15-1.7 2.34v4.53h-4.08V9.75Z"
-    />
-  </svg>
+  <Box
+    sx={{
+      width: 20,
+      height: 20,
+      borderRadius: '3px',
+      backgroundColor: '#ffffff',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    }}
+    aria-hidden="true"
+  >
+    <LinkedInIcon sx={{ fontSize: 18, color: '#0a66c2' }} />
+  </Box>
 );
 
 /**

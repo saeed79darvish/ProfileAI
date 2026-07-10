@@ -5221,3 +5221,626 @@ function setupFloatingWidget() {
 // } else {
 //   try { setupFloatingWidget(); } catch (e) { console.warn('[ProfileAI] floating widget setup failed', e); }
 // }
+
+// =============================================================================
+// LinkedIn INLINE AI EDITOR — injects ✨ AI buttons into LinkedIn's own edit
+// modals (Edit intro / Edit about / Edit experience / Edit skill / …). Click
+// opens a popover with preset actions + a free-form prompt. Insert writes the
+// AI text back into the LinkedIn field via our fillInput helper (which uses
+// the native setter so React's controlled-input shim doesn't swallow it).
+// =============================================================================
+
+const LI_INLINE_STYLE_ID = 'profileai-li-inline-styles';
+const LI_INLINE_BTN_CLASS = 'profileai-li-ai-btn';
+const LI_INLINE_POP_CLASS = 'profileai-li-ai-pop';
+const LI_INLINE_BTN_ATTR = 'data-profileai-li-btn';
+const LI_INLINE_FIELD_ATTR = 'data-profileai-li-field';
+
+// Weak map: field element → injected AI button. Lets us find/replace/cleanup.
+const liInlineButtons = new WeakMap<HTMLElement, HTMLButtonElement>();
+
+/** Runtime-context guard — same reason as elsewhere in this file. When the
+ *  extension reloads, existing content scripts keep firing observers and their
+ *  chrome.* calls throw "Extension context invalidated". */
+function liExtAlive(): boolean {
+  try {
+    return !!(chrome && chrome.runtime && chrome.runtime.id);
+  } catch { return false; }
+}
+
+function ensureLiInlineStyles() {
+  if (document.getElementById(LI_INLINE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = LI_INLINE_STYLE_ID;
+  style.textContent = `
+    .${LI_INLINE_BTN_CLASS} {
+      position: absolute;
+      z-index: 2000;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+      font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+      transition: transform 100ms ease, box-shadow 100ms ease, filter 100ms ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .${LI_INLINE_BTN_CLASS}:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.5);
+      filter: brightness(1.05);
+    }
+    .${LI_INLINE_BTN_CLASS}:active {
+      transform: translateY(0);
+    }
+    .${LI_INLINE_BTN_CLASS}[disabled] { opacity: 0.7; cursor: progress; }
+    .${LI_INLINE_BTN_CLASS} .pai-sparkle { font-size: 12px; }
+
+    /* Popover — anchored below/above the ✨ button */
+    .${LI_INLINE_POP_CLASS} {
+      position: absolute;
+      z-index: 2001;
+      width: 380px;
+      max-width: calc(100vw - 24px);
+      background: #14141c;
+      color: #ececf1;
+      border: 1px solid rgba(124, 58, 237, 0.45);
+      border-radius: 12px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
+      padding: 12px;
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      animation: pai-pop-in 140ms cubic-bezier(0.2, 0.9, 0.3, 1);
+    }
+    @keyframes pai-pop-in {
+      from { opacity: 0; transform: translateY(4px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .${LI_INLINE_POP_CLASS} .pai-pop-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-pop-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      opacity: 0.65;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-pop-close {
+      background: transparent;
+      border: none;
+      color: #ececf1;
+      opacity: 0.6;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font: inherit;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-pop-close:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+
+    .${LI_INLINE_POP_CLASS} .pai-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-action {
+      padding: 6px 8px;
+      font: 500 11.5px/1.2 inherit;
+      color: #ececf1;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: background 100ms ease, border-color 100ms ease;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-action:hover {
+      background: rgba(124, 58, 237, 0.15);
+      border-color: rgba(124, 58, 237, 0.5);
+    }
+    .${LI_INLINE_POP_CLASS} .pai-prompt-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-prompt {
+      flex: 1;
+      padding: 7px 10px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: #ececf1;
+      font: 500 12.5px/1.35 inherit;
+      outline: none;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-prompt:focus {
+      border-color: rgba(124, 58, 237, 0.7);
+      box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+    }
+    .${LI_INLINE_POP_CLASS} .pai-send {
+      padding: 7px 12px;
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border-radius: 6px;
+      font: 600 12px/1.2 inherit;
+      cursor: pointer;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-send:hover { filter: brightness(1.08); }
+    .${LI_INLINE_POP_CLASS} .pai-send[disabled] { opacity: 0.6; cursor: progress; }
+
+    .${LI_INLINE_POP_CLASS} .pai-result {
+      background: rgba(124, 58, 237, 0.07);
+      border: 1px solid rgba(124, 58, 237, 0.3);
+      border-radius: 8px;
+      padding: 10px 12px;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-size: 12.5px;
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      color: #c4b5fd;
+      font-size: 12px;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(124, 58, 237, 0.25);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: pai-spin 0.7s linear infinite;
+    }
+    @keyframes pai-spin { to { transform: rotate(360deg); } }
+    .${LI_INLINE_POP_CLASS} .pai-err {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .${LI_INLINE_POP_CLASS} .pai-result-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-btn {
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #ececf1;
+      border-radius: 6px;
+      font: 600 11.5px/1.2 inherit;
+      cursor: pointer;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-btn:hover { background: rgba(255, 255, 255, 0.09); }
+    .${LI_INLINE_POP_CLASS} .pai-btn.primary {
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+    .${LI_INLINE_POP_CLASS} .pai-btn.primary:hover { filter: brightness(1.08); }
+  `;
+  document.head.appendChild(style);
+}
+
+/** Best-guess field kind so the backend applies the right constraints. */
+function liInferFieldKind(field: HTMLElement, label: string): string {
+  const lbl = label.toLowerCase();
+  if (lbl.includes('headline') || lbl.includes('title')) return 'headline';
+  if (lbl.includes('about') || lbl === 'summary') return 'about';
+  if (lbl.includes('description')) return 'experience';
+  if (lbl.includes('skill')) return 'skill';
+  // Fallback by max length / element type.
+  if (field.tagName === 'TEXTAREA') return 'about';
+  if (field instanceof HTMLInputElement) {
+    const ml = field.maxLength;
+    if (ml > 0 && ml <= 220) return 'headline';
+  }
+  return 'text';
+}
+
+/** Human-readable label for the field (used in popover header). */
+function liGetFieldLabel(field: HTMLElement): string {
+  // First try the associated <label for="…">
+  if (field.id) {
+    const explicit = document.querySelector(`label[for="${CSS.escape(field.id)}"]`);
+    const t = (explicit?.textContent || '').replace(/\*$/, '').trim();
+    if (t) return t;
+  }
+  // aria-label / placeholder / preceding label sibling
+  const aria = field.getAttribute('aria-label');
+  if (aria && aria.trim()) return aria.trim();
+  const ancestor = field.closest('label');
+  if (ancestor) {
+    const clone = ancestor.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('input, textarea, select').forEach((el) => el.remove());
+    const t = (clone.textContent || '').replace(/\*$/, '').trim();
+    if (t) return t;
+  }
+  // LinkedIn form-field wrapper pattern
+  const wrapper = field.closest('.artdeco-text-input') || field.closest('[class*="text-input"]');
+  if (wrapper) {
+    const lbl = wrapper.querySelector('label, .artdeco-text-input__label, [class*="Label"]');
+    const t = (lbl?.textContent || '').replace(/\*$/, '').trim();
+    if (t) return t;
+  }
+  const ph = (field as HTMLInputElement).placeholder;
+  return (ph && ph.trim()) || 'Field';
+}
+
+/** Filter: field is worth an AI button? */
+function liIsEligibleField(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.hasAttribute('readonly') || (el as HTMLInputElement).disabled) return false;
+  const cs = window.getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+
+  // Textareas: always eligible (About, Description, Summary, etc.)
+  if (el instanceof HTMLTextAreaElement) return true;
+
+  // Text inputs: only if there's enough room for a rewrite (skip Month, Year,
+  // First name / Last name, etc.). LinkedIn's headline caps at 220. About caps
+  // at 2600. We require maxLength >= 60 OR no cap.
+  if (el instanceof HTMLInputElement) {
+    if (el.type !== 'text') return false;
+    const ml = el.maxLength;
+    if (ml === -1 || ml === 0 || ml >= 60) {
+      // Skip clearly-not-writeable inputs by label (e.g. Company, School, Year).
+      const label = liGetFieldLabel(el).toLowerCase();
+      if (/^year|^month|^company|^school|^organization|^employment type/.test(label)) return false;
+      return true;
+    }
+    return false;
+  }
+
+  // Rich-text quill editor — LinkedIn uses .ql-editor for some fields.
+  if (el.classList.contains('ql-editor') || el.getAttribute('contenteditable') === 'true') {
+    return true;
+  }
+
+  return false;
+}
+
+/** Anchor the ✨ button relative to the field's top-right corner. */
+function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
+  const rect = field.getBoundingClientRect();
+  // We use position:absolute in document space so scrolling the LinkedIn
+  // modal keeps the button anchored (LinkedIn modals scroll internally).
+  const top = window.scrollY + rect.top - 24; // just above the field
+  const right = window.scrollX + rect.right;
+  btn.style.top = `${Math.max(top, window.scrollY + 4)}px`;
+  btn.style.left = `${Math.max(right - btn.offsetWidth || right - 60, window.scrollX + 4)}px`;
+}
+
+/** Attach a ✨ AI button anchored to the field. Idempotent. */
+function liEnsureButtonFor(field: HTMLElement) {
+  if (!liIsEligibleField(field)) return;
+  if (liInlineButtons.has(field)) {
+    liPositionInlineBtn(liInlineButtons.get(field)!, field);
+    return;
+  }
+  ensureLiInlineStyles();
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = LI_INLINE_BTN_CLASS;
+  btn.setAttribute(LI_INLINE_BTN_ATTR, 'true');
+  btn.innerHTML = `<span class="pai-sparkle">✨</span><span>AI</span>`;
+  btn.title = 'Edit with ProfilleAI';
+  btn.addEventListener('mousedown', (e) => {
+    // Prevent stealing focus from the field so its context stays intact.
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void liOpenInlinePopover(field, btn);
+  });
+  document.body.appendChild(btn);
+  field.setAttribute(LI_INLINE_FIELD_ATTR, 'attached');
+  liInlineButtons.set(field, btn);
+  // Position after append (needs offsetWidth).
+  liPositionInlineBtn(btn, field);
+}
+
+/** Remove ✨ buttons whose fields are no longer in the DOM (modal closed). */
+function liCleanupOrphanButtons() {
+  document.querySelectorAll<HTMLButtonElement>(`.${LI_INLINE_BTN_CLASS}`).forEach((btn) => {
+    // Buttons live in document.body; their target lives in the modal. We use
+    // the WeakMap fallback: if the modal is gone, the target is detached too.
+    // Cheap check: any element with LI_INLINE_FIELD_ATTR still on-screen?
+    // If none, drop all buttons.
+  });
+  // Cheap global check: if no LinkedIn edit modal is open, remove all buttons.
+  if (!liGetOpenEditModal()) {
+    document.querySelectorAll(`.${LI_INLINE_BTN_CLASS}`).forEach((b) => b.remove());
+    document.querySelectorAll(`.${LI_INLINE_POP_CLASS}`).forEach((p) => p.remove());
+  }
+}
+
+/** Is LinkedIn's edit modal open right now? */
+function liGetOpenEditModal(): HTMLElement | null {
+  // LinkedIn uses .artdeco-modal for these dialogs. Distinguish edit vs.
+  // read-only modals by looking for form inputs inside.
+  const modals = document.querySelectorAll<HTMLElement>('.artdeco-modal, [role="dialog"]');
+  for (const m of Array.from(modals)) {
+    if (m.querySelector('input:not([type="hidden"]), textarea, .ql-editor')) {
+      return m;
+    }
+  }
+  return null;
+}
+
+/** Scan the given root for eligible fields and inject buttons. */
+function liInjectAll(root: ParentNode) {
+  if (!liExtAlive()) return;
+  const fields = root.querySelectorAll<HTMLElement>('textarea, input[type="text"], .ql-editor, [contenteditable="true"]');
+  fields.forEach((f) => {
+    try { liEnsureButtonFor(f); } catch { /* skip */ }
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Popover — action row + free-form prompt + result with Insert/Copy/Regenerate
+// -----------------------------------------------------------------------------
+
+async function liOpenInlinePopover(field: HTMLElement, anchor: HTMLButtonElement) {
+  // Close any open popover first.
+  document.querySelectorAll(`.${LI_INLINE_POP_CLASS}`).forEach((p) => p.remove());
+
+  const label = liGetFieldLabel(field);
+  const fieldKind = liInferFieldKind(field, label);
+
+  const pop = document.createElement('div');
+  pop.className = LI_INLINE_POP_CLASS;
+  pop.innerHTML = `
+    <div class="pai-pop-head">
+      <span class="pai-pop-title">✨ AI edit · ${label.slice(0, 40)}</span>
+      <button type="button" class="pai-pop-close" aria-label="Close">✕</button>
+    </div>
+    <div class="pai-actions">
+      <button type="button" class="pai-action" data-action="improve">Improve</button>
+      <button type="button" class="pai-action" data-action="shorten">Shorten</button>
+      <button type="button" class="pai-action" data-action="expand">Expand</button>
+      <button type="button" class="pai-action" data-action="grammar">Fix grammar</button>
+      <button type="button" class="pai-action" data-action="keywords">Add keywords</button>
+      <button type="button" class="pai-action" data-action="first_person">First-person</button>
+    </div>
+    <div class="pai-prompt-row">
+      <input type="text" class="pai-prompt" placeholder="Or ask AI to edit this…" maxlength="600" />
+      <button type="button" class="pai-send">Send</button>
+    </div>
+    <div class="pai-body"></div>
+  `;
+  document.body.appendChild(pop);
+
+  // Position popover under the field (fall back to above if it'd clip the viewport bottom).
+  const fieldRect = field.getBoundingClientRect();
+  const belowTop = window.scrollY + fieldRect.bottom + 8;
+  const overflowsBelow = fieldRect.bottom + 260 > window.innerHeight;
+  const top = overflowsBelow
+    ? Math.max(window.scrollY + fieldRect.top - pop.offsetHeight - 8, window.scrollY + 8)
+    : belowTop;
+  const left = window.scrollX + Math.max(fieldRect.left, 8);
+  pop.style.top = `${top}px`;
+  pop.style.left = `${Math.min(left, window.scrollX + window.innerWidth - pop.offsetWidth - 8)}px`;
+
+  const bodyEl = pop.querySelector('.pai-body') as HTMLElement;
+  const promptInput = pop.querySelector('.pai-prompt') as HTMLInputElement;
+  const sendBtn = pop.querySelector('.pai-send') as HTMLButtonElement;
+
+  const closePop = () => {
+    pop.remove();
+    document.removeEventListener('mousedown', outsideClose, true);
+  };
+  const outsideClose = (e: MouseEvent) => {
+    const t = e.target as Node;
+    if (!pop.contains(t) && !anchor.contains(t) && t !== field) closePop();
+  };
+  document.addEventListener('mousedown', outsideClose, true);
+  pop.querySelector('.pai-pop-close')?.addEventListener('click', closePop);
+
+  const readFieldText = (): string => {
+    if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) return field.value || '';
+    return (field.textContent || '').trim();
+  };
+
+  const writeFieldText = (text: string) => {
+    if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) {
+      fillInput(field, text);
+      return;
+    }
+    // contenteditable / .ql-editor
+    field.focus();
+    if (field.classList.contains('ql-editor')) {
+      // Quill: replace children with paragraph nodes so it renders correctly.
+      field.innerHTML = '';
+      const paras = text.split(/\n{2,}/);
+      for (const p of paras) {
+        const pEl = document.createElement('p');
+        pEl.textContent = p;
+        field.appendChild(pEl);
+      }
+    } else {
+      field.innerText = text;
+    }
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+    (field as HTMLElement).style.boxShadow = '0 0 0 2px rgba(34, 197, 94, 0.5)';
+    setTimeout(() => { (field as HTMLElement).style.boxShadow = ''; }, 1800);
+  };
+
+  const runRewrite = async (action: string, customPrompt?: string) => {
+    if (!liExtAlive()) {
+      bodyEl.innerHTML = `<div class="pai-err">Extension needs a reload — please refresh this page.</div>`;
+      return;
+    }
+    const text = readFieldText();
+    bodyEl.innerHTML = `<div class="pai-loading"><div class="pai-spinner"></div><span>ProfilleAI is drafting…</span></div>`;
+    sendBtn.setAttribute('disabled', 'true');
+    anchor.setAttribute('disabled', 'true');
+
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'REWRITE_FIELD',
+        data: { text, action, customPrompt, fieldKind },
+      });
+      if (!resp?.success) {
+        bodyEl.innerHTML = `<div class="pai-err">${(resp?.error || 'Rewrite failed.').replace(/</g, '&lt;')}</div>`;
+        return;
+      }
+      const answer: string = resp.text || '';
+      renderResult(answer);
+    } catch (err) {
+      const msg = (err as Error)?.message || 'Something went wrong.';
+      bodyEl.innerHTML = `<div class="pai-err">${msg.replace(/</g, '&lt;')}</div>`;
+    } finally {
+      sendBtn.removeAttribute('disabled');
+      anchor.removeAttribute('disabled');
+    }
+  };
+
+  const renderResult = (answer: string) => {
+    const safe = answer.replace(/</g, '&lt;');
+    bodyEl.innerHTML = `
+      <div class="pai-result">${safe}</div>
+      <div class="pai-result-actions">
+        <button type="button" class="pai-btn" data-a="regen">Regenerate</button>
+        <button type="button" class="pai-btn" data-a="copy">Copy</button>
+        <button type="button" class="pai-btn primary" data-a="insert">Insert</button>
+      </div>
+    `;
+    bodyEl.querySelector('[data-a="insert"]')?.addEventListener('click', () => {
+      writeFieldText(answer);
+      closePop();
+    });
+    bodyEl.querySelector('[data-a="copy"]')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(answer);
+        const btn = bodyEl.querySelector('[data-a="copy"]') as HTMLButtonElement;
+        const prev = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = prev || 'Copy'; }, 1400);
+      } catch { /* ignore */ }
+    });
+    bodyEl.querySelector('[data-a="regen"]')?.addEventListener('click', () => {
+      // Regenerate uses the last preset action, or 'improve' as a fallback.
+      const last = pop.getAttribute('data-last-action') || 'improve';
+      const lastPrompt = pop.getAttribute('data-last-prompt') || undefined;
+      void runRewrite(last, lastPrompt || undefined);
+    });
+  };
+
+  // Wire preset actions
+  pop.querySelectorAll<HTMLButtonElement>('.pai-action').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action || 'improve';
+      pop.setAttribute('data-last-action', action);
+      pop.removeAttribute('data-last-prompt');
+      void runRewrite(action);
+    });
+  });
+
+  // Wire free-form prompt
+  const submitPrompt = () => {
+    const p = promptInput.value.trim();
+    if (!p) { promptInput.focus(); return; }
+    pop.setAttribute('data-last-action', 'custom');
+    pop.setAttribute('data-last-prompt', p);
+    void runRewrite('custom', p);
+  };
+  sendBtn.addEventListener('click', submitPrompt);
+  promptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitPrompt();
+    }
+  });
+
+  // Focus the prompt so users can just start typing.
+  setTimeout(() => promptInput.focus(), 30);
+}
+
+// -----------------------------------------------------------------------------
+// Setup — MutationObserver on document.body watching for LinkedIn edit modals,
+// plus focus-in handler as a safety net.
+// -----------------------------------------------------------------------------
+
+let liInlineInitialized = false;
+
+function liSetupInlineEditor() {
+  if (liInlineInitialized) return;
+  if (!/linkedin\.com\//i.test(window.location.href)) return;
+  liInlineInitialized = true;
+
+  // Initial scan (in case a modal was already open when the script loaded).
+  const modal = liGetOpenEditModal();
+  if (modal) liInjectAll(modal);
+
+  // Debounced scanner — coalesce rapid mutations from LinkedIn's React tree.
+  let scanTimer: number | null = null;
+  const scheduleScan = () => {
+    if (scanTimer) return;
+    scanTimer = window.setTimeout(() => {
+      scanTimer = null;
+      try {
+        const m = liGetOpenEditModal();
+        if (m) liInjectAll(m);
+        liCleanupOrphanButtons();
+      } catch { /* ignore */ }
+    }, 120);
+  };
+
+  const observer = new MutationObserver(() => {
+    if (!liExtAlive()) { observer.disconnect(); return; }
+    scheduleScan();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Reposition anchored buttons on scroll/resize inside the modal.
+  const reposition = () => {
+    document.querySelectorAll<HTMLElement>(`[${LI_INLINE_FIELD_ATTR}]`).forEach((f) => {
+      const btn = liInlineButtons.get(f);
+      if (btn && document.contains(f)) liPositionInlineBtn(btn, f);
+    });
+  };
+  window.addEventListener('scroll', reposition, true);
+  window.addEventListener('resize', reposition);
+
+  // Cleanup buttons on ESC (LinkedIn closes the modal on ESC).
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setTimeout(liCleanupOrphanButtons, 120);
+  });
+
+  console.log('[ProfileAI] LinkedIn inline AI editor initialized');
+}
+
+// Kick off — only on LinkedIn.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    try { liSetupInlineEditor(); } catch (e) { console.warn('[ProfileAI] LI inline editor setup failed', e); }
+  });
+} else {
+  try { liSetupInlineEditor(); } catch (e) { console.warn('[ProfileAI] LI inline editor setup failed', e); }
+}
+

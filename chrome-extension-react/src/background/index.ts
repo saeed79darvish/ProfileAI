@@ -850,6 +850,19 @@ async function handleMessage(
         break;
       }
 
+      case 'REWRITE_FIELD': {
+        const data = (message.data || {}) as {
+          text: string;
+          action?: string;
+          customPrompt?: string;
+          fieldKind?: string;
+          targetTitle?: string;
+        };
+        const result = await rewriteField(data);
+        sendResponse(result);
+        break;
+      }
+
       default:
         sendResponse({ error: 'Unknown message type' });
     }
@@ -2693,6 +2706,68 @@ async function openLinkedInEditor(
   } catch (err) {
     console.error('[ProfileAI] openLinkedInEditor error', err);
     return { success: false, error: (err as Error).message || 'Could not open editor' };
+  }
+}
+
+/**
+ * Rewrite a single field's text via POST /api/profiles/rewrite-inline. Called
+ * from the content-script inline AI popover injected into LinkedIn's edit
+ * modals. We proxy through the background so the auth token stays in the
+ * service worker and doesn't have to be readable from every content-script
+ * frame.
+ *
+ * Returns the AI-rewritten text (or a friendly error) so the popover can
+ * render it with Insert / Copy / Regenerate actions.
+ */
+async function rewriteField(payload: {
+  text: string;
+  action?: string;
+  customPrompt?: string;
+  fieldKind?: string;
+  targetTitle?: string;
+}): Promise<{ success: boolean; text?: string; action?: string; error?: string }> {
+  if (!authToken) return { success: false, error: 'Please sign in to ProfileAI first.' };
+  try {
+    // Fallback: if the caller didn't send a targetTitle, use the user's saved
+    // profile title/headline so "keywords" mode has something to weight against.
+    let targetTitle = (payload.targetTitle || '').trim();
+    if (!targetTitle) {
+      if (!cachedProfile) {
+        try { await fetchProfile(); } catch { /* fallthrough */ }
+      }
+      if (cachedProfile) {
+        targetTitle = (cachedProfile.title || cachedProfile.headline || '').trim();
+      }
+    }
+
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/rewrite-inline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: payload.text || '',
+        action: payload.action,
+        customPrompt: payload.customPrompt,
+        fieldKind: payload.fieldKind,
+        targetTitle,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      return { success: false, error: err.error || `Server returned ${response.status}` };
+    }
+
+    const data = await response.json();
+    if (!data?.text) {
+      return { success: false, error: 'AI returned an empty response.' };
+    }
+    return { success: true, text: data.text, action: data.action };
+  } catch (err) {
+    console.error('[ProfileAI] rewriteField error', err);
+    return { success: false, error: (err as Error).message || 'Rewrite failed' };
   }
 }
 

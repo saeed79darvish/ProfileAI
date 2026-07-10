@@ -594,6 +594,118 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
   }
 });
 
+// @route   POST /api/profiles/rewrite-inline
+// @desc    Rewrite/improve/shorten/etc. a single field's text (or run a free-form
+//          custom prompt). Powers the "✨ AI" buttons the extension injects into
+//          LinkedIn edit modals (headline / about / experience description / skill).
+//          Metered under 'career_suggestions' — Haiku-priced, generous free-tier cap.
+// @access  Private
+router.post('/rewrite-inline', authMiddleware, aiRateLimiter('career_suggestions'), async (req, res) => {
+  try {
+    const { text, action, customPrompt, fieldKind, targetTitle } = req.body || {};
+
+    const source = typeof text === 'string' ? text.trim() : '';
+    const hasPrompt = typeof customPrompt === 'string' && customPrompt.trim().length > 0;
+    if (!source && !hasPrompt) {
+      return res.status(400).json({
+        error: 'Please add some text or type a specific instruction first.',
+      });
+    }
+
+    // Cap input length so a malicious client can't blow the token budget on a
+    // single request. LinkedIn's own About cap is 2,600 chars; we allow a bit
+    // more slack for other fields but still bound it.
+    const MAX_INPUT = 8000;
+    const boundedSource = source.length > MAX_INPUT ? source.slice(0, MAX_INPUT) : source;
+    const boundedPrompt = hasPrompt ? customPrompt.trim().slice(0, 600) : '';
+
+    const allowedActions = new Set([
+      'improve', 'shorten', 'expand', 'grammar', 'keywords', 'first_person', 'custom',
+    ]);
+    const act = allowedActions.has(action) ? action : (hasPrompt ? 'custom' : 'improve');
+
+    const kind = typeof fieldKind === 'string' ? fieldKind : 'text';
+    const title = (typeof targetTitle === 'string' ? targetTitle : '').trim();
+
+    // Field-kind guidance so the model respects LinkedIn's structural expectations.
+    // Headline: 220 chars max. About: 3–5 short paragraphs. Experience: bullets.
+    const kindGuidance = {
+      headline: 'Format: ONE line, max 220 characters. First-person or descriptor form. Front-load seniority + role + top 2–3 keywords. No trailing period.',
+      about: 'Format: 3–5 short paragraphs, first-person, under 2,000 characters total. First paragraph is an identity sentence.',
+      experience: 'Format: 3–6 short bullets, each starting with a plain action verb. One idea per bullet. Include a metric only if the source has one.',
+      summary: 'Format: 3–5 short paragraphs, first-person, keyword-rich but plain-English.',
+      skill: 'Format: A single short skill phrase (2–5 words). No sentences.',
+      text: 'Format: Match the length and shape of the input. Do not pad.',
+    };
+    const kindLine = kindGuidance[kind] || kindGuidance.text;
+
+    const actionLine = {
+      improve: 'Rewrite so it is sharper, more specific, and more compelling for a recruiter. Keep the meaning. Preserve every fact.',
+      shorten: 'Shorten while keeping the meaning and the strongest points. Cut filler ruthlessly.',
+      expand: 'Expand with concrete detail — but ONLY using facts present in the input. Do not invent metrics, technologies, employers, or dates.',
+      grammar: 'Fix grammar, punctuation, and awkward phrasing. Do NOT change the meaning, the facts, or the length by more than ~10%.',
+      keywords: title
+        ? `Rewrite so a recruiter searching LinkedIn for "${title}" would find this profile. Weave in the terms that title implies (tools, seniority signals, common domain phrases) — but only if they are supported by the input. Never invent skills.`
+        : 'Rewrite so it is more keyword-dense for LinkedIn Recruiter search — but only using terms supported by the input.',
+      first_person: 'Convert to natural first-person, past-tense where the work is complete, present-tense for ongoing responsibilities. Keep the facts intact.',
+      custom: hasPrompt
+        ? `Apply the following user instruction: """${boundedPrompt}""". Preserve every factual claim already in the input unless the user explicitly asks to change it.`
+        : 'Improve the text overall.',
+    }[act];
+
+    // Shared voice/tone guard — keeps rewrites out of the buzzword swamp.
+    const VOICE_AND_TONE = `VOICE & TONE — write like a real person, not a press release:
+- BANNED WORDS — never use any of these (or close synonyms): "results-driven", "results-oriented", "detail-oriented", "passionate", "dynamic", "visionary", "synergy", "leverage", "spearheaded", "orchestrated", "utilized", "proven track record", "go-getter", "self-starter", "thought leader", "rockstar", "ninja", "guru", "world-class", "best-in-class", "cutting-edge", "next-generation", "transformative", "disruptive", "game-changing", "seamlessly", "robust", "leveraging", "ecosystem", "synergize", "strategic vision", "extensive expertise", "demonstrated ability", "exceptional".
+- BANNED OPENERS for bullets: "Responsible for", "Worked on", "Helped with", "Was part of", "Tasked with", "Duties included".
+- Plain-English action verbs only. Concrete over abstract. No throat-clearing intros.
+- If a number/metric isn't in the source, do NOT invent one.`;
+
+    const prompt = `You are rewriting a single field of a LinkedIn profile inline. The user is editing the field in LinkedIn's own edit modal.
+
+TARGET TITLE (for keyword weighting): ${title || '(not specified)'}
+FIELD KIND: ${kind}
+${kindLine}
+
+ACTION: ${actionLine}
+
+${VOICE_AND_TONE}
+
+STRICT NO-INVENTION RULE: If a company, product, technology, certification, employer, employment date, or specific metric is not present in the INPUT below, you must not add it. Silence is better than a hallucination.
+
+INPUT:
+"""
+${boundedSource || "(the field is empty — write a first version consistent with the user's instruction and the target title)"}
+"""
+
+Return ONLY the rewritten field text. No explanations. No prefix. No quotes around the answer.`;
+
+    const rewritten = await aiService.generateText(prompt, {
+      maxTokens: (kind === 'about' || kind === 'summary') ? 1400 : (kind === 'headline' ? 240 : 900),
+      temperature: 0.55,
+    });
+
+    if (!rewritten) {
+      return res.status(500).json({ error: 'AI returned an empty response — please try again.' });
+    }
+
+    // Trim any surrounding quotes the model added despite the instruction.
+    let cleaned = rewritten.trim();
+    if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith('“') && cleaned.endsWith('”'))) {
+      cleaned = cleaned.slice(1, -1).trim();
+    }
+
+    await recordAIUsage(req.user.id, 'career_suggestions');
+
+    res.json({ success: true, text: cleaned, action: act });
+  } catch (error) {
+    console.error('Error in rewrite-inline:', error);
+    if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
+      return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
+    }
+    res.status(500).json({ error: error.message || 'Failed to rewrite the field.' });
+  }
+});
+
 // @route   POST /api/profiles/tailor-for-job
 // @desc    Tailor profile for a specific job description
 // @access  Private

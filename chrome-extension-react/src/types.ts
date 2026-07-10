@@ -121,7 +121,8 @@ export type MessageType =
   | 'INSERT_ANSWER'
   | 'ANALYZE_MATCH'
   | 'ANALYZE_LINKEDIN_PROFILE'
-  | 'OPEN_LINKEDIN_EDITOR';
+  | 'OPEN_LINKEDIN_EDITOR'
+  | 'REWRITE_FIELD';
 
 export interface DetectedQuestion {
   /** Stable ID generated in content script (hash of question + form path) */
