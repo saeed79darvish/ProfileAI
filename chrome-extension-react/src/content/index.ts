@@ -5661,6 +5661,25 @@ function liIsEligibleField(el: HTMLElement): boolean {
   return false;
 }
 
+/** Find the nearest ancestor <dialog> that's actually open. LinkedIn's newer
+ *  "sdui" edit panels (Edit about, etc.) use the native <dialog> element with
+ *  .showModal(), which promotes the dialog to the browser's "top layer" — a
+ *  compositing layer that always paints ABOVE the rest of the document,
+ *  regardless of z-index. Any element we append to document.body (outside
+ *  the dialog) stays in the NORMAL stacking context and renders BEHIND the
+ *  dialog no matter how high its z-index is. So our AI button/popover must be
+ *  appended INSIDE the open dialog to share its top-layer context. Falls back
+ *  to null (caller uses document.body) for LinkedIn's older non-<dialog>
+ *  modals. */
+function liFindDialogHost(field: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = field;
+  while (node) {
+    if (node.tagName === 'DIALOG' && (node as HTMLDialogElement).open) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 /** Anchor the ✨ button just BELOW the field, left-aligned with it — mirrors
  *  LinkedIn's own "Write with AI" pill placement in the Headline / About
  *  editors. Uses fixed positioning + reposition-on-scroll (elsewhere) so we
@@ -5703,7 +5722,13 @@ function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
 function liEnsureButtonFor(field: HTMLElement) {
   if (!liIsEligibleField(field)) return;
   if (liInlineButtons.has(field)) {
-    liPositionInlineBtn(liInlineButtons.get(field)!, field);
+    const existing = liInlineButtons.get(field)!;
+    // Re-parent if the correct host changed (e.g. the dialog closed and
+    // reopened as a new <dialog> instance) or the button somehow ended up
+    // detached from any host.
+    const desiredHost = liFindDialogHost(field) || document.body;
+    if (existing.parentElement !== desiredHost) desiredHost.appendChild(existing);
+    liPositionInlineBtn(existing, field);
     return;
   }
   ensureLiInlineStyles();
@@ -5735,7 +5760,7 @@ function liEnsureButtonFor(field: HTMLElement) {
     e.stopPropagation();
     void liOpenInlinePopover(field, btn);
   });
-  document.body.appendChild(btn);
+  (liFindDialogHost(field) || document.body).appendChild(btn);
   field.setAttribute(LI_INLINE_FIELD_ATTR, 'attached');
   liInlineButtons.set(field, btn);
   // Back-reference on the button so cleanup can find the field for THIS
@@ -5823,7 +5848,7 @@ async function liOpenInlinePopover(field: HTMLElement, anchor: HTMLButtonElement
     </div>
     <div class="pai-body"></div>
   `;
-  document.body.appendChild(pop);
+  (liFindDialogHost(field) || document.body).appendChild(pop);
 
   // Position popover in viewport coords (position: fixed). Below the field by
   // default; flip above if it would clip the viewport bottom.
