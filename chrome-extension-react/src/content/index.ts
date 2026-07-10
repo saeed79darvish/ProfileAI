@@ -158,6 +158,16 @@ async function init() {
 
   console.log('[ProfileAI] Initializing content script...');
 
+  // Sweep any DOM injected by a PREVIOUS extension load (different extension
+  // ID, e.g. after Chrome auto-updated us or the user reloaded the extension
+  // while a LinkedIn tab was open). Those orphans still hold references to
+  // chrome-extension://<old-id>/… URLs which Chrome now normalizes to
+  // chrome-extension://invalid/. Any request LinkedIn's Pemberly network layer
+  // or a React lazy-import fires on them produces the ERR_FAILED flood in the
+  // console (dozens per second). Removing them before we inject anything of
+  // our own puts the tab back to a clean state.
+  sweepOrphanedInjections();
+
   // Listen for auth broadcasts from web app
   listenForAuthBroadcast();
 
@@ -246,6 +256,68 @@ async function init() {
   console.log('[ProfileAI] Content script initialized', { isJobPage, isAuthenticated, url: window.location.href });
 }
 
+/** IDs we inject that we should sweep on init (in case a previous extension
+ *  load left them behind) and on context death (see heartbeat). Kept as a
+ *  single source of truth so we don't miss one. */
+const PROFILEAI_INJECTED_IDS = [
+  'profileai-overlay-container',
+  'profileai-backdrop',
+  'profileai-download-overlay',
+  'profileai-fab',
+  'profileai-fab-menu',
+  'profileai-inline-banner',
+  'profileai-li-topbtn',
+  'profileai-loading-modal',
+  'profileai-tailor-modal',
+  'profileai-styles',
+  'profileai-floating-styles',
+  'profileai-floating-answer-btn',
+  'profileai-floating-answer-popover',
+  'profileai-li-inline-styles',
+];
+const PROFILEAI_INJECTED_CLASSES = [
+  'profileai-li-ai-btn',
+  'profileai-li-ai-pop',
+  'profileai-notification',
+];
+
+/** Nuke any DOM this extension (or a previous extension ID's version of it)
+ *  left in the page. Called on init BEFORE we inject anything, so a stale
+ *  side panel iframe / FAB / etc. from a prior extension load can't keep
+ *  firing chrome-extension://invalid/ fetches from LinkedIn's autorun loop.
+ *  Also removes any iframe whose src points at a chrome-extension:// URL
+ *  that doesn't match our current runtime — that's the real culprit for the
+ *  console flood the user is seeing. */
+function sweepOrphanedInjections() {
+  let removed = 0;
+  try {
+    PROFILEAI_INJECTED_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) { el.remove(); removed++; }
+    });
+    PROFILEAI_INJECTED_CLASSES.forEach((cls) => {
+      document.querySelectorAll(`.${cls}`).forEach((n) => { n.remove(); removed++; });
+    });
+    // Belt-and-suspenders: any iframe pointing at chrome-extension://invalid/
+    // or at a DIFFERENT extension ID than ours. LinkedIn's Pemberly network
+    // layer keeps trying to prefetch these on requestIdleCallback → that's
+    // the ERR_FAILED flood.
+    let ownUrl = '';
+    try { ownUrl = chrome.runtime?.getURL?.('') || ''; } catch { /* ignore */ }
+    document.querySelectorAll<HTMLIFrameElement>('iframe[src^="chrome-extension://"]').forEach((frame) => {
+      const src = frame.src || '';
+      if (src.startsWith('chrome-extension://invalid/') || (ownUrl && !src.startsWith(ownUrl))) {
+        try { frame.remove(); removed++; } catch { /* ignore */ }
+      }
+    });
+    if (removed > 0) {
+      console.log(`[ProfileAI] Swept ${removed} orphaned injection(s) from a previous extension load`);
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Poll chrome.runtime.id every 3s. When it goes undefined the extension has
  *  been reloaded/uninstalled — remove all our injected DOM so stale iframes
  *  stop making chrome-extension://invalid requests. */
@@ -260,22 +332,10 @@ function startExtensionContextHeartbeat() {
       extHeartbeatTimer = null;
     }
     try {
-      // Side panel iframe overlay
-      document.getElementById('profileai-overlay-container')?.remove();
-      document.getElementById('profileai-backdrop')?.remove();
-      // Download modal overlay
-      document.getElementById('profileai-download-overlay')?.remove();
-      // Floating action button
-      document.getElementById('profileai-fab')?.remove();
-      document.getElementById('profileai-fab-menu')?.remove();
-      // Inline banner / top button
-      document.getElementById('profileai-inline-banner')?.remove();
-      document.getElementById('profileai-li-topbtn')?.remove();
-      // LinkedIn inline AI editor buttons + popovers
-      document.querySelectorAll('.profileai-li-ai-btn, .profileai-li-ai-pop').forEach((n) => n.remove());
-      // Loading modals
-      document.getElementById('profileai-loading-modal')?.remove();
-      document.getElementById('profileai-tailor-modal')?.remove();
+      PROFILEAI_INJECTED_IDS.forEach((id) => document.getElementById(id)?.remove());
+      PROFILEAI_INJECTED_CLASSES.forEach((cls) => {
+        document.querySelectorAll(`.${cls}`).forEach((n) => n.remove());
+      });
       console.log('[ProfileAI] Extension context invalidated — cleaned up injected DOM');
     } catch {
       /* best-effort */
