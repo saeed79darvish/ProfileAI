@@ -233,7 +233,54 @@ async function init() {
     watchForLinkedInJobContent();
   }
   
+  // Heartbeat: when the extension is reloaded/updated, this content script and
+  // any iframes it injected (side panel overlay, download overlay, LinkedIn
+  // inline AI popover, etc.) become orphaned. They keep running their old JS
+  // bundle whose chrome.runtime.getURL() calls now resolve to
+  // chrome-extension://invalid/ — that's what generates the 20/sec
+  // "GET chrome-extension://invalid/ net::ERR_FAILED" flood the user saw.
+  // Detect the dead context and rip out everything we injected so the tab
+  // goes quiet immediately, without needing a manual page reload.
+  startExtensionContextHeartbeat();
+
   console.log('[ProfileAI] Content script initialized', { isJobPage, isAuthenticated, url: window.location.href });
+}
+
+/** Poll chrome.runtime.id every 3s. When it goes undefined the extension has
+ *  been reloaded/uninstalled — remove all our injected DOM so stale iframes
+ *  stop making chrome-extension://invalid requests. */
+let extHeartbeatTimer: number | null = null;
+function startExtensionContextHeartbeat() {
+  if (extHeartbeatTimer != null) return;
+  extHeartbeatTimer = window.setInterval(() => {
+    if (extAlive()) return;
+    // Context is dead — clean up and stop the heartbeat.
+    if (extHeartbeatTimer != null) {
+      clearInterval(extHeartbeatTimer);
+      extHeartbeatTimer = null;
+    }
+    try {
+      // Side panel iframe overlay
+      document.getElementById('profileai-overlay-container')?.remove();
+      document.getElementById('profileai-backdrop')?.remove();
+      // Download modal overlay
+      document.getElementById('profileai-download-overlay')?.remove();
+      // Floating action button
+      document.getElementById('profileai-fab')?.remove();
+      document.getElementById('profileai-fab-menu')?.remove();
+      // Inline banner / top button
+      document.getElementById('profileai-inline-banner')?.remove();
+      document.getElementById('profileai-li-topbtn')?.remove();
+      // LinkedIn inline AI editor buttons + popovers
+      document.querySelectorAll('.profileai-li-ai-btn, .profileai-li-ai-pop').forEach((n) => n.remove());
+      // Loading modals
+      document.getElementById('profileai-loading-modal')?.remove();
+      document.getElementById('profileai-tailor-modal')?.remove();
+      console.log('[ProfileAI] Extension context invalidated — cleaned up injected DOM');
+    } catch {
+      /* best-effort */
+    }
+  }, 3000);
 }
 
 // Check auth silently without redirects
@@ -5571,33 +5618,42 @@ function liEnsureButtonFor(field: HTMLElement) {
   document.body.appendChild(btn);
   field.setAttribute(LI_INLINE_FIELD_ATTR, 'attached');
   liInlineButtons.set(field, btn);
+  // Back-reference on the button so cleanup can find the field for THIS
+  // button (WeakMap doesn't allow reverse lookup, and the field's marker
+  // attribute alone doesn't tell us which button belongs to which field).
+  (btn as any)._paiField = field;
   // Position after append (needs offsetWidth).
   liPositionInlineBtn(btn, field);
 }
 
-/** Remove ✨ buttons whose fields are no longer in the DOM (modal closed). */
+/** Remove ✨ buttons whose target field is no longer in the DOM (modal
+ *  closed, or React rerendered the field). Uses each button's back-reference
+ *  to its target field, so orphans get cleaned up precisely. */
 function liCleanupOrphanButtons() {
+  let liveFields = 0;
   document.querySelectorAll<HTMLButtonElement>(`.${LI_INLINE_BTN_CLASS}`).forEach((btn) => {
-    // Buttons live in document.body; their target lives in the modal. We use
-    // the WeakMap fallback: if the modal is gone, the target is detached too.
-    // Cheap check: any element with LI_INLINE_FIELD_ATTR still on-screen?
-    // If none, drop all buttons.
+    const field = (btn as any)._paiField as HTMLElement | undefined;
+    if (!field || !document.contains(field)) {
+      btn.remove();
+    } else {
+      liveFields++;
+    }
   });
-  // Cheap global check: if no LinkedIn edit modal is open, remove all buttons.
-  if (!liGetOpenEditModal()) {
-    document.querySelectorAll(`.${LI_INLINE_BTN_CLASS}`).forEach((b) => b.remove());
+  // If no live target fields remain, drop any open popover too.
+  if (liveFields === 0) {
     document.querySelectorAll(`.${LI_INLINE_POP_CLASS}`).forEach((p) => p.remove());
   }
 }
 
-/** Is LinkedIn's edit modal open right now? */
+/** Is LinkedIn's edit modal open right now? Falls back to a "sniff mode"
+ *  that just picks up any writable form fields on the page — LinkedIn keeps
+ *  A/B-testing container class names and the modal-detection query alone
+ *  misses some variants. Injecting buttons directly on the field is safe
+ *  because our field-eligibility filter already excludes tiny/short inputs. */
 function liGetOpenEditModal(): HTMLElement | null {
-  // LinkedIn uses .artdeco-modal for these dialogs. Distinguish edit vs.
-  // read-only modals by looking for form inputs inside. About & summary use
-  // contenteditable divs in some variants — include those so we don't miss
-  // the modal entirely.
+  // 1) Preferred: known artdeco / role=dialog containers with a writable field.
   const modals = document.querySelectorAll<HTMLElement>(
-    '.artdeco-modal, [role="dialog"]',
+    '.artdeco-modal, [role="dialog"], [aria-modal="true"]',
   );
   for (const m of Array.from(modals)) {
     if (m.querySelector(
@@ -5605,6 +5661,14 @@ function liGetOpenEditModal(): HTMLElement | null {
     )) {
       return m;
     }
+  }
+
+  // 2) Fallback: URL-based detection. LinkedIn edit modals live on paths like
+  //    /in/<slug>/edit/intro, /details/experience/edit/forms/<id>,
+  //    /edit/forms/summary/new. If the URL matches, use <body> as the scan
+  //    root so we still find fields even if the container class changed.
+  if (/linkedin\.com\/in\/[^/]+\/(edit|details\/.*\/edit)/i.test(window.location.href)) {
+    return document.body;
   }
   return null;
 }
