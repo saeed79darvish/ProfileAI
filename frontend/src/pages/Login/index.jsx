@@ -14,6 +14,7 @@ import {
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleAuthButton from '@/components/GoogleAuthButton';
+import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { authAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -156,6 +157,50 @@ const Login = () => {
     // inside handleGoogleSuccess.
   };
 
+  // LinkedIn OAuth — mirrors handleGoogleSuccess. The button handles the
+  // popup roundtrip and hands us back { code, redirectUri }; we exchange
+  // that for a session token via /api/auth/linkedin.
+  const handleLinkedInSuccess = async ({ code, redirectUri }) => {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await authAPI.linkedinLogin(code, redirectUri);
+      const { token, user } = response.data;
+      authDebug('linkedin sign-in response', {
+        role: user?.role,
+        emailVerified: user?.emailVerified,
+        hasProfile: user?.hasProfile,
+        redirectTarget
+      });
+      localStorage.setItem(STORAGE_KEY_TOKEN, token);
+      setToken(token);
+      setUser(user);
+      const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
+      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      authDebug('linkedin sign-in navigate', { dest, roleDest });
+      fromExtension
+        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
+        : navigate(dest, { replace: true });
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 404) {
+        setError(TEXT.ERROR_LINKEDIN_NO_ACCOUNT);
+      } else if (status === 503) {
+        setError(TEXT.ERROR_LINKEDIN_NOT_CONFIGURED);
+      } else if (status >= 500) {
+        setError(TEXT.ERROR_SERVER_UNAVAILABLE);
+      } else {
+        setError(err.response?.data?.error || TEXT.ERROR_LINKEDIN_LOGIN);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLinkedInError = (message) => {
+    if (message) setError(message);
+  };
+
   // --- Form submit ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -262,6 +307,12 @@ const Login = () => {
           loading={loading}
           onSuccess={(payload) => handleGoogleSuccess(payload)}
           onError={handleGoogleError}
+        />
+        <LinkedInAuthButton
+          label={TEXT.SIGN_IN_LINKEDIN}
+          loading={loading}
+          onSuccess={handleLinkedInSuccess}
+          onError={handleLinkedInError}
         />
       </Box>
 

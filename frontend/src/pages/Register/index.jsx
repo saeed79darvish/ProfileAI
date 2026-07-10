@@ -22,6 +22,7 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import PersonIcon from '@mui/icons-material/Person';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import GoogleAuthButton from '@/components/GoogleAuthButton';
+import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { authAPI, referralAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -182,6 +183,52 @@ const Register = () => {
     // Real failures surface from the API call in handleGoogleSuccess.
   };
 
+  // LinkedIn OAuth signup — mirrors handleGoogleSuccess but hits
+  // /api/auth/linkedin/register so the backend can create the User row
+  // with the currently selected role (currently only 'candidate' is
+  // selectable in the UI, but we pass it explicitly for future-proofing).
+  const handleLinkedInSuccess = async ({ code, redirectUri }) => {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await authAPI.linkedinRegister(code, redirectUri, formData.role);
+      const { token, user } = response.data;
+      authDebug('linkedin register response', {
+        role: user?.role,
+        emailVerified: user?.emailVerified,
+        hasProfile: user?.hasProfile
+      });
+      localStorage.setItem('token', token);
+      setToken(token);
+      setUser(user);
+      if (referrerId) {
+        try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
+      }
+      const dest = user?.emailVerified === false
+        ? '/check-email'
+        : user?.role === 'recruiter'
+          ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
+          : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
+      authDebug('linkedin register navigate', { dest });
+      fromExtension
+        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
+        : navigate(dest);
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 503) {
+        setError(TEXT.ERRORS.LINKEDIN_NOT_CONFIGURED);
+      } else {
+        setError(err.response?.data?.error || TEXT.ERRORS.LINKEDIN_FAILED);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLinkedInError = (message) => {
+    if (message) setError(message);
+  };
+
   // --- Form submit ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -278,6 +325,12 @@ const Register = () => {
           loading={loading}
           onSuccess={(payload) => handleGoogleSuccess(payload)}
           onError={handleGoogleError}
+        />
+        <LinkedInAuthButton
+          label={TEXT.LINKEDIN_BUTTON}
+          loading={loading}
+          onSuccess={handleLinkedInSuccess}
+          onError={handleLinkedInError}
         />
       </Box>
 
