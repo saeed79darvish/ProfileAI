@@ -17,7 +17,13 @@ const copyManifest = () => ({
     
     // Copy content.css
     copyFileSync('public/content.css', 'dist/content.css');
-    
+
+    // Copy the LinkedIn fetch/XHR shim (loaded as a MAIN-world content
+    // script at document_start — must be plain JS, no bundling).
+    if (existsSync('public/linkedin-shim.js')) {
+      copyFileSync('public/linkedin-shim.js', 'dist/linkedin-shim.js');
+    }
+
     // Copy icons
     if (!existsSync('dist/icons')) {
       mkdirSync('dist/icons', { recursive: true });
