@@ -5361,33 +5361,56 @@ function ensureLiInlineStyles() {
   style.id = LI_INLINE_STYLE_ID;
   style.textContent = `
     .${LI_INLINE_BTN_CLASS} {
+      /* Positioned by liPositionInlineBtn (fixed, below the field, left-aligned)
+         so we match LinkedIn's own "Write with AI" pill placement. */
       position: fixed;
       z-index: 2147483645; /* above LinkedIn's modal (they use ~1000-9999) */
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      padding: 3px 9px;
-      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      gap: 6px;
+      padding: 6px 14px 6px 12px;
+      /* LinkedIn-native pill: transparent bg + LinkedIn blue outline + text.
+         Uses transparent bg so it adapts to LinkedIn's light AND dark modes
+         without hardcoding a background colour that clashes. */
+      background: transparent;
+      color: #0a66c2; /* LinkedIn blue */
+      border: 1.5px solid #0a66c2;
       border-radius: 999px;
-      font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
-      transition: transform 100ms ease, box-shadow 100ms ease, filter 100ms ease;
+      transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
       user-select: none;
       white-space: nowrap;
+      /* Extra safety against modal clipping */
+      pointer-events: auto;
     }
     .${LI_INLINE_BTN_CLASS}:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.5);
-      filter: brightness(1.05);
+      background: rgba(10, 102, 194, 0.08);
+      box-shadow: 0 0 0 3px rgba(10, 102, 194, 0.08);
     }
     .${LI_INLINE_BTN_CLASS}:active {
-      transform: translateY(0);
+      background: rgba(10, 102, 194, 0.14);
     }
     .${LI_INLINE_BTN_CLASS}[disabled] { opacity: 0.7; cursor: progress; }
-    .${LI_INLINE_BTN_CLASS} .pai-sparkle { font-size: 12px; }
+    .${LI_INLINE_BTN_CLASS} .pai-sparkle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+    }
+    /* LinkedIn's dark mode: keep contrast readable. LI sets [data-theme="dark"]
+       on <html>; we lighten the accent colour for that theme. */
+    html[data-theme="dark"] .${LI_INLINE_BTN_CLASS},
+    html.theme--dark .${LI_INLINE_BTN_CLASS} {
+      color: #70b5f9;
+      border-color: #70b5f9;
+    }
+    html[data-theme="dark"] .${LI_INLINE_BTN_CLASS}:hover,
+    html.theme--dark .${LI_INLINE_BTN_CLASS}:hover {
+      background: rgba(112, 181, 249, 0.1);
+      box-shadow: 0 0 0 3px rgba(112, 181, 249, 0.08);
+    }
 
     /* Popover — anchored below/above the ✨ button */
     .${LI_INLINE_POP_CLASS} {
@@ -5628,10 +5651,12 @@ function liIsEligibleField(el: HTMLElement): boolean {
   return false;
 }
 
-/** Anchor the ✨ button at the field's top-right corner (slightly overlapping
- *  the inside so it's visible even if the field sits flush with the modal's
- *  header). Uses fixed positioning + hidden until measured to avoid a
- *  visible jump on the first frame. */
+/** Anchor the ✨ button just BELOW the field, left-aligned with it — mirrors
+ *  LinkedIn's own "Write with AI" pill placement in the Headline / About
+ *  editors. Uses fixed positioning + reposition-on-scroll (elsewhere) so we
+ *  don't have to mutate LinkedIn's DOM tree. Falls back to positioning ABOVE
+ *  the field when there isn't enough vertical space below (rare, but happens
+ *  with fields near the bottom of the modal). */
 function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
   const rect = field.getBoundingClientRect();
   // Off-screen zero-size fields (LinkedIn briefly renders these during React
@@ -5641,14 +5666,27 @@ function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
     return;
   }
   btn.style.display = '';
-  // Fixed positioning so we don't depend on document scroll math AND the button
-  // sits above LinkedIn's modal (which lives at its own z-index inside the
-  // viewport, not document).
-  const btnW = btn.offsetWidth || 46;
-  const top = rect.top + 4;                    // 4px in from the field's top edge
-  const left = rect.right - btnW - 6;          // 6px in from the field's right edge
-  btn.style.top = `${Math.max(top, 4)}px`;
-  btn.style.left = `${Math.max(left, 4)}px`;
+
+  const btnH = btn.offsetHeight || 30;
+  const gap = 6;
+  const viewportH = window.innerHeight || document.documentElement.clientHeight;
+
+  // Prefer BELOW the field; if it would overflow the viewport, place ABOVE.
+  let top = rect.bottom + gap;
+  if (top + btnH > viewportH - 8) {
+    top = Math.max(8, rect.top - btnH - gap);
+  }
+
+  // Left-align with the field's left edge, but keep the pill inside the
+  // viewport horizontally (its width is measured at ~ offsetWidth).
+  const btnW = btn.offsetWidth || 120;
+  const viewportW = window.innerWidth || document.documentElement.clientWidth;
+  let left = rect.left;
+  if (left + btnW > viewportW - 8) left = Math.max(8, viewportW - btnW - 8);
+  if (left < 8) left = 8;
+
+  btn.style.top = `${top}px`;
+  btn.style.left = `${left}px`;
 }
 
 /** Attach a ✨ AI button anchored to the field. Idempotent. */
@@ -5663,8 +5701,20 @@ function liEnsureButtonFor(field: HTMLElement) {
   btn.type = 'button';
   btn.className = LI_INLINE_BTN_CLASS;
   btn.setAttribute(LI_INLINE_BTN_ATTR, 'true');
-  btn.innerHTML = `<span class="pai-sparkle">✨</span><span>AI</span>`;
-  btn.title = 'Edit with ProfilleAI';
+  // Match LinkedIn's own "✨ Write with AI" pill wording — familiar to
+  // LinkedIn users, but our label makes it clear this edits the current
+  // field, not authoring from scratch. SVG sparkle instead of emoji so it
+  // renders consistently across OS font stacks.
+  btn.innerHTML = `
+    <span class="pai-sparkle" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3l1.9 5.2L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.8L12 3z" fill="currentColor"/>
+        <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" fill="currentColor" opacity="0.7"/>
+      </svg>
+    </span>
+    <span>Edit with AI</span>
+  `;
+  btn.title = 'Rewrite this field with ProfilleAI';
   btn.addEventListener('mousedown', (e) => {
     // Prevent stealing focus from the field so its context stays intact.
     e.preventDefault();
