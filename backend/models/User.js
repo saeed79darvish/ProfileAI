@@ -52,6 +52,11 @@ const User = sequelize.define('User', {
     allowNull: true,
     unique: true
   },
+  linkedinId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
+  },
   profilePictureUrl: {
     type: DataTypes.STRING,
     allowNull: true,

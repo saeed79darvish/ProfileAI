@@ -447,6 +447,18 @@ const startServer = async () => {
       console.warn('⚠️  Users.aiOnboardingCompleted column ensure skipped:', err.message);
     }
 
+    // Same pattern for Users.linkedinId — the User model declares this column
+    // for the LinkedIn OAuth "Sign in with LinkedIn using OpenID Connect"
+    // flow. Without it, POST /api/auth/linkedin and /api/auth/linkedin/register
+    // both return 500 (`column "linkedinId" does not exist`) the moment they
+    // try to look up an existing user by their LinkedIn `sub` id.
+    try {
+      const { up: ensureUserLinkedinId } = require('./scripts/migrations/ensureUserLinkedinId');
+      await ensureUserLinkedinId();
+    } catch (err) {
+      console.warn('⚠️  Users.linkedinId column ensure skipped:', err.message);
+    }
+
     // Create SupportTickets table on boot (help center chat + ticket form).
     // Idempotent CREATE TABLE IF NOT EXISTS + enum guards, safe to re-run.
     try {
