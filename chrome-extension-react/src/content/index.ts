@@ -5254,8 +5254,8 @@ function ensureLiInlineStyles() {
   style.id = LI_INLINE_STYLE_ID;
   style.textContent = `
     .${LI_INLINE_BTN_CLASS} {
-      position: absolute;
-      z-index: 2000;
+      position: fixed;
+      z-index: 2147483645; /* above LinkedIn's modal (they use ~1000-9999) */
       display: inline-flex;
       align-items: center;
       gap: 4px;
@@ -5284,8 +5284,8 @@ function ensureLiInlineStyles() {
 
     /* Popover — anchored below/above the ✨ button */
     .${LI_INLINE_POP_CLASS} {
-      position: absolute;
-      z-index: 2001;
+      position: fixed;
+      z-index: 2147483646; /* one above the button, still on top of LinkedIn's modal */
       width: 380px;
       max-width: calc(100vw - 24px);
       background: #14141c;
@@ -5521,15 +5521,27 @@ function liIsEligibleField(el: HTMLElement): boolean {
   return false;
 }
 
-/** Anchor the ✨ button relative to the field's top-right corner. */
+/** Anchor the ✨ button at the field's top-right corner (slightly overlapping
+ *  the inside so it's visible even if the field sits flush with the modal's
+ *  header). Uses fixed positioning + hidden until measured to avoid a
+ *  visible jump on the first frame. */
 function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
   const rect = field.getBoundingClientRect();
-  // We use position:absolute in document space so scrolling the LinkedIn
-  // modal keeps the button anchored (LinkedIn modals scroll internally).
-  const top = window.scrollY + rect.top - 24; // just above the field
-  const right = window.scrollX + rect.right;
-  btn.style.top = `${Math.max(top, window.scrollY + 4)}px`;
-  btn.style.left = `${Math.max(right - btn.offsetWidth || right - 60, window.scrollX + 4)}px`;
+  // Off-screen zero-size fields (LinkedIn briefly renders these during React
+  // mounts) — hide the button until layout is real.
+  if (rect.width < 20 || rect.height < 20) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  // Fixed positioning so we don't depend on document scroll math AND the button
+  // sits above LinkedIn's modal (which lives at its own z-index inside the
+  // viewport, not document).
+  const btnW = btn.offsetWidth || 46;
+  const top = rect.top + 4;                    // 4px in from the field's top edge
+  const left = rect.right - btnW - 6;          // 6px in from the field's right edge
+  btn.style.top = `${Math.max(top, 4)}px`;
+  btn.style.left = `${Math.max(left, 4)}px`;
 }
 
 /** Attach a ✨ AI button anchored to the field. Idempotent. */
@@ -5581,10 +5593,16 @@ function liCleanupOrphanButtons() {
 /** Is LinkedIn's edit modal open right now? */
 function liGetOpenEditModal(): HTMLElement | null {
   // LinkedIn uses .artdeco-modal for these dialogs. Distinguish edit vs.
-  // read-only modals by looking for form inputs inside.
-  const modals = document.querySelectorAll<HTMLElement>('.artdeco-modal, [role="dialog"]');
+  // read-only modals by looking for form inputs inside. About & summary use
+  // contenteditable divs in some variants — include those so we don't miss
+  // the modal entirely.
+  const modals = document.querySelectorAll<HTMLElement>(
+    '.artdeco-modal, [role="dialog"]',
+  );
   for (const m of Array.from(modals)) {
-    if (m.querySelector('input:not([type="hidden"]), textarea, .ql-editor')) {
+    if (m.querySelector(
+      'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, .ql-editor, [contenteditable="true"]',
+    )) {
       return m;
     }
   }
@@ -5594,10 +5612,22 @@ function liGetOpenEditModal(): HTMLElement | null {
 /** Scan the given root for eligible fields and inject buttons. */
 function liInjectAll(root: ParentNode) {
   if (!liExtAlive()) return;
-  const fields = root.querySelectorAll<HTMLElement>('textarea, input[type="text"], .ql-editor, [contenteditable="true"]');
+  const fields = root.querySelectorAll<HTMLElement>(
+    'textarea, input[type="text"], .ql-editor, [contenteditable="true"]',
+  );
+  let injected = 0;
   fields.forEach((f) => {
-    try { liEnsureButtonFor(f); } catch { /* skip */ }
+    try {
+      const before = liInlineButtons.has(f);
+      liEnsureButtonFor(f);
+      if (!before && liInlineButtons.has(f)) injected++;
+    } catch {
+      /* skip */
+    }
   });
+  if (injected > 0) {
+    console.log(`[ProfileAI] Injected ${injected} ✨ AI button(s) into LinkedIn edit modal`);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -5634,16 +5664,16 @@ async function liOpenInlinePopover(field: HTMLElement, anchor: HTMLButtonElement
   `;
   document.body.appendChild(pop);
 
-  // Position popover under the field (fall back to above if it'd clip the viewport bottom).
+  // Position popover in viewport coords (position: fixed). Below the field by
+  // default; flip above if it would clip the viewport bottom.
   const fieldRect = field.getBoundingClientRect();
-  const belowTop = window.scrollY + fieldRect.bottom + 8;
   const overflowsBelow = fieldRect.bottom + 260 > window.innerHeight;
   const top = overflowsBelow
-    ? Math.max(window.scrollY + fieldRect.top - pop.offsetHeight - 8, window.scrollY + 8)
-    : belowTop;
-  const left = window.scrollX + Math.max(fieldRect.left, 8);
+    ? Math.max(fieldRect.top - pop.offsetHeight - 8, 8)
+    : fieldRect.bottom + 8;
+  const left = Math.max(fieldRect.left, 8);
   pop.style.top = `${top}px`;
-  pop.style.left = `${Math.min(left, window.scrollX + window.innerWidth - pop.offsetWidth - 8)}px`;
+  pop.style.left = `${Math.min(left, window.innerWidth - pop.offsetWidth - 8)}px`;
 
   const bodyEl = pop.querySelector('.pai-body') as HTMLElement;
   const promptInput = pop.querySelector('.pai-prompt') as HTMLInputElement;
