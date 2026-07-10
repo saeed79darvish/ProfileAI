@@ -287,16 +287,26 @@ const PROFILEAI_INJECTED_CLASSES = [
  *  firing chrome-extension://invalid/ fetches from LinkedIn's autorun loop.
  *  Also removes any iframe whose src points at a chrome-extension:// URL
  *  that doesn't match our current runtime — that's the real culprit for the
- *  console flood the user is seeing. */
+ *  console flood the user is seeing.
+ *
+ *  IMPORTANT: this intentionally does NOT touch PROFILEAI_INJECTED_CLASSES
+ *  (the per-field LinkedIn inline AI ✨ buttons/popovers). Those are cheap,
+ *  per-page elements with their own liveness check (liCleanupOrphanButtons,
+ *  which only removes a button once its target field is actually gone from
+ *  the DOM). Some LinkedIn edit routes (e.g. /edit/forms/summary/new/)
+ *  trigger a fresh content-script init on every navigation — nuking the
+ *  buttons here as well would wipe out a button that was JUST created a
+ *  moment earlier by the previous init, for a field that's still on-screen,
+ *  which is exactly the "button appears then vanishes" bug users hit. Only
+ *  the heartbeat's context-DEATH cleanup (a real, one-time event) needs to
+ *  remove those, since at that point their click handlers are permanently
+ *  broken anyway. */
 function sweepOrphanedInjections() {
   let removed = 0;
   try {
     PROFILEAI_INJECTED_IDS.forEach((id) => {
       const el = document.getElementById(id);
       if (el) { el.remove(); removed++; }
-    });
-    PROFILEAI_INJECTED_CLASSES.forEach((cls) => {
-      document.querySelectorAll(`.${cls}`).forEach((n) => { n.remove(); removed++; });
     });
     // Belt-and-suspenders: any iframe pointing at chrome-extension://invalid/
     // or at a DIFFERENT extension ID than ours. LinkedIn's Pemberly network
