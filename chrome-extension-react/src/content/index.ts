@@ -5760,29 +5760,6 @@ function liCleanupOrphanButtons() {
  *  A/B-testing container class names and the modal-detection query alone
  *  misses some variants. Injecting buttons directly on the field is safe
  *  because our field-eligibility filter already excludes tiny/short inputs. */
-function liGetOpenEditModal(): HTMLElement | null {
-  // 1) Preferred: known artdeco / role=dialog containers with a writable field.
-  const modals = document.querySelectorAll<HTMLElement>(
-    '.artdeco-modal, [role="dialog"], [aria-modal="true"]',
-  );
-  for (const m of Array.from(modals)) {
-    if (m.querySelector(
-      'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, .ql-editor, [contenteditable="true"]',
-    )) {
-      return m;
-    }
-  }
-
-  // 2) Fallback: URL-based detection. LinkedIn edit modals live on paths like
-  //    /in/<slug>/edit/intro, /details/experience/edit/forms/<id>,
-  //    /edit/forms/summary/new. If the URL matches, use <body> as the scan
-  //    root so we still find fields even if the container class changed.
-  if (/linkedin\.com\/in\/[^/]+\/(edit|details\/.*\/edit)/i.test(window.location.href)) {
-    return document.body;
-  }
-  return null;
-}
-
 /** Scan the given root for eligible fields and inject buttons. */
 function liInjectAll(root: ParentNode) {
   if (!liExtAlive()) return;
@@ -5997,9 +5974,18 @@ function liSetupInlineEditor() {
   if (!/linkedin\.com\//i.test(window.location.href)) return;
   liInlineInitialized = true;
 
+  // Scan the whole document rather than trying to first locate "the modal"
+  // container. LinkedIn constantly changes modal wrapper markup (class names,
+  // whether role="dialog"/aria-modal is present, whether the URL even
+  // navigates to an /edit/ path) — any attempt to detect "is a modal open"
+  // first is fragile and silently no-ops when LinkedIn ships a variant we
+  // don't recognize (this is what broke detection for the "Edit about"
+  // overlay). liIsEligibleField() already excludes irrelevant fields (short
+  // inputs, Company/School/Year, disabled/hidden), so a full-document scan is
+  // safe and far more robust.
+
   // Initial scan (in case a modal was already open when the script loaded).
-  const modal = liGetOpenEditModal();
-  if (modal) liInjectAll(modal);
+  liInjectAll(document.body);
 
   // Debounced scanner — coalesce rapid mutations from LinkedIn's React tree.
   let scanTimer: number | null = null;
@@ -6008,8 +5994,7 @@ function liSetupInlineEditor() {
     scanTimer = window.setTimeout(() => {
       scanTimer = null;
       try {
-        const m = liGetOpenEditModal();
-        if (m) liInjectAll(m);
+        liInjectAll(document.body);
         liCleanupOrphanButtons();
       } catch { /* ignore */ }
     }, 120);
