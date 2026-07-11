@@ -23,6 +23,95 @@ const {
   screening: screeningPrompts
 } = require('./ai/prompts');
 
+/**
+ * Best-effort recovery of a truncated JSON object.
+ *
+ * Anthropic sometimes cuts off the last tokens of a response when we're
+ * close to the max_tokens cap — typically mid-string or mid-array — leaving
+ * an unparseable JSON blob. This scans the raw text, drops the last
+ * incomplete element, and closes any still-open strings, arrays, and
+ * objects so the result parses to whatever we managed to receive.
+ *
+ * Returns the recovered JSON string, or null if nothing salvageable.
+ */
+function attemptJsonRecovery(raw) {
+  if (typeof raw !== 'string' || !raw) return null;
+  const start = raw.indexOf('{');
+  if (start === -1) return null;
+
+  // Walk the string tracking string state, escape state, and the stack of
+  // open ({ [) delimiters. We can then close whatever's still open at
+  // whatever point we stop at.
+  let inString = false;
+  let escaped = false;
+  const stack = [];
+  // Track the last "safe" cut point — the end position where the JSON is
+  // still structurally valid enough to be closable (i.e. between array
+  // elements or object keys, not mid-token). We use it to drop a partial
+  // trailing token before we start closing brackets.
+  let lastSafe = -1;
+
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{' || ch === '[') { stack.push(ch); continue; }
+    if (ch === '}' || ch === ']') { stack.pop(); }
+    // Between-element safe points: after a comma or after a matching close.
+    if (ch === ',' || ch === '}' || ch === ']') lastSafe = i;
+  }
+
+  // If we ended inside a string, first close the string. If we ended after
+  // a partial token (e.g. "sug), rewind to lastSafe so we drop that partial.
+  let candidate;
+  if (inString) {
+    // Truncate to lastSafe if we have one — safer than trying to close a
+    // partial string that may itself contain escaped chars we misread.
+    if (lastSafe > start) {
+      candidate = raw.slice(start, lastSafe + 1);
+    } else {
+      // No safe cut point yet — close the string with a fake closing quote.
+      candidate = raw.slice(start) + '"';
+    }
+  } else {
+    // Not inside a string. Drop any trailing partial token by rewinding to
+    // the last safe cut, if there is one AFTER the last opened bracket.
+    candidate = lastSafe > start ? raw.slice(start, lastSafe + 1) : raw.slice(start);
+  }
+
+  // Re-compute the still-open stack for the candidate (it may differ if we
+  // truncated to lastSafe) then append the matching closes.
+  let inStr2 = false;
+  let esc2 = false;
+  const stack2 = [];
+  for (let i = 0; i < candidate.length; i++) {
+    const ch = candidate[i];
+    if (inStr2) {
+      if (esc2) { esc2 = false; continue; }
+      if (ch === '\\') { esc2 = true; continue; }
+      if (ch === '"') inStr2 = false;
+      continue;
+    }
+    if (ch === '"') { inStr2 = true; continue; }
+    if (ch === '{' || ch === '[') stack2.push(ch);
+    else if (ch === '}' || ch === ']') stack2.pop();
+  }
+  if (inStr2) candidate += '"';
+  // Drop trailing comma so `{"a":1,}` becomes `{"a":1}` before closing.
+  candidate = candidate.replace(/,\s*$/, '');
+  while (stack2.length) {
+    const open = stack2.pop();
+    candidate += open === '{' ? '}' : ']';
+  }
+
+  return candidate;
+}
+
 class AIService {
   /**
    * Generate an AI-enhanced professional summary
@@ -160,10 +249,33 @@ class AIService {
       ...(opts.modelOverride ? { model: opts.modelOverride } : {})
     });
     const raw = response.choices[0].message.content.trim();
-    // Strip accidental fences if the model added any.
+    // Try the strict extraction first: greedy match of the largest balanced
+    // JSON object. Falls back to a "close-broken-json" recovery below since
+    // Haiku sometimes gets truncated mid-array on tight token budgets.
+    let parsed = null;
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    const parsed = jsonMatch ? safeParseJSON(jsonMatch[0], null) : null;
+    if (jsonMatch) parsed = safeParseJSON(jsonMatch[0], null);
+
     if (!parsed) {
+      // Recovery attempt: chop trailing incomplete elements and try to
+      // balance braces + brackets by scanning forward and closing anything
+      // still open. This keeps a truncated Haiku response usable — worst
+      // case we lose the last section/priority-fix, best case a valid
+      // partial analysis lands and the modal renders.
+      const recovered = attemptJsonRecovery(raw);
+      if (recovered) parsed = safeParseJSON(recovered, null);
+    }
+
+    if (!parsed) {
+      // Log the raw response (capped) so we can debug prod failures without
+      // needing to attach a debugger to the Anthropic call.
+      console.error('[analyzeLinkedInProfile] unparseable AI response:', {
+        model: opts.modelOverride || 'default',
+        maxTokens: Number.isFinite(opts.maxTokens) ? opts.maxTokens : 2400,
+        rawHead: raw.slice(0, 400),
+        rawTail: raw.slice(Math.max(0, raw.length - 200)),
+        length: raw.length,
+      });
       throw new Error('AI returned an unparseable analysis');
     }
     // Clamp scores 0-100 so a hallucinated 145 doesn't blow up the UI.

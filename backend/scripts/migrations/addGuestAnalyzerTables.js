@@ -6,15 +6,28 @@
  * GuestLeads) and the in-house AnalyticsEvents log must be created
  * explicitly. Idempotent CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT
  * EXISTS — safe to re-run on every boot.
+ *
+ * Every statement is wrapped in its own try/catch so a single problematic
+ * ALTER/INDEX (e.g. an expression Postgres rejects as non-IMMUTABLE) can't
+ * skip every subsequent statement in the file. Failures are logged, not
+ * thrown.
  */
 
 const { sequelize } = require('../../models');
+
+async function safeRun(label, sql) {
+  try {
+    await sequelize.query(sql);
+  } catch (err) {
+    console.warn(`[GuestAnalyzer migration] ${label} skipped: ${err.message}`);
+  }
+}
 
 async function up() {
   console.log('[GuestAnalyzer] Ensuring tables exist...');
 
   // ── GuestAIUsages ────────────────────────────────────────────────────
-  await sequelize.query(`
+  await safeRun('GuestAIUsages CREATE TABLE', `
     CREATE TABLE IF NOT EXISTS "GuestAIUsages" (
       "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "ipHash"            VARCHAR(64) NOT NULL,
@@ -27,21 +40,21 @@ async function up() {
       "updatedAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
   `);
-  await sequelize.query(`
+  await safeRun('GuestAIUsages iphash index', `
     CREATE INDEX IF NOT EXISTS "guest_ai_usages_iphash_createdat"
       ON "GuestAIUsages" ("ipHash", "createdAt");
   `);
-  await sequelize.query(`
+  await safeRun('GuestAIUsages urlkey index', `
     CREATE INDEX IF NOT EXISTS "guest_ai_usages_urlkey_createdat"
       ON "GuestAIUsages" ("profileUrlKey", "createdAt");
   `);
-  await sequelize.query(`
+  await safeRun('GuestAIUsages analysiscacheid index', `
     CREATE INDEX IF NOT EXISTS "guest_ai_usages_analysiscacheid"
       ON "GuestAIUsages" ("analysisCacheId");
   `);
 
   // ── GuestAnalysisCaches ──────────────────────────────────────────────
-  await sequelize.query(`
+  await safeRun('GuestAnalysisCaches CREATE TABLE', `
     CREATE TABLE IF NOT EXISTS "GuestAnalysisCaches" (
       "id"                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "cacheKey"              VARCHAR(600) NOT NULL,
@@ -56,21 +69,21 @@ async function up() {
       "updatedAt"             TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
   `);
-  await sequelize.query(`
+  await safeRun('GuestAnalysisCaches cachekey unique', `
     CREATE UNIQUE INDEX IF NOT EXISTS "guest_analysis_caches_cachekey_unique"
       ON "GuestAnalysisCaches" ("cacheKey");
   `);
-  await sequelize.query(`
+  await safeRun('GuestAnalysisCaches urlkey index', `
     CREATE INDEX IF NOT EXISTS "guest_analysis_caches_urlkey"
       ON "GuestAnalysisCaches" ("profileUrlKey");
   `);
-  await sequelize.query(`
+  await safeRun('GuestAnalysisCaches expiresat index', `
     CREATE INDEX IF NOT EXISTS "guest_analysis_caches_expiresat"
       ON "GuestAnalysisCaches" ("expiresAt");
   `);
 
   // ── GuestLeads ───────────────────────────────────────────────────────
-  await sequelize.query(`
+  await safeRun('GuestLeads CREATE TABLE', `
     CREATE TABLE IF NOT EXISTS "GuestLeads" (
       "id"                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "email"             VARCHAR(320) NOT NULL,
@@ -89,32 +102,33 @@ async function up() {
       "updatedAt"         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
   `);
-  await sequelize.query(`
+  await safeRun('GuestLeads email index', `
     CREATE INDEX IF NOT EXISTS "guest_leads_email_norm"
       ON "GuestLeads" ("emailNormalized");
   `);
-  await sequelize.query(`
+  await safeRun('GuestLeads urlkey index', `
     CREATE INDEX IF NOT EXISTS "guest_leads_urlkey"
       ON "GuestLeads" ("profileUrlKey");
   `);
-  await sequelize.query(`
+  await safeRun('GuestLeads analysiscacheid index', `
     CREATE INDEX IF NOT EXISTS "guest_leads_analysiscacheid"
       ON "GuestLeads" ("analysisCacheId");
   `);
-  await sequelize.query(`
+  await safeRun('GuestLeads converted index', `
     CREATE INDEX IF NOT EXISTS "guest_leads_converted"
       ON "GuestLeads" ("convertedToUser");
   `);
-  // Dedupe: at most one row per (email, day). Uses functional index on
-  // (emailNormalized, date_trunc('day', createdAt)) — Postgres enforces
-  // via a partial unique.
-  await sequelize.query(`
+  // Per-day dedupe index — must use an IMMUTABLE expression, which
+  // date_trunc('day', ts TIMESTAMPTZ) is NOT. Cast via
+  // ("createdAt" AT TIME ZONE 'UTC')::date → an IMMUTABLE expression that
+  // gives us calendar-day granularity in UTC.
+  await safeRun('GuestLeads per-day unique', `
     CREATE UNIQUE INDEX IF NOT EXISTS "guest_leads_email_day_unique"
-      ON "GuestLeads" ("emailNormalized", (date_trunc('day', "createdAt")));
+      ON "GuestLeads" ("emailNormalized", ((("createdAt" AT TIME ZONE 'UTC')::date)));
   `);
 
   // ── AnalyticsEvents ──────────────────────────────────────────────────
-  await sequelize.query(`
+  await safeRun('AnalyticsEvents CREATE TABLE', `
     CREATE TABLE IF NOT EXISTS "AnalyticsEvents" (
       "id"           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       "name"         VARCHAR(100) NOT NULL,
@@ -126,15 +140,15 @@ async function up() {
       "updatedAt"    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
   `);
-  await sequelize.query(`
+  await safeRun('AnalyticsEvents name index', `
     CREATE INDEX IF NOT EXISTS "analytics_events_name_createdat"
       ON "AnalyticsEvents" ("name", "createdAt");
   `);
-  await sequelize.query(`
+  await safeRun('AnalyticsEvents sessionid index', `
     CREATE INDEX IF NOT EXISTS "analytics_events_sessionid"
       ON "AnalyticsEvents" ("sessionId");
   `);
-  await sequelize.query(`
+  await safeRun('AnalyticsEvents userid index', `
     CREATE INDEX IF NOT EXISTS "analytics_events_userid"
       ON "AnalyticsEvents" ("userId");
   `);
@@ -143,3 +157,4 @@ async function up() {
 }
 
 module.exports = { up };
+

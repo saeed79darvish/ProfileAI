@@ -700,7 +700,12 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
       try {
         analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
           modelOverride: guestModelPreferred,
-          maxTokens: 1200,
+          // 2400 tokens matches the authed Sonnet call. Full JSON (3 scores +
+          // 6 sections × suggestions + keyword arrays + 5 fixes) doesn't fit
+          // in 1200 tokens and Haiku gets truncated mid-array. Haiku is
+          // still ~5x cheaper per token than Sonnet so the surface stays
+          // cheap.
+          maxTokens: 2400,
           promptVariant: 'guest',
         });
       } catch (aiErr) {
@@ -719,7 +724,7 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
         );
         analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
           modelOverride: sonnetFallback,
-          maxTokens: 1200,
+          maxTokens: 2400,
           promptVariant: 'guest',
         });
         modelUsed = sonnetFallback;
@@ -966,7 +971,15 @@ router.post('/analytics-event', guestAnalysisLimiter({ perIpPerDay: 500, perUrlP
     });
     res.json({ ok: true });
   } catch (error) {
-    console.error('[analyticsEvent] error:', error);
+    // Log the specific failure so a missing table / bad column shows up in
+    // the request log instead of a generic 500.
+    console.error('[analyticsEvent] error:', {
+      name: error?.name,
+      message: error?.message,
+      original: error?.original?.message,
+      sql: error?.sql?.slice?.(0, 200),
+      eventName: req.body?.name,
+    });
     res.status(500).json({ error: 'Error recording event' });
   }
 });
