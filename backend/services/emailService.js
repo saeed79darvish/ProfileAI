@@ -903,7 +903,7 @@ const escapeGuestReportHtml = (s) => String(s ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, unsubscribeUrl }) => {
+const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, unsubscribeUrl, firstName }) => {
   const overall = Number(analysis?.overallScore) || 0;
   const fit = Number(analysis?.recruiterFitScore) || 0;
   const search = Number(analysis?.searchVisibilityScore) || 0;
@@ -919,6 +919,10 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
 
   // Effective role label — shown in hero + used in copy fallbacks.
   const roleLabel = (targetTitle && String(targetTitle).trim()) || 'your target role';
+
+  // Personal greeting — falls back to "Hi there" when firstName can't be
+  // derived from the email local-part (e.g. hello@… info@… 1234@…).
+  const greeting = firstName ? `Hi ${firstName},` : 'Hi there,';
 
   // Preheader (hidden by clients, previewed in inbox list).
   const preheader = `${Math.max(3, priorityFixes.length || 5)} fixes and paste-ready rewrites inside`;
@@ -1066,10 +1070,14 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
                 </td>
               </tr>
             </table>
-            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.12em;margin-top:32px;margin-bottom:14px;">Your LinkedIn profile</div>
-            <div style="font:800 36px/1.15 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.02em;margin-bottom:16px;">You scored ${overall} out of 100</div>
-            <div style="font:400 15px/1.55 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.92);max-width:540px;">
-              Target role: <strong style="color:#FFFFFF;">${escapeGuestReportHtml(roleLabel)}</strong>. Below is what a senior recruiter would see, and the paste-ready fixes that would land you in the shortlist pile.
+            <div style="font:600 16px/1.4 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;margin-top:28px;margin-bottom:8px;">${escapeGuestReportHtml(greeting)}</div>
+            <div style="font:400 14px/1.55 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.92);margin-bottom:20px;max-width:540px;">
+              Here's your LinkedIn profile report through the eyes of a senior recruiter and hiring manager, exactly the way they'd read your profile before deciding whether to shortlist you.
+            </div>
+            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:12px;">Their verdict</div>
+            <div style="font:800 36px/1.15 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.02em;margin-bottom:14px;">You scored ${overall} out of 100</div>
+            <div style="font:400 14px/1.55 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.92);max-width:540px;">
+              Graded against <strong style="color:#FFFFFF;">${escapeGuestReportHtml(roleLabel)}</strong>. Below is what they saw, and the paste-ready fixes that would land you in the shortlist pile.
             </div>
           </td></tr>
 
@@ -1272,7 +1280,12 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
 </html>`;
 
   const textLines = [
-    `Your LinkedIn scored ${overall}/100 for ${roleLabel}`,
+    greeting,
+    ``,
+    `Here's your LinkedIn profile report through the eyes of a senior recruiter and hiring manager, exactly the way they'd read your profile before deciding whether to shortlist you.`,
+    ``,
+    `Graded against: ${roleLabel}`,
+    `Their verdict: you scored ${overall}/100`,
     ``,
     `Overall: ${overall}/100 | Recruiter fit: ${fit}/100 | Search visibility: ${search}/100`,
     `Recruiter verdict: ${verdictLabel}`,
@@ -1306,13 +1319,40 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
   };
 };
 
+/**
+ * Best-effort first-name derivation from an email address. Guests only give
+ * us their email, so we squeeze a friendly greeting out of the local-part:
+ *   saeed.darvish@x.com  -> "Saeed"
+ *   maya_p+work@x.com    -> "Maya"
+ *   info@x.com           -> null   (looks like a role account, fall back)
+ *   1234@x.com           -> null   (all digits, fall back)
+ * Returns null when we can't extract a plausible name (caller uses a
+ * generic "Hi there," greeting instead).
+ */
+const extractFirstNameFromEmail = (email) => {
+  if (typeof email !== 'string') return null;
+  const localPart = email.split('@')[0] || '';
+  if (!localPart) return null;
+  // Cut at plus-tag, first separator (dot, underscore, hyphen), or digit run.
+  const raw = localPart.split(/[+._-]/)[0].replace(/\d+$/, '');
+  if (!raw || raw.length < 2 || raw.length > 20) return null;
+  // Reject obvious role accounts. Includes short slugs that fall out of a
+  // split (e.g. "no" from "no-reply", "do" from "do-not-reply").
+  if (/^(info|hello|hi|hey|contact|admin|support|team|noreply|no-reply|no|do|donotreply|mail|inbox|test|dev|help|billing|sales)$/i.test(raw)) return null;
+  // Reject if it doesn't look like a name (must have at least 2 consecutive letters).
+  if (!/[a-zA-Z]{2,}/.test(raw)) return null;
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+};
+
 const sendGuestLinkedInReport = async ({ email, analysis, targetTitle, profileUrl, signupUrl, unsubscribeUrl }) => {
+  const firstName = extractFirstNameFromEmail(email);
   const { subject, html, text } = buildGuestReportEmail({
     analysis,
     targetTitle,
     profileUrl,
     signupUrl,
     unsubscribeUrl,
+    firstName,
   });
   return sendEmail({ to: email, subject, html, text });
 };
