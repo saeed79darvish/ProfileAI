@@ -786,7 +786,7 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
     const { email, analysisId } = req.body || {};
 
     if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
-      return res.status(400).json({ error: 'invalid_email', message: "That email doesn't look right — mind checking it?" });
+      return res.status(400).json({ error: 'invalid_email', message: "That email doesn't look right. Mind checking it?" });
     }
     const emailTrimmed = email.trim();
     const emailNormalized = emailTrimmed.toLowerCase();

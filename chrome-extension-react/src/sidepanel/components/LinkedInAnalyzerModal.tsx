@@ -220,7 +220,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
       if (!silent) onNotification?.('Copied to clipboard', 'success');
       return true;
     } catch {
-      onNotification?.('Could not copy — please select the text manually', 'error');
+      onNotification?.('Could not copy. Please select the text manually.', 'error');
       return false;
     }
   };
@@ -243,14 +243,14 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
       if (resp?.success && resp.clicked) {
         onNotification?.(
           copied
-            ? "LinkedIn editor opened — press ⌘/Ctrl+V to paste the rewrite."
+            ? "LinkedIn editor opened. Press ⌘/Ctrl+V to paste the rewrite."
             : 'LinkedIn editor opened.',
           'success',
         );
       } else if (resp?.success && resp.scrolled) {
         onNotification?.(
           copied
-            ? 'Scrolled to the section — click Edit, then paste (⌘/Ctrl+V).'
+            ? 'Scrolled to the section. Click Edit, then paste (⌘/Ctrl+V).'
             : 'Scrolled to the right section on LinkedIn.',
           'info',
         );
@@ -280,7 +280,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                 Recruiter's-eye view{targetTitle ? ` · target: ${targetTitle}` : ''}
               </p>
               {!loading && mode === 'authed' && analysis && cachedAt && (
-                <span className="li-cached-pill" title="Cached result — Re-analyze to spend a credit and refresh">
+                <span className="li-cached-pill" title="Cached result. Re-analyze to spend a credit and refresh.">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path
                       d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"
@@ -292,7 +292,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                 </span>
               )}
               {!loading && mode === 'guest' && teaser && (
-                <span className="li-cached-pill" title="Free analysis — no account needed">
+                <span className="li-cached-pill" title="Free analysis. No account needed.">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -330,7 +330,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
           {!loading && mode === 'guest' && error && (errorCode === 'guest_daily_limit_ip' || errorCode === 'guest_daily_limit_url') && (
             <div className="li-teaser-429">
               <p className="li-teaser-429-body">
-                You've used today's free analyses. Sign in free to keep going — you'll also get paste-ready rewrites and unlimited re-analysis.
+                You've used today's free analyses. Sign in free to keep going. You'll also get paste-ready rewrites and unlimited re-analysis.
               </p>
               <button
                 type="button"
@@ -488,7 +488,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                           if (!onSubmitEmail || guestEmailSubmitting) return;
                           const val = guestEmail.trim();
                           if (!val) {
-                            setGuestEmailError("That email doesn't look right — mind checking it?");
+                            setGuestEmailError("That email doesn't look right. Mind checking it?");
                             return;
                           }
                           setGuestEmailSubmitting(true);
@@ -498,9 +498,9 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                             if (res.ok) {
                               setGuestEmailSuccess({ email: val, duplicate: !!res.duplicate });
                             } else if (res.errorCode === 'invalid_email') {
-                              setGuestEmailError(res.message || "That email doesn't look right — mind checking it?");
+                              setGuestEmailError(res.message || "That email doesn't look right. Mind checking it?");
                             } else if (res.errorCode === 'analysis_expired') {
-                              setGuestEmailError('Your analysis expired — please re-analyze the profile and try again.');
+                              setGuestEmailError('Your analysis expired. Please re-analyze the profile and try again.');
                             } else {
                               setGuestEmailError(res.message || res.error || 'Something went wrong. Please try again.');
                             }
@@ -557,7 +557,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
               {/* Scores row */}
               <div className="li-rings-block">
                 <p className="li-rings-caption">
-                  How a recruiter would score this profile (0–100, higher is better)
+                  How a recruiter would score this profile (0 to 100, higher is better)
                 </p>
                 <div className="li-rings-row">
                   <ScoreRing
@@ -727,7 +727,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                 disabled={loading}
                 title={
                   analysis && cachedAt
-                    ? 'Re-analyze — uses one AI credit'
+                    ? 'Re-analyze. Uses one AI credit.'
                     : 'Run analysis'
                 }
               >

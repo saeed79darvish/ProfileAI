@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useWebSignIn } from './useWebSignIn';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { LinkedInSignInButton } from './LinkedInSignInButton';
 
 interface AuthRequiredProps {
   onAuthSync?: () => void;
@@ -98,7 +99,11 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
           web app and extension in sync for the full experience). */}
       <GoogleSignInButton
         onAuthSync={onAuthSync}
-        hint="Recommended — signs you in on ProfilleAI for the best experience, then syncs back here."
+        hint="Recommended. Signs you in on ProfilleAI for the best experience, then syncs back here."
+      />
+
+      <LinkedInSignInButton
+        onAuthSync={onAuthSync}
       />
 
       <div className="auth-divider"><span>or use email</span></div>

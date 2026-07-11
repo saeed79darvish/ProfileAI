@@ -894,6 +894,48 @@ html, body, #root {
   opacity: 0.8;
 }
 
+/* LinkedIn sign-in button. Mirrors .auth-google-btn shape/spacing so the
+   two sit together as a neutral OAuth stack, with a subtle LinkedIn-blue
+   left glyph. Same web-signin roundtrip under the hood. */
+.auth-linkedin-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  margin-top: 8px;
+}
+.auth-linkedin-btn:hover:not(:disabled) {
+  background: rgba(10, 102, 194, 0.08) !important;
+  border-color: rgba(10, 102, 194, 0.55) !important;
+}
+.auth-linkedin-btn:disabled { opacity: 0.7; cursor: progress; }
+.auth-linkedin-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: #ffffff;
+  border-radius: 4px;
+}
+.auth-linkedin-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 8px;
+  opacity: 0.8;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

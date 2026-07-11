@@ -45,11 +45,11 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
       disabled={loading}
       title={
         guest
-          ? 'Free instant analysis — no account needed'
+          ? 'Free instant analysis. No account needed.'
           : requiresSignIn
             ? 'Sign in free to run the recruiter-POV analysis on this profile'
             : hasResult
-              ? 'You already analyzed this profile — opens the saved result. Re-analyze from inside if you want a fresh grade.'
+              ? 'You already analyzed this profile. Opens the saved result. Re-analyze from inside if you want a fresh grade.'
               : 'Analyze this LinkedIn profile like a recruiter'
       }
     >
@@ -95,9 +95,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
         </span>
         <span className="pal-sub">
           {guest
-            ? 'Free instant analysis — no account needed'
+            ? 'Free instant analysis. No account needed.'
             : requiresSignIn
-              ? 'See how recruiters grade you — free, sign in to run'
+              ? 'See how recruiters grade you. Free, sign in to run.'
               : loading
                 ? 'Recruiter-POV grade + rewrites'
                 : hasResult

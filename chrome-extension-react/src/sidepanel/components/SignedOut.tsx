@@ -5,6 +5,7 @@ import { formatLastActive } from '../profileProgress';
 import { AuthRequired } from './AuthRequired';
 import { JobContextBanner } from './JobContextBanner';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { LinkedInSignInButton } from './LinkedInSignInButton';
 
 interface SignedOutProps {
   currentJob: JobInfo | null;
@@ -86,7 +87,10 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
           <div className="auth-divider"><span>or</span></div>
           <GoogleSignInButton
             onAuthSync={onAuthSync}
-            hint="Recommended — sign in on ProfilleAI, then we'll bring you right back here."
+            hint="Recommended. Sign in on ProfilleAI and we'll bring you right back here."
+          />
+          <LinkedInSignInButton
+            onAuthSync={onAuthSync}
           />
           <p className="signed-out-alt">
             Don't have an account?{' '}
@@ -101,14 +105,14 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
           </svg>
           <span>
             You were last active <strong>{formatLastActive(lastProfile.lastActive)}</strong>. Your profile
-            strength is <strong className="strength">{lastProfile.strength}%</strong> — sign in to finish it.
+            strength is <strong className="strength">{lastProfile.strength}%</strong>. Sign in to finish it.
           </span>
         </div>
       </div>
     );
   }
 
-  // ── State 1: brand new / unknown user — lead with the value prop ──
+  // State 1: brand new / unknown user, lead with the value prop
   return (
     <div className="main-content signed-out">
       <JobContextBanner job={currentJob} />
@@ -142,12 +146,15 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
         <div className="auth-divider"><span>or</span></div>
         <GoogleSignInButton
           onAuthSync={onAuthSync}
-          hint="Recommended — sign in on ProfilleAI, then we'll bring you right back here."
+          hint="Recommended. Sign in on ProfilleAI and we'll bring you right back here."
+        />
+        <LinkedInSignInButton
+          onAuthSync={onAuthSync}
         />
       </div>
 
       <div className="preview-locked">
-        <span className="preview-label">Preview — unlock with your profile</span>
+        <span className="preview-label">Preview. Unlock with your profile</span>
         <div className="preview-tiles">
           {[0, 1, 2].map((i) => (
             <div key={i} className="preview-tile">

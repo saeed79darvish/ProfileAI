@@ -25,7 +25,7 @@ export const GuestAnalyzerCTA: React.FC<GuestAnalyzerCTAProps> = ({ onClick, loa
       </div>
       <div className="gac-copy">
         <div className="gac-title">See your profile the way recruiters do</div>
-        <div className="gac-sub">Free instant analysis — no account needed</div>
+        <div className="gac-sub">Free instant analysis. No account needed.</div>
       </div>
       <button
         type="button"

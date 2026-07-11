@@ -32,7 +32,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({ onAuthSy
       </button>
       {webSyncing ? (
         <div className="auth-google-hint">
-          Finish signing in on the ProfilleAI tab we opened — it’ll sync back here
+          Finish signing in on the ProfilleAI tab we opened, it will sync back here
           automatically.{' '}
           <button type="button" className="link-btn" onClick={checkWebAuthOnce}>
             Check now

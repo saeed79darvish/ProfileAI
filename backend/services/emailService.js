@@ -782,7 +782,7 @@ const sendSupportTicketToAdmin = async (ticket) => {
 const sendSupportTicketConfirmation = async (ticket) => {
   if (!ticket.email) return false;
 
-  const subject = `We got your message — ProfilleAI support`;
+  const subject = `We got your message. ProfilleAI support`;
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:560px;margin:0 auto;">
       <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:24px;border-radius:12px 12px 0 0;text-align:center;">

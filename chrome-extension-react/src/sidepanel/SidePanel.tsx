@@ -110,9 +110,35 @@ export const SidePanel: React.FC = () => {
   // so users know a click won't spend another credit.
   const [linkedInTabAnalyzedAt, setLinkedInTabAnalyzedAt] = useState<number | null>(null);
 
+  // DEV-ONLY: forces the guest analyzer UX to render even when the user is
+  // signed in. Not surfaced anywhere in the UI — flip it from DevTools:
+  //   await chrome.storage.local.set({ debugForceGuestAnalyzer: true })
+  //   // …reload the sidepanel to take effect
+  // Reset with `false` (or `chrome.storage.local.remove`) when done.
+  const [debugForceGuestAnalyzer, setDebugForceGuestAnalyzer] = useState(false);
+  useEffect(() => {
+    let active = true;
+    chrome.storage.local.get('debugForceGuestAnalyzer').then((r) => {
+      if (active) setDebugForceGuestAnalyzer(!!r.debugForceGuestAnalyzer);
+    });
+    const onChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      if (area === 'local' && 'debugForceGuestAnalyzer' in changes) {
+        setDebugForceGuestAnalyzer(!!changes.debugForceGuestAnalyzer.newValue);
+      }
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => {
+      active = false;
+      chrome.storage.onChanged.removeListener(onChange);
+    };
+  }, []);
+
   // Web sign-in flow for the signed-out LinkedIn-analyzer teaser. Arrow wrapper
   // defers the loadAuthAndProfile reference (declared below) past the TDZ.
-  const { webSyncing: liTeaserSyncing, signInOnWeb: liTeaserSignIn } = useWebSignIn(() =>
+  const { signInOnWeb: liTeaserSignIn } = useWebSignIn(() =>
     loadAuthAndProfile(),
   );
   const [gapReview, setGapReview] = useState<{
@@ -972,6 +998,26 @@ export const SidePanel: React.FC = () => {
         </>
       ) : !profileProgress.hasMinimumProfile ? (
         <>
+          {/* DEV: force the guest analyzer surface for signed-in testing.
+              Renders above the normal pill so the two are stacked and the
+              tester can trigger both flows from the same panel. */}
+          {debugForceGuestAnalyzer && isOnLinkedInProfile && (
+            <>
+              <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
+                <GuestAnalyzerCTA
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                />
+              </div>
+              <div className="panel-section li-preprofile-section">
+                <AnalyzeLinkedInPill
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                  guest
+                />
+              </div>
+            </>
+          )}
           {/* LinkedIn Analyzer works WITHOUT a completed ProfileAI profile —
               it grades the LinkedIn page itself. Surfacing it before profile
               setup gives new users instant value (hook), then the setup guide
@@ -980,7 +1026,7 @@ export const SidePanel: React.FC = () => {
             <div className="panel-section li-preprofile-section">
               <AnalyzeLinkedInPill
                 onClick={handleAnalyzeLinkedIn}
-                loading={linkedInLoading}
+                loading={linkedInLoading && linkedInMode === 'authed'}
                 analyzedAt={linkedInTabAnalyzedAt}
               />
             </div>
@@ -994,6 +1040,23 @@ export const SidePanel: React.FC = () => {
         </>
       ) : (
         <>
+          {debugForceGuestAnalyzer && isOnLinkedInProfile && (
+            <>
+              <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
+                <GuestAnalyzerCTA
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                />
+              </div>
+              <div className="panel-section li-preprofile-section">
+                <AnalyzeLinkedInPill
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                  guest
+                />
+              </div>
+            </>
+          )}
           <div className="main-content">
             <ProfileSection
               profile={profile}
