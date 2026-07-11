@@ -5371,35 +5371,37 @@ function ensureLiInlineStyles() {
   style.id = LI_INLINE_STYLE_ID;
   style.textContent = `
     .${LI_INLINE_BTN_CLASS} {
-      /* Positioned by liPositionInlineBtn (fixed, below the field, left-aligned)
-         so we match LinkedIn's own "Write with AI" pill placement. */
+      /* Positioned by liPositionInlineBtn (fixed, beside LinkedIn's own
+         "Write with AI" pill when present, else below the field). */
       position: fixed;
       z-index: 2147483645; /* above LinkedIn's modal (they use ~1000-9999) */
       display: inline-flex;
       align-items: center;
       gap: 6px;
       padding: 6px 14px 6px 12px;
-      /* LinkedIn-native pill: transparent bg + LinkedIn blue outline + text.
-         Uses transparent bg so it adapts to LinkedIn's light AND dark modes
-         without hardcoding a background colour that clashes. */
-      background: transparent;
-      color: #0a66c2; /* LinkedIn blue */
-      border: 1.5px solid #0a66c2;
+      /* Solid purple/indigo fill — deliberately DIFFERENT from LinkedIn's own
+         blue-outlined "Write with AI" pill so the two are never confused when
+         they sit side by side. */
+      background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
       border-radius: 999px;
       font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       cursor: pointer;
-      transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+      box-shadow: 0 2px 10px rgba(124, 58, 237, 0.35);
+      transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
       user-select: none;
       white-space: nowrap;
       /* Extra safety against modal clipping */
       pointer-events: auto;
     }
     .${LI_INLINE_BTN_CLASS}:hover {
-      background: rgba(10, 102, 194, 0.08);
-      box-shadow: 0 0 0 3px rgba(10, 102, 194, 0.08);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(124, 58, 237, 0.5);
+      filter: brightness(1.06);
     }
     .${LI_INLINE_BTN_CLASS}:active {
-      background: rgba(10, 102, 194, 0.14);
+      transform: translateY(0);
     }
     .${LI_INLINE_BTN_CLASS}[disabled] { opacity: 0.7; cursor: progress; }
     .${LI_INLINE_BTN_CLASS} .pai-sparkle {
@@ -5408,18 +5410,6 @@ function ensureLiInlineStyles() {
       justify-content: center;
       font-size: 14px;
       line-height: 1;
-    }
-    /* LinkedIn's dark mode: keep contrast readable. LI sets [data-theme="dark"]
-       on <html>; we lighten the accent colour for that theme. */
-    html[data-theme="dark"] .${LI_INLINE_BTN_CLASS},
-    html.theme--dark .${LI_INLINE_BTN_CLASS} {
-      color: #70b5f9;
-      border-color: #70b5f9;
-    }
-    html[data-theme="dark"] .${LI_INLINE_BTN_CLASS}:hover,
-    html.theme--dark .${LI_INLINE_BTN_CLASS}:hover {
-      background: rgba(112, 181, 249, 0.1);
-      box-shadow: 0 0 0 3px rgba(112, 181, 249, 0.08);
     }
 
     /* Popover — anchored below/above the ✨ button */
@@ -5680,6 +5670,26 @@ function liFindDialogHost(field: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/** LinkedIn's own Premium "Write with AI" button sits right below/beside some
+ *  fields (About, Headline). Our pill was landing directly on top of it since
+ *  both anchor to the same field rect. Find it (if present near this field)
+ *  so we can offset ours beside it instead of overlapping. */
+function liFindNativeAiButtonNear(field: HTMLElement): HTMLElement | null {
+  let scope: HTMLElement | null = field.parentElement;
+  let hops = 0;
+  while (scope && hops < 10) {
+    const btns = scope.querySelectorAll('button');
+    for (const b of Array.from(btns)) {
+      if (b.classList.contains(LI_INLINE_BTN_CLASS)) continue;
+      const txt = (b.textContent || '').trim().toLowerCase();
+      if (/write with ai|improve with ai|enhance with ai/.test(txt)) return b as HTMLElement;
+    }
+    scope = scope.parentElement;
+    hops++;
+  }
+  return null;
+}
+
 /** Anchor the ✨ button just BELOW the field, left-aligned with it — mirrors
  *  LinkedIn's own "Write with AI" pill placement in the Headline / About
  *  editors. Uses fixed positioning + reposition-on-scroll (elsewhere) so we
@@ -5697,8 +5707,29 @@ function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
   btn.style.display = '';
 
   const btnH = btn.offsetHeight || 30;
-  const gap = 6;
+  const btnW = btn.offsetWidth || 120;
+  const gap = 8;
   const viewportH = window.innerHeight || document.documentElement.clientHeight;
+  const viewportW = window.innerWidth || document.documentElement.clientWidth;
+
+  // If LinkedIn's own "Write with AI" button is right there, sit BESIDE it
+  // (same row) instead of stacking directly on top of it.
+  const nativeBtn = liFindNativeAiButtonNear(field);
+  if (nativeBtn) {
+    const nRect = nativeBtn.getBoundingClientRect();
+    if (nRect.width > 0 && nRect.height > 0) {
+      let left = nRect.right + gap;
+      let top = nRect.top + (nRect.height - btnH) / 2; // vertically centered with native btn
+      if (left + btnW > viewportW - 8) {
+        // Not enough room to the right — stack below the native button instead.
+        left = nRect.left;
+        top = nRect.bottom + gap;
+      }
+      btn.style.top = `${Math.max(8, top)}px`;
+      btn.style.left = `${Math.max(8, Math.min(left, viewportW - btnW - 8))}px`;
+      return;
+    }
+  }
 
   // Prefer BELOW the field; if it would overflow the viewport, place ABOVE.
   let top = rect.bottom + gap;
@@ -5708,8 +5739,6 @@ function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
 
   // Left-align with the field's left edge, but keep the pill inside the
   // viewport horizontally (its width is measured at ~ offsetWidth).
-  const btnW = btn.offsetWidth || 120;
-  const viewportW = window.innerWidth || document.documentElement.clientWidth;
   let left = rect.left;
   if (left + btnW > viewportW - 8) left = Math.max(8, viewportW - btnW - 8);
   if (left < 8) left = 8;
