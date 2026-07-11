@@ -684,22 +684,53 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
         });
       }
 
-      const guestModel = process.env.ANTHROPIC_HAIKU_GUEST_MODEL
+      // Guest-tier model. Prefer Haiku for cost — falls through in order to
+      //   1) ANTHROPIC_HAIKU_GUEST_MODEL  (set this to override per-env)
+      //   2) ANTHROPIC_HAIKU_MODEL        (shared with other Haiku features)
+      //   3) 'claude-haiku-4-5'           (current fleet default — Oct 2025 release)
+      // If the model is not available on this account (Anthropic returns
+      // 404 not_found_error), we fall back to the default Sonnet model
+      // below so we NEVER break the acquisition surface over a bad ID.
+      const guestModelPreferred = process.env.ANTHROPIC_HAIKU_GUEST_MODEL
         || process.env.ANTHROPIC_HAIKU_MODEL
-        || 'claude-3-5-haiku-20241022';
+        || 'claude-haiku-4-5';
 
-      const analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
-        modelOverride: guestModel,
-        maxTokens: 1200,
-        promptVariant: 'guest',
-      });
+      let analysis;
+      let modelUsed = guestModelPreferred;
+      try {
+        analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
+          modelOverride: guestModelPreferred,
+          maxTokens: 1200,
+          promptVariant: 'guest',
+        });
+      } catch (aiErr) {
+        // Anthropic surfaces bad model IDs as status 404 with
+        // error.type === 'not_found_error'. Any other error we re-throw.
+        const isModelMissing =
+          aiErr?.status === 404 ||
+          /not[_ ]found/i.test(String(aiErr?.error?.type || '')) ||
+          /model:\s*/i.test(String(aiErr?.message || ''));
+        if (!isModelMissing) throw aiErr;
+
+        const sonnetFallback = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
+        console.warn(
+          `[guestAnalyzer] Haiku model "${guestModelPreferred}" not available on this account — falling back to ${sonnetFallback}. ` +
+          `Set ANTHROPIC_HAIKU_GUEST_MODEL to a Haiku ID this account supports to save cost.`
+        );
+        analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
+          modelOverride: sonnetFallback,
+          maxTokens: 1200,
+          promptVariant: 'guest',
+        });
+        modelUsed = sonnetFallback;
+      }
 
       cacheRow = await linkedinAnalyzerCache.writeCached({
         profileUrlKey,
         scraped,
         analysisJson: analysis,
         targetTitle: effectiveTitle,
-        modelUsed: guestModel,
+        modelUsed,
       });
     }
 
