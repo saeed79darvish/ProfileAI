@@ -873,6 +873,7 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
     const unsubscribeUrl = `${apiBase}/api/profiles/guest-unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`;
 
     let deliveryOk = false;
+    let sendErrorMsg = null;
     try {
       deliveryOk = await emailService.sendGuestLinkedInReport({
         email: emailTrimmed,
@@ -883,7 +884,8 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
         unsubscribeUrl,
       });
     } catch (sendErr) {
-      console.error('[guestReportEmail] send failed:', sendErr.message);
+      sendErrorMsg = sendErr?.message || String(sendErr);
+      console.error('[guestReportEmail] send threw:', sendErrorMsg);
     }
 
     lead.emailedAt = new Date();
@@ -897,6 +899,25 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
         { where: { analysisCacheId: cacheRow.id } }
       );
     } catch (_) { /* non-fatal */ }
+
+    // Surface send failures to the client instead of lying "check your inbox".
+    // sendEmail returns false (no throw) when no provider is configured, when
+    // Resend/Nodemailer rejects the send, or when the from-address isn't
+    // valid — all cases where the user would wait forever otherwise.
+    if (!deliveryOk) {
+      console.error('[guestReportEmail] send failed', {
+        to: emailTrimmed,
+        analysisId: cacheRow.id,
+        threw: sendErrorMsg,
+        // No provider means EMAIL_USER/EMAIL_PASS AND RESEND_API_KEY are all
+        // unset in the environment.
+        providerConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY,
+      });
+      return res.status(502).json({
+        error: 'email_send_failed',
+        message: "We couldn't send the email right now. Please try again in a minute, or sign in to see your full report instantly.",
+      });
+    }
 
     return res.json({
       ok: true,

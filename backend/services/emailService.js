@@ -82,19 +82,44 @@ const sendEmail = async ({ to, subject, html, text, replyTo }) => {
       });
 
       if (error) {
-        console.error('Resend error:', error);
+        // Log the FULL provider error so prod diagnosis doesn't need a
+        // debugger attach. Resend commonly returns things like:
+        //   - validation_error   (bad from-address / not verified)
+        //   - unauthorized       (bad API key)
+        //   - rate_limit_exceeded
+        console.error('[sendEmail] Resend rejected:', {
+          name: error?.name,
+          message: error?.message,
+          statusCode: error?.statusCode,
+          from: fromAddress,
+          to,
+          subject,
+        });
         return false;
       }
 
-      console.log('Email sent via Resend:', data?.id);
+      console.log('Email sent via Resend:', data?.id, '→', to);
       return true;
     }
 
-    // No email provider configured - log for development
-    console.warn('⚠️ No email provider configured. Email not sent:', { to, subject });
+    // No email provider configured. This is the "silent no-op" trap — prod
+    // envs sometimes ship without EMAIL_* / RESEND_API_KEY set and users
+    // wonder why their reports never arrive. Log loudly so any prod call
+    // shows the misconfiguration.
+    console.error('[sendEmail] NO PROVIDER CONFIGURED — email dropped', {
+      to,
+      subject,
+      hasEmailUserPass: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
+      hasResendKey: !!process.env.RESEND_API_KEY,
+      fromAddress,
+    });
     return false;
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('[sendEmail] threw:', error?.message, {
+      to,
+      subject,
+      stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
+    });
     return false;
   }
 };
@@ -1275,7 +1300,7 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
   ].filter(Boolean);
 
   return {
-    subject: `Your LinkedIn scored ${overall}/100 · ${Math.min(priorityFixes.length || 5, 5)} fixes and paste-ready rewrites inside`,
+    subject: `Your LinkedIn scored ${overall}/100 · ${(priorityFixes.length || 5) >= 1 ? `${Math.min(priorityFixes.length || 5, 5)} ${(Math.min(priorityFixes.length || 5, 5) === 1 ? 'fix' : 'fixes')}` : '5 fixes'} and paste-ready rewrites inside`,
     html,
     text: textLines.join('\n'),
   };

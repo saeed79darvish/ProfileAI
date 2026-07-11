@@ -501,6 +501,8 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                               setGuestEmailError(res.message || "That email doesn't look right. Mind checking it?");
                             } else if (res.errorCode === 'analysis_expired') {
                               setGuestEmailError('Your analysis expired. Please re-analyze the profile and try again.');
+                            } else if (res.errorCode === 'email_send_failed') {
+                              setGuestEmailError(res.message || "We couldn't send the email right now. Try again in a minute, or sign in to see your full report instantly.");
                             } else {
                               setGuestEmailError(res.message || res.error || 'Something went wrong. Please try again.');
                             }
