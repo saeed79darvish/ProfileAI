@@ -5765,10 +5765,11 @@ function liEnsureButtonFor(field: HTMLElement) {
   btn.type = 'button';
   btn.className = LI_INLINE_BTN_CLASS;
   btn.setAttribute(LI_INLINE_BTN_ATTR, 'true');
-  // Match LinkedIn's own "✨ Write with AI" pill wording — familiar to
-  // LinkedIn users, but our label makes it clear this edits the current
-  // field, not authoring from scratch. SVG sparkle instead of emoji so it
-  // renders consistently across OS font stacks.
+  // Branded label — "ProfilleAI" instead of "Edit with AI" so it's
+  // immediately clear this is our extension's control, not another
+  // LinkedIn-native "Write/Improve with AI" button sitting right next to it.
+  // SVG sparkle instead of emoji so it renders consistently across OS font
+  // stacks.
   btn.innerHTML = `
     <span class="pai-sparkle" aria-hidden="true">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -5776,7 +5777,7 @@ function liEnsureButtonFor(field: HTMLElement) {
         <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" fill="currentColor" opacity="0.7"/>
       </svg>
     </span>
-    <span>Edit with AI</span>
+    <span>ProfilleAI</span>
   `;
   btn.title = 'Rewrite this field with ProfilleAI';
   btn.addEventListener('mousedown', (e) => {
@@ -5860,7 +5861,7 @@ async function liOpenInlinePopover(field: HTMLElement, anchor: HTMLButtonElement
   pop.className = LI_INLINE_POP_CLASS;
   pop.innerHTML = `
     <div class="pai-pop-head">
-      <span class="pai-pop-title">✨ AI edit · ${label.slice(0, 40)}</span>
+      <span class="pai-pop-title">✨ ProfilleAI · ${label.slice(0, 40)}</span>
       <button type="button" class="pai-pop-close" aria-label="Close">✕</button>
     </div>
     <div class="pai-actions">

@@ -2452,22 +2452,85 @@ async function analyzeLinkedInProfile(
           return best.length >= min ? best : best;
         };
 
-        // Section-scoped extractor. LinkedIn sections are marked with
-        // `<section>` containers that include an anchor `<div id="experience">`,
-        // `<div id="about">`, etc. Grab the section that contains that anchor
-        // and pull all visible text from it.
+        // Section-scoped extractor. LinkedIn's OLDER profile pages used
+        // `<section>` wrappers with an anchor `<div id="about">`, `id="experience">`,
+        // etc. — the newer `sdui` profile pages have dropped those IDs entirely
+        // and use hashed CSS-module classnames instead. So we now try, in order:
+        //   1) The legacy `document.getElementById(anchorId)` path.
+        //   2) An `<h2>` heading whose text matches the section label — take
+        //      its ancestor `<section>` (or nearest large ancestor) and pull
+        //      the visible text minus that heading itself.
+        //   3) A regex slice of the whole document.body.innerText between the
+        //      section's heading and the next known section heading.
+        // The section labels below cover every LinkedIn section we care about.
+        const SECTION_HEADINGS = ['About', 'Experience', 'Education', 'Skills', 'Featured', 'Projects', 'Certifications', 'Recommendations', 'Languages', 'Volunteering'];
+        // Cache the full-page text once — several fallbacks reuse it.
+        const bodyText = clean(document.body.innerText);
         const sectionText = (anchorId: string, minLen = 30): string => {
           try {
+            // 1) Legacy anchor-id path.
             const anchor = document.getElementById(anchorId);
-            if (!anchor) return '';
-            const section = anchor.closest('section');
-            if (!section) return '';
-            // Strip the "Show all" links which just repeat labels
-            const clone = section.cloneNode(true) as HTMLElement;
-            clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
-            clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
-            const txt = clean(clone.innerText || clone.textContent);
-            return txt.length >= minLen ? txt : txt;
+            if (anchor) {
+              const section = anchor.closest('section');
+              if (section) {
+                const clone = section.cloneNode(true) as HTMLElement;
+                clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
+                clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
+                const txt = clean(clone.innerText || clone.textContent);
+                if (txt.length >= minLen) return txt;
+              }
+            }
+            // 2) Heading-based path. Look for an <h2>/<h3> whose text is the
+            //    section label (or starts with it — "About", "Featured", etc.).
+            const label = anchorId.charAt(0).toUpperCase() + anchorId.slice(1); // "about" → "About"
+            const headings = Array.from(document.querySelectorAll('h1, h2, h3'));
+            const heading = headings.find((h) => {
+              const t = clean((h as HTMLElement).innerText || h.textContent);
+              return t === label || new RegExp(`^${label}\\b`, 'i').test(t);
+            }) as HTMLElement | undefined;
+            if (heading) {
+              // Prefer nearest <section>; else walk up until we find a
+              // container that's at least 3x taller than the heading itself.
+              let container: HTMLElement | null = heading.closest('section');
+              if (!container) {
+                let node: HTMLElement | null = heading.parentElement;
+                const hh = heading.getBoundingClientRect().height || 24;
+                let hops = 0;
+                while (node && hops < 8) {
+                  if (node.getBoundingClientRect().height > hh * 3) { container = node; break; }
+                  node = node.parentElement;
+                  hops++;
+                }
+              }
+              if (container) {
+                const clone = container.cloneNode(true) as HTMLElement;
+                // Remove the heading itself so we don't include "About\nAbout"
+                clone.querySelectorAll('h1, h2, h3').forEach((h) => {
+                  const t = clean((h as HTMLElement).innerText || h.textContent);
+                  if (t === label || new RegExp(`^${label}\\b`, 'i').test(t)) h.remove();
+                });
+                clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
+                clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
+                const txt = clean(clone.innerText || clone.textContent);
+                if (txt.length >= minLen) return txt;
+              }
+            }
+            // 3) Regex slice fallback on the full body text — cut between
+            //    THIS heading and the NEXT known section heading.
+            const otherHeadings = SECTION_HEADINGS.filter((h) => h.toLowerCase() !== anchorId.toLowerCase());
+            const startRe = new RegExp(`(^|\\n)${label}\\s*(\\n|$)`, 'i');
+            const startMatch = bodyText.match(startRe);
+            if (startMatch && typeof startMatch.index === 'number') {
+              const after = bodyText.slice(startMatch.index + startMatch[0].length);
+              const endRe = new RegExp(`(^|\\n)(${otherHeadings.join('|')})\\s*(\\n|$)`, 'i');
+              const endMatch = after.match(endRe);
+              const slice = endMatch && typeof endMatch.index === 'number'
+                ? after.slice(0, endMatch.index)
+                : after.slice(0, 3000);
+              const txt = clean(slice);
+              if (txt.length >= minLen) return txt;
+            }
+            return '';
           } catch {
             return '';
           }
@@ -2476,7 +2539,11 @@ async function analyzeLinkedInProfile(
         const name = firstText([
           'h1.text-heading-xlarge',
           'h1.top-card-layout__title',
+          // Newer sdui profile pages: the name is the first <h1> inside
+          // <main>, but the class is a hashed CSS-module name so we can't
+          // target it directly. `main h1` still catches it.
           'main h1',
+          '[data-sdui-screen*="profile"] h1',
           'h1',
         ]);
 
@@ -2484,7 +2551,27 @@ async function analyzeLinkedInProfile(
           'div.text-body-medium.break-words',
           '.top-card-layout__headline',
           '.pv-text-details__left-panel .text-body-medium',
-        ]);
+          // Newer sdui: the headline sits right under the <h1> in the top card,
+          // often the FIRST <p> after the name. Best generic fallback is the
+          // first paragraph inside <main> that isn't a link and is 20-260 chars.
+        ]) || (() => {
+          try {
+            const main = document.querySelector('main') || document.body;
+            const h1 = main.querySelector('h1');
+            if (!h1) return '';
+            let node: Element | null = h1.nextElementSibling;
+            let hops = 0;
+            while (node && hops < 30) {
+              const txt = clean((node as HTMLElement).innerText || node.textContent);
+              if (txt && txt.length >= 20 && txt.length <= 260 && !/(\bconnect\b|\bmessage\b|\bfollow\b)/i.test(txt.split('\n')[0] || '')) {
+                return txt.split('\n')[0] || txt;
+              }
+              node = node.nextElementSibling;
+              hops++;
+            }
+          } catch { /* ignore */ }
+          return '';
+        })();
 
         const location = firstText([
           'span.text-body-small.inline.t-black--light.break-words',
@@ -2551,7 +2638,7 @@ async function analyzeLinkedInProfile(
 
         // Full page innerText fallback (capped) — lets the AI still grade the
         // profile if section anchors moved / A/B test changed the DOM.
-        const rawText = clean(document.body.innerText).slice(0, 12000);
+        const rawText = bodyText.slice(0, 12000);
 
         return {
           name,
