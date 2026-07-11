@@ -883,139 +883,399 @@ const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, u
   const fit = Number(analysis?.recruiterFitScore) || 0;
   const search = Number(analysis?.searchVisibilityScore) || 0;
   const verdict = String(analysis?.verdict || 'maybe').toLowerCase();
-  const verdictLabel = verdict === 'shortlist' ? 'Shortlist' : verdict === 'pass' ? 'Pass' : 'Maybe';
-  const verdictColor = verdict === 'shortlist' ? '#0d9488' : verdict === 'pass' ? '#dc2626' : '#d97706';
+  const verdictLabel = verdict === 'shortlist' ? 'SHORTLIST' : verdict === 'pass' ? 'PASS' : 'MAYBE';
+  // Amber for MAYBE / red for PASS / green for SHORTLIST. All shades match
+  // the reference design.
+  const verdictColor = verdict === 'shortlist' ? '#059669' : verdict === 'pass' ? '#DC2626' : '#D97706';
+  const verdictTintBg = verdict === 'shortlist' ? '#ECFDF5' : verdict === 'pass' ? '#FEF2F2' : '#FEF3C7';
   const summary = String(analysis?.summary || '');
   const priorityFixes = Array.isArray(analysis?.priorityFixes) ? analysis.priorityFixes : [];
   const sections = Array.isArray(analysis?.sections) ? analysis.sections : [];
-  const recruiterSearch = analysis?.recruiterSearch || {};
-  const presentKeywords = Array.isArray(recruiterSearch.presentKeywords) ? recruiterSearch.presentKeywords : [];
-  const missingKeywords = Array.isArray(recruiterSearch.missingKeywords) ? recruiterSearch.missingKeywords : [];
-  const recommendedKeywords = Array.isArray(recruiterSearch.recommendedKeywords) ? recruiterSearch.recommendedKeywords : [];
 
-  const preheader = `${priorityFixes.length || 5} fixes that would change how recruiters see you`;
+  // Effective role label — shown in hero + used in copy fallbacks.
+  const roleLabel = (targetTitle && String(targetTitle).trim()) || 'your target role';
+
+  // Preheader (hidden by clients, previewed in inbox list).
+  const preheader = `${Math.max(3, priorityFixes.length || 5)} fixes and paste-ready rewrites inside`;
+
+  // UTM helper — every CTA link is auth'd back to a distinct source so
+  // funnel analysis can tell which card drove the click.
+  const withUtm = (url, content) => {
+    if (!url) return '#';
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}utm_content=${encodeURIComponent(content)}`;
+  };
+
+  // Score-number color follows the same band as the extension: >=70 green,
+  // >=50 amber, <50 red. Matches the mockup where 62 is dark, 68 is dark,
+  // 52 is orange.
+  const scoreColor = (n) => (n >= 70 ? '#111827' : n >= 50 ? '#D97706' : '#DC2626');
 
   const scoreCard = (label, val) => `
-    <td align="center" style="padding:12px 8px;">
-      <div style="font:600 32px/1.1 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#111827;">${val}<span style="font-size:14px;color:#6b7280;">/100</span></div>
-      <div style="font:500 11px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">${escapeGuestReportHtml(label)}</div>
+    <td align="center" width="33%" style="padding:20px 12px;border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;">
+      <div style="font:700 40px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:${scoreColor(val)};letter-spacing:-0.02em;">
+        ${val}<span style="font-size:15px;font-weight:600;color:#9CA3AF;letter-spacing:0;">/100</span>
+      </div>
+      <div style="font:600 11px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;margin-top:8px;">${escapeGuestReportHtml(label)}</div>
     </td>
   `;
 
-  const fixItems = priorityFixes.slice(0, 5).map((fix, i) => `
-    <li style="margin:0 0 12px 0;padding:12px 14px;background:#f9fafb;border-left:3px solid #4f46e5;border-radius:6px;">
-      <div style="font:600 12px/1 -apple-system,sans-serif;color:#4f46e5;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Fix ${String(i + 1).padStart(2, '0')}</div>
-      <div style="font:400 15px/1.55 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(fix)}</div>
-    </li>
-  `).join('');
+  const fixItems = priorityFixes.slice(0, 5).map((raw, i) => {
+    const text = String(raw || '').trim();
+    // Split into a bolded lead sentence + body, if the fix reads like
+    // "Do X. Because Y." Otherwise use the whole thing as the body.
+    const firstStop = text.search(/[.!?]\s+/);
+    let title = text;
+    let body = '';
+    if (firstStop > 0) {
+      title = text.slice(0, firstStop).trim().replace(/[.!?]+$/, '');
+      body = text.slice(firstStop + 1).trim();
+    }
+    return `
+      <tr><td style="padding:0 0 12px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-left:3px solid #7C3AED;border-radius:8px;background:#FFFFFF;">
+          <tr>
+            <td width="52" valign="top" style="padding:16px 0 16px 18px;font:800 20px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;letter-spacing:-0.02em;">${String(i + 1).padStart(2, '0')}</td>
+            <td valign="top" style="padding:16px 20px 16px 8px;">
+              <div style="font:700 15px/1.35 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:${body ? '6px' : '0'};">${escapeGuestReportHtml(title)}</div>
+              ${body ? `<div style="font:400 14px/1.55 -apple-system,'Segoe UI',sans-serif;color:#4B5563;">${escapeGuestReportHtml(body)}</div>` : ''}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    `;
+  }).join('');
 
-  const sectionCards = sections.map((s) => `
-    <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:8px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(s.name || '')}</div>
-        <div style="font:600 13px/1 -apple-system,sans-serif;color:#6b7280;">${Number(s.score) || 0}/100</div>
-      </div>
-      ${Array.isArray(s.findings) && s.findings.length ? `
-        <ul style="margin:0 0 10px 18px;padding:0;color:#374151;font:400 14px/1.55 -apple-system,sans-serif;">
-          ${s.findings.map((f) => `<li style="margin:0 0 4px 0;">${escapeGuestReportHtml(f)}</li>`).join('')}
-        </ul>` : ''}
-      ${s.suggestion ? `
-        <div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border-radius:6px;">
-          <div style="font:600 11px/1 -apple-system,sans-serif;color:#4f46e5;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Paste-ready rewrite</div>
-          <div style="font:400 14px/1.55 -apple-system,sans-serif;color:#111827;white-space:pre-wrap;">${escapeGuestReportHtml(s.suggestion)}</div>
-        </div>` : ''}
-    </div>
-  `).join('');
+  // Score-chip color for per-section score badges (mockup shows a soft
+  // red/amber/green pill).
+  const chipColor = (n) => {
+    if (n >= 70) return { bg: '#DCFCE7', fg: '#166534' };
+    if (n >= 50) return { bg: '#FEF3C7', fg: '#92400E' };
+    return { bg: '#FEE2E2', fg: '#991B1B' };
+  };
 
-  const chipList = (label, items, color) => items && items.length ? `
-    <div style="margin:0 0 12px 0;">
-      <div style="font:600 11px/1 -apple-system,sans-serif;color:#6b7280;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">${escapeGuestReportHtml(label)}</div>
-      <div>${items.slice(0, 12).map((k) => `<span style="display:inline-block;padding:4px 10px;margin:0 6px 6px 0;background:${color}22;color:${color};border-radius:999px;font:500 12px/1.3 -apple-system,sans-serif;">${escapeGuestReportHtml(k)}</span>`).join('')}</div>
-    </div>` : '';
+  const sectionCards = sections.slice(0, 3).map((s) => {
+    const chip = chipColor(Number(s?.score) || 0);
+    return `
+      <tr><td style="padding:0 0 16px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;">
+          <tr><td style="padding:20px 20px 4px 20px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font:700 18px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;">${escapeGuestReportHtml(s?.name || '')}</td>
+                <td align="right" style="white-space:nowrap;">
+                  <span style="display:inline-block;padding:4px 12px;background:${chip.bg};color:${chip.fg};border-radius:999px;font:700 12px/1 -apple-system,'Segoe UI',sans-serif;">${Number(s?.score) || 0}/100</span>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+          ${Array.isArray(s?.findings) && s.findings.length ? `
+          <tr><td style="padding:12px 20px 4px 20px;">
+            <ul style="margin:0 0 6px 18px;padding:0;color:#374151;font:400 14px/1.6 -apple-system,'Segoe UI',sans-serif;">
+              ${s.findings.map((f) => `<li style="margin:0 0 4px 0;">${escapeGuestReportHtml(f)}</li>`).join('')}
+            </ul>
+          </td></tr>` : ''}
+          ${s?.suggestion ? `
+          <tr><td style="padding:8px 20px 20px 20px;">
+            <div style="padding:14px 16px;background:#F5F3FF;border:1px solid #E9E4FF;border-radius:8px;">
+              <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">Paste-ready rewrite</div>
+              <div style="font:400 14px/1.6 -apple-system,'Segoe UI',sans-serif;color:#111827;white-space:pre-wrap;">${escapeGuestReportHtml(s.suggestion)}</div>
+            </div>
+          </td></tr>` : ''}
+        </table>
+      </td></tr>
+    `;
+  }).join('');
+
+  // Feature grid (six tiles, 2 columns × 3 rows). Icons are simple emoji
+  // stand-ins for a colored tile so we don't rely on external images.
+  const featureCard = ({ emoji, title, body, cta, url }) => `
+    <td width="50%" valign="top" style="padding:0 8px 16px 8px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;">
+        <tr><td style="padding:18px 18px 16px 18px;">
+          <div style="width:36px;height:36px;background:#F5F3FF;border-radius:8px;text-align:center;line-height:36px;font-size:18px;margin-bottom:12px;">${emoji}</div>
+          <div style="font:700 15px/1.3 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:6px;">${escapeGuestReportHtml(title)}</div>
+          <div style="font:400 13px/1.55 -apple-system,'Segoe UI',sans-serif;color:#4B5563;margin-bottom:12px;min-height:44px;">${escapeGuestReportHtml(body)}</div>
+          <a href="${escapeGuestReportHtml(url)}" style="font:600 13px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;text-decoration:none;">${escapeGuestReportHtml(cta)} &rarr;</a>
+        </td></tr>
+      </table>
+    </td>
+  `;
+
+  const features = [
+    { emoji: '📊', title: 'Unlimited LinkedIn analyses', body: 'Re-run this report as many times as you want, on any profile.', cta: 'Try it free', url: withUtm(signupUrl, 'feature_unlimited_analyses') },
+    { emoji: '🤖', title: 'AI profile builder',           body: 'One resume upload builds a complete ProfilleAI profile in seconds.', cta: 'Try it free', url: withUtm(signupUrl, 'feature_profile_builder') },
+    { emoji: '📝', title: 'Resume tailoring',              body: 'Rewrite your resume to any job description in under a minute.',       cta: 'Try it free', url: withUtm(signupUrl, 'feature_resume_tailoring') },
+    { emoji: '✉️',  title: 'AI cover letters',             body: "One-click cover letters that don't read like AI wrote them.",         cta: 'Try it free', url: withUtm(signupUrl, 'feature_cover_letters') },
+    { emoji: '⚡',  title: 'Chrome extension autofill',    body: 'Auto-fill Greenhouse, Lever, Ashby, Workday and 40+ boards.',          cta: 'Install',      url: withUtm(signupUrl, 'feature_extension') },
+    { emoji: '🎯',  title: 'Matched jobs feed',            body: 'Live feed of jobs matching your skills across 500+ boards.',           cta: 'Browse jobs',  url: withUtm(signupUrl, 'feature_jobs_feed') },
+  ];
+
+  // Build the 2-column grid as pairs of rows.
+  const featureRows = [];
+  for (let i = 0; i < features.length; i += 2) {
+    featureRows.push(`<tr>${featureCard(features[i])}${features[i + 1] ? featureCard(features[i + 1]) : '<td width="50%"></td>'}</tr>`);
+  }
 
   const html = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Your LinkedIn profile report</title>
+    <title>Your LinkedIn scored ${overall}/100</title>
   </head>
-  <body style="margin:0;padding:0;background:#f3f4f6;">
+  <body style="margin:0;padding:0;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
     <span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${escapeGuestReportHtml(preheader)}</span>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
-      <tr><td align="center">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-          <tr><td style="padding:20px 24px;background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);color:#ffffff;">
-            <div style="font:600 18px/1.2 -apple-system,sans-serif;">Your LinkedIn profile report</div>
-            <div style="font:400 13px/1.4 -apple-system,sans-serif;opacity:0.85;margin-top:4px;">Target role: ${escapeGuestReportHtml(targetTitle || 'your stated title')}</div>
-          </td></tr>
 
-          <tr><td style="padding:24px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;">
-              <tr>${scoreCard('Overall', overall)}${scoreCard('Recruiter fit', fit)}${scoreCard('Search visibility', search)}</tr>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F4F6;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;background:#FFFFFF;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+
+          <!-- HERO: violet gradient -->
+          <tr><td style="padding:36px 36px 40px 36px;background:linear-gradient(135deg,#7C3AED 0%,#6366F1 100%);color:#FFFFFF;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td valign="middle" style="font:700 20px/1 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.01em;">ProfilleAI</td>
+                <td valign="middle" align="right">
+                  <span style="display:inline-block;padding:6px 12px;background:rgba(255,255,255,0.18);border-radius:999px;font:700 10px/1 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:0.12em;text-transform:uppercase;">LinkedIn Report</span>
+                </td>
+              </tr>
             </table>
-            <div style="margin-top:16px;padding:12px 14px;background:${verdictColor}15;border-left:3px solid ${verdictColor};border-radius:6px;">
-              <div style="font:600 11px/1 -apple-system,sans-serif;color:${verdictColor};letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Recruiter verdict: ${escapeGuestReportHtml(verdictLabel)}</div>
-              <div style="font:400 14px/1.55 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(summary)}</div>
+            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.12em;margin-top:32px;margin-bottom:14px;">Your LinkedIn profile</div>
+            <div style="font:800 36px/1.15 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.02em;margin-bottom:16px;">You scored ${overall} out of 100</div>
+            <div style="font:400 15px/1.55 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.92);max-width:540px;">
+              Target role: <strong style="color:#FFFFFF;">${escapeGuestReportHtml(roleLabel)}</strong>. Below is what a senior recruiter would see, and the paste-ready fixes that would land you in the shortlist pile.
             </div>
           </td></tr>
 
+          <!-- SCORES: three-card row -->
+          <tr><td style="padding:28px 32px 8px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-spacing:8px 0;">
+              <tr>${scoreCard('Overall', overall)}${scoreCard('Recruiter Fit', fit)}${scoreCard('Search Visibility', search)}</tr>
+            </table>
+          </td></tr>
+
+          <!-- VERDICT card -->
+          <tr><td style="padding:16px 32px 8px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${verdictTintBg};border-left:4px solid ${verdictColor};border-radius:8px;">
+              <tr><td style="padding:16px 20px;">
+                <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:${verdictColor};letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;">Recruiter Verdict: ${verdictLabel}</div>
+                <div style="font:400 14px/1.6 -apple-system,'Segoe UI',sans-serif;color:#111827;">${escapeGuestReportHtml(summary)}</div>
+              </td></tr>
+            </table>
+          </td></tr>
+
+          <!-- Score-lift CTA card -->
+          <tr><td style="padding:12px 32px 8px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3FF;border:1px solid #E9E4FF;border-radius:10px;">
+              <tr>
+                <td style="padding:16px 18px;">
+                  <div style="font:700 15px/1.3 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:4px;">Want to lift this score to 90+?</div>
+                  <div style="font:400 13px/1.5 -apple-system,'Segoe UI',sans-serif;color:#4B5563;">Free account applies every rewrite in one click, then re-analyzes.</div>
+                </td>
+                <td align="right" style="padding:16px 18px;white-space:nowrap;">
+                  <a href="${escapeGuestReportHtml(withUtm(signupUrl, 'lift_score_card'))}" style="display:inline-block;padding:11px 18px;background:#7C3AED;color:#FFFFFF;text-decoration:none;border-radius:8px;font:700 13px/1 -apple-system,'Segoe UI',sans-serif;">Lift my score &rarr;</a>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+
+          <!-- TOP FIXES -->
           ${priorityFixes.length ? `
-          <tr><td style="padding:0 24px 8px;">
-            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Your top ${Math.min(priorityFixes.length, 5)} fixes</div>
-            <ul style="list-style:none;padding:0;margin:0;">${fixItems}</ul>
+          <tr><td style="padding:28px 32px 0 32px;">
+            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#6B7280;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px;">Do these first</div>
+            <div style="font:800 22px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;letter-spacing:-0.01em;margin-bottom:20px;">Top ${Math.min(priorityFixes.length, 5)} fixes for your profile</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${fixItems}</table>
           </td></tr>` : ''}
 
+          <!-- CHROME EXTENSION BLACK CARD -->
+          <tr><td style="padding:12px 32px 0 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0F172A;border-radius:14px;">
+              <tr><td style="padding:24px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td valign="top" style="padding-right:16px;">
+                      <span style="display:inline-block;padding:5px 11px;background:#7C3AED;color:#FFFFFF;border-radius:6px;font:700 10px/1 -apple-system,'Segoe UI',sans-serif;letter-spacing:0.12em;text-transform:uppercase;">Chrome Extension</span>
+                      <div style="font:800 22px/1.2 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.01em;margin-top:14px;margin-bottom:10px;">Apply to jobs in one click.</div>
+                      <div style="font:400 13px/1.55 -apple-system,'Segoe UI',sans-serif;color:#CBD5E1;margin-bottom:18px;">The ProfilleAI extension auto-fills every application form on Greenhouse, Lever, Ashby, Workday and 40+ boards. Resume, cover letter, and every screening question, filled from your profile in seconds.</div>
+                      <a href="${escapeGuestReportHtml(withUtm(signupUrl, 'extension_card'))}" style="display:inline-block;padding:11px 18px;background:#FFFFFF;color:#0F172A;text-decoration:none;border-radius:8px;font:700 13px/1 -apple-system,'Segoe UI',sans-serif;">Install the extension &rarr;</a>
+                      <div style="font:400 12px/1.5 -apple-system,'Segoe UI',sans-serif;color:#94A3B8;margin-top:12px;">Works with LinkedIn Easy Apply too.</div>
+                    </td>
+                    <td width="220" valign="top" style="padding-left:8px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#1E293B;border:1px solid #334155;border-radius:10px;">
+                        <tr><td style="padding:16px;">
+                          <span style="display:inline-block;padding:4px 10px;background:#7C3AED;color:#FFFFFF;border-radius:5px;font:700 10px/1 -apple-system,'Segoe UI',sans-serif;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">Auto-filled</span>
+                          <div style="font:600 11px/1 -apple-system,'Segoe UI',sans-serif;color:#94A3B8;margin-top:10px;margin-bottom:3px;">Full name</div>
+                          <div style="font:600 13px/1.3 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;">${escapeGuestReportHtml(analysis?.name || 'Your name')}</div>
+                          <div style="font:600 11px/1 -apple-system,'Segoe UI',sans-serif;color:#94A3B8;margin-top:14px;margin-bottom:3px;">Resume</div>
+                          <div style="font:600 13px/1.3 -apple-system,'Segoe UI',sans-serif;color:#A78BFA;">Resume_${(analysis?.name || 'you').split(' ')[0]}.pdf</div>
+                          <div style="font:600 11px/1 -apple-system,'Segoe UI',sans-serif;color:#94A3B8;margin-top:14px;margin-bottom:3px;">Why this role?</div>
+                          <div style="font:400 12px/1.4 -apple-system,'Segoe UI',sans-serif;color:#CBD5E1;">Tailored by AI from your profile...</div>
+                        </td></tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </td></tr>
+
+          <!-- SECTION-BY-SECTION rewrites (first 3 sections only in email; rest is in the app) -->
           ${sectionCards ? `
-          <tr><td style="padding:16px 24px 8px;">
-            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Section-by-section</div>
-            ${sectionCards}
+          <tr><td style="padding:32px 32px 0 32px;">
+            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#6B7280;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px;">Section by section</div>
+            <div style="font:800 22px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;letter-spacing:-0.01em;margin-bottom:20px;">Paste-ready rewrites</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${sectionCards}</table>
           </td></tr>` : ''}
 
-          ${(presentKeywords.length || missingKeywords.length || recommendedKeywords.length) ? `
-          <tr><td style="padding:0 24px 8px;">
-            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Recruiter search visibility</div>
-            ${chipList('Keywords recruiters would find', presentKeywords, '#059669')}
-            ${chipList('Keywords they\'d search for but you\'re missing', missingKeywords, '#dc2626')}
-            ${chipList('Top keywords to own', recommendedKeywords, '#4f46e5')}
-          </td></tr>` : ''}
-
-          <tr><td align="center" style="padding:24px;">
-            <a href="${escapeGuestReportHtml(signupUrl)}" style="display:inline-block;padding:14px 28px;background:#4f46e5;color:#ffffff;text-decoration:none;border-radius:8px;font:600 15px/1 -apple-system,sans-serif;">Get unlimited analyses free</a>
-            <div style="font:400 12px/1.5 -apple-system,sans-serif;color:#6b7280;margin-top:10px;">Free account · paste-ready rewrites · re-analyze as many profiles as you like</div>
+          <!-- FEATURE GRID -->
+          <tr><td style="padding:24px 32px 0 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr><td align="center" style="padding-bottom:24px;">
+                <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;">Free with your account</div>
+                <div style="font:800 22px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;letter-spacing:-0.01em;margin-bottom:10px;">Six ways ProfilleAI accelerates your search</div>
+                <div style="font:400 14px/1.55 -apple-system,'Segoe UI',sans-serif;color:#4B5563;max-width:440px;margin:0 auto;">One free account unlocks the tools senior candidates use to fix their profile, tailor every application, and get in front of recruiters faster.</div>
+              </td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 -8px;">
+              ${featureRows.join('')}
+            </table>
           </td></tr>
 
-          <tr><td style="padding:16px 24px 24px;border-top:1px solid #e5e7eb;font:400 12px/1.55 -apple-system,sans-serif;color:#6b7280;">
-            You received this because you asked for a LinkedIn profile report at
-            <a href="${escapeGuestReportHtml(profileUrl || '')}" style="color:#4f46e5;">${escapeGuestReportHtml(profileUrl || '')}</a>.
-            We don't post anything to LinkedIn and we don't store your profile data beyond this report.
-            <a href="${escapeGuestReportHtml(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>.
+          <!-- TESTIMONIALS -->
+          <tr><td style="padding:24px 32px 0 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr><td align="center" style="padding-bottom:20px;">
+                <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#6B7280;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px;">Loved by candidates</div>
+                <div style="font:800 22px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;letter-spacing:-0.01em;">2,400+ users landed roles in 2025</div>
+              </td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-spacing:8px 0;">
+              <tr>
+                <td width="50%" valign="top" style="padding:0 8px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;">
+                    <tr><td style="padding:20px;">
+                      <div style="color:#F59E0B;font-size:14px;letter-spacing:2px;margin-bottom:10px;">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+                      <div style="font:400 13.5px/1.55 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:16px;">The rewrites are what got me the interview. My headline was invisible before ProfilleAI. Two weeks in, I had 5 recruiter InMails.</div>
+                      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                        <td width="32" valign="middle"><div style="width:28px;height:28px;background:#F97316;color:#FFFFFF;border-radius:50%;text-align:center;line-height:28px;font:700 12px/28px -apple-system,sans-serif;">M</div></td>
+                        <td valign="middle" style="padding-left:8px;">
+                          <div style="font:700 13px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;">Maya P.</div>
+                          <div style="font:400 12px/1.3 -apple-system,'Segoe UI',sans-serif;color:#6B7280;">Senior PM, hired at Stripe</div>
+                        </td>
+                      </tr></table>
+                    </td></tr>
+                  </table>
+                </td>
+                <td width="50%" valign="top" style="padding:0 8px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;">
+                    <tr><td style="padding:20px;">
+                      <div style="color:#F59E0B;font-size:14px;letter-spacing:2px;margin-bottom:10px;">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+                      <div style="font:400 13.5px/1.55 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:16px;">The extension is the reason I applied to 60 roles in a weekend without losing my mind. Resume tailoring per job was the killer feature.</div>
+                      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                        <td width="32" valign="middle"><div style="width:28px;height:28px;background:#7C3AED;color:#FFFFFF;border-radius:50%;text-align:center;line-height:28px;font:700 12px/28px -apple-system,sans-serif;">J</div></td>
+                        <td valign="middle" style="padding-left:8px;">
+                          <div style="font:700 13px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;">James K.</div>
+                          <div style="font:400 12px/1.3 -apple-system,'Segoe UI',sans-serif;color:#6B7280;">Staff Eng, hired at Notion</div>
+                        </td>
+                      </tr></table>
+                    </td></tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
           </td></tr>
+
+          <!-- PRIMARY VIOLET CTA -->
+          <tr><td style="padding:32px 32px 12px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#7C3AED 0%,#6366F1 100%);border-radius:14px;">
+              <tr><td align="center" style="padding:36px 28px 28px 28px;">
+                <div style="font:800 24px/1.2 -apple-system,'Segoe UI',sans-serif;color:#FFFFFF;letter-spacing:-0.01em;margin-bottom:10px;">Fix your profile in the next 15 minutes</div>
+                <div style="font:400 14px/1.55 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.92);margin-bottom:22px;max-width:420px;">Create a free account and start applying the rewrites, tailoring your resume, and browsing matched roles.</div>
+                <a href="${escapeGuestReportHtml(withUtm(signupUrl, 'primary_cta'))}" style="display:inline-block;padding:14px 26px;background:#FFFFFF;color:#7C3AED;text-decoration:none;border-radius:10px;font:700 15px/1 -apple-system,'Segoe UI',sans-serif;">Create free account &rarr;</a>
+                <div style="font:400 12px/1.5 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.85);margin-top:12px;">No credit card. Sign up with Google or LinkedIn.</div>
+                <div style="height:1px;background:rgba(255,255,255,0.20);margin:22px 0 14px 0;"></div>
+                <div style="font:600 12px/1.4 -apple-system,'Segoe UI',sans-serif;color:rgba(255,255,255,0.90);">2,400+ users &nbsp;|&nbsp; Rated 4.9&#9733; &nbsp;|&nbsp; Chrome Web Store featured</div>
+              </td></tr>
+            </table>
+          </td></tr>
+
+          <!-- HOW IT WORKS -->
+          <tr><td style="padding:20px 32px 24px 32px;">
+            <div style="font:700 11px/1 -apple-system,'Segoe UI',sans-serif;color:#6B7280;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:14px;">How ProfilleAI works</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="33%" valign="top" style="padding-right:12px;">
+                  <div style="font:800 24px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;margin-bottom:8px;">01</div>
+                  <div style="font:700 14px/1.35 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:4px;">Import your resume</div>
+                  <div style="font:400 13px/1.5 -apple-system,'Segoe UI',sans-serif;color:#4B5563;">One upload builds your ProfilleAI profile in seconds.</div>
+                </td>
+                <td width="33%" valign="top" style="padding:0 6px;">
+                  <div style="font:800 24px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;margin-bottom:8px;">02</div>
+                  <div style="font:700 14px/1.35 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:4px;">Fix your LinkedIn</div>
+                  <div style="font:400 13px/1.5 -apple-system,'Segoe UI',sans-serif;color:#4B5563;">Paste the rewrites, add the missing keywords, and analyze again.</div>
+                </td>
+                <td width="33%" valign="top" style="padding-left:12px;">
+                  <div style="font:800 24px/1 -apple-system,'Segoe UI',sans-serif;color:#7C3AED;margin-bottom:8px;">03</div>
+                  <div style="font:700 14px/1.35 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:4px;">Apply with the extension</div>
+                  <div style="font:400 13px/1.5 -apple-system,'Segoe UI',sans-serif;color:#4B5563;">Auto-fill forms with a tailored resume and cover letter.</div>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+
+          <!-- FOOTER -->
+          <tr><td style="padding:20px 32px 28px 32px;border-top:1px solid #E5E7EB;">
+            <div style="font:700 14px/1.2 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:10px;">ProfilleAI</div>
+            <div style="font:400 12px/1.55 -apple-system,'Segoe UI',sans-serif;color:#6B7280;margin-bottom:10px;">
+              You received this because you asked for a LinkedIn profile report at <a href="${escapeGuestReportHtml(profileUrl || '')}" style="color:#7C3AED;text-decoration:none;">${escapeGuestReportHtml((profileUrl || '').replace(/^https?:\/\//, ''))}</a>. We don't post anything to LinkedIn and don't store your profile data beyond this report.
+            </div>
+            <div style="font:600 12px/1.4 -apple-system,'Segoe UI',sans-serif;color:#111827;margin-bottom:8px;">
+              <a href="${escapeGuestReportHtml(unsubscribeUrl)}" style="color:#111827;text-decoration:underline;">Unsubscribe</a>
+              <span style="color:#D1D5DB;margin:0 6px;">&middot;</span>
+              <a href="https://www.profilleai.com/privacy" style="color:#111827;text-decoration:underline;">Privacy</a>
+              <span style="color:#D1D5DB;margin:0 6px;">&middot;</span>
+              <a href="https://www.profilleai.com/contact" style="color:#111827;text-decoration:underline;">Contact us</a>
+            </div>
+          </td></tr>
+
         </table>
+        <div style="max-width:640px;margin:14px auto 0;font:400 11px/1.4 -apple-system,'Segoe UI',sans-serif;color:#9CA3AF;text-align:center;">&copy; ${new Date().getFullYear()} ProfilleAI</div>
       </td></tr>
     </table>
   </body>
 </html>`;
 
   const textLines = [
-    `Your LinkedIn profile report: ${overall}/100`,
+    `Your LinkedIn scored ${overall}/100 for ${roleLabel}`,
     ``,
-    `Target role: ${targetTitle || 'your stated title'}`,
-    `Recruiter fit: ${fit}/100 · Search visibility: ${search}/100`,
-    `Verdict: ${verdictLabel}`,
+    `Overall: ${overall}/100 | Recruiter fit: ${fit}/100 | Search visibility: ${search}/100`,
+    `Recruiter verdict: ${verdictLabel}`,
     ``,
     summary,
     ``,
-    priorityFixes.length ? `Your top ${Math.min(priorityFixes.length, 5)} fixes:` : '',
-    ...priorityFixes.slice(0, 5).map((f, i) => `${String(i + 1).padStart(2, '0')}. ${f}`),
+    priorityFixes.length ? `TOP ${Math.min(priorityFixes.length, 5)} FIXES FOR YOUR PROFILE:` : '',
+    ...priorityFixes.slice(0, 5).map((f, i) => `  ${String(i + 1).padStart(2, '0')}. ${f}`),
     ``,
-    `Get unlimited analyses free: ${signupUrl}`,
+    sections.slice(0, 3).map((s) => {
+      const rewrite = s?.suggestion ? `\n\nPaste-ready rewrite:\n${s.suggestion}` : '';
+      const findings = Array.isArray(s?.findings) && s.findings.length
+        ? '\n' + s.findings.map((f) => `  - ${f}`).join('\n')
+        : '';
+      return `${(s?.name || '').toUpperCase()} (${Number(s?.score) || 0}/100)${findings}${rewrite}`;
+    }).join('\n\n'),
+    ``,
+    `----`,
+    `Fix your profile in the next 15 minutes.`,
+    `Create a free account: ${withUtm(signupUrl, 'text_cta')}`,
+    ``,
+    `Install the Chrome extension: ${withUtm(signupUrl, 'text_extension')}`,
     ``,
     `Unsubscribe: ${unsubscribeUrl}`,
   ].filter(Boolean);
 
   return {
-    subject: `Your LinkedIn profile report: ${overall}/100`,
+    subject: `Your LinkedIn scored ${overall}/100 · ${Math.min(priorityFixes.length || 5, 5)} fixes and paste-ready rewrites inside`,
     html,
     text: textLines.join('\n'),
   };
