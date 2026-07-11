@@ -841,6 +841,33 @@ async function handleMessage(
         break;
       }
 
+      case 'ANALYZE_LINKEDIN_PROFILE_GUEST': {
+        const data = (message.data || {}) as { targetTitle?: string };
+        const result = await analyzeLinkedInProfileGuest(data.targetTitle);
+        sendResponse(result);
+        break;
+      }
+
+      case 'SUBMIT_GUEST_REPORT_EMAIL': {
+        const data = (message.data || {}) as { email: string; analysisId: string };
+        const result = await submitGuestReportEmail(data);
+        sendResponse(result);
+        break;
+      }
+
+      case 'ANALYTICS_EVENT': {
+        // Fire-and-forget from callers' perspective, but we await so any 4xx
+        // is at least surfaced in the background console during dev.
+        const data = (message.data || {}) as {
+          name: string;
+          sessionId?: string;
+          properties?: Record<string, any>;
+        };
+        const result = await recordAnalyticsEvent(data);
+        sendResponse(result);
+        break;
+      }
+
       case 'OPEN_LINKEDIN_EDITOR': {
         const data = (message.data || {}) as {
           section: 'headline' | 'about' | 'skills' | 'featured' | 'experience';
@@ -2402,27 +2429,11 @@ async function analyzeMatch(payload: {
  * work even if the content script hasn't attached to that frame) and posts it
  * to the backend for AI analysis. Returns the parsed analysis for the panel.
  */
-async function analyzeLinkedInProfile(
-  targetTitle?: string
-): Promise<{ success: boolean; analysis?: any; error?: string; targetTitle?: string }> {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab?.id || !tab?.url) {
-      return { success: false, error: 'Could not find the active tab' };
-    }
-    if (!/linkedin\.com\/in\//i.test(tab.url)) {
-      return {
-        success: false,
-        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
-      };
-    }
-
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      // NOTE: everything inside `func` runs in the page context — no imports,
-      // no closures to the extension scope, no `chrome.*`.
-      func: () => {
+// Shared scraper — extracted so both the authed analyzer AND the guest
+// analyzer can pass it to chrome.scripting.executeScript without duplicating
+// ~200 lines. Runs in the page's world; must not close over the extension
+// scope or use chrome.*.
+const SCRAPER_FN = () => {
         const clean = (s: string | null | undefined) =>
           (s || '').replace(/\s+/g, ' ').trim();
         const firstText = (selectors: string[]): string => {
@@ -2656,7 +2667,27 @@ async function analyzeLinkedInProfile(
           connections,
           rawText,
         };
-      },
+};
+
+async function analyzeLinkedInProfile(
+  targetTitle?: string
+): Promise<{ success: boolean; analysis?: any; error?: string; targetTitle?: string; analysisId?: string | null }> {
+  if (!authToken) return { success: false, error: 'Not authenticated' };
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id || !tab?.url) {
+      return { success: false, error: 'Could not find the active tab' };
+    }
+    if (!/linkedin\.com\/in\//i.test(tab.url)) {
+      return {
+        success: false,
+        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
+      };
+    }
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: SCRAPER_FN,
     });
 
     const scraped: any = results?.[0]?.result || {};
@@ -2701,11 +2732,141 @@ async function analyzeLinkedInProfile(
       success: true,
       analysis: data.analysis,
       targetTitle: data.targetTitle,
+      analysisId: data.analysisId,
     };
   } catch (err) {
     console.error('[ProfileAI] analyzeLinkedInProfile error', err);
     return { success: false, error: (err as Error).message || 'Analysis failed' };
   }
+}
+
+/**
+ * Guest / signed-out variant of the LinkedIn Profile Analyzer.
+ * - Runs the SAME scraper against the active linkedin.com/in/* tab.
+ * - Posts to /api/profiles/analyze-linkedin-guest without an Authorization
+ *   header (rate-limited server-side by IP + URL).
+ * - Returns the TEASER response shape (scores + verdict + summary + 5
+ *   quick-win rows where 4 are locked). Never receives full sections,
+ *   keyword chips, or the paste-ready priority fixes — those live in the
+ *   server cache and only ship via email or after sign-in.
+ */
+async function analyzeLinkedInProfileGuest(
+  targetTitle?: string
+): Promise<{
+  success: boolean;
+  teaser?: any;
+  analysisId?: string | null;
+  targetTitle?: string;
+  error?: string;
+  errorCode?: string;
+}> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id || !tab?.url) {
+      return { success: false, error: 'Could not find the active tab' };
+    }
+    if (!/linkedin\.com\/in\//i.test(tab.url)) {
+      return {
+        success: false,
+        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
+      };
+    }
+
+    // Reuse the exact scraper by calling analyzeLinkedInProfile's scripting
+    // extraction — refactor into a shared helper if we ever add a 3rd caller.
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: SCRAPER_FN,
+    });
+    const scraped: any = results?.[0]?.result || {};
+    scraped.url = tab.url;
+
+    const hasSignal =
+      (typeof scraped.headline === 'string' && scraped.headline.length > 5) ||
+      (typeof scraped.about === 'string' && scraped.about.length > 20) ||
+      (typeof scraped.experience === 'string' && scraped.experience.length > 40) ||
+      (typeof scraped.rawText === 'string' && scraped.rawText.length > 200);
+    if (!hasSignal) {
+      return {
+        success: false,
+        error:
+          'Could not read the profile. Scroll down so the headline, About, and Experience sections are visible, then try again.',
+      };
+    }
+
+    const effectiveTitle = (targetTitle || '').trim();
+
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/analyze-linkedin-guest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scraped, targetTitle: effectiveTitle }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      return {
+        success: false,
+        error: err.message || err.error || `Server returned ${response.status}`,
+        errorCode: err.error || undefined,
+      };
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      teaser: data.teaser,
+      analysisId: data.analysisId,
+      targetTitle: data.targetTitle,
+    };
+  } catch (err) {
+    console.error('[ProfileAI] analyzeLinkedInProfileGuest error', err);
+    return { success: false, error: (err as Error).message || 'Analysis failed' };
+  }
+}
+
+/** Thin proxy so the sidepanel can POST the guest email form without
+ *  hitting fetch() directly (keeps CORS + error shape consistent). */
+async function submitGuestReportEmail(
+  data: { email: string; analysisId: string }
+): Promise<{ ok: boolean; duplicate?: boolean; message?: string; error?: string; errorCode?: string }> {
+  try {
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/guest-report-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await response.json().catch(() => ({} as any));
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: json.message || json.error || `Server returned ${response.status}`,
+        errorCode: json.error || undefined,
+      };
+    }
+    return { ok: true, ...json };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message || 'Network error' };
+  }
+}
+
+/** Fire-and-forget analytics event. Errors are swallowed — analytics should
+ *  never break a user-facing flow. */
+async function recordAnalyticsEvent(
+  data: { name: string; sessionId?: string; properties?: Record<string, any> }
+): Promise<{ ok: boolean }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    await fetch(`${CONFIG.API_BASE}/profiles/analytics-event`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+  } catch (err) {
+    // swallow — analytics failures must not surface
+    console.debug('[ProfileAI] analytics event drop:', (err as Error).message);
+  }
+  return { ok: true };
 }
 
 /**

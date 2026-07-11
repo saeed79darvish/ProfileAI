@@ -121,6 +121,9 @@ export type MessageType =
   | 'INSERT_ANSWER'
   | 'ANALYZE_MATCH'
   | 'ANALYZE_LINKEDIN_PROFILE'
+  | 'ANALYZE_LINKEDIN_PROFILE_GUEST'
+  | 'SUBMIT_GUEST_REPORT_EMAIL'
+  | 'ANALYTICS_EVENT'
   | 'OPEN_LINKEDIN_EDITOR'
   | 'REWRITE_FIELD';
 
@@ -204,6 +207,29 @@ export interface LinkedInProfileAnalysis {
     searchabilityTips: string[];
   };
   priorityFixes: string[];
+}
+
+// Guest teaser variant — what the /analyze-linkedin-guest endpoint returns
+// to unauthenticated clients. Explicitly NOT a subset of
+// LinkedInProfileAnalysis: `sections`, `recruiterSearch` and full
+// `priorityFixes` are intentionally absent from the wire because the plan
+// requires teaser gating to be server-side (no CSS-only hide).
+export interface LinkedInQuickWinLocked {
+  index: number;
+  title: string;
+  /** Present only on the unlocked item (index 0). */
+  body?: string;
+  locked: boolean;
+}
+
+export interface LinkedInProfileAnalysisTeaser {
+  mode: 'guest';
+  overallScore: number;
+  recruiterFitScore: number;
+  searchVisibilityScore: number;
+  verdict: 'shortlist' | 'maybe' | 'pass' | string;
+  summary?: string;
+  quickWinsLocked: LinkedInQuickWinLocked[];
 }
 
 export interface Message {

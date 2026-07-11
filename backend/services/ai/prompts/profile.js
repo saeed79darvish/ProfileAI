@@ -112,12 +112,20 @@ Format as structured advice with clear sections.`;
  * defensive: it grades what's present, calls out anything missing, and
  * never invents metrics.
  */
-const linkedInProfileAnalysisPrompt = (scraped, targetTitle) => {
+const linkedInProfileAnalysisPrompt = (scraped, targetTitle, opts = {}) => {
+  const variant = opts.variant === 'guest' ? 'guest' : 'full';
   const trim = (v, n) => {
     if (v == null) return '';
     const s = typeof v === 'string' ? v : JSON.stringify(v);
     return s.length > n ? s.slice(0, n) + '…' : s;
   };
+  // Guest teaser needs a summary the extension modal can render verbatim
+  // (2 sentences max, ends with a fixed bridge line the UI expects). We
+  // enforce this in the prompt so the AI does it, not the client — the same
+  // full JSON is still returned so the emailed report has everything.
+  const summaryRule = variant === 'guest'
+    ? '- The `summary` field MUST be at most 2 sentences AND MUST end with the exact string: "The good news: the fixes below would change this fast."'
+    : '- Summary is one paragraph (2-3 sentences) — your honest recruiter take.';
   return `You are a senior technical recruiter and hiring manager at a top-tier tech company. You spend most of your day inside LinkedIn Recruiter searching for candidates.
 
 Evaluate the LinkedIn profile below AS IF you were deciding whether to shortlist this person for a "${targetTitle || 'their stated title'}" role.
@@ -133,6 +141,7 @@ Additional rules for this task:
 - Never invent metrics, employers, or achievements. If the source doesn't say it, don't put it in a rewrite.
 - Suggested rewrites must be paste-ready — no placeholders like "[X years]" or "[Company]".
 - Keyword lists are for LinkedIn Boolean search. Prefer exact terms recruiters type ("React Native", not "cross-platform mobile"). Cap each list at 10.
+${summaryRule}
 
 TARGET TITLE: ${targetTitle || '(unspecified — infer from the profile\'s own headline / current role)'}
 

@@ -477,6 +477,17 @@ const startServer = async () => {
       console.warn('⚠️  SupportTickets.replies column ensure skipped:', err.message);
     }
 
+    // Guest LinkedIn Profile Analyzer flow — creates GuestAIUsages,
+    // GuestAnalysisCaches, GuestLeads and AnalyticsEvents. Idempotent
+    // CREATE TABLE IF NOT EXISTS on every boot; needed because prod skips
+    // sequelize.sync and these are brand-new tables.
+    try {
+      const { up: addGuestAnalyzerTables } = require('./scripts/migrations/addGuestAnalyzerTables');
+      await addGuestAnalyzerTables();
+    } catch (err) {
+      console.warn('⚠️  Guest analyzer tables ensure skipped:', err.message);
+    }
+
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
     // known companies → false; discovered greenhouse/lever/ashby boards →
     // true). This powers the accurate "Startups" job filter. AWAITED (not

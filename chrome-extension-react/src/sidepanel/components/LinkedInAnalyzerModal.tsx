@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { LinkedInProfileAnalysis, LinkedInSectionAnalysis } from '../../types';
+import type { LinkedInProfileAnalysis, LinkedInSectionAnalysis, LinkedInProfileAnalysisTeaser } from '../../types';
 
 interface LinkedInAnalyzerModalProps {
   open: boolean;
@@ -7,6 +7,9 @@ interface LinkedInAnalyzerModalProps {
   loading: boolean;
   analysis: LinkedInProfileAnalysis | null;
   error?: string | null;
+  /** Machine-readable error code from the backend so guest mode can render
+   *  a specific state (e.g. 429 daily limit) without brittle string matching. */
+  errorCode?: string | null;
   targetTitle?: string;
   /** ms timestamp when the current `analysis` was produced (or loaded from
    *  cache). Drives the "Analyzed X ago · cached" indicator. */
@@ -15,6 +18,27 @@ interface LinkedInAnalyzerModalProps {
   /** Toast callback — plumbed from SidePanel so this modal can surface status
    *  after copy / open-on-LinkedIn actions. */
   onNotification?: (msg: string, type: 'success' | 'error' | 'info' | 'warning') => void;
+  /** UX branch. Guest mode renders the teaser + email capture; authed mode
+   *  is unchanged. Defaults to 'authed' so all existing callers keep working. */
+  mode?: 'authed' | 'guest';
+  /** Server-issued id for the cached analysis. Required by the guest email-
+   *  capture flow (POST /api/profiles/guest-report-email). */
+  analysisId?: string | null;
+  /** Teaser payload for guest mode. When `mode === 'guest'` this is what
+   *  drives the render — `analysis` is not used because the guest endpoint
+   *  never ships the full JSON to the client (server-side gating). */
+  teaser?: LinkedInProfileAnalysisTeaser | null;
+  /** Submits the email to the guest report endpoint. Called from the
+   *  email-capture form in the locked overlay. */
+  onSubmitEmail?: (email: string) => Promise<{
+    ok: boolean;
+    duplicate?: boolean;
+    message?: string;
+    error?: string;
+    errorCode?: string;
+  }>;
+  /** Kicks off the sign-in flow (opens the web login tab). */
+  onSignIn?: () => void;
 }
 
 type LinkedInSectionKey = 'headline' | 'about' | 'skills' | 'featured' | 'experience';
@@ -137,10 +161,16 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
   loading,
   analysis,
   error,
+  errorCode,
   targetTitle,
   cachedAt,
   onRefresh,
   onNotification,
+  mode = 'authed',
+  analysisId,
+  teaser,
+  onSubmitEmail,
+  onSignIn,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editedSuggestions, setEditedSuggestions] = useState<Record<number, string>>({});
@@ -149,6 +179,13 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
   // Inline confirm dialog for the paid Re-analyze action. Replaces the ugly
   // native window.confirm and the two-click button pattern.
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false);
+  // Guest email-capture state — only relevant when mode === 'guest'. Kept
+  // hoisted so the overlay is a single source of truth (avoid duplicate
+  // useState in the overlay component).
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestEmailSubmitting, setGuestEmailSubmitting] = useState(false);
+  const [guestEmailSuccess, setGuestEmailSuccess] = useState<{ email: string; duplicate: boolean } | null>(null);
+  const [guestEmailError, setGuestEmailError] = useState<string | null>(null);
 
   // Reset local editing state whenever a new analysis loads.
   useEffect(() => {
@@ -156,9 +193,17 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
     setEditingIndex(null);
     setCopiedKey(null);
     setShowReanalyzeConfirm(false);
-  }, [analysis]);
+    setGuestEmail('');
+    setGuestEmailSubmitting(false);
+    setGuestEmailSuccess(null);
+    setGuestEmailError(null);
+  }, [analysis, teaser]);
 
-  const verdict = useMemo(() => (analysis ? verdictMeta(analysis.verdict) : null), [analysis]);
+  const verdict = useMemo(() => {
+    if (mode === 'guest' && teaser) return verdictMeta(teaser.verdict);
+    if (analysis) return verdictMeta(analysis.verdict);
+    return null;
+  }, [analysis, teaser, mode]);
 
   if (!open) return null;
 
@@ -234,7 +279,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
               <p className="li-subhead">
                 Recruiter's-eye view{targetTitle ? ` · target: ${targetTitle}` : ''}
               </p>
-              {!loading && analysis && cachedAt && (
+              {!loading && mode === 'authed' && analysis && cachedAt && (
                 <span className="li-cached-pill" title="Cached result — Re-analyze to spend a credit and refresh">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path
@@ -244,6 +289,14 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                     />
                   </svg>
                   Analyzed {formatAgo(cachedAt)} · cached
+                </span>
+              )}
+              {!loading && mode === 'guest' && teaser && (
+                <span className="li-cached-pill" title="Free analysis — no account needed">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Analyzed just now
                 </span>
               )}
             </div>
@@ -272,7 +325,24 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
             </div>
           )}
 
-          {!loading && error && (
+          {/* Guest-mode 429 (daily limit) — dedicated CTA state before we
+              fall through to generic error rendering below. */}
+          {!loading && mode === 'guest' && error && (errorCode === 'guest_daily_limit_ip' || errorCode === 'guest_daily_limit_url') && (
+            <div className="li-teaser-429">
+              <p className="li-teaser-429-body">
+                You've used today's free analyses. Sign in free to keep going — you'll also get paste-ready rewrites and unlimited re-analysis.
+              </p>
+              <button
+                type="button"
+                className="btn primary small li-teaser-signin-btn"
+                onClick={() => onSignIn?.()}
+              >
+                Sign in free
+              </button>
+            </div>
+          )}
+
+          {!loading && error && !(mode === 'guest' && (errorCode === 'guest_daily_limit_ip' || errorCode === 'guest_daily_limit_url')) && (
             <div className="empty-state">
               <p>{error}</p>
               <button className="btn primary small" onClick={onRefresh} style={{ marginTop: 12 }}>
@@ -281,7 +351,7 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
             </div>
           )}
 
-          {!loading && !error && !analysis && (
+          {!loading && !error && !analysis && !(mode === 'guest' && teaser) && (
             <div className="empty-state">
               <p>Open a LinkedIn profile (linkedin.com/in/…), then click Analyze.</p>
               <button className="btn primary small" onClick={onRefresh} style={{ marginTop: 12 }}>
@@ -290,7 +360,199 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
             </div>
           )}
 
-          {!loading && analysis && (
+          {/* Guest teaser view — scores + verdict + top-5 grid (1 unlocked,
+              4 locked) with the email-capture overlay. Server enforces
+              gating: `teaser` never contains full sections or keywords. */}
+          {!loading && mode === 'guest' && teaser && (
+            <div className="linkedin-analysis-content li-teaser-view">
+              <div className="li-rings-block">
+                <p className="li-rings-caption">
+                  How a recruiter would score this profile
+                </p>
+                <div className="li-rings-row">
+                  <ScoreRing
+                    score={teaser.overallScore}
+                    label="Overall"
+                    hint="Rollup of everything"
+                  />
+                  <ScoreRing
+                    score={teaser.recruiterFitScore}
+                    label="Recruiter fit"
+                    hint="Would a recruiter shortlist you?"
+                  />
+                  <ScoreRing
+                    score={teaser.searchVisibilityScore}
+                    label="Search visibility"
+                    hint="Would you show up in LinkedIn Recruiter search?"
+                  />
+                </div>
+              </div>
+
+              {verdict && (
+                <div className={`li-verdict li-verdict-${verdict.tone}`}>
+                  <div className="li-verdict-icon">
+                    <VerdictIcon icon={verdict.icon} />
+                  </div>
+                  <div className="li-verdict-body">
+                    <span className="li-verdict-lbl">Recruiter verdict</span>
+                    <span className="li-verdict-val">{verdict.text}</span>
+                  </div>
+                </div>
+              )}
+
+              {teaser.summary && <p className="li-summary">{teaser.summary}</p>}
+
+              {/* Quick wins — 1 fully revealed, 4 blurred with the overlay. */}
+              <section className="li-section li-teaser-quickwins">
+                <div className="li-section-heading">
+                  <h5 className="li-section-title accent">Your top 5 fixes</h5>
+                  <span className="li-section-count">Do these first</span>
+                </div>
+
+                <ol className="li-fix-list li-teaser-fix-list">
+                  {teaser.quickWinsLocked.map((row) => (
+                    <li
+                      key={row.index}
+                      className={`li-teaser-fix-row${row.locked ? ' locked' : ''}`}
+                    >
+                      <span className="li-teaser-fix-num">
+                        {String(row.index + 1).padStart(2, '0')}
+                      </span>
+                      <div className="li-teaser-fix-content">
+                        <div className="li-teaser-fix-title">{row.title}</div>
+                        {!row.locked && row.body && (
+                          <div className="li-teaser-fix-body">{row.body}</div>
+                        )}
+                        {row.locked && (
+                          <>
+                            {/* Deliberate blur placeholder — no real body is
+                                sent from the server for locked rows, so this
+                                is purely visual space for the overlay to
+                                cover. Never contains real content. */}
+                            <div className="li-teaser-fix-body blur-placeholder" aria-hidden="true">
+                              ████████ ████████ ████ ██████ █████████ ███████████████.
+                              ██████ ████ ███████████ ██████ █████ ██████ ██████████.
+                            </div>
+                            <span className="li-teaser-fix-lock" aria-label="Locked">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="5" y="11" width="14" height="9" rx="2" strokeLinejoin="round" />
+                                <path d="M8 11V7a4 4 0 018 0v4" strokeLinecap="round" />
+                              </svg>
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+
+                {/* Email-capture overlay. Positioned over the 4 locked rows
+                    (li-teaser-overlay CSS uses position:absolute inside
+                    li-teaser-quickwins which is position:relative). */}
+                <div className="li-teaser-overlay">
+                  {guestEmailSuccess ? (
+                    <>
+                      <div className="li-teaser-overlay-check" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <h4 className="li-teaser-overlay-title">
+                        Report sent to {guestEmailSuccess.email}
+                      </h4>
+                      <p className="li-teaser-overlay-body">
+                        {guestEmailSuccess.duplicate
+                          ? 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.'
+                          : 'Check your inbox in the next couple of minutes.'}
+                      </p>
+                      <button
+                        type="button"
+                        className="btn primary small li-teaser-cta"
+                        onClick={() => onSignIn?.()}
+                      >
+                        Create free account
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <h4 className="li-teaser-overlay-title">
+                        4 more fixes + rewritten sections, ready to paste
+                      </h4>
+                      <p className="li-teaser-overlay-body">
+                        Get your full report with paste-ready rewrites for your headline, About, and Experience.
+                      </p>
+                      <form
+                        className="li-teaser-email-form"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!onSubmitEmail || guestEmailSubmitting) return;
+                          const val = guestEmail.trim();
+                          if (!val) {
+                            setGuestEmailError("That email doesn't look right — mind checking it?");
+                            return;
+                          }
+                          setGuestEmailSubmitting(true);
+                          setGuestEmailError(null);
+                          try {
+                            const res = await onSubmitEmail(val);
+                            if (res.ok) {
+                              setGuestEmailSuccess({ email: val, duplicate: !!res.duplicate });
+                            } else if (res.errorCode === 'invalid_email') {
+                              setGuestEmailError(res.message || "That email doesn't look right — mind checking it?");
+                            } else if (res.errorCode === 'analysis_expired') {
+                              setGuestEmailError('Your analysis expired — please re-analyze the profile and try again.');
+                            } else {
+                              setGuestEmailError(res.message || res.error || 'Something went wrong. Please try again.');
+                            }
+                          } catch (err) {
+                            setGuestEmailError((err as Error).message || 'Something went wrong. Please try again.');
+                          } finally {
+                            setGuestEmailSubmitting(false);
+                          }
+                        }}
+                      >
+                        <input
+                          type="email"
+                          className="li-teaser-email-input"
+                          placeholder="you@work.com"
+                          value={guestEmail}
+                          onChange={(e) => {
+                            setGuestEmail(e.target.value);
+                            if (guestEmailError) setGuestEmailError(null);
+                          }}
+                          required
+                          disabled={guestEmailSubmitting}
+                          autoComplete="email"
+                        />
+                        <button
+                          type="submit"
+                          className="btn primary small li-teaser-email-submit"
+                          disabled={guestEmailSubmitting || !analysisId}
+                        >
+                          {guestEmailSubmitting ? 'Sending…' : 'Send my full report'}
+                        </button>
+                      </form>
+                      {guestEmailError && (
+                        <div className="li-teaser-email-error">{guestEmailError}</div>
+                      )}
+                      <button
+                        type="button"
+                        className="li-teaser-signin-link"
+                        onClick={() => onSignIn?.()}
+                      >
+                        Sign in free for full access
+                      </button>
+                      <p className="li-teaser-trust">
+                        We don't store your profile or post anything to LinkedIn. One email, no spam.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {!loading && mode === 'authed' && analysis && (
             <div className="linkedin-analysis-content">
               {/* Scores row */}
               <div className="li-rings-block">
@@ -437,33 +699,49 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
         </div>
 
         <div className="modal-footer">
-          <button
-            className="btn secondary small"
-            onClick={() => {
-              // First-run (no cached analysis yet) or error retry — no
-              // confirm needed since there's nothing to displace.
-              if (!analysis || !cachedAt) {
-                onRefresh();
-                return;
-              }
-              setShowReanalyzeConfirm(true);
-            }}
-            disabled={loading}
-            title={
-              analysis && cachedAt
-                ? 'Re-analyze — uses one AI credit'
-                : 'Run analysis'
-            }
-          >
-            {loading
-              ? 'Analyzing…'
-              : analysis && cachedAt
-                ? 'Re-analyze (uses 1 credit)'
-                : 'Re-analyze'}
-          </button>
-          <button className="btn primary small" onClick={onClose}>
-            Done
-          </button>
+          {mode === 'guest' ? (
+            <>
+              <button
+                className="btn primary small"
+                onClick={() => onSignIn?.()}
+              >
+                Sign in free for full access
+              </button>
+              <button className="btn secondary small" onClick={onClose}>
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn secondary small"
+                onClick={() => {
+                  // First-run (no cached analysis yet) or error retry — no
+                  // confirm needed since there's nothing to displace.
+                  if (!analysis || !cachedAt) {
+                    onRefresh();
+                    return;
+                  }
+                  setShowReanalyzeConfirm(true);
+                }}
+                disabled={loading}
+                title={
+                  analysis && cachedAt
+                    ? 'Re-analyze — uses one AI credit'
+                    : 'Run analysis'
+                }
+              >
+                {loading
+                  ? 'Analyzing…'
+                  : analysis && cachedAt
+                    ? 'Re-analyze (uses 1 credit)'
+                    : 'Re-analyze'}
+              </button>
+              <button className="btn primary small" onClick={onClose}>
+                Done
+              </button>
+            </>
+          )}
         </div>
 
         {/* In-modal Re-analyze confirmation — replaces the native browser

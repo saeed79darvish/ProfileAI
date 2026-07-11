@@ -64,6 +64,14 @@ const SessionReview = require('./SessionReview')(sequelize);
 const UserReputation = require('./UserReputation')(sequelize);
 const UserBadge = require('./UserBadge')(sequelize);
 
+// Guest LinkedIn Profile Analyzer (unauthenticated teaser flow)
+const GuestAIUsage = require('./GuestAIUsage');
+const GuestAnalysisCache = require('./GuestAnalysisCache');
+const GuestLead = require('./GuestLead');
+
+// In-house analytics event log
+const AnalyticsEvent = require('./AnalyticsEvent');
+
 // Define associations
 User.hasOne(Profile, {
   foreignKey: 'userId',
@@ -1067,5 +1075,11 @@ module.exports = {
   ApplyPilotApplication,
   ApplyPilotTrainingMemory,
   ApplyPilotTrainingMessage,
-  ApplyPilotCredential
+  ApplyPilotCredential,
+  // Guest LinkedIn Profile Analyzer
+  GuestAIUsage,
+  GuestAnalysisCache,
+  GuestLead,
+  // In-house analytics
+  AnalyticsEvent
 };

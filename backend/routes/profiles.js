@@ -1,13 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
-const { Profile, User } = require('../models');
+const { Profile, User, GuestAIUsage, GuestAnalysisCache, GuestLead, AnalyticsEvent } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { isUuid } = require('../utils/slug');
 const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
+const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlForLimit } = require('../middleware/guestRateLimiter');
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
+const linkedinAnalyzerCache = require('../services/linkedinAnalyzerCache');
+const { buildTeaser: buildLinkedInTeaser } = require('../services/linkedinAnalyzerTeaser');
+const emailService = require('../services/emailService');
+const jwt = require('jsonwebtoken');
 const {
   enrichFromLinkedInUrl,
   isValidLinkedInUrl
@@ -580,17 +585,358 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
 
     console.log(`Analyzing LinkedIn profile for user ${req.user.id} (target: "${effectiveTitle || 'unspecified'}")`);
 
-    const analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle);
+    // Server-side cache check — shared with the guest endpoint so we never
+    // pay Claude twice for the same profile snapshot inside the 7d TTL.
+    const profileUrlKey = linkedinAnalyzerCache.normalizeProfileUrl(scraped.url);
+    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped);
+    let analysis;
+    if (cacheRow) {
+      analysis = cacheRow.analysisJson;
+    } else {
+      analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle);
+      // Best-effort cache write — never block the response on cache errors.
+      cacheRow = await linkedinAnalyzerCache.writeCached({
+        profileUrlKey,
+        scraped,
+        analysisJson: analysis,
+        targetTitle: effectiveTitle,
+        modelUsed: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
+        producedByUserId: req.user.id,
+      });
+    }
 
     await recordAIUsage(req.user.id, 'career_suggestions');
 
-    res.json({ success: true, analysis, targetTitle: effectiveTitle });
+    res.json({
+      success: true,
+      analysis,
+      targetTitle: effectiveTitle,
+      analysisId: cacheRow?.id || null,
+      cached: !!cacheRow && cacheRow.createdAt < new Date(Date.now() - 1000),
+    });
   } catch (error) {
     console.error('Error analyzing LinkedIn profile:', error);
     if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
       return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
     }
     res.status(500).json({ error: error.message || 'Error analyzing LinkedIn profile' });
+  }
+});
+
+// @route   POST /api/profiles/analyze-linkedin-guest
+// @desc    Unauthenticated teaser variant of the LinkedIn Profile Analyzer.
+//          Runs the same scraper payload through Claude Haiku, caches the
+//          full result server-side, and returns only a TEASER shape (scores,
+//          verdict, first quick-win + locked titles for 2-5). The full JSON
+//          is released only via email capture or sign-in.
+// @access  Public (rate-limited: 3/day per IP, 2/day per URL globally)
+router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) => {
+  try {
+    const { scraped, targetTitle } = req.body || {};
+
+    if (!scraped || typeof scraped !== 'object') {
+      return res.status(400).json({ error: 'Scraped LinkedIn profile data is required' });
+    }
+
+    const hasSignal =
+      (typeof scraped.headline === 'string' && scraped.headline.trim().length > 5) ||
+      (typeof scraped.about === 'string' && scraped.about.trim().length > 20) ||
+      (typeof scraped.experience === 'string' && scraped.experience.trim().length > 40) ||
+      (typeof scraped.rawText === 'string' && scraped.rawText.trim().length > 200);
+
+    if (!hasSignal) {
+      return res.status(400).json({
+        error: 'Could not read enough from the LinkedIn profile. Scroll the page so headline, About, and Experience are visible, then try again.'
+      });
+    }
+
+    const guestContext = req.guestContext || {};
+    const profileUrlKey = guestContext.profileUrlKey
+      || linkedinAnalyzerCache.normalizeProfileUrl(scraped.url);
+
+    if (!profileUrlKey) {
+      return res.status(400).json({ error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.' });
+    }
+
+    const effectiveTitle = (typeof targetTitle === 'string' ? targetTitle.trim() : '');
+
+    // Fast path: identical-scrape cache hit — skip Claude entirely.
+    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped);
+    let cacheHit = !!cacheRow;
+
+    // URL-cap soft-fail: guest hit the 2/day global cap but we have SOMETHING
+    // cached for this profile — return that instead of a hard 429. Anti-abuse
+    // still works (they can't force fresh Claude calls) and the surface stays
+    // useful for people analyzing well-known profiles someone else already
+    // ran today.
+    if (!cacheRow && guestContext.urlCapSoftFail) {
+      cacheRow = await linkedinAnalyzerCache.readAnyCachedForUrl(profileUrlKey);
+      if (cacheRow) cacheHit = true;
+    }
+
+    // No cache and no soft-fallback? Actually hit Claude with the Haiku variant.
+    if (!cacheRow) {
+      if (guestContext.urlCapSoftFail) {
+        return res.status(429).json({
+          error: 'guest_daily_limit_url',
+          message: "This profile was analyzed enough times today. Sign in free to run a fresh analysis right now.",
+          upgradeSuggestion: 'sign_in',
+        });
+      }
+
+      const guestModel = process.env.ANTHROPIC_HAIKU_GUEST_MODEL
+        || process.env.ANTHROPIC_HAIKU_MODEL
+        || 'claude-3-5-haiku-20241022';
+
+      const analysis = await aiService.analyzeLinkedInProfile(scraped, effectiveTitle, {
+        modelOverride: guestModel,
+        maxTokens: 1200,
+        promptVariant: 'guest',
+      });
+
+      cacheRow = await linkedinAnalyzerCache.writeCached({
+        profileUrlKey,
+        scraped,
+        analysisJson: analysis,
+        targetTitle: effectiveTitle,
+        modelUsed: guestModel,
+      });
+    }
+
+    // Always log the attempt (for both IP + URL rate accounting).
+    try {
+      await GuestAIUsage.create({
+        ipHash: guestContext.ipHash || 'unknown',
+        profileUrlKey,
+        analysisCacheId: cacheRow?.id || null,
+        cacheHit,
+        userAgent: guestContext.userAgent || null,
+      });
+    } catch (usageErr) {
+      console.warn('[guestAnalyzer] usage log failed:', usageErr.message);
+    }
+
+    const teaserResp = buildLinkedInTeaser(cacheRow?.analysisJson, {
+      analysisId: cacheRow?.id || null,
+      expiresAt: cacheRow?.expiresAt || null,
+    });
+
+    return res.json({
+      success: true,
+      ...teaserResp,
+      targetTitle: cacheRow?.targetTitle || effectiveTitle || null,
+    });
+  } catch (error) {
+    console.error('Error in guest LinkedIn analyzer:', error);
+    if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
+      return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
+    }
+    res.status(500).json({ error: error.message || 'Error analyzing LinkedIn profile' });
+  }
+});
+
+// @route   POST /api/profiles/guest-report-email
+// @desc    Email the FULL LinkedIn Profile Analyzer report to a guest who
+//          submitted their email from the teaser modal. Dedupes per email/
+//          day (DB unique index) and rate-limits per IP (guest limiter
+//          reused with a generous cap since this is a lower-risk endpoint).
+// @access  Public (rate-limited)
+const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+const DISPOSABLE_DOMAINS = new Set([
+  'mailinator.com', 'guerrillamail.com', 'guerrillamailblock.com', 'sharklasers.com',
+  'trashmail.com', '10minutemail.com', '10minutemail.net', 'yopmail.com',
+  'tempmail.com', 'temp-mail.org', 'throwawaymail.com', 'getnada.com',
+  'maildrop.cc', 'inboxbear.com', 'fakeinbox.com', 'dispostable.com',
+  'spam4.me', 'tempinbox.com', 'mytemp.email', 'emailondeck.com',
+]);
+
+router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUrlPerDay: 1000 }), async (req, res) => {
+  try {
+    const { email, analysisId } = req.body || {};
+
+    if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
+      return res.status(400).json({ error: 'invalid_email', message: "That email doesn't look right — mind checking it?" });
+    }
+    const emailTrimmed = email.trim();
+    const emailNormalized = emailTrimmed.toLowerCase();
+    const domain = emailNormalized.split('@')[1];
+    if (DISPOSABLE_DOMAINS.has(domain)) {
+      return res.status(400).json({ error: 'invalid_email', message: "Please use a real email address so we can send you the report." });
+    }
+
+    if (typeof analysisId !== 'string' || !analysisId) {
+      return res.status(400).json({ error: 'missing_analysis', message: 'Missing analysisId.' });
+    }
+
+    // Load the cached full analysis. Return 410 if it's expired or gone —
+    // the modal can then re-run the analysis and try again.
+    const cacheRow = await GuestAnalysisCache.findByPk(analysisId);
+    if (!cacheRow || cacheRow.expiresAt < new Date()) {
+      return res.status(410).json({
+        error: 'analysis_expired',
+        message: 'Your analysis has expired. Please re-analyze the profile and try again.',
+      });
+    }
+
+    // Per-day dedupe check (extra defensive — DB unique index also enforces
+    // it, but a clean 200 message is friendlier than a 500 from a race).
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const existing = await GuestLead.findOne({
+      where: {
+        emailNormalized,
+        createdAt: { [require('sequelize').Op.gte]: startOfDay },
+      },
+    });
+    if (existing) {
+      return res.status(200).json({
+        ok: true,
+        duplicate: true,
+        message: 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.',
+      });
+    }
+
+    // Sign an unsubscribe token — stateless JWT with the lead email, valid
+    // until the lead row's per-day dedupe window is irrelevant (long TTL).
+    const jwtSecret = process.env.JWT_SECRET || 'profileai-fallback-secret';
+    const unsubscribeToken = jwt.sign(
+      { sub: emailNormalized, kind: 'guest_unsub' },
+      jwtSecret,
+      { expiresIn: '365d' }
+    );
+
+    // Persist the lead BEFORE sending — if the send races, at least we have
+    // the intent (and the DB unique index prevents a duplicate).
+    let lead;
+    try {
+      lead = await GuestLead.create({
+        email: emailTrimmed,
+        emailNormalized,
+        profileUrlKey: cacheRow.profileUrlKey,
+        analysisCacheId: cacheRow.id,
+        ipHash: req.guestContext?.ipHash || null,
+        unsubscribeToken,
+      });
+    } catch (createErr) {
+      // Race on the (emailNormalized, day) unique index — treat as duplicate.
+      if (createErr.name === 'SequelizeUniqueConstraintError') {
+        return res.status(200).json({
+          ok: true,
+          duplicate: true,
+          message: 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.',
+        });
+      }
+      throw createErr;
+    }
+
+    // Fire the email. If it fails we still keep the lead row — we can retry
+    // via an admin action later.
+    const webBase = process.env.FRONTEND_URL || 'https://www.profilleai.com';
+    const apiBase = process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`;
+    const signupUrl = `${webBase}/signup?utm_source=guest_analyzer&utm_medium=email&utm_campaign=li_analyzer_report&analysisId=${encodeURIComponent(cacheRow.id)}`;
+    const unsubscribeUrl = `${apiBase}/api/profiles/guest-unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`;
+
+    let deliveryOk = false;
+    try {
+      deliveryOk = await emailService.sendGuestLinkedInReport({
+        email: emailTrimmed,
+        analysis: cacheRow.analysisJson,
+        targetTitle: cacheRow.targetTitle || '',
+        profileUrl: cacheRow.profileUrlKey,
+        signupUrl,
+        unsubscribeUrl,
+      });
+    } catch (sendErr) {
+      console.error('[guestReportEmail] send failed:', sendErr.message);
+    }
+
+    lead.emailedAt = new Date();
+    lead.emailDeliveryOk = !!deliveryOk;
+    await lead.save();
+
+    // Mark the underlying usage row as email-captured for funnel analysis.
+    try {
+      await GuestAIUsage.update(
+        { emailCaptured: true },
+        { where: { analysisCacheId: cacheRow.id } }
+      );
+    } catch (_) { /* non-fatal */ }
+
+    return res.json({
+      ok: true,
+      duplicate: false,
+      deliveryEta: '2 minutes',
+    });
+  } catch (error) {
+    console.error('Error in guest report email:', error);
+    res.status(500).json({ error: error.message || 'Error sending report' });
+  }
+});
+
+// @route   GET /api/profiles/guest-unsubscribe?token=…
+// @desc    Stateless unsubscribe. Verifies the signed JWT, flips the
+//          GuestLead.unsubscribed flag(s), returns a small HTML page.
+// @access  Public
+router.get('/guest-unsubscribe', async (req, res) => {
+  const rawToken = String(req.query.token || '').trim();
+  if (!rawToken) {
+    res.status(400).type('html').send('<h1>Missing token</h1>');
+    return;
+  }
+  try {
+    const jwtSecret = process.env.JWT_SECRET || 'profileai-fallback-secret';
+    const decoded = jwt.verify(rawToken, jwtSecret);
+    if (decoded?.kind !== 'guest_unsub' || !decoded?.sub) {
+      throw new Error('bad token');
+    }
+    await GuestLead.update(
+      { unsubscribed: true },
+      { where: { emailNormalized: String(decoded.sub).toLowerCase() } }
+    );
+    res.type('html').send(`
+      <html><head><meta charset="utf-8"><title>Unsubscribed</title></head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; padding: 40px; color: #111827;">
+        <h1 style="margin: 0 0 12px 0;">You're unsubscribed</h1>
+        <p style="color: #6b7280;">We won't email you any more reports. If this was a mistake, just re-run the LinkedIn Profile Analyzer.</p>
+      </body></html>
+    `);
+  } catch (err) {
+    console.warn('[guestUnsubscribe] bad token:', err.message);
+    res.status(400).type('html').send('<h1>Invalid or expired unsubscribe link.</h1>');
+  }
+});
+
+// @route   POST /api/analytics/event  (mounted here for simplicity; see server.js)
+// @desc    In-house analytics: write one AnalyticsEvent row. Optional auth —
+//          if a JWT is present we record the userId, else it's anonymous.
+// @access  Public (rate-limited via the guest limiter with a generous cap)
+router.post('/analytics-event', guestAnalysisLimiter({ perIpPerDay: 500, perUrlPerDay: 100000 }), async (req, res) => {
+  try {
+    const { name, sessionId, properties } = req.body || {};
+    if (typeof name !== 'string' || !name || name.length > 100) {
+      return res.status(400).json({ error: 'invalid_event_name' });
+    }
+    // Optional user id from an Authorization header (best-effort, non-blocking).
+    let userId = null;
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      try {
+        const jwtSecret = process.env.JWT_SECRET || 'profileai-fallback-secret';
+        const decoded = jwt.verify(authHeader.slice(7), jwtSecret);
+        if (decoded?.id && typeof decoded.id === 'string') userId = decoded.id;
+      } catch (_) { /* anonymous */ }
+    }
+    await AnalyticsEvent.create({
+      name: name.slice(0, 100),
+      sessionId: typeof sessionId === 'string' ? sessionId.slice(0, 64) : null,
+      userId,
+      properties: properties && typeof properties === 'object' ? properties : {},
+      ipHash: req.guestContext?.ipHash || null,
+    });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[analyticsEvent] error:', error);
+    res.status(500).json({ error: 'Error recording event' });
   }
 });
 

@@ -18,7 +18,9 @@ import { SmartAnswersModal } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
+import { GuestAnalyzerCTA } from './components/GuestAnalyzerCTA';
 import { useWebSignIn } from './components/useWebSignIn';
+import { emitAnalyticsEvent } from './analytics';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
@@ -95,8 +97,14 @@ export const SidePanel: React.FC = () => {
   const [linkedInAnalysis, setLinkedInAnalysis] = useState<LinkedInProfileAnalysis | null>(null);
   const [linkedInLoading, setLinkedInLoading] = useState(false);
   const [linkedInError, setLinkedInError] = useState<string | null>(null);
+  const [linkedInErrorCode, setLinkedInErrorCode] = useState<string | null>(null);
   const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
   const [linkedInCachedAt, setLinkedInCachedAt] = useState<number | null>(null);
+  const [linkedInAnalysisId, setLinkedInAnalysisId] = useState<string | null>(null);
+  // Guest-mode state — separate from `linkedInAnalysis` because the guest
+  // endpoint returns a teaser shape, not the full LinkedInProfileAnalysis.
+  const [linkedInMode, setLinkedInMode] = useState<'guest' | 'authed'>('authed');
+  const [linkedInTeaser, setLinkedInTeaser] = useState<import('../types').LinkedInProfileAnalysisTeaser | null>(null);
   // Cached-analysis timestamp for the CURRENT tab's profile URL. Drives the
   // "View LinkedIn analysis · analyzed X ago" state on the profile-card pill
   // so users know a click won't spend another credit.
@@ -463,6 +471,9 @@ export const SidePanel: React.FC = () => {
     const force = forceArg === true;
     setShowLinkedInAnalyzer(true);
     setLinkedInError(null);
+    setLinkedInErrorCode(null);
+    setLinkedInMode('authed');
+    setLinkedInTeaser(null);
 
     // Cache the analysis per LinkedIn profile URL so subsequent clicks on the
     // same profile don't burn an AI credit. The "Re-analyze" button in the
@@ -505,6 +516,7 @@ export const SidePanel: React.FC = () => {
         setLinkedInTargetTitle(resolvedTitle);
         setLinkedInCachedAt(cachedAt);
         setLinkedInTabAnalyzedAt(cachedAt);
+        setLinkedInAnalysisId(resp.analysisId || null);
 
         // Persist to cache (eviction: keep newest MAX_ENTRIES by cachedAt).
         if (cacheKeyUrl) {
@@ -536,6 +548,100 @@ export const SidePanel: React.FC = () => {
       setLinkedInLoading(false);
     }
   }, [profile]);
+
+  /**
+   * Guest / signed-out LinkedIn Profile Analyzer flow. Runs the same scrape
+   * against the active LinkedIn tab, hits the unauthenticated backend
+   * endpoint, and shows the teaser variant of the modal. Fires analytics
+   * events at each funnel stage (start, complete, teaser viewed).
+   *
+   * Does NOT share cache with the authed flow — a guest cache key would
+   * leak the teaser vs full distinction and confuse eviction. The backend
+   * caches everything server-side anyway, so the client cache is optional.
+   */
+  const handleGuestAnalyze = useCallback(async () => {
+    setShowLinkedInAnalyzer(true);
+    setLinkedInMode('guest');
+    setLinkedInAnalysis(null);
+    setLinkedInTeaser(null);
+    setLinkedInError(null);
+    setLinkedInErrorCode(null);
+    setLinkedInCachedAt(null);
+    setLinkedInAnalysisId(null);
+    setLinkedInLoading(true);
+    void emitAnalyticsEvent('guest_analysis_started');
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_LINKEDIN_PROFILE_GUEST',
+        data: {},
+      });
+      if (resp?.success && resp.teaser) {
+        setLinkedInTeaser(resp.teaser as import('../types').LinkedInProfileAnalysisTeaser);
+        setLinkedInTargetTitle(resp.targetTitle || undefined);
+        setLinkedInAnalysisId(resp.analysisId || null);
+        setLinkedInTabAnalyzedAt(Date.now());
+        void emitAnalyticsEvent('guest_analysis_completed', {
+          analysisId: resp.analysisId || null,
+          overallScore: resp.teaser?.overallScore ?? null,
+        });
+        void emitAnalyticsEvent('teaser_viewed', { analysisId: resp.analysisId || null });
+      } else {
+        setLinkedInTeaser(null);
+        setLinkedInError(resp?.error || 'Could not analyze this profile');
+        setLinkedInErrorCode(resp?.errorCode || null);
+      }
+    } catch (e) {
+      setLinkedInTeaser(null);
+      setLinkedInError((e as Error).message || 'Analysis failed');
+    } finally {
+      setLinkedInLoading(false);
+    }
+  }, []);
+
+  /**
+   * Submits a captured email to the guest-report backend and returns the
+   * server response so the modal can render the correct success/error UI.
+   * Fires the `email_submitted` analytics event only on success.
+   */
+  const handleGuestSubmitEmail = useCallback(async (email: string) => {
+    const analysisId = linkedInAnalysisId;
+    if (!analysisId) {
+      return { ok: false, error: 'Missing analysis id — please re-analyze.', errorCode: 'missing_analysis' as const };
+    }
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'SUBMIT_GUEST_REPORT_EMAIL',
+        data: { email, analysisId },
+      });
+      if (resp?.ok) {
+        void emitAnalyticsEvent('email_submitted', {
+          analysisId,
+          duplicate: !!resp.duplicate,
+        });
+      }
+      return resp as {
+        ok: boolean;
+        duplicate?: boolean;
+        message?: string;
+        error?: string;
+        errorCode?: string;
+      };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message || 'Network error' };
+    }
+  }, [linkedInAnalysisId]);
+
+  /**
+   * Called from the guest modal's "Sign in free" links. Fires the
+   * signin_clicked_from_teaser analytics event and kicks off the same web
+   * sign-in flow used by the SignedOut screens.
+   */
+  const handleGuestSignIn = useCallback(() => {
+    void emitAnalyticsEvent('signin_clicked_from_teaser', {
+      analysisId: linkedInAnalysisId,
+    });
+    void liTeaserSignIn();
+  }, [linkedInAnalysisId, liTeaserSignIn]);
 
   const handleAnalyzeMatch = useCallback(async () => {
     setShowMatchAnalysis(true);
@@ -835,17 +941,28 @@ export const SidePanel: React.FC = () => {
       
       {!authState.isAuthenticated ? (
         <>
-          {/* Signed-out teaser: the analyzer is the acquisition hook, so it
-              must be VISIBLE before sign-in. Click routes to the web sign-in
-              flow; once the session syncs back, the real pill takes over. */}
+          {/* Signed-out surface: the LinkedIn Profile Analyzer is our
+              acquisition hook, so it must run WITHOUT sign-in. On any
+              linkedin.com/in/* tab, show the guest CTA card ABOVE the pill
+              — both trigger the same free guest analysis; the CTA is the
+              louder, first-time-visitor headline, the pill is the compact
+              reminder. */}
           {isOnLinkedInProfile && (
-            <div className="panel-section li-preprofile-section">
-              <AnalyzeLinkedInPill
-                onClick={liTeaserSignIn}
-                loading={liTeaserSyncing}
-                requiresSignIn
-              />
-            </div>
+            <>
+              <div className="panel-section li-preprofile-section">
+                <GuestAnalyzerCTA
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                />
+              </div>
+              <div className="panel-section li-preprofile-section">
+                <AnalyzeLinkedInPill
+                  onClick={handleGuestAnalyze}
+                  loading={linkedInLoading && linkedInMode === 'guest'}
+                  guest
+                />
+              </div>
+            </>
           )}
           <SignedOut
             currentJob={currentJob}
@@ -1065,10 +1182,16 @@ export const SidePanel: React.FC = () => {
         loading={linkedInLoading}
         analysis={linkedInAnalysis}
         error={linkedInError}
+        errorCode={linkedInErrorCode}
         targetTitle={linkedInTargetTitle}
         cachedAt={linkedInCachedAt}
-        onRefresh={() => handleAnalyzeLinkedIn(true)}
+        onRefresh={() => (linkedInMode === 'guest' ? handleGuestAnalyze() : handleAnalyzeLinkedIn(true))}
         onNotification={showNotification}
+        mode={linkedInMode}
+        analysisId={linkedInAnalysisId}
+        teaser={linkedInTeaser}
+        onSubmitEmail={handleGuestSubmitEmail}
+        onSignIn={handleGuestSignIn}
       />
       
       {notification && (

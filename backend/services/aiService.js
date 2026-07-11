@@ -133,17 +133,31 @@ class AIService {
    * LinkedIn search, and a prioritized fix list. Used by the Chrome extension
    * "LinkedIn Profile Analyzer" feature.
    *
-   * @param {object} scraped   Fields pulled from the LinkedIn profile DOM.
-   * @param {string} targetTitle  The role the user wants to get shortlisted for.
+   * @param {object} scraped     Fields pulled from the LinkedIn profile DOM.
+   * @param {string} targetTitle The role the user wants to get shortlisted for.
+   * @param {object} [opts]
+   * @param {string} [opts.modelOverride]  Force a specific Claude model id
+   *   (e.g. Haiku for the guest teaser). Defaults to Sonnet for signed-in.
+   * @param {number} [opts.maxTokens]      Cap output tokens (default 2400).
+   * @param {'full'|'guest'} [opts.promptVariant]  Prompt variant. 'guest'
+   *   forces the 2-sentence summary + fixed bridge line for the teaser flow;
+   *   still returns the full JSON so the emailed report has everything.
    */
-  async analyzeLinkedInProfile(scraped, targetTitle) {
-    const prompt = profilePrompts.linkedInProfileAnalysisPrompt(scraped || {}, targetTitle || '');
+  async analyzeLinkedInProfile(scraped, targetTitle, opts = {}) {
+    const promptVariant = opts.promptVariant === 'guest' ? 'guest' : 'full';
+    const prompt = profilePrompts.linkedInProfileAnalysisPrompt(
+      scraped || {},
+      targetTitle || '',
+      { variant: promptVariant }
+    );
     const response = await callAI({
       // Sonnet quality matters here — this is the anchor deliverable for the
       // feature and users will judge it hard against LinkedIn's own advice.
+      // Guest teaser overrides to Haiku to keep the free surface cheap.
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2400,
-      temperature: 0.4
+      max_tokens: Number.isFinite(opts.maxTokens) ? opts.maxTokens : 2400,
+      temperature: 0.4,
+      ...(opts.modelOverride ? { model: opts.modelOverride } : {})
     });
     const raw = response.choices[0].message.content.trim();
     // Strip accidental fences if the model added any.

@@ -862,6 +862,176 @@ const sendSupportReplyToUser = async ({ ticket, replyBody, adminName }) => {
   }
 };
 
+// ── LinkedIn Profile Analyzer — guest report email ─────────────────────
+//
+// Sent after a signed-out user submits their email from the guest teaser
+// modal. Contains the FULL analysis (scores, verdict, all 5 priority
+// fixes, per-section suggestions with paste-ready rewrites, keyword
+// chips) plus a signup CTA and a stateless unsubscribe link.
+//
+// Called from POST /api/profiles/guest-report-email.
+// Named `escapeGuestReportHtml` to avoid colliding with the same-named
+// helper already defined higher up in this file.
+const escapeGuestReportHtml = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const buildGuestReportEmail = ({ analysis, targetTitle, profileUrl, signupUrl, unsubscribeUrl }) => {
+  const overall = Number(analysis?.overallScore) || 0;
+  const fit = Number(analysis?.recruiterFitScore) || 0;
+  const search = Number(analysis?.searchVisibilityScore) || 0;
+  const verdict = String(analysis?.verdict || 'maybe').toLowerCase();
+  const verdictLabel = verdict === 'shortlist' ? 'Shortlist' : verdict === 'pass' ? 'Pass' : 'Maybe';
+  const verdictColor = verdict === 'shortlist' ? '#0d9488' : verdict === 'pass' ? '#dc2626' : '#d97706';
+  const summary = String(analysis?.summary || '');
+  const priorityFixes = Array.isArray(analysis?.priorityFixes) ? analysis.priorityFixes : [];
+  const sections = Array.isArray(analysis?.sections) ? analysis.sections : [];
+  const recruiterSearch = analysis?.recruiterSearch || {};
+  const presentKeywords = Array.isArray(recruiterSearch.presentKeywords) ? recruiterSearch.presentKeywords : [];
+  const missingKeywords = Array.isArray(recruiterSearch.missingKeywords) ? recruiterSearch.missingKeywords : [];
+  const recommendedKeywords = Array.isArray(recruiterSearch.recommendedKeywords) ? recruiterSearch.recommendedKeywords : [];
+
+  const preheader = `${priorityFixes.length || 5} fixes that would change how recruiters see you`;
+
+  const scoreCard = (label, val) => `
+    <td align="center" style="padding:12px 8px;">
+      <div style="font:600 32px/1.1 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#111827;">${val}<span style="font-size:14px;color:#6b7280;">/100</span></div>
+      <div style="font:500 11px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">${escapeGuestReportHtml(label)}</div>
+    </td>
+  `;
+
+  const fixItems = priorityFixes.slice(0, 5).map((fix, i) => `
+    <li style="margin:0 0 12px 0;padding:12px 14px;background:#f9fafb;border-left:3px solid #4f46e5;border-radius:6px;">
+      <div style="font:600 12px/1 -apple-system,sans-serif;color:#4f46e5;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Fix ${String(i + 1).padStart(2, '0')}</div>
+      <div style="font:400 15px/1.55 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(fix)}</div>
+    </li>
+  `).join('');
+
+  const sectionCards = sections.map((s) => `
+    <div style="margin:0 0 18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(s.name || '')}</div>
+        <div style="font:600 13px/1 -apple-system,sans-serif;color:#6b7280;">${Number(s.score) || 0}/100</div>
+      </div>
+      ${Array.isArray(s.findings) && s.findings.length ? `
+        <ul style="margin:0 0 10px 18px;padding:0;color:#374151;font:400 14px/1.55 -apple-system,sans-serif;">
+          ${s.findings.map((f) => `<li style="margin:0 0 4px 0;">${escapeGuestReportHtml(f)}</li>`).join('')}
+        </ul>` : ''}
+      ${s.suggestion ? `
+        <div style="margin-top:10px;padding:10px 12px;background:#eef2ff;border-radius:6px;">
+          <div style="font:600 11px/1 -apple-system,sans-serif;color:#4f46e5;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">Paste-ready rewrite</div>
+          <div style="font:400 14px/1.55 -apple-system,sans-serif;color:#111827;white-space:pre-wrap;">${escapeGuestReportHtml(s.suggestion)}</div>
+        </div>` : ''}
+    </div>
+  `).join('');
+
+  const chipList = (label, items, color) => items && items.length ? `
+    <div style="margin:0 0 12px 0;">
+      <div style="font:600 11px/1 -apple-system,sans-serif;color:#6b7280;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;">${escapeGuestReportHtml(label)}</div>
+      <div>${items.slice(0, 12).map((k) => `<span style="display:inline-block;padding:4px 10px;margin:0 6px 6px 0;background:${color}22;color:${color};border-radius:999px;font:500 12px/1.3 -apple-system,sans-serif;">${escapeGuestReportHtml(k)}</span>`).join('')}</div>
+    </div>` : '';
+
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Your LinkedIn profile report</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;">
+    <span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${escapeGuestReportHtml(preheader)}</span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+          <tr><td style="padding:20px 24px;background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);color:#ffffff;">
+            <div style="font:600 18px/1.2 -apple-system,sans-serif;">Your LinkedIn profile report</div>
+            <div style="font:400 13px/1.4 -apple-system,sans-serif;opacity:0.85;margin-top:4px;">Target role: ${escapeGuestReportHtml(targetTitle || 'your stated title')}</div>
+          </td></tr>
+
+          <tr><td style="padding:24px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;">
+              <tr>${scoreCard('Overall', overall)}${scoreCard('Recruiter fit', fit)}${scoreCard('Search visibility', search)}</tr>
+            </table>
+            <div style="margin-top:16px;padding:12px 14px;background:${verdictColor}15;border-left:3px solid ${verdictColor};border-radius:6px;">
+              <div style="font:600 11px/1 -apple-system,sans-serif;color:${verdictColor};letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">Recruiter verdict: ${escapeGuestReportHtml(verdictLabel)}</div>
+              <div style="font:400 14px/1.55 -apple-system,sans-serif;color:#111827;">${escapeGuestReportHtml(summary)}</div>
+            </div>
+          </td></tr>
+
+          ${priorityFixes.length ? `
+          <tr><td style="padding:0 24px 8px;">
+            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Your top ${Math.min(priorityFixes.length, 5)} fixes</div>
+            <ul style="list-style:none;padding:0;margin:0;">${fixItems}</ul>
+          </td></tr>` : ''}
+
+          ${sectionCards ? `
+          <tr><td style="padding:16px 24px 8px;">
+            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Section-by-section</div>
+            ${sectionCards}
+          </td></tr>` : ''}
+
+          ${(presentKeywords.length || missingKeywords.length || recommendedKeywords.length) ? `
+          <tr><td style="padding:0 24px 8px;">
+            <div style="font:600 16px/1.2 -apple-system,sans-serif;color:#111827;margin-bottom:12px;">Recruiter search visibility</div>
+            ${chipList('Keywords recruiters would find', presentKeywords, '#059669')}
+            ${chipList('Keywords they\'d search for but you\'re missing', missingKeywords, '#dc2626')}
+            ${chipList('Top keywords to own', recommendedKeywords, '#4f46e5')}
+          </td></tr>` : ''}
+
+          <tr><td align="center" style="padding:24px;">
+            <a href="${escapeGuestReportHtml(signupUrl)}" style="display:inline-block;padding:14px 28px;background:#4f46e5;color:#ffffff;text-decoration:none;border-radius:8px;font:600 15px/1 -apple-system,sans-serif;">Get unlimited analyses free</a>
+            <div style="font:400 12px/1.5 -apple-system,sans-serif;color:#6b7280;margin-top:10px;">Free account · paste-ready rewrites · re-analyze as many profiles as you like</div>
+          </td></tr>
+
+          <tr><td style="padding:16px 24px 24px;border-top:1px solid #e5e7eb;font:400 12px/1.55 -apple-system,sans-serif;color:#6b7280;">
+            You received this because you asked for a LinkedIn profile report at
+            <a href="${escapeGuestReportHtml(profileUrl || '')}" style="color:#4f46e5;">${escapeGuestReportHtml(profileUrl || '')}</a>.
+            We don't post anything to LinkedIn and we don't store your profile data beyond this report.
+            <a href="${escapeGuestReportHtml(unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>.
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  const textLines = [
+    `Your LinkedIn profile report: ${overall}/100`,
+    ``,
+    `Target role: ${targetTitle || 'your stated title'}`,
+    `Recruiter fit: ${fit}/100 · Search visibility: ${search}/100`,
+    `Verdict: ${verdictLabel}`,
+    ``,
+    summary,
+    ``,
+    priorityFixes.length ? `Your top ${Math.min(priorityFixes.length, 5)} fixes:` : '',
+    ...priorityFixes.slice(0, 5).map((f, i) => `${String(i + 1).padStart(2, '0')}. ${f}`),
+    ``,
+    `Get unlimited analyses free: ${signupUrl}`,
+    ``,
+    `Unsubscribe: ${unsubscribeUrl}`,
+  ].filter(Boolean);
+
+  return {
+    subject: `Your LinkedIn profile report: ${overall}/100`,
+    html,
+    text: textLines.join('\n'),
+  };
+};
+
+const sendGuestLinkedInReport = async ({ email, analysis, targetTitle, profileUrl, signupUrl, unsubscribeUrl }) => {
+  const { subject, html, text } = buildGuestReportEmail({
+    analysis,
+    targetTitle,
+    profileUrl,
+    signupUrl,
+    unsubscribeUrl,
+  });
+  return sendEmail({ to: email, subject, html, text });
+};
+
 module.exports = {
   sendEmail,
   sendShortlistNotification,
@@ -873,5 +1043,6 @@ module.exports = {
   sendEmailVerification,
   sendSupportTicketToAdmin,
   sendSupportTicketConfirmation,
-  sendSupportReplyToUser
+  sendSupportReplyToUser,
+  sendGuestLinkedInReport,
 };

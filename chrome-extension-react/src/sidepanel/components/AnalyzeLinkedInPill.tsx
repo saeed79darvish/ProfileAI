@@ -9,8 +9,13 @@ interface AnalyzeLinkedInPillProps {
    *  credit by clicking). */
   analyzedAt?: number | null;
   /** Signed-out teaser mode: advertises the feature and routes the click to
-   *  the sign-in flow instead of the analyzer. */
+   *  the sign-in flow instead of the analyzer. Kept for compatibility with
+   *  earlier callers; the new guest flow uses `guest` instead. */
   requiresSignIn?: boolean;
+  /** Guest analyzer mode: signed-out but click runs the FREE guest analysis
+   *  instead of the sign-in redirect. Distinct copy so it reads as a live
+   *  CTA, not a paywall. */
+  guest?: boolean;
 }
 
 const formatAgo = (ts: number): string => {
@@ -30,19 +35,22 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
   loading,
   analyzedAt,
   requiresSignIn,
+  guest,
 }) => {
   const hasResult = !!analyzedAt && !loading && !requiresSignIn;
   return (
     <button
-      className={`profile-analyze-linkedin${hasResult ? ' analyzed' : ''}`}
+      className={`profile-analyze-linkedin${hasResult ? ' analyzed' : ''}${guest ? ' guest' : ''}`}
       onClick={onClick}
       disabled={loading}
       title={
-        requiresSignIn
-          ? 'Sign in free to run the recruiter-POV analysis on this profile'
-          : hasResult
-            ? 'You already analyzed this profile — opens the saved result. Re-analyze from inside if you want a fresh grade.'
-            : 'Analyze this LinkedIn profile like a recruiter'
+        guest
+          ? 'Free instant analysis — no account needed'
+          : requiresSignIn
+            ? 'Sign in free to run the recruiter-POV analysis on this profile'
+            : hasResult
+              ? 'You already analyzed this profile — opens the saved result. Re-analyze from inside if you want a fresh grade.'
+              : 'Analyze this LinkedIn profile like a recruiter'
       }
     >
       <span className="pal-icon" aria-hidden>
@@ -74,21 +82,27 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
       <span className="pal-text">
         <span className="pal-title">
           {loading
-            ? requiresSignIn
-              ? 'Opening sign-in…'
-              : 'Analyzing this profile…'
-            : hasResult
-              ? 'View LinkedIn analysis'
-              : 'Analyze this LinkedIn profile'}
+            ? guest
+              ? 'Analyzing my profile…'
+              : requiresSignIn
+                ? 'Opening sign-in…'
+                : 'Analyzing this profile…'
+            : guest
+              ? 'Analyze my profile'
+              : hasResult
+                ? 'View LinkedIn analysis'
+                : 'Analyze this LinkedIn profile'}
         </span>
         <span className="pal-sub">
-          {requiresSignIn
-            ? 'See how recruiters grade you — free, sign in to run'
-            : loading
-              ? 'Recruiter-POV grade + rewrites'
-              : hasResult
-                ? `Analyzed ${formatAgo(analyzedAt!)} · re-analyze inside`
-                : 'Recruiter-POV grade + rewrites'}
+          {guest
+            ? 'Free instant analysis — no account needed'
+            : requiresSignIn
+              ? 'See how recruiters grade you — free, sign in to run'
+              : loading
+                ? 'Recruiter-POV grade + rewrites'
+                : hasResult
+                  ? `Analyzed ${formatAgo(analyzedAt!)} · re-analyze inside`
+                  : 'Recruiter-POV grade + rewrites'}
         </span>
       </span>
       <svg className="pal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
