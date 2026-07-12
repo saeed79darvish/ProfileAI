@@ -33,19 +33,51 @@ const LI_CACHE_KEY = 'linkedInAnalysisCache';
 const LI_CACHE_MAX_ENTRIES = 20;
 const LI_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-/** Normalized cache key for a LinkedIn profile URL (origin + pathname, no
- *  trailing slash) or null when the URL isn't a /in/ profile page. */
-const linkedInCacheKey = (url: string | undefined | null): string | null => {
+/** Normalized target-title slug used in the cache key. Empty / null becomes
+ *  'inferred' so guest + goal-picker "let AI infer" analyses share their
+ *  own bucket instead of colliding with a specific-role analysis of the
+ *  same profile. Mirrors the backend's normalisation exactly so client and
+ *  server caches see the same rows. */
+const normalizeTargetTitleForKey = (t: string | null | undefined): string => {
+  if (t == null) return 'inferred';
+  const s = String(t).trim().toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]+/g, '');
+  return s || 'inferred';
+};
+
+/** Normalized cache key for a LinkedIn profile URL + target title.
+ *  Returns null when the URL isn't a /in/ profile page.
+ *
+ *  Old shape was `${origin}${pathname}` (URL only). That collided across
+ *  targets: if you first analysed profile X as "Senior Frontend Engineer"
+ *  then re-analysed for "VP of ML", the second click hit the URL-only cache
+ *  and returned the Frontend analysis. Including target in the key gives
+ *  each (profile, target) tuple its own row. */
+const linkedInCacheKey = (
+  url: string | undefined | null,
+  targetTitle?: string | null,
+): string | null => {
   if (!url || !/linkedin\.com\/in\//i.test(url)) return null;
   try {
     const u = new URL(url);
-    return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+    return `${u.origin}${u.pathname.replace(/\/+$/, '')}::${normalizeTargetTitleForKey(targetTitle)}`;
   } catch {
     return null;
   }
 };
 
-/** Returns the cached entry for a profile URL, or null if absent/expired. */
+/** URL-only prefix used by readAnyLinkedInCacheForUrl below. Every
+ *  target-specific key starts with this. */
+const linkedInUrlPrefix = (url: string | undefined | null): string | null => {
+  if (!url || !/linkedin\.com\/in\//i.test(url)) return null;
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname.replace(/\/+$/, '')}::`;
+  } catch {
+    return null;
+  }
+};
+
+/** Returns the cached entry for a (profile URL, target) pair, or null. */
 const readLinkedInCache = async (
   cacheKeyUrl: string,
 ): Promise<{ analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null> => {
@@ -59,6 +91,29 @@ const readLinkedInCache = async (
     /* treat as no cache */
   }
   return null;
+};
+
+/** Returns the MOST RECENT cached entry for a profile URL, regardless of
+ *  target. Used by the pill indicator ("analyzed X ago") which shouldn't
+ *  care which target was used — any prior analysis of this profile counts. */
+const readAnyLinkedInCacheForUrl = async (
+  urlPrefix: string,
+): Promise<{ analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null> => {
+  try {
+    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
+    if (!cache || typeof cache !== 'object') return null;
+    let best: { analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null = null;
+    for (const [key, value] of Object.entries(cache)) {
+      if (!key.startsWith(urlPrefix)) continue;
+      const hit = value as any;
+      if (!hit?.analysis || !hit?.cachedAt) continue;
+      if (Date.now() - hit.cachedAt >= LI_CACHE_TTL_MS) continue;
+      if (!best || hit.cachedAt > best.cachedAt) best = hit;
+    }
+    return best;
+  } catch {
+    return null;
+  }
 };
 
 export const SidePanel: React.FC = () => {
@@ -161,6 +216,21 @@ export const SidePanel: React.FC = () => {
     loadJobInfo();
     loadAnswersCount();
     detectLinkedInProfileTab();
+
+    // One-time client-cache wipe. Old cache keys were URL-only, which caused
+    // target-title collisions (analyzing profile X for role A returned
+    // profile X's cached role-B analysis). New keys embed a `::<target>`
+    // suffix. Old entries are dead weight now and can also confuse the
+    // pill-detector if it ever falls back to a bare-URL match, so nuke them
+    // once per install. `cacheKeyFormat` is the version marker.
+    chrome.storage.local.get(['linkedInAnalysisCacheVersion']).then(({ linkedInAnalysisCacheVersion }) => {
+      if (linkedInAnalysisCacheVersion !== 2) {
+        chrome.storage.local.set({
+          linkedInAnalysisCache: {},
+          linkedInAnalysisCacheVersion: 2,
+        }).catch(() => {});
+      }
+    }).catch(() => {});
 
     // Restore the returning-user summary so the reconnect screen can show
     // before/without a fresh login.
@@ -435,8 +505,11 @@ export const SidePanel: React.FC = () => {
       const isProfile = !!tab?.url && /linkedin\.com\/in\//i.test(tab.url);
       setIsOnLinkedInProfile(isProfile);
       if (isProfile) {
-        const key = linkedInCacheKey(tab?.url);
-        const hit = key ? await readLinkedInCache(key) : null;
+        // Any prior analysis of this profile (whatever target) satisfies the
+        // "analyzed X ago" indicator — use the URL-prefix variant so target
+        // choice doesn't affect the pill's badge state.
+        const prefix = linkedInUrlPrefix(tab?.url);
+        const hit = prefix ? await readAnyLinkedInCacheForUrl(prefix) : null;
         setLinkedInTabAnalyzedAt(hit?.cachedAt ?? null);
       } else {
         setLinkedInTabAnalyzedAt(null);
@@ -513,16 +586,36 @@ export const SidePanel: React.FC = () => {
     setLinkedInMode('authed');
     setLinkedInTeaser(null);
 
-    // Cache the analysis per LinkedIn profile URL so subsequent clicks on the
-    // same profile don't burn an AI credit. The "Re-analyze" button in the
-    // modal passes force=true to bypass the cache — that's the (metered) path.
-    let cacheKeyUrl: string | null = null;
+    // Grab the tab URL upfront — we need it both to resolve the target
+    // (own vs foreign profile) AND to build the cache key. Split from cache
+    // logic below so the target resolves BEFORE we hit the cache.
+    let tabUrl: string | undefined;
     try {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      cacheKeyUrl = linkedInCacheKey(tab?.url);
+      tabUrl = tab?.url || undefined;
     } catch {
-      /* fallthrough */
+      /* fallthrough with undefined */
     }
+
+    // Resolve the target FIRST. Priority:
+    //   1) explicit override from the goal-picker (may be '' meaning infer)
+    //   2) user's saved title, ONLY when analysing their own /in/<slug>
+    //   3) undefined -> backend / AI infers from the profile itself
+    let targetTitle: string | undefined;
+    if (opts && typeof opts.targetTitleOverride === 'string') {
+      const v = opts.targetTitleOverride.trim();
+      targetTitle = v || undefined;
+    } else {
+      const tabSlug = (tabUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+      const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+      if (tabSlug && ownSlug && tabSlug === ownSlug) {
+        targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
+      }
+    }
+
+    // Cache key includes the resolved target so switching targets never
+    // returns the previous target's analysis from cache.
+    const cacheKeyUrl = linkedInCacheKey(tabUrl, targetTitle);
 
     // Cache HIT path — instant load, no AI call.
     if (!force && cacheKeyUrl) {
@@ -541,26 +634,6 @@ export const SidePanel: React.FC = () => {
     setLinkedInLoading(true);
     setLinkedInCachedAt(null);
     try {
-      // Resolve the target. Priority:
-      //   1) explicit override from the goal-picker (may be '' meaning infer)
-      //   2) user's saved title, ONLY when analysing their own /in/<slug>
-      //   3) undefined -> backend / AI infers from the profile itself
-      let targetTitle: string | undefined;
-      if (opts && typeof opts.targetTitleOverride === 'string') {
-        const v = opts.targetTitleOverride.trim();
-        targetTitle = v || undefined;
-      } else {
-        try {
-          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          const tabSlug = (tab?.url || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-          const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-          if (tabSlug && ownSlug && tabSlug === ownSlug) {
-            targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
-          }
-        } catch {
-          /* falls through with undefined */
-        }
-      }
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_LINKEDIN_PROFILE',
         data: { targetTitle },

@@ -402,8 +402,11 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
 
               {teaser.summary && <p className="li-summary">{teaser.summary}</p>}
 
-              {/* Quick wins — 1 fully revealed, 4 blurred with the overlay. */}
-              <section className="li-section li-teaser-quickwins">
+              {/* Quick wins — 1st unlocked, rest visibly locked (lock icon +
+                  blurred body). No absolute overlay: locked rows stay inline
+                  so the layout never breaks on narrow sidepanels. The
+                  unlock CTA renders BELOW this list in normal flow. */}
+              <section className="li-section">
                 <div className="li-section-heading">
                   <h5 className="li-section-title accent">Your top 5 fixes</h5>
                   <span className="li-section-count">Do these first</span>
@@ -419,137 +422,160 @@ export const LinkedInAnalyzerModal: React.FC<LinkedInAnalyzerModalProps> = ({
                         {String(row.index + 1).padStart(2, '0')}
                       </span>
                       <div className="li-teaser-fix-content">
-                        <div className="li-teaser-fix-title">{row.title}</div>
-                        {!row.locked && row.body && (
-                          <div className="li-teaser-fix-body">{row.body}</div>
-                        )}
-                        {row.locked && (
-                          <>
-                            {/* Deliberate blur placeholder — no real body is
-                                sent from the server for locked rows, so this
-                                is purely visual space for the overlay to
-                                cover. Never contains real content. */}
-                            <div className="li-teaser-fix-body blur-placeholder" aria-hidden="true">
-                              ████████ ████████ ████ ██████ █████████ ███████████████.
-                              ██████ ████ ███████████ ██████ █████ ██████ ██████████.
-                            </div>
-                            <span className="li-teaser-fix-lock" aria-label="Locked">
+                        <div className="li-teaser-fix-title-row">
+                          <div className="li-teaser-fix-title">{row.title}</div>
+                          {row.locked && (
+                            <span className="li-teaser-fix-lock" aria-label="Locked. Unlock below.">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <rect x="5" y="11" width="14" height="9" rx="2" strokeLinejoin="round" />
                                 <path d="M8 11V7a4 4 0 018 0v4" strokeLinecap="round" />
                               </svg>
                             </span>
-                          </>
+                          )}
+                        </div>
+                        {!row.locked && row.body && (
+                          <div className="li-teaser-fix-body">{row.body}</div>
+                        )}
+                        {row.locked && (
+                          // Deliberate placeholder text used only for its shape.
+                          // Blurred + inert so it reads as "there's content here
+                          // that's hidden" without ever leaking real advice.
+                          <div className="li-teaser-fix-body blur-placeholder" aria-hidden="true">
+                            The exact rewrite for this fix is included in your full report.
+                          </div>
                         )}
                       </div>
                     </li>
                   ))}
                 </ol>
+              </section>
 
-                {/* Email-capture overlay. Positioned over the 4 locked rows
-                    (li-teaser-overlay CSS uses position:absolute inside
-                    li-teaser-quickwins which is position:relative). */}
-                <div className="li-teaser-overlay">
-                  {guestEmailSuccess ? (
-                    <>
-                      <div className="li-teaser-overlay-check" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+              {/* Unlock CTA — normal-flow card below the fixes list. Either
+                  the email-capture form or the post-submit success state.
+                  No absolute positioning, no overlays, no clipping. */}
+              <section className="li-teaser-unlock-card">
+                {guestEmailSuccess ? (
+                  <div className="li-teaser-unlock-success">
+                    <div className="li-teaser-unlock-check" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <h4 className="li-teaser-unlock-title">
+                      Report sent to {guestEmailSuccess.email}
+                    </h4>
+                    <p className="li-teaser-unlock-body">
+                      {guestEmailSuccess.duplicate
+                        ? "We already sent this report to your email. Check spam if you don't see it, or sign in for instant access."
+                        : "Check your inbox in the next couple of minutes."}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn primary small li-teaser-unlock-btn"
+                      onClick={() => onSignIn?.()}
+                    >
+                      Create free account
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="li-teaser-unlock-header">
+                      <div className="li-teaser-unlock-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="3" y="8" width="18" height="12" rx="2" strokeLinejoin="round" />
+                          <path d="M3 10l9 5 9-5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </div>
-                      <h4 className="li-teaser-overlay-title">
-                        Report sent to {guestEmailSuccess.email}
-                      </h4>
-                      <p className="li-teaser-overlay-body">
-                        {guestEmailSuccess.duplicate
-                          ? 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.'
-                          : 'Check your inbox in the next couple of minutes.'}
-                      </p>
-                      <button
-                        type="button"
-                        className="btn primary small li-teaser-cta"
-                        onClick={() => onSignIn?.()}
-                      >
-                        Create free account
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <h4 className="li-teaser-overlay-title">
-                        4 more fixes + rewritten sections, ready to paste
-                      </h4>
-                      <p className="li-teaser-overlay-body">
-                        Get your full report with paste-ready rewrites for your headline, About, and Experience.
-                      </p>
-                      <form
-                        className="li-teaser-email-form"
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (!onSubmitEmail || guestEmailSubmitting) return;
-                          const val = guestEmail.trim();
-                          if (!val) {
-                            setGuestEmailError("That email doesn't look right. Mind checking it?");
-                            return;
+                      <div className="li-teaser-unlock-headings">
+                        <h4 className="li-teaser-unlock-title">Unlock the full report</h4>
+                        <p className="li-teaser-unlock-sub">
+                          4 more fixes plus paste-ready rewrites for your Headline, About, and Experience.
+                        </p>
+                      </div>
+                    </div>
+
+                    <ul className="li-teaser-unlock-bullets">
+                      <li>All 5 priority fixes with full context</li>
+                      <li>Rewrites you can copy straight into LinkedIn</li>
+                      <li>Keyword chips that get you found in recruiter search</li>
+                    </ul>
+
+                    <form
+                      className="li-teaser-email-form"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!onSubmitEmail || guestEmailSubmitting) return;
+                        const val = guestEmail.trim();
+                        if (!val) {
+                          setGuestEmailError("That email doesn't look right. Mind checking it?");
+                          return;
+                        }
+                        setGuestEmailSubmitting(true);
+                        setGuestEmailError(null);
+                        try {
+                          const res = await onSubmitEmail(val);
+                          if (res.ok) {
+                            setGuestEmailSuccess({ email: val, duplicate: !!res.duplicate });
+                          } else if (res.errorCode === 'invalid_email') {
+                            setGuestEmailError(res.message || "That email doesn't look right. Mind checking it?");
+                          } else if (res.errorCode === 'analysis_expired') {
+                            setGuestEmailError('Your analysis expired. Please re-analyze the profile and try again.');
+                          } else if (res.errorCode === 'email_send_failed') {
+                            setGuestEmailError(res.message || "We couldn't send the email right now. Try again in a minute, or sign in to see your full report instantly.");
+                          } else {
+                            setGuestEmailError(res.message || res.error || 'Something went wrong. Please try again.');
                           }
-                          setGuestEmailSubmitting(true);
-                          setGuestEmailError(null);
-                          try {
-                            const res = await onSubmitEmail(val);
-                            if (res.ok) {
-                              setGuestEmailSuccess({ email: val, duplicate: !!res.duplicate });
-                            } else if (res.errorCode === 'invalid_email') {
-                              setGuestEmailError(res.message || "That email doesn't look right. Mind checking it?");
-                            } else if (res.errorCode === 'analysis_expired') {
-                              setGuestEmailError('Your analysis expired. Please re-analyze the profile and try again.');
-                            } else if (res.errorCode === 'email_send_failed') {
-                              setGuestEmailError(res.message || "We couldn't send the email right now. Try again in a minute, or sign in to see your full report instantly.");
-                            } else {
-                              setGuestEmailError(res.message || res.error || 'Something went wrong. Please try again.');
-                            }
-                          } catch (err) {
-                            setGuestEmailError((err as Error).message || 'Something went wrong. Please try again.');
-                          } finally {
-                            setGuestEmailSubmitting(false);
-                          }
+                        } catch (err) {
+                          setGuestEmailError((err as Error).message || 'Something went wrong. Please try again.');
+                        } finally {
+                          setGuestEmailSubmitting(false);
+                        }
+                      }}
+                    >
+                      <label className="li-teaser-email-label" htmlFor="li-teaser-email-input">
+                        Send me the full report
+                      </label>
+                      <input
+                        id="li-teaser-email-input"
+                        type="email"
+                        className="li-teaser-email-input"
+                        placeholder="you@work.com"
+                        value={guestEmail}
+                        onChange={(e) => {
+                          setGuestEmail(e.target.value);
+                          if (guestEmailError) setGuestEmailError(null);
                         }}
-                      >
-                        <input
-                          type="email"
-                          className="li-teaser-email-input"
-                          placeholder="you@work.com"
-                          value={guestEmail}
-                          onChange={(e) => {
-                            setGuestEmail(e.target.value);
-                            if (guestEmailError) setGuestEmailError(null);
-                          }}
-                          required
-                          disabled={guestEmailSubmitting}
-                          autoComplete="email"
-                        />
-                        <button
-                          type="submit"
-                          className="btn primary small li-teaser-email-submit"
-                          disabled={guestEmailSubmitting || !analysisId}
-                        >
-                          {guestEmailSubmitting ? 'Sending…' : 'Send my full report'}
-                        </button>
-                      </form>
-                      {guestEmailError && (
-                        <div className="li-teaser-email-error">{guestEmailError}</div>
-                      )}
+                        required
+                        disabled={guestEmailSubmitting}
+                        autoComplete="email"
+                      />
                       <button
-                        type="button"
-                        className="li-teaser-signin-link"
-                        onClick={() => onSignIn?.()}
+                        type="submit"
+                        className="btn primary small li-teaser-email-submit"
+                        disabled={guestEmailSubmitting || !analysisId}
                       >
-                        Sign in free for full access
+                        {guestEmailSubmitting ? 'Sending…' : 'Email me the full report'}
                       </button>
-                      <p className="li-teaser-trust">
-                        We don't store your profile or post anything to LinkedIn. One email, no spam.
-                      </p>
-                    </>
-                  )}
-                </div>
+                    </form>
+                    {guestEmailError && (
+                      <div className="li-teaser-email-error">{guestEmailError}</div>
+                    )}
+
+                    <div className="li-teaser-unlock-divider"><span>or</span></div>
+
+                    <button
+                      type="button"
+                      className="li-teaser-signin-link"
+                      onClick={() => onSignIn?.()}
+                    >
+                      Sign in free for instant access &rarr;
+                    </button>
+
+                    <p className="li-teaser-trust">
+                      We don't store your profile or post anything to LinkedIn. One email, no spam.
+                    </p>
+                  </>
+                )}
               </section>
             </div>
           )}
