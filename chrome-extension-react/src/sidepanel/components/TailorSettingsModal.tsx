@@ -1,10 +1,22 @@
 import React, { useState, useCallback } from 'react';
 
+/**
+ * TailorSettingsModal — mirrors the web app's `frontend/src/components/TailorSettingsModal.jsx`
+ * design so users see the same experience in the extension side panel as on
+ * the Jobs page. The `TailorSettings` shape is kept backwards compatible:
+ * `includeProjects` is still emitted (derived from `includeSections`) so the
+ * existing `handleTailorSettingsContinue` → `doTailor` pipeline in SidePanel
+ * doesn't need to change.
+ */
+
 export interface TailorSettings {
   summaryLines: number;
   experienceLines: number;
   maxSkills: number;
+  /** Kept for back-compat with the tailoring pipeline. Derived from includeSections on submit. */
   includeProjects: boolean;
+  /** Which optional sections to include in the tailored resume. */
+  includeSections: string[];
   tone: 'professional' | 'concise' | 'detailed';
   focusAreas: string[];
 }
@@ -16,31 +28,96 @@ interface TailorSettingsModalProps {
   onCancel: () => void;
 }
 
+const MAX_FOCUS = 3;
+
 const DEFAULT_SETTINGS: TailorSettings = {
-  summaryLines: 3,
-  experienceLines: 4,
-  maxSkills: 12,
-  includeProjects: true,
-  tone: 'professional',
+  // Matches web defaults: Detailed tone, 6–8 line summary, 4–5 bullets, 15 skills.
+  summaryLines: 7,
+  experienceLines: 5,
+  maxSkills: 15,
+  includeProjects: false,
+  includeSections: ['education', 'certifications', 'awards'],
+  tone: 'detailed',
   focusAreas: [],
 };
 
-const FOCUS_AREA_OPTIONS = [
-  'Technical Skills',
-  'Leadership',
-  'Problem Solving',
-  'Communication',
-  'Project Management',
-  'Domain Expertise',
-  'Metrics & Impact',
-  'Team Collaboration',
+interface ToneOption { value: TailorSettings['tone']; icon: string; label: string; desc: string; }
+const TONE_OPTIONS: ToneOption[] = [
+  { value: 'concise',      icon: '⚡', label: 'Concise',      desc: 'Short, ATS-friendly bullets' },
+  { value: 'professional', icon: '✦', label: 'Professional', desc: 'Balanced detail and clarity' },
+  { value: 'detailed',     icon: '📝', label: 'Detailed',     desc: 'Rich descriptions with context' },
 ];
 
-const TONE_OPTIONS: { value: TailorSettings['tone']; label: string; desc: string }[] = [
-  { value: 'concise', label: 'Concise', desc: 'Short, ATS-friendly bullet points' },
-  { value: 'professional', label: 'Professional', desc: 'Balanced detail and clarity' },
-  { value: 'detailed', label: 'Detailed', desc: 'Rich descriptions with context' },
+const TONE_EXAMPLES: Record<TailorSettings['tone'], string> = {
+  concise: '"Designed REST APIs serving 1M+ users, cut response times 40%"',
+  professional: '"Built and maintained scalable REST APIs serving 1M+ monthly active users, improving response times by 40%."',
+  detailed: '"Architected and maintained a suite of scalable REST APIs handling 1M+ MAU across 12 microservices, driving a 40% improvement in p95 response times through caching and query optimization"',
+};
+
+interface SectionOption { key: string; icon: string; label: string; }
+const SECTION_OPTIONS: SectionOption[] = [
+  { key: 'projects',       icon: '🔧', label: 'Projects' },
+  { key: 'education',      icon: '🎓', label: 'Education' },
+  { key: 'certifications', icon: '📜', label: 'Certifications' },
+  { key: 'awards',         icon: '🏆', label: 'Awards' },
 ];
+
+const FOCUS_AREAS = [
+  'Leadership & mentorship',
+  'System design & architecture',
+  'Performance optimization',
+  'Cross-functional collaboration',
+  'Cloud & infrastructure',
+  'Testing & quality',
+];
+
+interface Preset { label: string; sub: string; value: number; }
+const SUMMARY_PRESETS: Preset[] = [
+  { label: 'Brief',    sub: '2–3 lines',  value: 3 },
+  { label: 'Standard', sub: '4–5 lines',  value: 5 },
+  { label: 'Detailed', sub: '6–8 lines',  value: 7 },
+];
+const BULLETS_PRESETS: Preset[] = [
+  { label: 'Tight',    sub: '2–3 bullets', value: 3 },
+  { label: 'Standard', sub: '4–5 bullets', value: 5 },
+  { label: 'Detailed', sub: '6–8 bullets', value: 7 },
+];
+const SKILLS_PRESETS: Preset[] = [
+  { label: 'Minimal',  sub: '8 skills',  value: 8 },
+  { label: 'Balanced', sub: '15 skills', value: 15 },
+  { label: 'Full',     sub: '25 skills', value: 25 },
+];
+
+interface SegmentControlProps {
+  label: string;
+  presets: Preset[];
+  value: number;
+  onChange: (n: number) => void;
+}
+const SegmentControl: React.FC<SegmentControlProps> = ({ label, presets, value, onChange }) => {
+  const active = presets.find((p) => p.value === value) || presets[1];
+  return (
+    <div className="tsm-segment-card">
+      <div className="tsm-segment-header">
+        <span className="tsm-segment-label">{label}</span>
+        <span className="tsm-segment-value">{active.label} · {active.sub}</span>
+      </div>
+      <div className="tsm-segment-row">
+        {presets.map((p) => (
+          <button
+            type="button"
+            key={p.value}
+            className={`tsm-segment-opt ${value === p.value ? 'active' : ''}`}
+            onClick={() => onChange(p.value)}
+          >
+            <span className="tsm-segment-opt-label">{p.label}</span>
+            <span className="tsm-segment-opt-sub">{p.sub}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const TailorSettingsModal: React.FC<TailorSettingsModalProps> = ({
   jobTitle,
@@ -54,14 +131,38 @@ export const TailorSettingsModal: React.FC<TailorSettingsModalProps> = ({
     setSettings((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const toggleSection = useCallback((key: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      includeSections: prev.includeSections.includes(key)
+        ? prev.includeSections.filter((s) => s !== key)
+        : [...prev.includeSections, key],
+    }));
+  }, []);
+
   const toggleFocusArea = useCallback((area: string) => {
     setSettings((prev) => {
-      const areas = prev.focusAreas.includes(area)
-        ? prev.focusAreas.filter((a) => a !== area)
-        : [...prev.focusAreas, area];
-      return { ...prev, focusAreas: areas };
+      if (prev.focusAreas.includes(area)) {
+        return { ...prev, focusAreas: prev.focusAreas.filter((a) => a !== area) };
+      }
+      if (prev.focusAreas.length >= MAX_FOCUS) return prev;
+      return { ...prev, focusAreas: [...prev.focusAreas, area] };
     });
   }, []);
+
+  const handleContinue = () => {
+    // Derive the legacy includeProjects flag so downstream tailoring code
+    // (SidePanel.handleTailorSettingsContinue → doTailor) keeps working.
+    onContinue({
+      ...settings,
+      includeProjects: settings.includeSections.includes('projects'),
+    });
+  };
+
+  const toneLabel = TONE_OPTIONS.find((t) => t.value === settings.tone)?.label || 'Professional';
+  const summaryPreset = SUMMARY_PRESETS.find((p) => p.value === settings.summaryLines) || SUMMARY_PRESETS[1];
+  const summaryFooter = summaryPreset.sub.replace('lines', 'line summary');
+  const companyInitial = (company || '').trim().charAt(0).toUpperCase();
 
   return (
     <div className="tsm-overlay" onClick={onCancel}>
@@ -69,131 +170,134 @@ export const TailorSettingsModal: React.FC<TailorSettingsModalProps> = ({
         {/* Header */}
         <div className="tsm-header">
           <div className="tsm-header-left">
-            <div className="tsm-header-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="tsm-title">Tailor Settings</h3>
-              {jobTitle && (
-                <p className="tsm-job-label">{jobTitle}{company ? `, ${company}` : ''}</p>
+            <div className="tsm-header-icon" aria-hidden>✦</div>
+            <div className="tsm-header-text">
+              <h3 className="tsm-title">Tailor settings</h3>
+              {(company || jobTitle) && (
+                <div className="tsm-company-row">
+                  For{' '}
+                  <span className="tsm-company-badge" title={jobTitle ? `${jobTitle}${company ? ` · ${company}` : ''}` : company}>
+                    {companyInitial && <span className="tsm-company-logo">{companyInitial}</span>}
+                    <span className="tsm-company-name">{company || jobTitle}</span>
+                  </span>
+                </div>
               )}
             </div>
           </div>
-          <button className="tsm-close-btn" onClick={onCancel}>✕</button>
+          <button className="tsm-close-btn" onClick={onCancel} aria-label="Close">✕</button>
         </div>
 
-        <p className="tsm-subtitle">
-          Customize how your resume will be tailored for this position.
-        </p>
+        <hr className="tsm-divider" />
 
         <div className="tsm-body">
-          {/* Tone */}
+          {/* Resume Tone */}
           <div className="tsm-section">
-            <label className="tsm-section-label">Resume Tone</label>
-            <div className="tsm-tone-options">
+            <div className="tsm-section-label">Resume Tone</div>
+            <div className="tsm-tone-grid">
               {TONE_OPTIONS.map((opt) => (
                 <button
+                  type="button"
                   key={opt.value}
-                  className={`tsm-tone-btn ${settings.tone === opt.value ? 'active' : ''}`}
+                  className={`tsm-tone-card ${settings.tone === opt.value ? 'active' : ''}`}
                   onClick={() => updateSetting('tone', opt.value)}
                 >
+                  <span className="tsm-tone-icon">{opt.icon}</span>
                   <span className="tsm-tone-name">{opt.label}</span>
                   <span className="tsm-tone-desc">{opt.desc}</span>
                 </button>
               ))}
             </div>
+            <div className="tsm-example-box">
+              <div className="tsm-example-label">ⓘ Example Output</div>
+              <div className="tsm-example-text">{TONE_EXAMPLES[settings.tone]}</div>
+            </div>
           </div>
 
           {/* Section Lengths */}
           <div className="tsm-section">
-            <label className="tsm-section-label">Section Lengths</label>
-            <div className="tsm-sliders">
-              <div className="tsm-slider-row">
-                <div className="tsm-slider-info">
-                  <span className="tsm-slider-name">Summary</span>
-                  <span className="tsm-slider-value">{settings.summaryLines} lines</span>
-                </div>
-                <input
-                  type="range"
-                  min={2}
-                  max={6}
-                  value={settings.summaryLines}
-                  onChange={(e) => updateSetting('summaryLines', Number(e.target.value))}
-                  className="tsm-range"
-                />
-              </div>
-              <div className="tsm-slider-row">
-                <div className="tsm-slider-info">
-                  <span className="tsm-slider-name">Experience (per role)</span>
-                  <span className="tsm-slider-value">{settings.experienceLines} lines</span>
-                </div>
-                <input
-                  type="range"
-                  min={2}
-                  max={8}
-                  value={settings.experienceLines}
-                  onChange={(e) => updateSetting('experienceLines', Number(e.target.value))}
-                  className="tsm-range"
-                />
-              </div>
-              <div className="tsm-slider-row">
-                <div className="tsm-slider-info">
-                  <span className="tsm-slider-name">Max Skills</span>
-                  <span className="tsm-slider-value">{settings.maxSkills} skills</span>
-                </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={25}
-                  value={settings.maxSkills}
-                  onChange={(e) => updateSetting('maxSkills', Number(e.target.value))}
-                  className="tsm-range"
-                />
-              </div>
-            </div>
+            <div className="tsm-section-label">Section Lengths</div>
+            <SegmentControl
+              label="Summary"
+              presets={SUMMARY_PRESETS}
+              value={settings.summaryLines}
+              onChange={(v) => updateSetting('summaryLines', v)}
+            />
+            <SegmentControl
+              label="Bullets per role"
+              presets={BULLETS_PRESETS}
+              value={settings.experienceLines}
+              onChange={(v) => updateSetting('experienceLines', v)}
+            />
+            <SegmentControl
+              label="Skills shown"
+              presets={SKILLS_PRESETS}
+              value={settings.maxSkills}
+              onChange={(v) => updateSetting('maxSkills', v)}
+            />
           </div>
 
           {/* Include Sections */}
           <div className="tsm-section">
-            <label className="tsm-section-label">Include Sections</label>
-            <div className="tsm-toggles">
-              <label className="tsm-toggle-row">
-                <span>Projects</span>
-                <input
-                  type="checkbox"
-                  checked={settings.includeProjects}
-                  onChange={(e) => updateSetting('includeProjects', e.target.checked)}
-                  className="tsm-checkbox"
-                />
-              </label>
+            <div className="tsm-section-label">Include Sections</div>
+            <div className="tsm-section-chips">
+              {SECTION_OPTIONS.map((opt) => {
+                const active = settings.includeSections.includes(opt.key);
+                return (
+                  <button
+                    type="button"
+                    key={opt.key}
+                    className={`tsm-section-chip ${active ? 'active' : ''}`}
+                    onClick={() => toggleSection(opt.key)}
+                    aria-pressed={active}
+                  >
+                    <span className="tsm-section-chip-icon">{opt.icon}</span>
+                    <span className="tsm-section-chip-label">{opt.label}</span>
+                    <span className={`tsm-section-chip-check ${active ? 'checked' : ''}`}>
+                      {active ? '✓' : ''}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Focus Areas */}
+          {/* Emphasize */}
           <div className="tsm-section">
-            <label className="tsm-section-label">Emphasize (optional)</label>
-            <div className="tsm-chips">
-              {FOCUS_AREA_OPTIONS.map((area) => (
-                <button
-                  key={area}
-                  className={`tsm-chip ${settings.focusAreas.includes(area) ? 'active' : ''}`}
-                  onClick={() => toggleFocusArea(area)}
-                >
-                  {area}
-                </button>
-              ))}
+            <div className="tsm-section-label-row">
+              <div className="tsm-section-label">Emphasize</div>
+              <span className="tsm-section-hint">Pick up to {MAX_FOCUS}</span>
+            </div>
+            <div className="tsm-focus-grid">
+              {FOCUS_AREAS.map((area) => {
+                const active = settings.focusAreas.includes(area);
+                const disabled = !active && settings.focusAreas.length >= MAX_FOCUS;
+                return (
+                  <button
+                    type="button"
+                    key={area}
+                    className={`tsm-focus-chip ${active ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
+                    disabled={disabled}
+                    onClick={() => !disabled && toggleFocusArea(area)}
+                  >
+                    {area}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
         {/* Footer */}
         <div className="tsm-footer">
-          <button className="tsm-btn-cancel" onClick={onCancel}>Cancel</button>
-          <button className="tsm-btn-continue" onClick={() => onContinue(settings)}>
-            Continue to Tailor
+          <div className="tsm-footer-meta">
+            <span className="tsm-footer-badge">{toneLabel}</span>
+            <span className="tsm-footer-sep">·</span>
+            <span className="tsm-footer-badge">{summaryFooter}</span>
+            <span className="tsm-footer-sep">·</span>
+            <span className="tsm-footer-badge">{settings.maxSkills} skills</span>
+          </div>
+          <button className="tsm-btn-continue" onClick={handleContinue}>
+            Continue to tailor <span className="tsm-btn-arrow">→</span>
           </button>
         </div>
       </div>
