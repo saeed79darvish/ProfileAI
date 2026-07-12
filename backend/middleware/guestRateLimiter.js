@@ -81,6 +81,22 @@ const guestAnalysisLimiter = (opts = {}) => {
   ));
 
   return async (req, res, next) => {
+    // Full bypass for local dev / staging where a developer is iterating on
+    // the guest flow and doesn't want to burn caps with every reload. Never
+    // set this in prod — it turns off all abuse protection.
+    if (process.env.GUEST_ANALYZER_DISABLE_LIMITS === 'true') {
+      const rawIp = req.ip || 'unknown';
+      req.guestContext = {
+        ipHash: hashIp(rawIp),
+        profileUrlKey: normalizeProfileUrl(getProfileUrl(req)),
+        userAgent: (req.get('user-agent') || '').slice(0, 500),
+        urlCapSoftFail: false,
+        ipCount: 0,
+        urlCount: 0,
+        limitsBypassed: true,
+      };
+      return next();
+    }
     try {
       const rawIp = req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
       const ipHash = hashIp(rawIp);
