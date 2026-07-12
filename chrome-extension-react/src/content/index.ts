@@ -5747,8 +5747,65 @@ function liPositionInlineBtn(btn: HTMLButtonElement, field: HTMLElement) {
   btn.style.left = `${left}px`;
 }
 
+/** True iff the current URL is a LinkedIn profile-viewer route where Edit/Add
+ *  modals are expected to open. Excludes /jobs, /feed, /messaging,
+ *  /mynetwork, /search, /company etc. — none of those should ever show the
+ *  ProfilleAI pill. Kept liberal enough to catch LinkedIn's own detail
+ *  sub-pages (/in/<vanity>/details/experience/, ...) and the legacy /edit/
+ *  routes some users still hit. */
+function liUrlLooksLikeProfilePage(): boolean {
+  const p = window.location.pathname || '';
+  return /^\/in\//i.test(p) || /^\/edit\//i.test(p);
+}
+
+/** Second-layer gate for the pill: even on a profile URL, the field must be
+ *  inside an actually-open LinkedIn Edit/Add MODAL. Prevents the pill from
+ *  landing on random text fields the profile page might render outside a
+ *  modal (post composer on a scrolled-in feed card, connection-note prompt,
+ *  etc.). Walks up the tree looking for a dialog/modal container, then
+ *  inspects its heading to confirm it's an Edit/Add flow (not e.g. the
+ *  "Report profile" or "Save search" dialogs LinkedIn also uses). */
+function liIsInsideProfileEditModal(field: HTMLElement): boolean {
+  // Cheap URL gate first — most false positives (jobs, feed, messaging)
+  // never make it past this line.
+  if (!liUrlLooksLikeProfilePage()) return false;
+
+  // Walk up looking for a modal/dialog container.
+  let node: HTMLElement | null = field;
+  let modal: HTMLElement | null = null;
+  while (node) {
+    if (node.tagName === 'DIALOG' && (node as HTMLDialogElement).open) { modal = node; break; }
+    if (node.getAttribute && node.getAttribute('role') === 'dialog') { modal = node; break; }
+    if (node.getAttribute && node.getAttribute('aria-modal') === 'true') { modal = node; break; }
+    if (node.classList && node.classList.contains('artdeco-modal')) { modal = node; break; }
+    node = node.parentElement;
+  }
+  if (!modal) return false;
+
+  // Confirm it's an Edit/Add modal (title starts with those words). LinkedIn
+  // localizes headings, so also accept a few common non-English prefixes.
+  const editRe = /^(edit|add|modifier|ajouter|editar|añadir|agregar|bearbeiten|hinzufügen|編集|追加|редактировать|добавить)\b/i;
+  const headings = modal.querySelectorAll('h1, h2, h3, [role="heading"], .artdeco-modal__header');
+  for (const h of Array.from(headings)) {
+    const t = (h.textContent || '').trim();
+    if (editRe.test(t)) return true;
+  }
+  const aria = modal.getAttribute('aria-label') || '';
+  if (editRe.test(aria)) return true;
+
+  return false;
+}
+
 /** Attach a ✨ AI button anchored to the field. Idempotent. */
 function liEnsureButtonFor(field: HTMLElement) {
+  // Strict scope guard — the inline "ProfilleAI" pill is ONLY supposed to
+  // appear inside LinkedIn's profile Edit/Add modals (Edit intro, Edit about,
+  // Edit experience, Add position, ...). Without this check the earlier
+  // eligibility filter alone would attach a pill to any wide text input on
+  // any LinkedIn page — including the "Describe the job you want" search box
+  // on /jobs/, feed post composers, messaging inputs, etc. Bail early so we
+  // never inject where we shouldn't.
+  if (!liIsInsideProfileEditModal(field)) return;
   if (!liIsEligibleField(field)) return;
   if (liInlineButtons.has(field)) {
     const existing = liInlineButtons.get(field)!;
@@ -6038,6 +6095,17 @@ function liSetupInlineEditor() {
   if (liInlineInitialized) return;
   if (!/linkedin\.com\//i.test(window.location.href)) return;
   liInlineInitialized = true;
+
+  // Sweep any pills left behind by an older build that didn't yet enforce
+  // the profile-edit-modal scope guard (they'd otherwise linger on the page
+  // until MutationObserver fired). liCleanupOrphanButtons only removes pills
+  // whose target field left the DOM — but a leaking pill on /jobs is still
+  // "attached" to a live search input, so we need an unconditional sweep the
+  // first time this version runs.
+  document.querySelectorAll<HTMLButtonElement>(`.${LI_INLINE_BTN_CLASS}`).forEach((btn) => {
+    const field = (btn as any)._paiField as HTMLElement | undefined;
+    if (!field || !liIsInsideProfileEditModal(field)) btn.remove();
+  });
 
   // Scan the whole document rather than trying to first locate "the modal"
   // container. LinkedIn constantly changes modal wrapper markup (class names,
