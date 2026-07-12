@@ -864,6 +864,9 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+/* Google sign-in button. Google's brand guidelines mandate a white
+   surface with dark text and the four-color G glyph — same treatment
+   works cleanly in both light and dark UI. */
 .auth-google-btn {
   width: 100%;
   display: flex;
@@ -871,20 +874,21 @@ html, body, #root {
   justify-content: center;
   gap: 10px;
   padding: 11px;
-  background: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text-primary) !important;
+  background: #FFFFFF !important;
+  border: 1px solid #DADCE0 !important;
+  color: #1F1F1F !important;
   font-size: 14px;
   font-weight: 500;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
-
-.auth-google-btn:hover {
-  background: rgba(255,255,255,0.05) !important;
-  border-color: var(--text-muted) !important;
+.auth-google-btn:hover:not(:disabled) {
+  background: #F8F9FA !important;
+  border-color: #C6C9CE !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
+.auth-google-btn:disabled { opacity: 0.7; cursor: progress; }
 
 .auth-google-hint {
   font-size: 11px;
@@ -894,9 +898,10 @@ html, body, #root {
   opacity: 0.8;
 }
 
-/* LinkedIn sign-in button. Mirrors .auth-google-btn shape/spacing so the
-   two sit together as a neutral OAuth stack, with a subtle LinkedIn-blue
-   left glyph. Same web-signin roundtrip under the hood. */
+/* LinkedIn sign-in button. LinkedIn brand blue (#0A66C2) with white text +
+   white "in" tile glyph, matching the treatment on their own OAuth prompt.
+   Sits 6px below the Google button so the two feel like one OAuth stack
+   rather than two isolated CTAs. */
 .auth-linkedin-btn {
   width: 100%;
   display: flex;
@@ -904,19 +909,20 @@ html, body, #root {
   justify-content: center;
   gap: 10px;
   padding: 11px;
-  background: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text-primary) !important;
+  background: #0A66C2 !important;
+  border: 1px solid #0A66C2 !important;
+  color: #FFFFFF !important;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-  margin-top: 8px;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  margin-top: 6px;
 }
 .auth-linkedin-btn:hover:not(:disabled) {
-  background: rgba(10, 102, 194, 0.08) !important;
-  border-color: rgba(10, 102, 194, 0.55) !important;
+  background: #004182 !important;
+  border-color: #004182 !important;
+  box-shadow: 0 1px 3px rgba(10, 102, 194, 0.35);
 }
 .auth-linkedin-btn:disabled { opacity: 0.7; cursor: progress; }
 .auth-linkedin-glyph {
@@ -925,7 +931,7 @@ html, body, #root {
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: #ffffff;
+  background: #FFFFFF;
   border-radius: 4px;
 }
 .auth-linkedin-hint {
@@ -5545,6 +5551,139 @@ html, body, #root {
 .tr-change-tag.auto { color: #fcd34d; background: rgba(245, 158, 11, 0.15); }
 .tr-change-tag.edit { color: #93c5fd; background: rgba(59, 130, 246, 0.15); }
 .tr-change-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+
+/* =============================================================
+   Analyzer goal picker — modal shown BEFORE the analyzer runs so
+   the user commits to a specific target (role / promotion / career
+   change / just infer). Sharpens the AI feedback vs blind grading.
+   ============================================================= */
+
+.analyzer-goal-picker { max-width: 560px; }
+.analyzer-goal-picker .agp-subhead {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.agp-tile-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width: 480px) {
+  .agp-tile-grid { grid-template-columns: 1fr; }
+}
+.agp-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: var(--text-primary, #f5f5f5);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.agp-tile:hover {
+  border-color: rgba(124, 58, 237, 0.55);
+  background: rgba(124, 58, 237, 0.08);
+}
+.agp-tile:active { transform: scale(0.99); }
+.agp-tile.selected {
+  border-color: #7C3AED;
+  background: rgba(124, 58, 237, 0.14);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+.agp-tile-emoji { font-size: 22px; line-height: 1; }
+.agp-tile-title {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.25;
+}
+.agp-tile-sub {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted, #a1a1aa);
+}
+
+.agp-input-block {
+  padding: 12px 14px 14px 14px;
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.28);
+  border-radius: 10px;
+  animation: agp-slide-in 180ms ease-out;
+}
+@keyframes agp-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.agp-input-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #d4d4d8);
+  margin-bottom: 6px;
+}
+.agp-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: var(--text-primary, #f5f5f5);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.agp-input:focus {
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
+}
+.agp-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+
+.agp-examples {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.agp-examples-label {
+  font-size: 11px;
+  color: var(--text-muted, #a1a1aa);
+  margin-right: 2px;
+}
+.agp-example-chip {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--text-primary, #f5f5f5);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.agp-example-chip:hover {
+  background: rgba(124, 58, 237, 0.14);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
+.agp-infer-note {
+  padding: 12px 14px;
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary, #d4d4d8);
+  animation: agp-slide-in 180ms ease-out;
+}
 
 /* =============================================================
    LinkedIn Profile Analyzer — GUEST (signed-out) teaser mode

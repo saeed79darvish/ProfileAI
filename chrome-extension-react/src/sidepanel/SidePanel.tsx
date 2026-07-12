@@ -19,6 +19,7 @@ import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
 import { GuestAnalyzerCTA } from './components/GuestAnalyzerCTA';
+import { AnalyzerGoalPicker } from './components/AnalyzerGoalPicker';
 import { useWebSignIn } from './components/useWebSignIn';
 import { emitAnalyticsEvent } from './analytics';
 import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
@@ -101,6 +102,14 @@ export const SidePanel: React.FC = () => {
   const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
   const [linkedInCachedAt, setLinkedInCachedAt] = useState<number | null>(null);
   const [linkedInAnalysisId, setLinkedInAnalysisId] = useState<string | null>(null);
+  // Goal-picker state — the modal that asks "why are you analyzing this?"
+  // BEFORE we call the AI, so the target is specific instead of blindly
+  // inferred. `pendingAnalyzeFlow` records whether the click that triggered
+  // the picker came from the guest CTA or the authed pill, so we can route
+  // to the right handler on submit.
+  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  const [pendingAnalyzeFlow, setPendingAnalyzeFlow] = useState<'authed' | 'guest' | null>(null);
+  const [goalPickerContext, setGoalPickerContext] = useState<'own-profile' | 'other-profile' | undefined>(undefined);
   // Guest-mode state — separate from `linkedInAnalysis` because the guest
   // endpoint returns a teaser shape, not the full LinkedInProfileAnalysis.
   const [linkedInMode, setLinkedInMode] = useState<'guest' | 'authed'>('authed');
@@ -489,12 +498,15 @@ export const SidePanel: React.FC = () => {
     }
   }, [currentJob]);
 
-  const handleAnalyzeLinkedIn = useCallback(async (forceArg?: unknown) => {
-    // STRICT check: this handler is wired directly to button onClick in
-    // several places, where React passes the MouseEvent as the first arg —
-    // which is truthy and was silently forcing a fresh (paid) analysis on
-    // every click. Only an explicit `true` bypasses the cache.
-    const force = forceArg === true;
+  const handleAnalyzeLinkedIn = useCallback(async (
+    opts?: { force?: boolean; targetTitleOverride?: string }
+  ) => {
+    const force = opts?.force === true;
+    // When the goal-picker submits, it passes an explicit `targetTitleOverride`
+    // (may be an empty string, which means "let AI infer"). We use that as
+    // the exact value, no auto-fill fallback. When called with no opts (e.g.
+    // Re-analyze inside the modal) we keep the previous behaviour: use the
+    // user's saved title ONLY when analysing their own profile.
     setShowLinkedInAnalyzer(true);
     setLinkedInError(null);
     setLinkedInErrorCode(null);
@@ -529,7 +541,26 @@ export const SidePanel: React.FC = () => {
     setLinkedInLoading(true);
     setLinkedInCachedAt(null);
     try {
-      const targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
+      // Resolve the target. Priority:
+      //   1) explicit override from the goal-picker (may be '' meaning infer)
+      //   2) user's saved title, ONLY when analysing their own /in/<slug>
+      //   3) undefined -> backend / AI infers from the profile itself
+      let targetTitle: string | undefined;
+      if (opts && typeof opts.targetTitleOverride === 'string') {
+        const v = opts.targetTitleOverride.trim();
+        targetTitle = v || undefined;
+      } else {
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          const tabSlug = (tab?.url || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+          const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+          if (tabSlug && ownSlug && tabSlug === ownSlug) {
+            targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
+          }
+        } catch {
+          /* falls through with undefined */
+        }
+      }
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_LINKEDIN_PROFILE',
         data: { targetTitle },
@@ -585,7 +616,9 @@ export const SidePanel: React.FC = () => {
    * leak the teaser vs full distinction and confuse eviction. The backend
    * caches everything server-side anyway, so the client cache is optional.
    */
-  const handleGuestAnalyze = useCallback(async () => {
+  const handleGuestAnalyze = useCallback(async (
+    opts?: { targetTitleOverride?: string }
+  ) => {
     setShowLinkedInAnalyzer(true);
     setLinkedInMode('guest');
     setLinkedInAnalysis(null);
@@ -595,11 +628,12 @@ export const SidePanel: React.FC = () => {
     setLinkedInCachedAt(null);
     setLinkedInAnalysisId(null);
     setLinkedInLoading(true);
-    void emitAnalyticsEvent('guest_analysis_started');
+    const overrideTitle = (opts?.targetTitleOverride || '').trim();
+    void emitAnalyticsEvent('guest_analysis_started', overrideTitle ? { targetTitle: overrideTitle } : {});
     try {
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_LINKEDIN_PROFILE_GUEST',
-        data: {},
+        data: overrideTitle ? { targetTitle: overrideTitle } : {},
       });
       if (resp?.success && resp.teaser) {
         setLinkedInTeaser(resp.teaser as import('../types').LinkedInProfileAnalysisTeaser);
@@ -623,6 +657,44 @@ export const SidePanel: React.FC = () => {
       setLinkedInLoading(false);
     }
   }, []);
+
+  /**
+   * Opens the goal picker instead of firing the analyzer immediately.
+   * `flow` tells us which handler to call once the user submits their goal.
+   * Also derives whether this is the user's OWN LinkedIn profile so the
+   * picker can prefill their saved title when it makes sense (and skip it
+   * when it doesn't).
+   */
+  const openAnalyzeGoalPicker = useCallback(async (flow: 'authed' | 'guest') => {
+    setPendingAnalyzeFlow(flow);
+    // Best-effort own-profile detection. Same slug match the analyzer itself
+    // uses. Fails safe to 'other-profile' so we don't misleadingly prefill.
+    let ctx: 'own-profile' | 'other-profile' | undefined = undefined;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const tabSlug = (tab?.url || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+      const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
+      if (tabSlug) ctx = ownSlug && tabSlug === ownSlug ? 'own-profile' : 'other-profile';
+    } catch { /* leave ctx undefined */ }
+    setGoalPickerContext(ctx);
+    setShowGoalPicker(true);
+  }, [profile]);
+
+  const closeGoalPicker = useCallback(() => {
+    setShowGoalPicker(false);
+    setPendingAnalyzeFlow(null);
+  }, []);
+
+  const handleGoalPickerSubmit = useCallback((targetTitle: string) => {
+    const flow = pendingAnalyzeFlow;
+    setShowGoalPicker(false);
+    setPendingAnalyzeFlow(null);
+    if (flow === 'guest') {
+      void handleGuestAnalyze({ targetTitleOverride: targetTitle });
+    } else if (flow === 'authed') {
+      void handleAnalyzeLinkedIn({ targetTitleOverride: targetTitle });
+    }
+  }, [pendingAnalyzeFlow, handleGuestAnalyze, handleAnalyzeLinkedIn]);
 
   /**
    * Submits a captured email to the guest-report backend and returns the
@@ -970,25 +1042,15 @@ export const SidePanel: React.FC = () => {
           {/* Signed-out surface: the LinkedIn Profile Analyzer is our
               acquisition hook, so it must run WITHOUT sign-in. On any
               linkedin.com/in/* tab, show the guest CTA card ABOVE the pill
-              — both trigger the same free guest analysis; the CTA is the
-              louder, first-time-visitor headline, the pill is the compact
-              reminder. */}
+              , both trigger the same free guest analysis. The CTA card
+              is the single entry point, no compact-pill duplicate below it. */}
           {isOnLinkedInProfile && (
-            <>
-              <div className="panel-section li-preprofile-section">
-                <GuestAnalyzerCTA
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                />
-              </div>
-              <div className="panel-section li-preprofile-section">
-                <AnalyzeLinkedInPill
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                  guest
-                />
-              </div>
-            </>
+            <div className="panel-section li-preprofile-section">
+              <GuestAnalyzerCTA
+                onClick={() => void openAnalyzeGoalPicker('guest')}
+                loading={linkedInLoading && linkedInMode === 'guest'}
+              />
+            </div>
           )}
           <SignedOut
             currentJob={currentJob}
@@ -999,24 +1061,15 @@ export const SidePanel: React.FC = () => {
       ) : !profileProgress.hasMinimumProfile ? (
         <>
           {/* DEV: force the guest analyzer surface for signed-in testing.
-              Renders above the normal pill so the two are stacked and the
-              tester can trigger both flows from the same panel. */}
+              Renders above the normal authed pill so the tester can trigger
+              both flows from the same panel. */}
           {debugForceGuestAnalyzer && isOnLinkedInProfile && (
-            <>
-              <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-                <GuestAnalyzerCTA
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                />
-              </div>
-              <div className="panel-section li-preprofile-section">
-                <AnalyzeLinkedInPill
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                  guest
-                />
-              </div>
-            </>
+            <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
+              <GuestAnalyzerCTA
+                onClick={() => void openAnalyzeGoalPicker('guest')}
+                loading={linkedInLoading && linkedInMode === 'guest'}
+              />
+            </div>
           )}
           {/* LinkedIn Analyzer works WITHOUT a completed ProfileAI profile —
               it grades the LinkedIn page itself. Surfacing it before profile
@@ -1025,7 +1078,7 @@ export const SidePanel: React.FC = () => {
           {isOnLinkedInProfile && (
             <div className="panel-section li-preprofile-section">
               <AnalyzeLinkedInPill
-                onClick={handleAnalyzeLinkedIn}
+                onClick={() => void openAnalyzeGoalPicker('authed')}
                 loading={linkedInLoading && linkedInMode === 'authed'}
                 analyzedAt={linkedInTabAnalyzedAt}
               />
@@ -1041,27 +1094,18 @@ export const SidePanel: React.FC = () => {
       ) : (
         <>
           {debugForceGuestAnalyzer && isOnLinkedInProfile && (
-            <>
-              <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-                <GuestAnalyzerCTA
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                />
-              </div>
-              <div className="panel-section li-preprofile-section">
-                <AnalyzeLinkedInPill
-                  onClick={handleGuestAnalyze}
-                  loading={linkedInLoading && linkedInMode === 'guest'}
-                  guest
-                />
-              </div>
-            </>
+            <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
+              <GuestAnalyzerCTA
+                onClick={() => void openAnalyzeGoalPicker('guest')}
+                loading={linkedInLoading && linkedInMode === 'guest'}
+              />
+            </div>
           )}
           <div className="main-content">
             <ProfileSection
               profile={profile}
               isOnLinkedInProfile={isOnLinkedInProfile}
-              onAnalyzeLinkedIn={handleAnalyzeLinkedIn}
+              onAnalyzeLinkedIn={() => void openAnalyzeGoalPicker('authed')}
               isAnalyzingLinkedIn={linkedInLoading}
               linkedInAnalyzedAt={linkedInTabAnalyzedAt}
             />
@@ -1248,13 +1292,28 @@ export const SidePanel: React.FC = () => {
         errorCode={linkedInErrorCode}
         targetTitle={linkedInTargetTitle}
         cachedAt={linkedInCachedAt}
-        onRefresh={() => (linkedInMode === 'guest' ? handleGuestAnalyze() : handleAnalyzeLinkedIn(true))}
+        onRefresh={() => (linkedInMode === 'guest'
+          ? handleGuestAnalyze({ targetTitleOverride: linkedInTargetTitle })
+          : handleAnalyzeLinkedIn({ force: true, targetTitleOverride: linkedInTargetTitle }))}
         onNotification={showNotification}
         mode={linkedInMode}
         analysisId={linkedInAnalysisId}
         teaser={linkedInTeaser}
         onSubmitEmail={handleGuestSubmitEmail}
         onSignIn={handleGuestSignIn}
+      />
+
+      {/* Goal picker — appears BEFORE the analyzer so the user commits to
+          a specific target instead of the AI guessing blindly. Prefills the
+          signed-in user's saved title only when the current tab is their own
+          /in/<slug>. On submit, dispatches to the correct handler (guest or
+          authed) with the resolved target. */}
+      <AnalyzerGoalPicker
+        open={showGoalPicker}
+        onClose={closeGoalPicker}
+        onAnalyze={handleGoalPickerSubmit}
+        defaultTitle={(profile?.title || profile?.headline || '').trim() || undefined}
+        contextHint={goalPickerContext}
       />
       
       {notification && (

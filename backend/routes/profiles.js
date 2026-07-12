@@ -573,17 +573,16 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
       });
     }
 
-    // Fall back to the user's saved profile title if the extension didn't send one.
-    let effectiveTitle = (targetTitle || '').trim();
-    if (!effectiveTitle) {
-      const userProfile = await Profile.findOne({
-        where: { userId: req.user.id },
-        attributes: ['title', 'headline'],
-      });
-      effectiveTitle = (userProfile?.title || userProfile?.headline || '').trim();
-    }
+    // Trust the extension's targetTitle exactly. It sends the signed-in
+    // user's own title ONLY when the current tab is that user's own /in/
+    // profile page — for foreign profiles it sends empty so Claude infers
+    // the target from the profile's own headline. Falling back to the
+    // user's DB title here would defeat that check and give meaningless
+    // results (e.g. grading Alireza's VP-of-ML profile against Saeed's
+    // Senior Frontend Engineer target).
+    const effectiveTitle = (targetTitle || '').trim();
 
-    console.log(`Analyzing LinkedIn profile for user ${req.user.id} (target: "${effectiveTitle || 'unspecified'}")`);
+    console.log(`Analyzing LinkedIn profile for user ${req.user.id} (target: "${effectiveTitle || 'unspecified — AI will infer'}")`);
 
     // Server-side cache check — shared with the guest endpoint so we never
     // pay Claude twice for the same profile snapshot inside the 7d TTL. The
@@ -610,10 +609,17 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
 
     await recordAIUsage(req.user.id, 'career_suggestions');
 
+    // When the caller sent no target, surface whatever Claude inferred so the
+    // modal can display "target: {inferred role}" instead of an empty string.
+    const resolvedTargetTitle =
+      effectiveTitle ||
+      (analysis?.recruiterSearch?.targetTitle ? String(analysis.recruiterSearch.targetTitle).trim() : '') ||
+      '';
+
     res.json({
       success: true,
       analysis,
-      targetTitle: effectiveTitle,
+      targetTitle: resolvedTargetTitle,
       analysisId: cacheRow?.id || null,
       cached: !!cacheRow && cacheRow.createdAt < new Date(Date.now() - 1000),
     });

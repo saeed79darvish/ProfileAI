@@ -87,7 +87,6 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
           <div className="auth-divider"><span>or</span></div>
           <GoogleSignInButton
             onAuthSync={onAuthSync}
-            hint="Recommended. Sign in on ProfilleAI and we'll bring you right back here."
           />
           <LinkedInSignInButton
             onAuthSync={onAuthSync}
@@ -146,7 +145,6 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
         <div className="auth-divider"><span>or</span></div>
         <GoogleSignInButton
           onAuthSync={onAuthSync}
-          hint="Recommended. Sign in on ProfilleAI and we'll bring you right back here."
         />
         <LinkedInSignInButton
           onAuthSync={onAuthSync}
