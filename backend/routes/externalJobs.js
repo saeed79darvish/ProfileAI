@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { ExternalJob, ATSBoard, Profile, Company, SavedJob } = require('../models');
+const { ExternalJob, ATSBoard, Profile, Company, SavedJob, ExternalApplication, ApplyPilotApplication } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
 const requireVerifiedEmail = require('../middleware/requireVerifiedEmail');
@@ -1382,6 +1382,112 @@ router.post('/check-saved', authMiddleware, requireVerifiedEmail, async (req, re
     res.json({ savedExternalJobIds: saves.map(s => s.externalJobId) });
   } catch (error) {
     console.error('Error checking saved external jobs:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * Normalize a job URL for applied-status matching. The same posting can be
+ * recorded with different tracking params (utm_*, ref, src, ...) depending
+ * on where the user clicked from, so we strip known tracking params and
+ * sort the rest. Query params are otherwise KEPT — embedded Greenhouse
+ * boards identify the job via ?gh_jid=..., so dropping the query entirely
+ * would collide every job on the same careers page.
+ */
+const TRACKING_PARAM_RE = /^(utm_\w+|ref|referrer|source|src|gh_src|lever-source(\[\])?|fbclid|gclid)$/i;
+function normalizeJobUrl(raw) {
+  if (!raw) return null;
+  try {
+    const url = new URL(String(raw).trim());
+    const params = [...url.searchParams.entries()]
+      .filter(([k]) => !TRACKING_PARAM_RE.test(k))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('&');
+    const path = url.pathname.replace(/\/+$/, '');
+    return `${url.origin.toLowerCase()}${path.toLowerCase()}${params ? `?${params}` : ''}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @route   POST /api/external-jobs/check-applied
+ * @desc    Given a list of external job IDs, return which ones the current
+ *          user has already applied to. Two sources are consulted:
+ *            1. ApplyPilotApplication — agent applications keyed directly
+ *               by externalJobId (only rows that actually reached the ATS:
+ *               status submitting/submitted).
+ *            2. ExternalApplication — Chrome-extension-tracked applications,
+ *               matched by normalized jobUrl against the job's
+ *               applyUrl/sourceUrl.
+ *          Mirrors the shape of /check-saved above.
+ * @access  Private (Candidate)
+ */
+router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    const { externalJobIds } = req.body;
+    if (!externalJobIds || !Array.isArray(externalJobIds)) {
+      return res.status(400).json({ message: 'externalJobIds array is required' });
+    }
+    // Cap to one page worth of ids — the client sends the visible list.
+    const ids = externalJobIds.slice(0, 200);
+    if (ids.length === 0) {
+      return res.json({ appliedExternalJobIds: [] });
+    }
+
+    const applied = new Set();
+
+    // 1. ApplyPilot agent applications (direct externalJobId link).
+    const pilotApps = await ApplyPilotApplication.findAll({
+      where: {
+        userId: req.user.id,
+        externalJobId: { [Op.in]: ids },
+        status: { [Op.in]: ['submitting', 'submitted'] },
+      },
+      attributes: ['externalJobId'],
+    });
+    for (const a of pilotApps) applied.add(a.externalJobId);
+
+    // 2. Extension-tracked applications, matched by URL.
+    const remaining = ids.filter(id => !applied.has(id));
+    if (remaining.length > 0) {
+      const jobs = await ExternalJob.findAll({
+        where: { id: { [Op.in]: remaining } },
+        attributes: ['id', 'applyUrl', 'sourceUrl'],
+      });
+
+      // normalized URL → external job ids that share it
+      const urlToJobIds = new Map();
+      for (const j of jobs) {
+        for (const u of [j.applyUrl, j.sourceUrl]) {
+          const key = normalizeJobUrl(u);
+          if (!key) continue;
+          if (!urlToJobIds.has(key)) urlToJobIds.set(key, []);
+          urlToJobIds.get(key).push(j.id);
+        }
+      }
+
+      if (urlToJobIds.size > 0) {
+        // ExternalApplication.jobUrl is free-form (scraped by the extension),
+        // so exact SQL matching would miss tracking-param variants. Pull just
+        // the user's application URLs and normalize in JS — one indexed query
+        // on userId, and users have at most a few thousand rows.
+        const extApps = await ExternalApplication.findAll({
+          where: { userId: req.user.id },
+          attributes: ['jobUrl'],
+        });
+        for (const a of extApps) {
+          const key = normalizeJobUrl(a.jobUrl);
+          const hit = key && urlToJobIds.get(key);
+          if (hit) for (const id of hit) applied.add(id);
+        }
+      }
+    }
+
+    res.json({ appliedExternalJobIds: [...applied] });
+  } catch (error) {
+    console.error('Error checking applied external jobs:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

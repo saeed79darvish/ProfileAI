@@ -325,6 +325,10 @@ const CandidateJobs = () => {
   const LEGACY_EXTERNAL_SAVED_KEY = 'profileai.savedExternalJobIds';
 
   const [savedJobs, setSavedJobs] = useState(new Set());
+  // Job ids (internal + external) the user already applied to. External ids
+  // come from /external-jobs/check-applied (ApplyPilot submissions +
+  // extension-tracked applications); internal ids from my-applications.
+  const [appliedJobs, setAppliedJobs] = useState(new Set());
   const [savingJob, setSavingJob] = useState(null);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [selectedJobForAgent, setSelectedJobForAgent] = useState(null);
@@ -708,7 +712,18 @@ const CandidateJobs = () => {
     try {
       setApplicationsLoading(true);
       const response = await jobAPI.getMyApplications();
-      setMyApplications(response.data.applications || response.data || []);
+      const apps = response.data.applications || response.data || [];
+      setMyApplications(apps);
+      // Feed internal job ids into the shared applied set so the Discover
+      // list / detail pane can badge them too.
+      setAppliedJobs(prev => {
+        const s = new Set(prev);
+        for (const app of apps) {
+          const jid = app.jobId || app.job?.id;
+          if (jid && app.status !== 'withdrawn') s.add(jid);
+        }
+        return s;
+      });
     } catch (error) {
       console.error('Error fetching my applications:', error);
     } finally {
@@ -953,6 +968,13 @@ const CandidateJobs = () => {
         externalJobAPI.checkSaved(ids).then(res => {
           const savedIds = res.data.savedExternalJobIds || [];
           setSavedJobs(prev => new Set([...prev, ...savedIds]));
+        }).catch(() => {});
+        // And which ones they already applied to (ApplyPilot + extension).
+        externalJobAPI.checkApplied(ids).then(res => {
+          const appliedIds = res.data.appliedExternalJobIds || [];
+          if (appliedIds.length > 0) {
+            setAppliedJobs(prev => new Set([...prev, ...appliedIds]));
+          }
         }).catch(() => {});
       }
     } catch (error) {
@@ -1873,8 +1895,24 @@ const CandidateJobs = () => {
           <div className="job-detail-actions">
             {selectedJob.applyUrl && (
               <a href={selectedJob.applyUrl} target="_blank" rel="noopener noreferrer" className="job-detail-apply-btn">
-                Apply Now <LaunchIcon />
+                {appliedJobs.has(selectedJob.id) ? 'Apply Again' : 'Apply Now'} <LaunchIcon />
               </a>
+            )}
+            {appliedJobs.has(selectedJob.id) && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '0 14px',
+                borderRadius: 8,
+                background: '#ECFDF3',
+                color: '#067647',
+                fontSize: 14,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}>
+                <CheckIcon style={{ fontSize: 18 }} /> Applied
+              </span>
             )}
             <button type="button"
               className="job-detail-save-btn"
@@ -2672,6 +2710,25 @@ const CandidateJobs = () => {
                                 <CompanyName>{job.company}</CompanyName>
                                 {/* Desktop tags */}
                                 <JobTags>
+                                  {/* ✓ Applied pill — user already applied via
+                                      ApplyPilot or the Chrome extension. */}
+                                  {appliedJobs.has(job.id) && (
+                                    <span style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 3,
+                                      padding: '2px 8px',
+                                      borderRadius: 999,
+                                      background: '#EFF8FF',
+                                      color: '#175CD3',
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      letterSpacing: '0.04em',
+                                      textTransform: 'uppercase',
+                                    }}>
+                                      ✓ Applied
+                                    </span>
+                                  )}
                                   {/* ✨ NEW pill for jobs <24h old. Same fresh
                                       flag drives the row-side accent. */}
                                   {isFreshJob(job) && (
@@ -3383,13 +3440,13 @@ const CandidateJobs = () => {
                       rel="noopener noreferrer"
                       style={{ textDecoration: 'none' }}
                     >
-                      Apply now <NorthEastIcon style={{ fontSize: 16 }} />
+                      {appliedJobs.has(selectedJob.id) ? 'Applied · Apply again' : 'Apply now'} <NorthEastIcon style={{ fontSize: 16 }} />
                     </MobileFooterApply>
                   );
                 }
                 return (
                   <MobileFooterApply onClick={() => navigate(`/jobs/${selectedJob.id}/apply`)}>
-                    Apply now <NorthEastIcon style={{ fontSize: 16 }} />
+                    {appliedJobs.has(selectedJob.id) ? 'Applied · Apply again' : 'Apply now'} <NorthEastIcon style={{ fontSize: 16 }} />
                   </MobileFooterApply>
                 );
               })()}

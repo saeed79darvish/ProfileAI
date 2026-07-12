@@ -1302,6 +1302,9 @@ export const externalJobAPI = {
   unsave: (id) => api.delete(`/external-jobs/${id}/save`),
   getSaved: () => api.get('/external-jobs/saved'),
   checkSaved: (externalJobIds) => api.post('/external-jobs/check-saved', { externalJobIds }),
+  // Which of these external jobs the user already applied to (ApplyPilot
+  // submissions + extension-tracked ExternalApplications, matched by URL).
+  checkApplied: (externalJobIds) => api.post('/external-jobs/check-applied', { externalJobIds }),
   // "Recommended for you" rail — top N relevant + recent jobs with a per-job
   // reason string. Powers the strip at the top of the Discover tab.
   getRecommended: (limit = 8) => api.get('/external-jobs/recommended', { params: { limit } }),
