@@ -217,17 +217,16 @@ export const SidePanel: React.FC = () => {
     loadAnswersCount();
     detectLinkedInProfileTab();
 
-    // One-time client-cache wipe. Old cache keys were URL-only, which caused
-    // target-title collisions (analyzing profile X for role A returned
-    // profile X's cached role-B analysis). New keys embed a `::<target>`
-    // suffix. Old entries are dead weight now and can also confuse the
-    // pill-detector if it ever falls back to a bare-URL match, so nuke them
-    // once per install. `cacheKeyFormat` is the version marker.
+    // One-time client-cache wipe. Bumped to v3 because the earlier v2 wipe
+    // still left users with wrong-target cache entries when the server's
+    // URL-cap soft-fallback returned a mismatched-target row — that path
+    // then wrote through to the CLIENT cache under whatever target the
+    // user asked for. Nuking the cache once more clears any residue.
     chrome.storage.local.get(['linkedInAnalysisCacheVersion']).then(({ linkedInAnalysisCacheVersion }) => {
-      if (linkedInAnalysisCacheVersion !== 2) {
+      if (linkedInAnalysisCacheVersion !== 3) {
         chrome.storage.local.set({
           linkedInAnalysisCache: {},
-          linkedInAnalysisCacheVersion: 2,
+          linkedInAnalysisCacheVersion: 3,
         }).catch(() => {});
       }
     }).catch(() => {});

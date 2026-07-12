@@ -677,12 +677,16 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
     let cacheHit = !!cacheRow;
 
     // URL-cap soft-fail: guest hit the 2/day global cap but we have SOMETHING
-    // cached for this profile — return that instead of a hard 429. Anti-abuse
-    // still works (they can't force fresh Claude calls) and the surface stays
-    // useful for people analyzing well-known profiles someone else already
-    // ran today.
+    // URL-cap soft-fail: guest hit the 8/day global cap but we have a
+    // cached analysis for this profile with the SAME target the user
+    // asked for — return that instead of a hard 429. Anti-abuse still
+    // works (they can't force fresh Claude calls) and the surface stays
+    // useful for people analyzing well-known profiles someone else
+    // already ran today. Critically the fallback is filtered by target
+    // so we never return an SFE-targeted row when the user asked to
+    // grade against a VP ML role, etc.
     if (!cacheRow && guestContext.urlCapSoftFail) {
-      cacheRow = await linkedinAnalyzerCache.readAnyCachedForUrl(profileUrlKey);
+      cacheRow = await linkedinAnalyzerCache.readAnyCachedForUrl(profileUrlKey, effectiveTitle);
       if (cacheRow) cacheHit = true;
     }
 

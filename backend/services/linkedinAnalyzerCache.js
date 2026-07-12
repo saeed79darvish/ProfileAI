@@ -100,18 +100,45 @@ const readCached = async (profileUrlKey, scraped, targetTitle) => {
 };
 
 /**
- * Look up ANY still-valid cached analysis for this profile URL, regardless
- * of scraped hash. Used by the URL-cap soft-fail path: if a guest hit the
- * global URL cap we'd rather show them SOMETHING than 429, so fall back to
- * the most recent cached row for this URL.
+ * Look up ANY still-valid cached analysis for this profile URL.
+ *
+ * Used by the URL-cap soft-fail path in the guest analyzer: when a
+ * profile has been analysed too many times today across all guests, we
+ * prefer to serve SOMETHING useful rather than hard-429 the user. But
+ * "useful" means "for the target the user just asked for" — returning
+ * a cache row that was created for a totally different target role is
+ * exactly the bug where Alireza's VP-of-ML profile came back graded
+ * as "Senior Frontend Engineer" because Saeed had once run that
+ * analysis earlier.
+ *
+ * So we look up in two passes:
+ *   1) A row whose normalised target matches the target the user just
+ *      asked for. This is the ideal soft-fail — user asked for
+ *      "inferred", we return the last "inferred" analysis of this
+ *      profile.
+ *   2) If NOTHING with a matching target exists, return null. The
+ *      caller then hard-429s the user, which is the correct outcome:
+ *      showing a wrong-target analysis is worse than showing a
+ *      "you've hit the cap" message.
+ *
+ * (We deliberately do NOT fall through to "any target as last resort".
+ * That was the original design and it produced the wrong-target bug.)
  */
-const readAnyCachedForUrl = async (profileUrlKey) => {
+const readAnyCachedForUrl = async (profileUrlKey, targetTitle) => {
   if (!profileUrlKey) return null;
   try {
+    // Pass 1: exact normalised-target match. GuestAnalysisCache doesn't
+    // store the normalised form directly (we normalise into the cacheKey
+    // suffix), so we can filter using a LIKE on cacheKey with the target
+    // suffix appended. Every cacheKey we write ends with the sha256 hash,
+    // so a substring match on ':<normalised target>:' is unambiguous.
+    const normalisedTarget = normalizeTargetTitle(targetTitle);
+    const targetFragment = `:${normalisedTarget}:`;
     const row = await GuestAnalysisCache.findOne({
       where: {
         profileUrlKey,
         expiresAt: { [Op.gt]: new Date() },
+        cacheKey: { [Op.like]: `%${targetFragment}%` },
       },
       order: [['createdAt', 'DESC']],
     });
