@@ -58,18 +58,34 @@ const scrapedPayloadHash = (scraped) => {
   return crypto.createHash('sha256').update(canonicalScraped(scraped)).digest('hex');
 };
 
-const cacheKeyFor = (profileUrlKey, scraped) => {
-  return `${profileUrlKey}:${scrapedPayloadHash(scraped)}`;
+/**
+ * Normalise a target title into a stable slug for the cache key.
+ * Empty / null → 'inferred' (Claude infers the target from the profile).
+ * Everything else → lowercase-trim, whitespace collapse, punctuation stripped.
+ * We include this in the cache key so that analysing the SAME profile against
+ * two different target roles (e.g. Saeed grading Alireza's profile as
+ * "Senior Frontend Engineer" vs a guest inferring "VP Machine Learning")
+ * produces two DIFFERENT cache rows. Without this, whoever hit the cache
+ * first wins and every later reader gets the wrong-target analysis.
+ */
+const normalizeTargetTitle = (t) => {
+  if (t == null) return 'inferred';
+  const s = String(t).trim().toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]+/g, '');
+  return s || 'inferred';
+};
+
+const cacheKeyFor = (profileUrlKey, scraped, targetTitle) => {
+  return `${profileUrlKey}:${normalizeTargetTitle(targetTitle)}:${scrapedPayloadHash(scraped)}`;
 };
 
 /**
- * Look up a cached analysis by (profile URL + scraped hash). Returns null
- * on miss or expiry.
+ * Look up a cached analysis by (profile URL + target title + scraped hash).
+ * Returns null on miss or expiry.
  */
-const readCached = async (profileUrlKey, scraped) => {
+const readCached = async (profileUrlKey, scraped, targetTitle) => {
   if (!profileUrlKey) return null;
   try {
-    const key = cacheKeyFor(profileUrlKey, scraped);
+    const key = cacheKeyFor(profileUrlKey, scraped, targetTitle);
     const row = await GuestAnalysisCache.findOne({
       where: {
         cacheKey: key,
@@ -120,7 +136,7 @@ const writeCached = async ({
 }) => {
   if (!profileUrlKey) return null;
   try {
-    const key = cacheKeyFor(profileUrlKey, scraped);
+    const key = cacheKeyFor(profileUrlKey, scraped, targetTitle);
     const hash = scrapedPayloadHash(scraped);
     const expiresAt = new Date(Date.now() + ttlMs);
 
@@ -157,6 +173,7 @@ const writeCached = async ({
 
 module.exports = {
   normalizeProfileUrl,
+  normalizeTargetTitle,
   scrapedPayloadHash,
   cacheKeyFor,
   readCached,

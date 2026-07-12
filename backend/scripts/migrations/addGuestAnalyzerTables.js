@@ -118,13 +118,17 @@ async function up() {
     CREATE INDEX IF NOT EXISTS "guest_leads_converted"
       ON "GuestLeads" ("convertedToUser");
   `);
-  // Per-day dedupe index — must use an IMMUTABLE expression, which
-  // date_trunc('day', ts TIMESTAMPTZ) is NOT. Cast via
-  // ("createdAt" AT TIME ZONE 'UTC')::date → an IMMUTABLE expression that
-  // gives us calendar-day granularity in UTC.
-  await safeRun('GuestLeads per-day unique', `
-    CREATE UNIQUE INDEX IF NOT EXISTS "guest_leads_email_day_unique"
-      ON "GuestLeads" ("emailNormalized", ((("createdAt" AT TIME ZONE 'UTC')::date)));
+  // Per-analysis dedupe index. We only reject a resend of the SAME
+  // analysis to the same email. Analysing a different profile (or the
+  // same profile with a different target role) produces a distinct
+  // analysisCacheId and is allowed through. Replaces the earlier
+  // per-day index which locked users out of legitimate re-analyses.
+  await safeRun('GuestLeads drop old per-day unique', `
+    DROP INDEX IF EXISTS "guest_leads_email_day_unique";
+  `);
+  await safeRun('GuestLeads per-analysis unique', `
+    CREATE UNIQUE INDEX IF NOT EXISTS "guest_leads_email_analysis_unique"
+      ON "GuestLeads" ("emailNormalized", "analysisCacheId");
   `);
 
   // ── AnalyticsEvents ──────────────────────────────────────────────────

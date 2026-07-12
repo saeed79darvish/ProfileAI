@@ -586,9 +586,12 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
     console.log(`Analyzing LinkedIn profile for user ${req.user.id} (target: "${effectiveTitle || 'unspecified'}")`);
 
     // Server-side cache check — shared with the guest endpoint so we never
-    // pay Claude twice for the same profile snapshot inside the 7d TTL.
+    // pay Claude twice for the same profile snapshot inside the 7d TTL. The
+    // key includes the target title so grading the SAME profile against two
+    // roles (e.g. Senior Frontend Engineer vs VP ML) produces two rows and
+    // no reader ever gets the wrong-target result.
     const profileUrlKey = linkedinAnalyzerCache.normalizeProfileUrl(scraped.url);
-    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped);
+    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped, effectiveTitle);
     let analysis;
     if (cacheRow) {
       analysis = cacheRow.analysisJson;
@@ -660,8 +663,11 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
 
     const effectiveTitle = (typeof targetTitle === 'string' ? targetTitle.trim() : '');
 
-    // Fast path: identical-scrape cache hit — skip Claude entirely.
-    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped);
+    // Fast path: identical-scrape cache hit for THIS target — skip Claude.
+    // Key includes normalized target title so a guest inferring the target
+    // never collides with a signed-in analysis of the same profile that
+    // was pinned to a specific role.
+    let cacheRow = await linkedinAnalyzerCache.readCached(profileUrlKey, scraped, effectiveTitle);
     let cacheHit = !!cacheRow;
 
     // URL-cap soft-fail: guest hit the 2/day global cap but we have SOMETHING
@@ -814,26 +820,28 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
       });
     }
 
-    // Per-day dedupe check (extra defensive — DB unique index also enforces
-    // it, but a clean 200 message is friendlier than a 500 from a race).
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
+    // Per-analysis dedupe check — only reject if we've ALREADY emailed THIS
+    // specific analysis to this address. Different analyses (e.g. the user
+    // re-analyzed a different profile, or the same profile with a different
+    // target role) still email. Loose enough for testing + real re-analyzes,
+    // tight enough to stop spamming the same report on button-mash.
     const existing = await GuestLead.findOne({
       where: {
         emailNormalized,
-        createdAt: { [require('sequelize').Op.gte]: startOfDay },
+        analysisCacheId: cacheRow.id,
       },
     });
     if (existing) {
       return res.status(200).json({
         ok: true,
         duplicate: true,
-        message: 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.',
+        message: "We already sent this report to your email. Check your spam folder, or sign in for instant access.",
       });
     }
 
     // Sign an unsubscribe token — stateless JWT with the lead email, valid
-    // until the lead row's per-day dedupe window is irrelevant (long TTL).
+    // for a year. Rotating the JWT secret invalidates every outstanding
+    // unsubscribe link (acceptable — we'd only rotate on a security event).
     const jwtSecret = process.env.JWT_SECRET || 'profileai-fallback-secret';
     const unsubscribeToken = jwt.sign(
       { sub: emailNormalized, kind: 'guest_unsub' },
@@ -854,12 +862,12 @@ router.post('/guest-report-email', guestAnalysisLimiter({ perIpPerDay: 10, perUr
         unsubscribeToken,
       });
     } catch (createErr) {
-      // Race on the (emailNormalized, day) unique index — treat as duplicate.
+      // Race on the (emailNormalized, analysisCacheId) unique index.
       if (createErr.name === 'SequelizeUniqueConstraintError') {
         return res.status(200).json({
           ok: true,
           duplicate: true,
-          message: 'We already sent a report to this email today. Check your spam folder, or sign in for instant access.',
+          message: "We already sent this report to your email. Check your spam folder, or sign in for instant access.",
         });
       }
       throw createErr;
