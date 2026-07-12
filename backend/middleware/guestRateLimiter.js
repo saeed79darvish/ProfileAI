@@ -21,8 +21,21 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { GuestAIUsage } = require('../models');
 
-const DEFAULT_IP_CAP = 3;
-const DEFAULT_URL_CAP = 2;
+// Defaults are intentionally generous. The goal isn't to squeeze every last
+// free analysis, it's to stop abuse (a script hammering 500 profiles). Real
+// users almost never legitimately analyse more than a handful in a day, and
+// the ones who do are exactly who we want to convert to a paid account.
+// Override at runtime via GUEST_ANALYZER_IP_LIMIT / GUEST_ANALYZER_URL_LIMIT
+// so we can tighten prod (or loosen it during a launch push) without a
+// deploy.
+const parseEnvInt = (name, fallback) => {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+const DEFAULT_IP_CAP = parseEnvInt('GUEST_ANALYZER_IP_LIMIT', 15);
+const DEFAULT_URL_CAP = parseEnvInt('GUEST_ANALYZER_URL_LIMIT', 8);
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const getIpSalt = () => {
