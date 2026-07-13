@@ -1305,6 +1305,9 @@ export const externalJobAPI = {
   // Which of these external jobs the user already applied to (ApplyPilot
   // submissions + extension-tracked ExternalApplications, matched by URL).
   checkApplied: (externalJobIds) => api.post('/external-jobs/check-applied', { externalJobIds }),
+  // Record that the user applied to an external job (fired on "Apply Now" tap —
+  // the real application happens off-site, so this records intent). Idempotent.
+  markApplied: (id) => api.post(`/external-jobs/${id}/applied`),
   // "Recommended for you" rail — top N relevant + recent jobs with a per-job
   // reason string. Powers the strip at the top of the Discover tab.
   getRecommended: (limit = 8) => api.get('/external-jobs/recommended', { params: { limit } }),

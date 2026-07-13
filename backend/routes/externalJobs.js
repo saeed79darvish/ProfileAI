@@ -1471,7 +1471,19 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
     });
     for (const a of pilotApps) applied.add(a.externalJobId);
 
-    // 2. Extension-tracked applications, matched by URL.
+    // 2. Click-tracked applications with a direct externalJobId link (exact
+    //    match — set when the user taps "Apply Now" on an in-app job card).
+    const linkedApps = await ExternalApplication.findAll({
+      where: {
+        userId: req.user.id,
+        externalJobId: { [Op.in]: ids },
+        status: { [Op.ne]: 'withdrawn' },
+      },
+      attributes: ['externalJobId'],
+    });
+    for (const a of linkedApps) applied.add(a.externalJobId);
+
+    // 3. Extension/manual applications with no FK — matched by URL.
     const remaining = ids.filter(id => !applied.has(id));
     if (remaining.length > 0) {
       const jobs = await ExternalJob.findAll({
@@ -1510,6 +1522,53 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
     res.json({ appliedExternalJobIds: [...applied] });
   } catch (error) {
     console.error('Error checking applied external jobs:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route   POST /api/external-jobs/:id/applied
+ * @desc    Record that the current user applied to an external job — fired when
+ *          they tap "Apply Now" on an in-app job card (the actual application
+ *          happens off-site on the company ATS, which we can't observe, so this
+ *          records intent). Idempotent: creates one ExternalApplication linked
+ *          by externalJobId, or returns the existing row. Denormalizes the job's
+ *          title/company/location/url so the Applications view renders without a
+ *          join. Never resurrects a withdrawn row unless the client asks to.
+ * @access  Private (Candidate)
+ */
+router.post('/:id/applied', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    const job = await ExternalJob.findByPk(req.params.id, {
+      attributes: ['id', 'title', 'company', 'location', 'locationType',
+        'employmentType', 'source', 'applyUrl', 'sourceUrl'],
+    });
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
+    // Idempotent on (userId, externalJobId) — the partial unique index backs
+    // this. findOrCreate avoids a duplicate when the user taps Apply twice.
+    const [application, created] = await ExternalApplication.findOrCreate({
+      where: { userId: req.user.id, externalJobId: job.id },
+      defaults: {
+        userId: req.user.id,
+        externalJobId: job.id,
+        jobTitle: job.title,
+        company: job.company,
+        location: job.location,
+        locationType: job.locationType,
+        jobType: job.employmentType,
+        jobUrl: job.applyUrl || job.sourceUrl || null,
+        platform: job.source,
+        status: 'applied',
+        appliedAt: new Date(),
+      },
+    });
+
+    res.status(created ? 201 : 200).json({ application, created });
+  } catch (error) {
+    console.error('Error recording external application:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

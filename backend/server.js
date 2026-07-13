@@ -514,6 +514,17 @@ const startServer = async () => {
       console.warn('⚠️  ATSBoards failure-tracking ensure skipped:', err.message);
     }
 
+    // Link ExternalApplications → ExternalJobs (externalJobId FK) so the
+    // "Applied" badge can match click-tracked applications exactly. The
+    // record-on-click endpoint reads this column, so await it before the app
+    // serves traffic. Nullable column add → cheap.
+    try {
+      const { up: addExternalApplicationJobLink } = require('./scripts/migrations/addExternalApplicationJobLink');
+      await addExternalApplicationJobLink();
+    } catch (err) {
+      console.warn('⚠️  ExternalApplications job-link ensure skipped:', err.message);
+    }
+
     // Ensure the ExternalJobs performance schema (HNSW vector index, recency
     // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
     // These were previously only created by manual migration scripts run on

@@ -1302,6 +1302,25 @@ const CandidateJobs = () => {
     }
   };
 
+  // Record that the user applied to an external job when they tap "Apply Now".
+  // The real application happens off-site on the company ATS (we open it in a
+  // new tab), so this records intent. Optimistic: flag the job as applied
+  // immediately, fire-and-forget the API call, and revert only on a hard error
+  // (a 409 "already tracked" is a success — it means it's already recorded).
+  const markExternalApplied = (jobId) => {
+    if (!jobId || !isAuthenticated || appliedJobs.has(jobId)) return;
+    setAppliedJobs(prev => new Set([...prev, jobId]));
+    externalJobAPI.markApplied(jobId).catch(err => {
+      if (err?.response?.status === 409) return; // already recorded — fine
+      console.warn('Failed to record external application:', err?.response?.status, err?.message);
+      setAppliedJobs(prev => {
+        const s = new Set(prev);
+        s.delete(jobId);
+        return s;
+      });
+    });
+  };
+
   const handleSendAgent = (e, job) => {
     e.stopPropagation();
     setSelectedJobForAgent(job);
@@ -1894,7 +1913,8 @@ const CandidateJobs = () => {
           {/* Action buttons */}
           <div className="job-detail-actions">
             {selectedJob.applyUrl && (
-              <a href={selectedJob.applyUrl} target="_blank" rel="noopener noreferrer" className="job-detail-apply-btn">
+              <a href={selectedJob.applyUrl} target="_blank" rel="noopener noreferrer" className="job-detail-apply-btn"
+                onClick={() => selectedJob._isExternal && markExternalApplied(selectedJob.id)}>
                 {appliedJobs.has(selectedJob.id) ? 'Apply Again' : 'Apply Now'} <LaunchIcon />
               </a>
             )}
@@ -3439,6 +3459,7 @@ const CandidateJobs = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ textDecoration: 'none' }}
+                      onClick={() => selectedJob._isExternal && markExternalApplied(selectedJob.id)}
                     >
                       {appliedJobs.has(selectedJob.id) ? 'Applied · Apply again' : 'Apply now'} <NorthEastIcon style={{ fontSize: 16 }} />
                     </MobileFooterApply>

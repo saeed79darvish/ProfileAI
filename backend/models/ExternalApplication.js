@@ -96,6 +96,21 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     allowNull: true,
     validate: { min: 0, max: 100 },
   },
+  // Direct link to the ExternalJob the user applied to, set when the row is
+  // created from a click on an in-app external-job card ("Apply Now"). Gives an
+  // EXACT match for the "Applied" badge instead of the fuzzy jobUrl comparison,
+  // and survives tracking-param drift. Null for extension/manual rows that have
+  // no corresponding ExternalJob in our corpus. Column added by
+  // scripts/migrations/addExternalApplicationJobLink.js.
+  externalJobId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'ExternalJobs',
+      key: 'id',
+    },
+    onDelete: 'SET NULL',
+  },
 }, {
   tableName: 'ExternalApplications',
   timestamps: true,
@@ -104,6 +119,15 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     { fields: ['status'] },
     { fields: ['appliedAt'] },
     { fields: ['userId', 'jobUrl'], unique: true },
+    // One application row per (user, externalJob). Partial so it only applies
+    // to the click-tracked rows (externalJobId set); extension/manual rows with
+    // NULL externalJobId are unaffected. Makes record-on-click idempotent.
+    {
+      unique: true,
+      fields: ['userId', 'externalJobId'],
+      name: 'external_applications_user_external_job_unique',
+      where: { externalJobId: { [require('sequelize').Op.ne]: null } },
+    },
   ],
 });
 
