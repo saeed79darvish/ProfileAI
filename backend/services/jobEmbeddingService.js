@@ -666,7 +666,7 @@ async function generateSearchQueryEmbedding(searchText) {
  * @returns {Object[]} - Jobs with relevanceScore (0-100)
  */
 async function searchSimilarJobs(profileEmbedding, options = {}) {
-  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, datePosted = null, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
+  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, datePosted = null, defaultMaxAgeDays = 0, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
   const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
 
   const conditions = [
@@ -765,6 +765,14 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       binds.push(dateMap[datePosted].toISOString());
       bindIndex++;
     }
+  } else if (defaultMaxAgeDays > 0) {
+    // No explicit datePosted → apply the default freshness window so semantic
+    // results match the recency/keyword paths and don't surface year-old
+    // "active" postings. Mirrors JOBS_DEFAULT_MAX_AGE_DAYS in routes/externalJobs.
+    const cutoff = new Date(Date.now() - defaultMaxAgeDays * 24 * 60 * 60 * 1000);
+    conditions.push(`COALESCE(ej."postedAt", ej."createdAt") >= $${bindIndex}`);
+    binds.push(cutoff.toISOString());
+    bindIndex++;
   }
 
   if (search) {

@@ -503,6 +503,17 @@ const startServer = async () => {
       console.warn('⚠️  ATSBoards.isStartup flag ensure skipped:', err.message);
     }
 
+    // Add ATSBoards.consecutiveFailures + lastSuccessfulSyncAt so syncBoard can
+    // expire "ghost" jobs from boards that have gone dead (renamed / 404). The
+    // sync path reads these columns, so this must be AWAITED before any board
+    // sync runs. Catalog-only column adds → cheap.
+    try {
+      const { up: addBoardFailureTracking } = require('./scripts/migrations/addBoardFailureTracking');
+      await addBoardFailureTracking();
+    } catch (err) {
+      console.warn('⚠️  ATSBoards failure-tracking ensure skipped:', err.message);
+    }
+
     // Ensure the ExternalJobs performance schema (HNSW vector index, recency
     // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
     // These were previously only created by manual migration scripts run on
@@ -535,6 +546,19 @@ const startServer = async () => {
         await ensureSeedBoards();
       } catch (err) {
         console.warn('⚠️  Seed ATS boards ensure skipped:', err.message);
+      }
+    })();
+
+    // One-time scrub of SEARCH/LIST-page URLs (e.g. JSearch's Google Jobs
+    // sourceUrl) off existing job rows so clicking a job never lands the user on
+    // a generic job list. Idempotent; background (not awaited) so it never
+    // blocks boot. New rows are already clean via sanitizeExternalUrl at ingest.
+    (async () => {
+      try {
+        const { up: cleanupListPageJobUrls } = require('./scripts/migrations/cleanupListPageJobUrls');
+        await cleanupListPageJobUrls();
+      } catch (err) {
+        console.warn('⚠️  Job apply-URL cleanup skipped:', err.message);
       }
     })();
 
@@ -712,7 +736,7 @@ const startServer = async () => {
       // ENABLE_INACTIVE_JOB_PRUNE=false.
       if (process.env.ENABLE_INACTIVE_JOB_PRUNE !== 'false') {
         const { pruneStaleInactiveJobs } = require('./services/externalJobService');
-        const pruneDays = parseInt(process.env.PRUNE_INACTIVE_DAYS || '60', 10);
+        const pruneDays = parseInt(process.env.PRUNE_INACTIVE_DAYS || '14', 10);
         const pruneBatch = parseInt(process.env.PRUNE_INACTIVE_BATCH || '500', 10);
         const pruneIntervalMs = parseInt(process.env.PRUNE_INACTIVE_INTERVAL_MS || '900000', 10);
         const pruneTick = () => pruneStaleInactiveJobs({ days: pruneDays, limit: pruneBatch })
@@ -737,7 +761,7 @@ const startServer = async () => {
       // ENABLE_JOB_COMPACTION=false.
       if (process.env.ENABLE_JOB_COMPACTION !== 'false') {
         const { compactOldJobRows } = require('./services/externalJobService');
-        const compactDays = parseInt(process.env.COMPACT_OLD_JOBS_DAYS || '30', 10);
+        const compactDays = parseInt(process.env.COMPACT_OLD_JOBS_DAYS || '7', 10);
         const compactBatch = parseInt(process.env.COMPACT_OLD_JOBS_BATCH || '500', 10);
         const compactIntervalMs = parseInt(process.env.COMPACT_OLD_JOBS_INTERVAL_MS || '600000', 10);
         const compactTick = () => compactOldJobRows({ days: compactDays, limit: compactBatch })
@@ -750,6 +774,29 @@ const startServer = async () => {
         console.log(`[JobCompaction] ✓ enabled (>${compactDays}d, batch=${compactBatch}, every ${Math.round(compactIntervalMs / 1000)}s)`);
       } else {
         console.log('[JobCompaction] disabled');
+      }
+
+      // Corpus hygiene: deactivate aggregator jobs that duplicate a direct-ATS
+      // listing. The same role often arrives from both the company's own board
+      // (greenhouse/lever/ashby — correct deep link) and an aggregator
+      // (jsearch/adzuna/theirstack/… — noisier, worse link); nothing dedupes
+      // across sources, so users saw it twice and sometimes clicked the worse
+      // copy. This keeps the direct copy and hides the duplicate. Bounded +
+      // single-flight; disable with ENABLE_JOB_DEDUPE=false.
+      if (process.env.ENABLE_JOB_DEDUPE !== 'false') {
+        const { deactivateAggregatorDuplicates } = require('./services/externalJobService');
+        const dedupeBatch = parseInt(process.env.JOB_DEDUPE_BATCH || '500', 10);
+        const dedupeIntervalMs = parseInt(process.env.JOB_DEDUPE_INTERVAL_MS || '600000', 10);
+        const dedupeTick = () => deactivateAggregatorDuplicates({ limit: dedupeBatch })
+          .then(r => {
+            if (r.deactivated) console.log(`[JobDedupe] deactivated ${r.deactivated} aggregator jobs duplicating a direct-ATS listing`);
+          })
+          .catch(err => console.warn('[JobDedupe] error:', err.message));
+        setTimeout(dedupeTick, 150000);
+        setInterval(dedupeTick, dedupeIntervalMs);
+        console.log(`[JobDedupe] ✓ enabled (batch=${dedupeBatch}, every ${Math.round(dedupeIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[JobDedupe] disabled');
       }
 
       // Scheduled stale-board refresh rotation. OPT-IN, DEFAULT OFF.

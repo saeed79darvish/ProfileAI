@@ -413,6 +413,25 @@ router.get('/', optionalAuth, async (req, res) => {
       }
     }
 
+    // Default freshness window. When the caller hasn't picked an explicit
+    // datePosted filter, cap the feed to jobs whose effective date is within
+    // the last JOBS_DEFAULT_MAX_AGE_DAYS days. Users expect a jobs board to
+    // show CURRENT openings, not everything ever ingested — without this, an
+    // "active" posting that's a year old (or a freshly-discovered board's whole
+    // back-catalogue) sits in the list. Escape hatch: pass datePosted='all'
+    // (or any value not in dateMap, e.g. '6months') to widen; the UI's date
+    // options ('3months' = 90d) already widen past this default. Set
+    // JOBS_DEFAULT_MAX_AGE_DAYS=0 to disable entirely.
+    const defaultMaxAgeDays = parseInt(process.env.JOBS_DEFAULT_MAX_AGE_DAYS || '60', 10);
+    if (!datePosted && defaultMaxAgeDays > 0) {
+      const cutoff = new Date(Date.now() - defaultMaxAgeDays * 24 * 60 * 60 * 1000);
+      whereReplacements.defaultDateCutoff = cutoff.toISOString();
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        literal(`COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") >= :defaultDateCutoff`)
+      ];
+    }
+
     if (location) {
       // Expand a major hub to its whole commute metro (e.g. "San Francisco"
       // also matches San Mateo / Foster City / San Jose / Bay Area) so the
@@ -566,6 +585,9 @@ router.get('/', optionalAuth, async (req, res) => {
             employmentType: employmentType || null,
             department: department || null,
             skills: skillTokens.length > 0 ? skillTokens : null,
+            // Honor the same default freshness window as the recency/keyword
+            // paths when the user hasn't chosen an explicit datePosted.
+            defaultMaxAgeDays: !datePosted ? defaultMaxAgeDays : 0,
             startup: wantStartup,
             // Strict salary policy — jobs without a listed salary are
             // excluded when a band is selected. Same policy as the

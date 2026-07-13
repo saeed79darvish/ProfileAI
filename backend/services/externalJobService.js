@@ -150,6 +150,26 @@ async function fetchGreenhouseJobs(boardToken) {
   return jobs.map(job => normalizeGreenhouseJob(job, boardToken));
 }
 
+// Hostnames/paths that are SEARCH or LIST pages, not a specific posting.
+// Emitting one of these as a job's apply/source URL is the "clicking a job
+// dumps me on a generic job list" bug — most common with aggregator sources
+// (JSearch returns a Google Jobs search link). Returns a clean URL or null.
+const JOB_LIST_URL_PATTERNS = [
+  /\bgoogle\.[a-z.]+\/search/i,     // Google Jobs SERP (job_google_link)
+  /\bbing\.com\/search/i,
+  /\bduckduckgo\.com\//i,
+  // NOTE: do NOT add a generic /search\?/ here — legitimate ATS deep links
+  // (some Greenhouse/Lever postings) contain "search?" query params and were
+  // being wrongly nulled. Match search-ENGINE hosts only.
+];
+function sanitizeExternalUrl(url) {
+  if (typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null; // must be an absolute http(s) URL
+  if (JOB_LIST_URL_PATTERNS.some((re) => re.test(trimmed))) return null;
+  return trimmed;
+}
+
 /**
  * Normalize a Greenhouse job to our ExternalJob schema
  */
@@ -400,8 +420,8 @@ function normalizeAdzunaJob(job, countryCode, boardToken) {
     salaryMax: job.salary_max ? Math.round(job.salary_max) : null,
     salaryCurrency: countryCode === 'gb' ? 'GBP' : (countryCode === 'ca' ? 'CAD' : 'USD'),
     salaryPeriod: (job.salary_min || job.salary_max) ? 'yearly' : null,
-    applyUrl: job.redirect_url || null,
-    sourceUrl: job.redirect_url || null,
+    applyUrl: sanitizeExternalUrl(job.redirect_url),
+    sourceUrl: sanitizeExternalUrl(job.redirect_url),
     postedAt: job.created ? new Date(job.created) : null,
     isActive: true,
     lastFetchedAt: new Date(),
@@ -535,8 +555,11 @@ function normalizeJSearchJob(job) {
     salaryMax,
     salaryCurrency,
     salaryPeriod,
-    applyUrl: job.job_apply_link || null,
-    sourceUrl: job.job_google_link || job.job_apply_link || null,
+    // NEVER use job.job_google_link — it's a Google Jobs SEARCH page (a list of
+    // results), not the posting, and clicking it dumps the user on a generic
+    // "jobs" list. Use only the direct apply link for both fields.
+    applyUrl: sanitizeExternalUrl(job.job_apply_link),
+    sourceUrl: sanitizeExternalUrl(job.job_apply_link),
     postedAt: job.job_posted_at_datetime_utc ? new Date(job.job_posted_at_datetime_utc) : null,
     isActive: !(job.job_is_expired === true),
     lastFetchedAt: new Date(),
@@ -683,8 +706,8 @@ function normalizeTheirStackJob(job) {
     salaryMax,
     salaryCurrency: job.salary_currency || 'USD',
     salaryPeriod: (salaryMin || salaryMax) ? 'yearly' : null,
-    applyUrl: job.final_url || job.url || null,
-    sourceUrl: job.source_url || job.url || null,
+    applyUrl: sanitizeExternalUrl(job.final_url) || sanitizeExternalUrl(job.url),
+    sourceUrl: sanitizeExternalUrl(job.source_url) || sanitizeExternalUrl(job.url),
     postedAt: job.date_posted ? new Date(job.date_posted) : null,
     isActive: true,
     lastFetchedAt: new Date(),
@@ -969,8 +992,8 @@ function normalizeWWRJob(item, category) {
     salaryMax: null,
     salaryCurrency: 'USD',
     salaryPeriod: null,
-    applyUrl: item.link || null,
-    sourceUrl: item.link || null,
+    applyUrl: sanitizeExternalUrl(item.link),
+    sourceUrl: sanitizeExternalUrl(item.link),
     postedAt: item.pubDate ? new Date(item.pubDate) : null,
     isActive: true,
     lastFetchedAt: new Date(),
@@ -1505,9 +1528,13 @@ async function syncBoard(atsBoard) {
       }
     );
 
-    // Update the ATSBoard record
+    // Update the ATSBoard record. A clean sync resets the failure streak and
+    // stamps lastSuccessfulSyncAt so the ghost-job expiry (in the catch below)
+    // can tell a genuinely-dead board from a transient blip.
     await atsBoard.update({
       lastSyncAt: new Date(),
+      lastSuccessfulSyncAt: new Date(),
+      consecutiveFailures: 0,
       jobCount: normalizedJobs.length,
       syncError: null
     });
@@ -1537,8 +1564,58 @@ async function syncBoard(atsBoard) {
     return { success: true, created, updated, deactivated: deactivated[0] || 0, total: normalizedJobs.length };
   } catch (error) {
     console.error(`[ExternalJobs] ✗ ${atsBoard.name}: ${error.message}`);
-    await atsBoard.update({ syncError: error.message });
-    return { success: false, error: error.message };
+
+    // Record the failure streak. syncBoard's normal "deactivate jobs that
+    // dropped out of the fetch" step runs only on SUCCESS, so a board that
+    // starts erroring (renamed board → Greenhouse 404, Lever "board not
+    // found", persistent fetch failure) would otherwise keep serving its old
+    // jobs as isActive=true forever — the "no longer available" postings users
+    // see. Once a board has failed EXTERNAL_BOARD_DEACTIVATE_AFTER_FAILURES
+    // times in a row (default 5 ≈ ~75min on the 15-min cron) AND has not synced
+    // cleanly for EXTERNAL_BOARD_DEACTIVATE_AFTER_HOURS (default 24h), we treat
+    // it as dead and deactivate its still-active jobs. This is self-healing: if
+    // the board later recovers, its next successful sync upserts those jobs with
+    // isActive=true again (isActive is not in NEVER_UPDATE), so a transient
+    // outage that comes back simply re-lights the jobs.
+    const failures = (atsBoard.consecutiveFailures || 0) + 1;
+    const deactivateAfter = parseInt(process.env.EXTERNAL_BOARD_DEACTIVATE_AFTER_FAILURES || '5', 10);
+    const deactivateAfterHours = parseInt(process.env.EXTERNAL_BOARD_DEACTIVATE_AFTER_HOURS || '24', 10);
+    const lastOk = atsBoard.lastSuccessfulSyncAt ? new Date(atsBoard.lastSuccessfulSyncAt).getTime() : null;
+    const staleEnough = lastOk === null || (Date.now() - lastOk) >= deactivateAfterHours * 3600000;
+
+    await atsBoard.update({
+      syncError: error.message,
+      consecutiveFailures: failures,
+      lastSyncAt: new Date(),
+    });
+
+    let ghostsDeactivated = 0;
+    if (failures >= deactivateAfter && staleEnough) {
+      try {
+        const [affected] = await ExternalJob.update(
+          { isActive: false, lastFetchedAt: new Date() },
+          {
+            where: {
+              source: atsBoard.platform,
+              boardToken: atsBoard.boardToken,
+              isActive: true,
+            },
+          }
+        );
+        ghostsDeactivated = affected || 0;
+        if (ghostsDeactivated > 0) {
+          console.warn(`[ExternalJobs] ⚰️  ${atsBoard.name}: dead board (${failures} consecutive failures) — deactivated ${ghostsDeactivated} ghost jobs`);
+          // Corpus changed → drop the aggregation/count caches so the ghosts
+          // disappear from the live list immediately instead of on TTL expiry.
+          try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+          try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
+        }
+      } catch (deErr) {
+        console.warn(`[ExternalJobs] ghost-expiry failed for ${atsBoard.name}: ${deErr.message}`);
+      }
+    }
+
+    return { success: false, error: error.message, ghostsDeactivated };
   }
 }
 
@@ -1966,12 +2043,12 @@ function sleep(ms) {
  * statement_timeout (index maintenance on delete can exceed the 15s read cap).
  *
  * @param {Object} opts
- * @param {number} opts.days  - inactivity age threshold (default 60)
+ * @param {number} opts.days  - inactivity age threshold (default 14)
  * @param {number} opts.limit - max rows per run (default 500)
  * @returns {Promise<{deleted:number, skipped?:string}>}
  */
 let _pruneInFlight = false;
-async function pruneStaleInactiveJobs({ days = 60, limit = 500 } = {}) {
+async function pruneStaleInactiveJobs({ days = 14, limit = 500 } = {}) {
   if (_pruneInFlight) return { deleted: 0, skipped: 'in-flight' };
   _pruneInFlight = true;
   const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
@@ -2028,12 +2105,12 @@ async function pruneStaleInactiveJobs({ days = 60, limit = 500 } = {}) {
  * (the WHERE clause naturally excludes already-compacted rows).
  *
  * @param {Object} opts
- * @param {number} opts.days  - row-age threshold (default 30)
+ * @param {number} opts.days  - row-age threshold (default 7)
  * @param {number} opts.limit - max rows touched per run (default 500)
  * @returns {Promise<{updated:number, skipped?:string}>}
  */
 let _compactInFlight = false;
-async function compactOldJobRows({ days = 30, limit = 500 } = {}) {
+async function compactOldJobRows({ days = 7, limit = 500 } = {}) {
   if (_compactInFlight) return { updated: 0, skipped: 'in-flight' };
   _compactInFlight = true;
   const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
@@ -2068,6 +2145,76 @@ async function compactOldJobRows({ days = 30, limit = 500 } = {}) {
   }
 }
 
+/**
+ * Deactivate aggregator jobs that duplicate a direct-ATS listing.
+ *
+ * The same role often arrives twice: once from the company's own ATS board
+ * (greenhouse/lever/ashby/amazon — always a correct deep apply link) and again
+ * from an aggregator (jsearch/adzuna/theirstack/remoteok/wwr — frequently a
+ * third-party or search-page link, and noisier metadata). The unique index is
+ * (source, externalId), so nothing dedupes ACROSS sources and the user sees the
+ * job twice, sometimes clicking the worse copy.
+ *
+ * This sweep deactivates (isActive=false) an aggregator row when an ACTIVE
+ * direct-ATS row exists for the same normalized (company, title) — i.e. we
+ * always keep the direct copy. Conservative exact-match on lower(btrim(...)) so
+ * we never collapse genuinely different roles. Bounded batches + raised write
+ * timeout + single-flight, mirroring pruneStaleInactiveJobs. Self-correcting:
+ * if the direct copy later disappears, the aggregator row simply stays
+ * deactivated (it would have been re-created active by its own next sync only
+ * if the aggregator still lists it — acceptable, the direct board is canonical).
+ *
+ * @param {Object} opts
+ * @param {number} opts.limit - max rows deactivated per run (default 500)
+ * @returns {Promise<{deactivated:number, skipped?:string}>}
+ */
+const DIRECT_ATS_SOURCES = ['greenhouse', 'lever', 'ashby', 'amazon'];
+const AGGREGATOR_SOURCES = ['jsearch', 'adzuna', 'theirstack', 'remoteok', 'wwr'];
+let _dedupeInFlight = false;
+async function deactivateAggregatorDuplicates({ limit = 500 } = {}) {
+  if (_dedupeInFlight) return { deactivated: 0, skipped: 'in-flight' };
+  _dedupeInFlight = true;
+  const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
+  try {
+    const deactivated = await ExternalJob.sequelize.transaction(async (t) => {
+      await ExternalJob.sequelize.query(
+        `SET LOCAL statement_timeout = ${timeoutMs}`,
+        { transaction: t }
+      );
+      const [rows] = await ExternalJob.sequelize.query(
+        `WITH dupes AS (
+           SELECT agg.id
+             FROM "ExternalJobs" agg
+            WHERE agg."isActive" = true
+              AND agg.source::text = ANY($1::text[])
+              AND EXISTS (
+                SELECT 1 FROM "ExternalJobs" dir
+                 WHERE dir."isActive" = true
+                   AND dir.source::text = ANY($2::text[])
+                   AND lower(btrim(dir.company)) = lower(btrim(agg.company))
+                   AND lower(btrim(dir.title))   = lower(btrim(agg.title))
+              )
+            LIMIT $3
+         )
+         UPDATE "ExternalJobs" ej
+            SET "isActive" = false, "lastFetchedAt" = NOW()
+           FROM dupes d
+          WHERE ej.id = d.id
+         RETURNING ej.id`,
+        { bind: [AGGREGATOR_SOURCES, DIRECT_ATS_SOURCES, limit], transaction: t }
+      );
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+    if (deactivated > 0) {
+      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
+    }
+    return { deactivated };
+  } finally {
+    _dedupeInFlight = false;
+  }
+}
+
 module.exports = {
   fetchGreenhouseJobs,
   fetchLeverJobs,
@@ -2088,6 +2235,7 @@ module.exports = {
   ensureCorpusFresh,
   pruneStaleInactiveJobs,
   compactOldJobRows,
+  deactivateAggregatorDuplicates,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };

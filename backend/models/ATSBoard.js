@@ -38,6 +38,17 @@ const ATSBoard = sequelize.define('ATSBoard', {
     allowNull: true,
     comment: 'Last sync error message, null if successful'
   },
+  consecutiveFailures: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Number of consecutive failed syncs; reset to 0 on success. When it crosses EXTERNAL_BOARD_DEACTIVATE_AFTER_FAILURES the board is treated as dead and its still-"active" jobs are deactivated (ghost-job expiry). Column added by scripts/migrations/addBoardFailureTracking.js.'
+  },
+  lastSuccessfulSyncAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Last time this board synced without error. Complements consecutiveFailures for the "board is dead" decision.'
+  },
   isStartup: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
