@@ -1,7 +1,9 @@
 import React, { Component, useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Dialog, DialogContent, IconButton, Tooltip, Breadcrumbs, Typography, Skeleton } from '@mui/material';
+import { Dialog, DialogContent, IconButton, Tooltip, Breadcrumbs, Typography, Skeleton, Box } from '@mui/material';
 import SEO from '../../components/SEO';
+import MobileApplyRecommendation from '../../components/MobileApplyRecommendation';
+import useIsMobileDevice from '../../hooks/useIsMobileDevice';
 import {
   ErrorFallback,
   PageContainer,
@@ -268,6 +270,7 @@ const JobDetail = () => {
   };
 
   const isOwner = user && job && user.id === job.userId;
+  const isMobile = useIsMobileDevice();
 
   if (loading) {
     return (
@@ -538,7 +541,13 @@ const JobDetail = () => {
               )}
             </Actions>
           </CardHeader>
-          
+
+          {!isOwner && isMobile && (
+            <Box sx={{ px: 3, pt: 2.5 }}>
+              <MobileApplyRecommendation variant="banner" jobUrl={window.location.href} jobTitle={job.title} />
+            </Box>
+          )}
+
           {/* AI Screening Panel - Only visible to job owner (recruiter) */}
           {isOwner && screeningStatus && screeningStatus.status !== 'not_started' && (
             <ScreeningPanel>

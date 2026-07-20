@@ -15,10 +15,12 @@ import {
   Login as LoginIcon,
   TouchApp as TouchAppIcon,
   RocketLaunch as RocketIcon,
+  Email as EmailIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import SEO from '../../components/SEO';
 import { extensionConfig } from '../../config/extension';
+import useIsMobileDevice from '../../hooks/useIsMobileDevice';
 
 const ACCENT = '#7c3aed';
 
@@ -82,12 +84,19 @@ export default function ExtensionPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { storeUrl, isPublished, supportedSites } = extensionConfig;
+  const isMobile = useIsMobileDevice();
 
   const handleAddToChrome = () => {
     if (isPublished && storeUrl) {
       window.open(storeUrl, '_blank', 'noopener,noreferrer');
     }
   };
+
+  // Chrome extensions can't be installed from a phone browser (Android Chrome
+  // can browse the Web Store but can't add extensions; iOS Safari/Chrome can't
+  // at all), so on mobile we swap the install CTA for "email me the link"
+  // instead of pointing at a button that can't do anything.
+  const installEmailHref = `mailto:?subject=${encodeURIComponent('Install the ProfileAI Chrome extension')}&body=${encodeURIComponent(`Open this on your computer to install the ProfileAI Chrome extension:\n\n${typeof window !== 'undefined' ? window.location.href : ''}`)}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -145,24 +154,40 @@ export default function ExtensionPage() {
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<DownloadIcon />}
-                onClick={handleAddToChrome}
-                disabled={!isPublished}
-                sx={{
-                  background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
-                  fontWeight: 700,
-                  px: 4,
-                  py: 1.5,
-                  textTransform: 'none',
-                  fontSize: 16,
-                  '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
-                }}
-              >
-                {isPublished ? 'Add to Chrome — Free' : 'Coming soon to the Chrome Web Store'}
-              </Button>
+              {isMobile ? (
+                <Button
+                  variant="contained"
+                  size="large"
+                  component="a"
+                  href={installEmailHref}
+                  startIcon={<EmailIcon />}
+                  sx={{
+                    background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
+                    fontWeight: 700, px: 4, py: 1.5, textTransform: 'none', fontSize: 16,
+                  }}
+                >
+                  Email me the install link
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<DownloadIcon />}
+                  onClick={handleAddToChrome}
+                  disabled={!isPublished}
+                  sx={{
+                    background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
+                    fontWeight: 700,
+                    px: 4,
+                    py: 1.5,
+                    textTransform: 'none',
+                    fontSize: 16,
+                    '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
+                  }}
+                >
+                  {isPublished ? 'Add to Chrome — Free' : 'Coming soon to the Chrome Web Store'}
+                </Button>
+              )}
               {!isAuthenticated && (
                 <Button
                   variant="outlined"
@@ -182,7 +207,12 @@ export default function ExtensionPage() {
                 </Button>
               )}
             </Box>
-            {!isPublished && (
+            {isMobile ? (
+              <Typography sx={{ mt: 2, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+                The extension needs a desktop browser. We'll email you the link so it's one tap away
+                when you're back at your computer.
+              </Typography>
+            ) : !isPublished && (
               <Typography sx={{ mt: 2, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
                 We're finalizing our Chrome Web Store listing. Create your profile now so you're
                 ready the moment it goes live.
@@ -335,20 +365,36 @@ export default function ExtensionPage() {
           Add ProfileAI to Chrome and let your profile do the heavy lifting on every application.
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<DownloadIcon />}
-            onClick={handleAddToChrome}
-            disabled={!isPublished}
-            sx={{
-              background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
-              fontWeight: 700, px: 5, py: 1.75, textTransform: 'none', fontSize: 17,
-              '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
-            }}
-          >
-            {isPublished ? 'Add to Chrome — Free' : 'Coming soon'}
-          </Button>
+          {isMobile ? (
+            <Button
+              variant="contained"
+              size="large"
+              component="a"
+              href={installEmailHref}
+              startIcon={<EmailIcon />}
+              sx={{
+                background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
+                fontWeight: 700, px: 5, py: 1.75, textTransform: 'none', fontSize: 17,
+              }}
+            >
+              Email me the install link
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<DownloadIcon />}
+              onClick={handleAddToChrome}
+              disabled={!isPublished}
+              sx={{
+                background: 'linear-gradient(90deg,#7c3aed,#a78bfa)',
+                fontWeight: 700, px: 5, py: 1.75, textTransform: 'none', fontSize: 17,
+                '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
+              }}
+            >
+              {isPublished ? 'Add to Chrome — Free' : 'Coming soon'}
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="large"

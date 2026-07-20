@@ -964,6 +964,17 @@ export const supportAPI = {
   },
 };
 
+// Mobile bookmarklet pairing/devices API
+export const bookmarkletAPI = {
+  // Mint a new bookmarklet token. Body: { label? }. Response includes the
+  // raw token exactly once — it is never retrievable again.
+  pair: (label) => api.post('/bookmarklet/pair', { label }),
+  // List the current user's paired devices (no raw tokens).
+  getTokens: () => api.get('/bookmarklet/tokens'),
+  // Revoke a device.
+  revokeToken: (id) => api.delete(`/bookmarklet/tokens/${id}`),
+};
+
 // Referral API
 export const referralAPI = {
   // Get user's referral code and stats

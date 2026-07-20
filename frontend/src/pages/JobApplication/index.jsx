@@ -51,6 +51,8 @@ import { ROUTES, MONTH_MAP, VALID_FILE_TYPES, LIMITS, TEXT as CONST_TEXT } from 
 import { parseDateFromPeriod, parsePeriodDates } from './utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
+import MobileApplyRecommendation from '@/components/MobileApplyRecommendation';
+import useIsMobileDevice from '@/hooks/useIsMobileDevice';
 
 let startDate = '';
 
@@ -68,6 +70,8 @@ const JobApplication = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'error' });
+  const isMobile = useIsMobileDevice();
+  const [continueOnMobile, setContinueOnMobile] = useState(false);
   
   // Helper function to show snackbar
   const showMessage = (message, severity = 'error') => {
@@ -763,6 +767,23 @@ const JobApplication = () => {
               </ButtonGroup>
             </SuccessMessage>
           </Card>
+        </Content>
+      </PageContainer>
+    );
+  }
+
+  if (isMobile && !continueOnMobile) {
+    return (
+      <PageContainer>
+        <Content>
+          <div style={{ padding: '48px 0' }}>
+            <MobileApplyRecommendation
+              variant="interstitial"
+              jobUrl={window.location.href}
+              jobTitle={job.title}
+              onContinueAnyway={() => setContinueOnMobile(true)}
+            />
+          </div>
         </Content>
       </PageContainer>
     );
