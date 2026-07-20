@@ -217,17 +217,10 @@ export default function MobileApplyRecommendation({
         <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${COLORS.BORDER_LIGHT}` }}>
           <Button
             size="small"
-            onClick={() => navigate('/mobile-apply')}
-            sx={{ textTransform: 'none', fontWeight: 600, fontSize: 13, color: COLORS.PRIMARY, display: 'block', mx: 'auto', mb: 0.5 }}
-          >
-            Or use the mobile bookmarklet
-          </Button>
-          <Button
-            size="small"
             onClick={onContinueAnyway}
-            sx={{ textTransform: 'none', fontWeight: 500, fontSize: 12, color: COLORS.TEXT_MUTED }}
+            sx={{ textTransform: 'none', fontWeight: 500, fontSize: 12.5, color: COLORS.TEXT_MUTED }}
           >
-            Continue without AI help
+            Continue on mobile instead
           </Button>
         </Box>
       )}

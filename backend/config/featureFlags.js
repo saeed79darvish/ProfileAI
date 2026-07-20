@@ -40,13 +40,6 @@ module.exports = {
   // ProfilleAI can be added as a Custom Connector in Claude.ai. Off by
   // default; enable per environment once the connector is ready to use.
   claudeConnector: parseBool(process.env.ENABLE_CLAUDE_CONNECTOR, false),
-  // Mobile bookmarklet (pairing + AI autofill for phone browsers where the
-  // Chrome extension can't run). Mounts /api/bookmarklet/* with its own
-  // CORS policy (reflects any origin, since job sites are arbitrary) and
-  // serves the public /bookmarklet.js runtime. Default ON; flip off in the
-  // Render dashboard as an instant kill switch if the new public surface
-  // needs to come down without a redeploy.
-  bookmarklet: parseBool(process.env.ENABLE_BOOKMARKLET, true),
 };
 
 /**

@@ -21,7 +21,6 @@ const PasswordReset = require('./PasswordReset')(sequelize);
 const AIUsage = require('./AIUsage');
 const Notification = require('./Notification');
 const SupportTicket = require('./SupportTicket');
-const BookmarkletToken = require('./BookmarkletToken');
 const SavedPost = require('./SavedPost');
 const Referral = require('./Referral');
 const Kudos = require('./Kudos');
@@ -714,16 +713,6 @@ SupportTicket.belongsTo(User, {
   as: 'user'
 });
 
-// BookmarkletToken associations
-User.hasMany(BookmarkletToken, {
-  foreignKey: 'userId',
-  as: 'bookmarkletTokens'
-});
-BookmarkletToken.belongsTo(User, {
-  foreignKey: 'userId',
-  as: 'user'
-});
-
 // Kudos associations
 User.hasMany(Kudos, {
   foreignKey: 'senderId',
@@ -1053,7 +1042,6 @@ module.exports = {
   AIUsage,
   Notification,
   SupportTicket,
-  BookmarkletToken,
   SavedPost,
   Referral,
   Kudos,

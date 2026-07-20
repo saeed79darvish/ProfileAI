@@ -96,4 +96,3 @@ const optionalAuth = async (req, res, next) => {
 
 module.exports = authMiddleware;
 module.exports.optionalAuth = optionalAuth;
-module.exports.AUTH_MIDDLEWARE_SAFE_USER_FIELDS = AUTH_MIDDLEWARE_SAFE_USER_FIELDS;

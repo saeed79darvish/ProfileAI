@@ -37,7 +37,6 @@ const RecruiterCalendar = lazyWithReload(() => import('./pages/RecruiterCalendar
 const CandidateJobs = lazyWithReload(() => import('./pages/CandidateJobs'));
 const JobDetail = lazyWithReload(() => import('./pages/JobDetail'));
 const JobApplication = lazyWithReload(() => import('./pages/JobApplication'));
-const MobileApply = lazyWithReload(() => import('./pages/MobileApply'));
 const Pricing = lazyWithReload(() => import('./pages/Pricing'));
 const SubscriptionSuccess = lazyWithReload(() => import('./pages/SubscriptionSuccess'));
 const FeedPage = lazyWithReload(() => import('./pages/FeedPage'));
@@ -242,11 +241,6 @@ function AppContent() {
             <Route path="/jobs/:id/apply" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <JobApplication />
-              </PrivateRoute>
-            } />
-            <Route path="/mobile-apply" element={
-              <PrivateRoute allowedRoles={['candidate', 'admin']}>
-                <MobileApply />
               </PrivateRoute>
             } />
             {/*

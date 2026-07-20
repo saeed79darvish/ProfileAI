@@ -55,7 +55,6 @@ const externalApplicationRoutes = require('./routes/externalApplications');
 const externalJobRoutes = require('./routes/externalJobs');
 const harvestRoutes = require('./routes/harvest');
 const adminRoutes = require('./routes/admin');
-const bookmarkletRoutes = require('./routes/bookmarklet');
 const errorHandler = require('./middleware/errorHandler');
 const { globalLimiter } = require('./middleware/rateLimiters');
 const authMiddleware = require('./middleware/auth');
@@ -116,71 +115,56 @@ app.use(helmet({
   noSniff: true,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
-// Per-request CORS options. The bookmarklet API (/api/bookmarklet/*) is
-// called from arbitrary job-site origins (linkedin.com, myworkdayjobs.com,
-// ...) that can never be enumerated in the allowlist below, so it gets its
-// own permissive-origin policy scoped to just that path prefix. It carries
-// no cookies — the bearer token in the Authorization header is the only
-// credential — so reflecting the origin with credentials:false is safe and
-// leaves the strict allowlist for every other route untouched.
-const corsOptionsDelegate = function (req, callback) {
-  if (req.path.startsWith('/api/bookmarklet/')) {
-    return callback(null, { origin: true, credentials: false });
-  }
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
 
-  callback(null, {
-    origin: function(origin, originCallback) {
-      // Allow requests with no origin (mobile apps, curl, server-to-server)
-      if (!origin) return originCallback(null, true);
+    const isProduction = process.env.NODE_ENV === 'production';
 
-      const isProduction = process.env.NODE_ENV === 'production';
+    // Base allowlist — local dev origins are only included when NOT in production
+    const allowedOrigins = [
+      ...(isProduction ? [] : [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+      ]),
+      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : [])
+    ];
 
-      // Base allowlist — local dev origins are only included when NOT in production
-      const allowedOrigins = [
-        ...(isProduction ? [] : [
-          'http://localhost:3000',
-          'http://localhost:3001',
-          'http://127.0.0.1:3000',
-          'http://127.0.0.1:3001',
-        ]),
-        ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : [])
-      ];
-
-      // Chrome extension origins — restrict to known extension IDs in production.
-      // CHROME_EXTENSION_ID accepts a single ID or a comma-separated list, so the
-      // unpacked dev build and the published Web Store build can both be allowed.
-      if (origin.startsWith('chrome-extension://')) {
-        const allowedExtIds = (process.env.CHROME_EXTENSION_ID || '')
-          .split(',')
-          .map(s => s.trim())
-          .filter(Boolean);
-        if (!isProduction || allowedExtIds.length === 0) {
-          // Dev: allow any extension origin. Prod without IDs: log + reject.
-          if (isProduction) {
-            console.warn('[CORS] Rejected chrome-extension origin (CHROME_EXTENSION_ID not set):', origin);
-            return originCallback(new Error('Not allowed by CORS'));
-          }
-          return originCallback(null, true);
+    // Chrome extension origins — restrict to known extension IDs in production.
+    // CHROME_EXTENSION_ID accepts a single ID or a comma-separated list, so the
+    // unpacked dev build and the published Web Store build can both be allowed.
+    if (origin.startsWith('chrome-extension://')) {
+      const allowedExtIds = (process.env.CHROME_EXTENSION_ID || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (!isProduction || allowedExtIds.length === 0) {
+        // Dev: allow any extension origin. Prod without IDs: log + reject.
+        if (isProduction) {
+          console.warn('[CORS] Rejected chrome-extension origin (CHROME_EXTENSION_ID not set):', origin);
+          return callback(new Error('Not allowed by CORS'));
         }
-        if (allowedExtIds.some(id => origin === `chrome-extension://${id}`)) {
-          return originCallback(null, true);
-        }
-        console.warn('[CORS] Rejected chrome-extension origin (not in allowlist):', origin);
-        return originCallback(new Error('Not allowed by CORS'));
+        return callback(null, true);
       }
-
-      if (allowedOrigins.includes(origin)) {
-        return originCallback(null, true);
+      if (allowedExtIds.some(id => origin === `chrome-extension://${id}`)) {
+        return callback(null, true);
       }
+      console.warn('[CORS] Rejected chrome-extension origin (not in allowlist):', origin);
+      return callback(new Error('Not allowed by CORS'));
+    }
 
-      console.warn('[CORS] Rejected origin:', origin);
-      originCallback(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-  });
-};
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
 
-app.use(cors(corsOptionsDelegate));
+    console.warn('[CORS] Rejected origin:', origin);
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 
 // Stripe webhook — MUST be mounted BEFORE express.json() so the raw body
 // Buffer is preserved for signature verification.
@@ -285,20 +269,6 @@ app.use('/api/external-applications', externalApplicationRoutes);
 app.use('/api/external-jobs', externalJobRoutes);
 app.use('/api/harvest', harvestRoutes);
 app.use('/api/admin', adminRoutes);
-
-// Mobile bookmarklet: pairing/token-management API (JWT auth) + the AI
-// autofill proxy (bookmarklet-token auth, open CORS — see corsOptionsDelegate
-// above) + the public runtime script it loads via <script src>.
-if (featureFlags.bookmarklet) {
-  app.use('/api/bookmarklet', bookmarkletRoutes);
-  app.get('/bookmarklet.js', (req, res) => {
-    res.type('application/javascript');
-    // Short cache so a shipped fix reaches already-saved bookmarklets fast
-    // (the loader always re-fetches this file on every click).
-    res.set('Cache-Control', 'public, max-age=300');
-    res.sendFile(path.join(__dirname, 'public', 'bookmarklet.js'));
-  });
-}
 
 // Sentry error handler must come before our errorHandler but after all routes.
 if (process.env.SENTRY_DSN) {
@@ -505,16 +475,6 @@ const startServer = async () => {
       await addSupportTicketReplies();
     } catch (err) {
       console.warn('⚠️  SupportTickets.replies column ensure skipped:', err.message);
-    }
-
-    // Create BookmarkletTokens table (mobile bookmarklet pairing). Idempotent
-    // CREATE TABLE IF NOT EXISTS, safe to re-run; needed because prod skips
-    // sequelize.sync and this is a brand-new table for a brand-new model.
-    try {
-      const { up: addBookmarkletTokensTable } = require('./scripts/migrations/addBookmarkletTokensTable');
-      await addBookmarkletTokensTable();
-    } catch (err) {
-      console.warn('⚠️  BookmarkletTokens table ensure skipped:', err.message);
     }
 
     // Guest LinkedIn Profile Analyzer flow — creates GuestAIUsages,
