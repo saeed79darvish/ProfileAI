@@ -115,10 +115,18 @@
       return (el && el.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
+    // CSS.escape is broadly supported, but this runs in unpredictable mobile
+    // browser/webview engines — fall back to a manual escape rather than let
+    // a missing global take down detection entirely.
+    function cssEscape(value) {
+      if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+      return String(value).replace(/([^\w-])/g, '\\$1');
+    }
+
     function findLabelFor(field) {
       // 1. <label for="id">
       if (field.id) {
-        var byFor = document.querySelector('label[for="' + CSS.escape(field.id) + '"]');
+        var byFor = document.querySelector('label[for="' + cssEscape(field.id) + '"]');
         if (byFor) return textOf(byFor);
       }
       // 2. Wrapping <label>
@@ -157,7 +165,7 @@
       inputs.forEach(function (input) {
         if (!isVisible(input) || !input.name || seen[input.name]) return;
         seen[input.name] = true;
-        var groupInputs = document.querySelectorAll('input[name="' + CSS.escape(input.name) + '"]');
+        var groupInputs = document.querySelectorAll('input[name="' + cssEscape(input.name) + '"]');
         var options = [];
         groupInputs.forEach(function (gi) {
           var label = findLabelFor(gi) || gi.value;
@@ -195,16 +203,103 @@
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    // -----------------------------------------------------------------------
+    // "Combobox" fields — react-select and similar widgets (Greenhouse's
+    // custom question dropdowns are built this way) render as a plain
+    // <input role="combobox">, not a native <select>. The actual options
+    // don't exist in the DOM until the menu is opened, and a value is
+    // committed by clicking an option — typing text into the input and
+    // setting .value does NOT register as a selection. These helpers open
+    // the menu, read the rendered options, and click the matching one.
+    // -----------------------------------------------------------------------
+    function isComboboxField(field) {
+      return field.tagName === 'INPUT' && field.getAttribute('role') === 'combobox';
+    }
+
+    function openCombobox(field) {
+      field.focus();
+      field.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      field.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    }
+
+    function closeCombobox(field) {
+      field.blur();
+    }
+
+    function findComboboxOptionEls(field) {
+      var listboxId = field.getAttribute('aria-controls');
+      var scope = (listboxId && document.getElementById(listboxId)) || document;
+      var opts = scope.querySelectorAll('[role="option"], [id*="-option-"]');
+      if (opts.length === 0 && scope !== document) {
+        opts = document.querySelectorAll('[role="option"], [id*="-option-"]');
+      }
+      return Array.prototype.slice.call(opts);
+    }
+
+    function waitFor(predicate, timeoutMs) {
+      return new Promise(function (resolve) {
+        var elapsed = 0;
+        var interval = 40;
+        var timer = setInterval(function () {
+          var result = predicate();
+          elapsed += interval;
+          if (result.length > 0 || elapsed >= timeoutMs) {
+            clearInterval(timer);
+            resolve(result);
+          }
+        }, interval);
+      });
+    }
+
+    function readComboboxOptions(field) {
+      openCombobox(field);
+      return waitFor(function () { return findComboboxOptionEls(field); }, 600)
+        .then(function (opts) {
+          var labels = opts.map(textOf).filter(Boolean);
+          closeCombobox(field);
+          return labels;
+        });
+    }
+
+    function fillCombobox(field, answerText) {
+      openCombobox(field);
+      return waitFor(function () { return findComboboxOptionEls(field); }, 600)
+        .then(function (opts) {
+          var match = opts.find(function (o) { return textOf(o).toLowerCase() === String(answerText).toLowerCase(); })
+            || opts.find(function (o) { return textOf(o).toLowerCase().indexOf(String(answerText).toLowerCase()) !== -1; });
+          if (!match) { closeCombobox(field); return false; }
+          match.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          match.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          match.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          return true;
+        });
+    }
+
     function detectQuestions() {
       var questions = [];
       var fields = Array.prototype.slice.call(document.querySelectorAll(FILLABLE_SELECTOR));
 
       fields.forEach(function (field) {
         if (!isVisible(field) || field.disabled || field.readOnly) return;
-        var type = field.tagName === 'SELECT' ? 'select' : (field.tagName === 'TEXTAREA' ? 'textarea' : 'text');
         var label = findLabelFor(field);
         if (!label || label.length > 250) return;
 
+        if (isComboboxField(field)) {
+          // Options aren't known yet — populated by enrichComboboxQuestions()
+          // before the panel renders. fieldType is 'select' so the AI prompt
+          // treats it like one once options are filled in.
+          questions.push({
+            question: label,
+            fieldType: 'select',
+            options: [],
+            el: field,
+            needsOptionScan: true,
+            fill: function (answerText) { return fillCombobox(field, answerText); },
+          });
+          return;
+        }
+
+        var type = field.tagName === 'SELECT' ? 'select' : (field.tagName === 'TEXTAREA' ? 'textarea' : 'text');
         var entry = { question: label, fieldType: type, el: field };
         if (type === 'select') {
           entry.options = Array.prototype.slice.call(field.options)
@@ -237,6 +332,33 @@
         byText[key] = true;
         return true;
       });
+    }
+
+    // Opens each combobox one at a time (never in parallel — overlapping
+    // open menus from different fields can interfere with each other) and
+    // fills in its real options before the panel is shown.
+    function enrichComboboxQuestions(questions) {
+      var needsScan = questions.filter(function (q) { return q.needsOptionScan; });
+      return needsScan.reduce(function (chain, q) {
+        return chain.then(function () {
+          return readComboboxOptions(q.el).then(function (options) {
+            q.options = options;
+          });
+        });
+      }, Promise.resolve());
+    }
+
+    function renderScanning() {
+      panel.innerHTML = '';
+      var title = document.createElement('div');
+      title.className = 'pai-title';
+      title.textContent = 'ProfileAI';
+      panel.appendChild(title);
+      var sub = document.createElement('div');
+      sub.className = 'pai-sub';
+      sub.textContent = 'Scanning the page for dropdown options…';
+      panel.appendChild(sub);
+      setPanelOpen(true);
     }
 
     function guessJobDescription() {
@@ -331,23 +453,31 @@
             }
             var answers = result.data.answers || {};
             var filledCount = 0;
-            questions.forEach(function (q, i) {
-              var answer = answers[q.question];
-              var statusEl = shadow.getElementById('pai-status-' + i);
-              if (answer == null) {
-                if (statusEl) statusEl.textContent = 'No answer generated';
-                return;
-              }
-              var ok = false;
-              try { ok = q.fill(answer); } catch (e) { ok = false; }
-              if (ok) {
-                filledCount++;
-                if (statusEl) { statusEl.textContent = 'Filled — review before submitting'; statusEl.classList.add('pai-filled'); }
-              } else if (statusEl) {
-                statusEl.textContent = 'Could not auto-fill — copy manually: "' + answer + '"';
-              }
+            // Sequential (not Promise.all): combobox fills open/close a menu,
+            // and doing that for several fields at once can race.
+            return questions.reduce(function (chain, q, i) {
+              return chain.then(function () {
+                var answer = answers[q.question];
+                var statusEl = shadow.getElementById('pai-status-' + i);
+                if (answer == null) {
+                  if (statusEl) statusEl.textContent = 'No answer generated';
+                  return;
+                }
+                return Promise.resolve()
+                  .then(function () { return q.fill(answer); })
+                  .catch(function () { return false; })
+                  .then(function (ok) {
+                    if (ok) {
+                      filledCount++;
+                      if (statusEl) { statusEl.textContent = 'Filled — review before submitting'; statusEl.classList.add('pai-filled'); }
+                    } else if (statusEl) {
+                      statusEl.textContent = 'Could not auto-fill — copy manually: "' + answer + '"';
+                    }
+                  });
+              });
+            }, Promise.resolve()).then(function () {
+              generateBtn.textContent = 'Filled ' + filledCount + ' of ' + questions.length + ' — review & submit';
             });
-            generateBtn.textContent = 'Filled ' + filledCount + ' of ' + questions.length + ' — review & submit';
           })
           .catch(function (err) {
             generateBtn.disabled = false;
@@ -369,7 +499,15 @@
     if (questions.length === 0) {
       renderFallback("ProfileAI couldn't recognize any application questions on this page.");
     } else {
-      renderQuestions(questions);
+      var hasComboboxes = questions.some(function (q) { return q.needsOptionScan; });
+      if (hasComboboxes) {
+        renderScanning();
+        enrichComboboxQuestions(questions)
+          .then(function () { renderQuestions(questions); })
+          .catch(function () { renderQuestions(questions); });
+      } else {
+        renderQuestions(questions);
+      }
     }
   } catch (err) {
     try {
