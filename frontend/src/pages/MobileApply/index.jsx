@@ -111,14 +111,46 @@ export default function MobileApply() {
       .finally(() => setPairing(false));
   };
 
+  // iOS Safari (and some in-app/webview browsers) can silently reject or
+  // simply not implement navigator.clipboard.writeText depending on how the
+  // page was opened. Fall back to the legacy execCommand technique, and if
+  // even that fails, tell the user to select the code manually instead of
+  // just failing silently — the code box below is always fully selectable.
   const handleCopy = async () => {
     if (!freshToken) return;
-    try {
-      await navigator.clipboard.writeText(buildBookmarkletUri(freshToken));
-      toast.success('Code copied — paste it into your new bookmark’s address field');
-    } catch {
-      toast.error('Could not copy the code');
+    const text = buildBookmarkletUri(freshToken);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success('Code copied, paste it into your new bookmark’s address field');
+        return;
+      } catch {
+        // fall through to the legacy method below
+      }
     }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, text.length);
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (copied) {
+        toast.success('Code copied — paste it into your new bookmark’s address field');
+        return;
+      }
+    } catch {
+      // fall through to manual-copy guidance below
+    }
+
+    toast.error('Automatic copy isn’t supported here — press and hold the code below, then choose Copy');
   };
 
   const handleRevoke = (id) => {
@@ -157,20 +189,22 @@ export default function MobileApply() {
             </Button>
           ) : (
             <>
-              <Box sx={{
-                display: 'flex', alignItems: 'center', gap: 1, p: '10px 12px', borderRadius: RADIUS.MEDIUM,
-                background: COLORS.BG_LIGHT, border: `1px solid ${COLORS.BORDER_LIGHT}`, mb: 1.5,
-              }}>
-                <Typography sx={{
-                  flex: 1, fontFamily: 'monospace', fontSize: 11.5, color: COLORS.TEXT_SECONDARY,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  {buildBookmarkletUri(freshToken)}
-                </Typography>
-                <Tooltip title="Copy code">
-                  <IconButton size="small" onClick={handleCopy}><CopyIcon sx={{ fontSize: 18, color: COLORS.PRIMARY }} /></IconButton>
-                </Tooltip>
-              </Box>
+              <Box
+                component="textarea"
+                readOnly
+                value={buildBookmarkletUri(freshToken)}
+                onFocus={(e) => e.target.select()}
+                sx={{
+                  width: '100%', minHeight: 72, p: '10px 12px', borderRadius: RADIUS.MEDIUM,
+                  background: COLORS.BG_LIGHT, border: `1px solid ${COLORS.BORDER_LIGHT}`, mb: 1,
+                  fontFamily: 'monospace', fontSize: 11.5, color: COLORS.TEXT_SECONDARY,
+                  resize: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                }}
+              />
+              <Typography sx={{ fontSize: 11.5, color: COLORS.TEXT_MUTED, mb: 1.5 }}>
+                If the "Copy code" button below doesn't work, tap the code above, then use your
+                keyboard's Select All and Copy.
+              </Typography>
               <Button
                 variant="outlined"
                 size="small"

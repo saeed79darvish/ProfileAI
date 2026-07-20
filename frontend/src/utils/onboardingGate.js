@@ -21,6 +21,11 @@ const ALLOWED_PREFIXES = [
   '/terms',
   '/privacy',
   '/logout',
+  // Pairing a bookmarklet device doesn't require a profile — only the
+  // actual AI answer generation does, and that's already gated server-side
+  // with a clear "finish your profile" message. No reason to block the
+  // setup page itself before onboarding is done.
+  '/mobile-apply',
 ];
 
 // Exact-match paths that bypass the gate WITHOUT a startsWith side-effect.
