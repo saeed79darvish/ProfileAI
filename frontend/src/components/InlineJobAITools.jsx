@@ -1086,8 +1086,6 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         <SwitchToDesktopDialog
           open={showDesktopNudge}
           action={pendingMobileAction}
-          jobId={job?.id}
-          jobTitle={job?.title}
           onContinue={handleDesktopNudgeContinue}
         />
       )}
