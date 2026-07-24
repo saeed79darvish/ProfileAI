@@ -894,11 +894,7 @@ export const subscriptionAPI = {
   
   // Get AI usage summary
   getUsage: () => api.get('/subscriptions/usage'),
-  
-  // Create subscription
-  create: (planType, paymentMethod) => 
-    api.post('/subscriptions/subscribe', { planType, paymentMethod }),
-  
+
   // Cancel subscription
   cancel: () => api.post('/subscriptions/cancel'),
   

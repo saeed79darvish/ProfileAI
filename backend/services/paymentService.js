@@ -33,6 +33,15 @@ class PaymentService {
       throw error;
     }
   }
+
+  // Subscription.PLANS only has 'candidate' and 'recruiter' keys, but
+  // User.role also allows 'admin' (used for dogfooding candidate features).
+  // Treat admins as candidates for billing purposes so admin test accounts
+  // don't crash indexing Subscription.PLANS['admin'].
+  getPlansForRole(role) {
+    return Subscription.PLANS[role] || Subscription.PLANS.candidate;
+  }
+
   // Create Stripe Customer
   async createCustomer(user) {
     try {
@@ -71,7 +80,7 @@ class PaymentService {
       }
 
       // Get plan details
-      const plans = Subscription.PLANS[user.role];
+      const plans = this.getPlansForRole(user.role);
       const plan = plans[planType];
 
       if (!plan) throw new Error('Invalid plan type');
@@ -119,6 +128,17 @@ class PaymentService {
           billingCycle,
           userRole: user.role,
         },
+        // Mirrored onto the resulting Subscription object so webhook events
+        // that only carry the subscription (not the checkout session) can
+        // still fulfill/repair it — see handleSubscriptionCreated below.
+        subscription_data: {
+          metadata: {
+            userId: user.id,
+            planType,
+            billingCycle,
+            userRole: user.role,
+          },
+        },
       });
 
       return {
@@ -137,12 +157,12 @@ class PaymentService {
       const user = await User.findByPk(userId);
       if (!user) throw new Error('User not found');
 
-      const plans = Subscription.PLANS[user.role];
+      const plans = this.getPlansForRole(user.role);
       const plan = plans[planType];
-      
+
       if (!plan) throw new Error('Invalid plan type');
 
-      const amount = billingCycle === 'yearly' 
+      const amount = billingCycle === 'yearly'
         ? Math.round(plan.price * 10) // 17% discount
         : plan.price;
 
@@ -187,10 +207,10 @@ class PaymentService {
       const user = await User.findByPk(userId);
       if (!user) throw new Error('User not found');
 
-      const plans = Subscription.PLANS[user.role];
+      const plans = this.getPlansForRole(user.role);
       const plan = plans[planType];
 
-      const amount = billingCycle === 'yearly' 
+      const amount = billingCycle === 'yearly'
         ? Math.round(plan.price * 10)
         : plan.price;
 
@@ -312,6 +332,9 @@ class PaymentService {
   async handleWebhook(event) {
     try {
       switch (event.type) {
+        case 'checkout.session.completed':
+          await this.handleCheckoutSessionCompleted(event.data.object);
+          break;
         case 'customer.subscription.created':
           await this.handleSubscriptionCreated(event.data.object);
           break;
@@ -336,8 +359,33 @@ class PaymentService {
     }
   }
 
+  // Primary fulfillment path: fires immediately after a successful Checkout
+  // payment and carries the session metadata (userId/planType/billingCycle)
+  // we set in createStripeCheckoutSession. This is the event Stripe
+  // recommends for granting access, since 'customer.subscription.created'
+  // alone doesn't include the checkout session's metadata.
+  async handleCheckoutSessionCompleted(session) {
+    if (session.mode !== 'subscription' || session.payment_status !== 'paid') return;
+
+    const { userId, planType, billingCycle } = session.metadata || {};
+    if (!userId || !planType) {
+      console.error('checkout.session.completed missing metadata:', session.id);
+      return;
+    }
+
+    await this.completeSubscription(userId, planType, billingCycle || 'monthly', 'stripe', session.subscription);
+  }
+
   async handleSubscriptionCreated(subscription) {
     console.log('Subscription created:', subscription.id);
+
+    // Fallback fulfillment in case the checkout.session.completed webhook
+    // was missed or delivered out of order — completeSubscription is
+    // idempotent (findOrCreate + update), so re-running it here is safe.
+    const { userId, planType, billingCycle } = subscription.metadata || {};
+    if (userId && planType) {
+      await this.completeSubscription(userId, planType, billingCycle || 'monthly', 'stripe', subscription.id);
+    }
   }
 
   async handleSubscriptionUpdated(subscription) {
@@ -439,7 +487,7 @@ class PaymentService {
 
     if (!subscription) {
       const user = await User.findByPk(userId);
-      const freePlan = Subscription.PLANS[user.role].free;
+      const freePlan = this.getPlansForRole(user.role).free;
       return freePlan.features[featureName] || false;
     }
 
