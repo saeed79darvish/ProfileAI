@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const auth = require('../middleware/auth');
 const admin = require('../middleware/admin');
 const { User, Profile, RecruiterProfile, PromoCode, PromoRedemption, AIUsage, Subscription, Job, Post, ATSBoard, ExternalJob, BlockedCompany, sequelize } = require('../models');
-const { syncBoard, syncAllBoards, validateBoard, enforceActiveBoardCap } = require('../services/externalJobService');
+const { syncBoard, syncAllBoards, validateBoard, enforceActiveBoardCap, blockCompany } = require('../services/externalJobService');
 
 // All routes require auth + admin
 router.use(auth, admin);
@@ -599,38 +599,20 @@ router.post('/blocked-companies', async (req, res) => {
     if (!companyName || !companyName.trim()) {
       return res.status(400).json({ error: 'companyName is required' });
     }
-    const normalized = companyName.trim().toLowerCase();
 
-    const [blocked, created] = await BlockedCompany.findOrCreate({
-      where: { companyName: normalized },
-      defaults: { companyName: normalized, reason: reason || null, createdBy: req.user.id },
+    // Shared with the automatic scam-detector escalation in syncBoard, so a
+    // manual block and an automatic one purge identically.
+    const { blocked, created, boardsDeactivated, jobsDeactivated } = await blockCompany(companyName, {
+      reason: reason || null,
+      createdBy: req.user.id,
     });
     if (!created) {
       return res.status(409).json({ error: 'Company already blocked', blocked });
     }
 
-    // Purge immediately: matching boards (their jobs deactivate via the same
-    // path admin board-delete uses) and any aggregator-sourced job rows under
-    // that company name that aren't tied to a board row.
-    const boards = await ATSBoard.findAll({
-      where: sequelize.where(sequelize.fn('lower', sequelize.col('name')), normalized),
-    });
-    for (const board of boards) {
-      await ExternalJob.update(
-        { isActive: false },
-        { where: { source: board.platform, boardToken: board.boardToken } }
-      );
-      await board.update({ isActive: false, syncError: 'Company blocklisted by admin' });
-    }
-    const [jobsPurged] = await ExternalJob.update(
-      { isActive: false },
-      { where: sequelize.where(sequelize.fn('lower', sequelize.col('company')), normalized) }
-    );
-
-    try { require('../services/simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
     res.status(201).json({
       blocked,
-      message: `Blocked "${companyName}". Deactivated ${boards.length} board(s) and ${jobsPurged} job(s).`,
+      message: `Blocked "${companyName}". Deactivated ${boardsDeactivated} board(s) and ${jobsDeactivated} job(s).`,
     });
   } catch (error) {
     console.error('Admin block company error:', error);

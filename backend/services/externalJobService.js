@@ -1,12 +1,17 @@
 const { Op } = require('sequelize');
 const { ExternalJob, ATSBoard, BlockedCompany } = require('../models');
+const { detectScamSignals } = require('./jobScamDetector');
 
 /**
- * Admin moderation lever for scam / low-quality companies (see
- * models/BlockedCompany — no automated scam detection exists, this is the
- * manual override). Small table, queried fresh each call — board syncs run
- * at most every ~15min via cron, never in a request hot path, so there's no
- * need for a cache layer here.
+ * Company moderation (see models/BlockedCompany). Populated two ways:
+ *   1. Automatically — the heuristic scam detector (services/jobScamDetector)
+ *      runs on every ingested job in syncBoard; a company whose postings are
+ *      dominated by scam signals gets auto-blocked with no human involved.
+ *   2. Manually — POST /api/admin/blocked-companies, for anything the
+ *      heuristic misses.
+ * Small table, queried fresh each call — board syncs run at most every
+ * ~15min via cron, never in a request hot path, so there's no need for a
+ * cache layer here.
  */
 async function getBlockedCompanyNames() {
   const rows = await BlockedCompany.findAll({ attributes: ['companyName'], raw: true });
@@ -16,6 +21,63 @@ async function isCompanyBlocked(name) {
   if (!name) return false;
   const blocked = await getBlockedCompanyNames();
   return blocked.has(String(name).trim().toLowerCase());
+}
+
+/**
+ * Block a company: insert (or reuse) its BlockedCompany row, then purge it
+ * immediately — deactivate any matching ATSBoards (+ their jobs, same path
+ * admin board-delete uses) and any ExternalJob rows under that company name
+ * from aggregator sources that aren't tied to a board row. Shared by the
+ * admin endpoint (POST /api/admin/blocked-companies) and the automatic
+ * scam-detector escalation in syncBoard, so both paths purge identically.
+ *
+ * @param {string} companyName
+ * @param {Object} opts
+ * @param {string} [opts.reason]
+ * @param {string} [opts.createdBy] - admin userId, or null for automatic blocks
+ * @returns {Promise<{blocked: object, created: boolean, boardsDeactivated: number, jobsDeactivated: number}>}
+ */
+async function blockCompany(companyName, { reason = null, createdBy = null } = {}) {
+  const normalized = String(companyName).trim().toLowerCase();
+  const [blocked, created] = await BlockedCompany.findOrCreate({
+    where: { companyName: normalized },
+    defaults: { companyName: normalized, reason, createdBy },
+  });
+
+  const boards = await ATSBoard.findAll({
+    where: ATSBoard.sequelize.where(ATSBoard.sequelize.fn('lower', ATSBoard.sequelize.col('name')), normalized),
+  });
+  // Both passes restrict to isActive:true so a job matched by the board-name
+  // pass can't be counted again by the company-name pass below (the common
+  // case for direct-ATS sources, where board name === job company) — without
+  // this guard the two UPDATEs would double-count the same rows.
+  let jobsDeactivated = 0;
+  for (const board of boards) {
+    const [n] = await ExternalJob.update(
+      { isActive: false },
+      { where: { source: board.platform, boardToken: board.boardToken, isActive: true } }
+    );
+    jobsDeactivated += n || 0;
+    await board.update({ isActive: false, syncError: 'Company blocklisted' });
+  }
+  const [aggJobsDeactivated] = await ExternalJob.update(
+    { isActive: false },
+    {
+      where: {
+        [Op.and]: [
+          ExternalJob.sequelize.where(ExternalJob.sequelize.fn('lower', ExternalJob.sequelize.col('company')), normalized),
+          { isActive: true },
+        ],
+      },
+    }
+  );
+  jobsDeactivated += aggJobsDeactivated || 0;
+
+  if (boards.length > 0 || jobsDeactivated > 0) {
+    try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+  }
+
+  return { blocked, created, boardsDeactivated: boards.length, jobsDeactivated };
 }
 
 // Lazy-load job embedding service (only when OPENAI_API_KEY is set)
@@ -1395,6 +1457,44 @@ async function syncBoard(atsBoard) {
       }
     }
 
+    // Automatic scam/spam detection — fully unattended, no admin action
+    // required. Flagged jobs are stripped from this batch the same way
+    // blocked-company jobs are above: filtering BEFORE fetchedExternalIds is
+    // computed means a previously-ingested row for a now-flagged job falls
+    // out of the fetch and gets deactivated by the normal "not in this fetch"
+    // step below. A company with MULTIPLE independently-flagged postings in
+    // the same sync (not just one) gets auto-blocklisted via blockCompany —
+    // purged instantly and never re-ingested by any board/source again. The
+    // >1 bar is deliberate: one flagged posting could still be an unseen
+    // heuristic false-positive (see jobScamDetector.js — tested clean against
+    // the full corpus, but new phrasing will appear over time); requiring a
+    // repeated pattern from the same company before blocking the WHOLE
+    // company keeps that higher-blast-radius action conservative.
+    const flaggedByCompany = new Map();
+    normalizedJobs = normalizedJobs.filter((j) => {
+      const result = detectScamSignals(j);
+      if (!result.flagged) return true;
+      const key = String(j.company || '').trim().toLowerCase();
+      if (key) {
+        if (!flaggedByCompany.has(key)) flaggedByCompany.set(key, { company: j.company, jobs: [] });
+        flaggedByCompany.get(key).jobs.push({ title: j.title, reasons: result.reasons });
+      }
+      return false;
+    });
+    let totalScamFlagged = 0;
+    for (const [, info] of flaggedByCompany) {
+      totalScamFlagged += info.jobs.length;
+      if (info.jobs.length < 2) continue; // single flagged posting: drop the job, don't block the company
+      const allReasons = [...new Set(info.jobs.flatMap((j) => j.reasons))].join('; ');
+      console.warn(`[ExternalJobs] 🚫 Auto-blocking "${info.company}" — ${info.jobs.length} scam-flagged postings (${allReasons})`);
+      await blockCompany(info.company, {
+        reason: `Auto-flagged: ${info.jobs.length} postings matched scam heuristics (${allReasons})`,
+      });
+    }
+    if (totalScamFlagged > 0) {
+      console.log(`[ExternalJobs] Filtered ${totalScamFlagged} scam-flagged job(s) from ${atsBoard.name}`);
+    }
+
     const fetchedExternalIds = new Set(normalizedJobs.map(j => j.externalId));
 
     // Pre-fetch the externalIds we already have for this fetched set. Two
@@ -2396,6 +2496,7 @@ module.exports = {
   enforceActiveBoardCap,
   isCompanyBlocked,
   getBlockedCompanyNames,
+  blockCompany,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };
