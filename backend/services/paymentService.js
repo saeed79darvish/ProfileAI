@@ -120,8 +120,8 @@ class PaymentService {
             quantity: 1,
           },
         ],
-        success_url: `${process.env.CORS_ORIGIN}/dashboard?subscription=success`,
-        cancel_url: `${process.env.CORS_ORIGIN}/pricing?subscription=cancelled`,
+        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard?subscription=success`,
+        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/pricing?subscription=cancelled`,
         metadata: {
           userId: user.id,
           planType,
@@ -176,8 +176,8 @@ class PaymentService {
           custom_id: user.id.toString(),
           application_context: {
             brand_name: 'ProfilleAI',
-            return_url: `${process.env.CORS_ORIGIN}/dashboard?subscription=success&provider=paypal`,
-            cancel_url: `${process.env.CORS_ORIGIN}/pricing?subscription=cancelled`,
+            return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard?subscription=success&provider=paypal`,
+            cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/pricing?subscription=cancelled`,
             user_action: 'SUBSCRIBE_NOW',
           },
         },
