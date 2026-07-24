@@ -5,38 +5,25 @@ import {
   Smartphone as PhoneIcon,
   Laptop as LaptopIcon,
   ArrowForward as ArrowIcon,
-  EditNote as EditIcon,
+  HelpOutline as QuestionIcon,
+  Edit as EditIcon,
   Bolt as BoltIcon,
-  FactCheck as CheckIcon,
+  AttachMoney as CreditIcon,
   Extension as ExtensionIcon,
-  Email as EmailIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { COLORS, GRADIENTS, RADIUS, SHADOWS } from '../designTokens';
 
 const NUDGE_DISMISS_KEY = 'profileai_ai_tools_desktop_nudge_dismissed';
 
-const COPY = {
-  tailor: {
-    subcopy: "Every AI action here (tailoring, cover letters, rewrites) uses a credit from your plan — so it's worth getting the best result. On desktop you get a bigger screen to review and edit before you commit, and our Chrome extension can autofill the actual application once you're ready to apply.",
-  },
-  coverLetter: {
-    subcopy: "Every AI action here (tailoring, cover letters, rewrites) uses a credit from your plan — so it's worth getting the best result. On desktop you get a bigger screen to review and edit before you commit, and our Chrome extension can autofill the actual application once you're ready to apply.",
-  },
-};
+const SUBCOPY = "You'll get the full ProfileAI experience there. The Chrome extension answers every custom application question with AI, gives you more control over each draft, and keeps your monthly credits for when they really count.";
 
 const BENEFITS = [
-  { icon: EditIcon, lead: 'More control.', rest: 'Review, edit, and fine-tune every AI draft comfortably before you submit it.' },
-  { icon: BoltIcon, lead: 'One click apply.', rest: 'Autofills your résumé, cover letter, and every screening field on any job posting.' },
-  { icon: CheckIcon, lead: 'Bigger canvas.', rest: 'Review every AI draft with your match score and keyword coverage side by side.' },
+  { icon: QuestionIcon, lead: 'AI answers custom questions.', rest: "Every screening question on the form gets a tailored answer from your profile. On mobile you'd type each one by hand." },
+  { icon: EditIcon, lead: 'More control over drafts.', rest: "Review, edit, and approve each AI response side by side with the job description before it's submitted." },
+  { icon: BoltIcon, lead: 'One tap apply.', rest: 'Autofills your résumé, cover letter, and every field on Greenhouse, Lever, Ashby, Workday and other job sites.' },
+  { icon: CreditIcon, lead: 'Same monthly credits.', rest: "Extension actions draw from the same plan as mobile — you're not spending anything extra, just getting a better result." },
 ];
-
-function buildInstallEmailHref() {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const subject = encodeURIComponent('Install the ProfileAI Chrome extension');
-  const body = encodeURIComponent(`Open this on your computer to install the ProfileAI Chrome extension:\n\n${origin}/extension`);
-  return `mailto:?subject=${subject}&body=${body}`;
-}
 
 export function isDesktopNudgeDismissed() {
   try {
@@ -57,12 +44,11 @@ export function dismissDesktopNudgeForever() {
 /**
  * One-time bottom-sheet nudge shown to mobile users before Tailor Resume /
  * Cover Letter runs, steering them toward desktop + the Chrome extension.
- * Every exit path (close icon, backdrop, "use a credit and continue here")
+ * Every exit path (close icon, backdrop, "continue on mobile anyway")
  * dismisses this for good and lets the caller proceed with the original action.
  */
-export default function SwitchToDesktopDialog({ open, action, onContinue }) {
+export default function SwitchToDesktopDialog({ open, onContinue }) {
   const navigate = useNavigate();
-  const copy = COPY[action] || COPY.tailor;
 
   return (
     <Drawer
@@ -120,7 +106,7 @@ export default function SwitchToDesktopDialog({ open, action, onContinue }) {
           We recommend finishing on desktop
         </Typography>
         <Typography sx={{ fontSize: 14.5, color: COLORS.TEXT_SECONDARY, mb: 3, lineHeight: 1.55 }}>
-          {copy.subcopy}
+          {SUBCOPY}
         </Typography>
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 3 }}>
@@ -149,39 +135,24 @@ export default function SwitchToDesktopDialog({ open, action, onContinue }) {
           ))}
         </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 2.5 }}>
-          <Button
-            fullWidth
-            variant="contained"
-            startIcon={<ExtensionIcon />}
-            onClick={() => navigate('/extension')}
-            sx={{
-              background: GRADIENTS.PRIMARY, textTransform: 'none', fontWeight: 700,
-              py: 1.3, borderRadius: RADIUS.MEDIUM, fontSize: 15.5,
-              boxShadow: SHADOWS.PRIMARY_GLOW,
-            }}
-          >
-            Get the free Chrome extension
-          </Button>
-          <Button
-            fullWidth
-            variant="outlined"
-            component="a"
-            href={buildInstallEmailHref()}
-            startIcon={<EmailIcon />}
-            sx={{
-              textTransform: 'none', fontWeight: 600, py: 1.3, fontSize: 15,
-              borderRadius: RADIUS.MEDIUM, borderColor: COLORS.BORDER_DEFAULT, color: COLORS.TEXT_PRIMARY,
-            }}
-          >
-            Email me the desktop link
-          </Button>
-        </Box>
+        <Button
+          fullWidth
+          variant="contained"
+          startIcon={<ExtensionIcon />}
+          onClick={() => navigate('/extension')}
+          sx={{
+            background: GRADIENTS.PRIMARY, textTransform: 'none', fontWeight: 700,
+            py: 1.3, borderRadius: RADIUS.MEDIUM, fontSize: 15.5,
+            boxShadow: SHADOWS.PRIMARY_GLOW, mb: 2.5,
+          }}
+        >
+          Get the free Chrome extension
+        </Button>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, mb: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, mb: 1.5, pt: 2, borderTop: `1px solid ${COLORS.BORDER_LIGHT}` }}>
           <Box sx={{ width: 4, height: 4, borderRadius: '50%', background: COLORS.TEXT_MUTED, flexShrink: 0 }} />
           <Typography sx={{ fontSize: 12, color: COLORS.TEXT_MUTED }}>
-            Your progress saves automatically to your ProfileAI account
+            Your progress saves automatically. Pick up where you left off on any device.
           </Typography>
         </Box>
 
@@ -190,7 +161,7 @@ export default function SwitchToDesktopDialog({ open, action, onContinue }) {
           onClick={onContinue}
           sx={{ textTransform: 'none', fontWeight: 500, fontSize: 12.5, color: COLORS.TEXT_MUTED }}
         >
-          Use a credit and continue here
+          Continue on mobile anyway
         </Button>
       </Box>
     </Drawer>
