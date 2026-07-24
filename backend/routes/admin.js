@@ -3,8 +3,8 @@ const router = express.Router();
 const { Op } = require('sequelize');
 const auth = require('../middleware/auth');
 const admin = require('../middleware/admin');
-const { User, Profile, RecruiterProfile, PromoCode, PromoRedemption, AIUsage, Subscription, Job, Post, ATSBoard, ExternalJob, sequelize } = require('../models');
-const { syncBoard, syncAllBoards, validateBoard } = require('../services/externalJobService');
+const { User, Profile, RecruiterProfile, PromoCode, PromoRedemption, AIUsage, Subscription, Job, Post, ATSBoard, ExternalJob, BlockedCompany, sequelize } = require('../models');
+const { syncBoard, syncAllBoards, validateBoard, enforceActiveBoardCap } = require('../services/externalJobService');
 
 // All routes require auth + admin
 router.use(auth, admin);
@@ -522,6 +522,139 @@ router.post('/ats-boards/sync-all', async (req, res) => {
   } catch (error) {
     console.error('Admin sync all boards error:', error);
     res.status(500).json({ error: 'Failed to sync boards' });
+  }
+});
+
+// @route   POST /api/admin/ats-boards/enforce-cap
+// @desc    Manually run the self-balancing active-board cap sweep (also runs
+//          on its own schedule — see server.js). Retires the weakest
+//          discovery-sourced boards (fewest active jobs, most stale) when the
+//          active-board count is over MAX_ACTIVE_BOARDS. Never touches
+//          hand-curated SEED_BOARDS.
+// @access  Admin
+router.post('/ats-boards/enforce-cap', async (req, res) => {
+  try {
+    const maxBoards = parseInt(req.body?.maxBoards || process.env.MAX_ACTIVE_BOARDS || '750', 10);
+    const result = await enforceActiveBoardCap({ maxBoards, limit: parseInt(req.body?.limit || '100', 10) });
+    res.json(result);
+  } catch (error) {
+    console.error('Admin enforce board cap error:', error);
+    res.status(500).json({ error: 'Failed to enforce board cap' });
+  }
+});
+
+// ─── JOB / COMPANY MODERATION ─────────────────────────────────
+// No automated scam/spam detection exists for the external-jobs corpus —
+// these are the manual levers: delete a single bad listing, or block an
+// entire company so it's purged now and never re-ingested.
+
+// @route   DELETE /api/admin/external-jobs/:id
+// @desc    Remove a single external job listing (e.g. a scam / bad posting).
+//          Soft-delete (isActive=false) rather than a hard DELETE: SavedJob /
+//          ApplyPilotApplication / ExternalApplication rows can reference this
+//          job by FK, and the existing prune sweep (pruneStaleInactiveJobs)
+//          reclaims the row for real after its normal grace period.
+// @access  Admin
+router.delete('/external-jobs/:id', async (req, res) => {
+  try {
+    const job = await ExternalJob.findByPk(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    await job.update({ isActive: false });
+    try { require('../services/simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+    res.json({ message: 'Job removed', id: job.id });
+  } catch (error) {
+    console.error('Admin delete external job error:', error);
+    res.status(500).json({ error: 'Failed to delete job' });
+  }
+});
+
+// @route   GET /api/admin/blocked-companies
+// @desc    List the company moderation blocklist
+// @access  Admin
+router.get('/blocked-companies', async (req, res) => {
+  try {
+    const blocked = await BlockedCompany.findAll({
+      include: [{ model: User, as: 'blocker', attributes: ['id', 'firstName', 'lastName'] }],
+      order: [['createdAt', 'DESC']],
+    });
+    res.json({ blocked });
+  } catch (error) {
+    console.error('Admin list blocked companies error:', error);
+    res.status(500).json({ error: 'Failed to fetch blocked companies' });
+  }
+});
+
+// @route   POST /api/admin/blocked-companies
+// @desc    Block a company by name — purges it NOW (deactivates any matching
+//          ATSBoards + their jobs, plus any ExternalJob rows with that company
+//          name from aggregator sources) and prevents future re-ingestion
+//          (syncBoard checks this list — see externalJobService.isCompanyBlocked).
+//          Case-insensitive; stored lowercased.
+// @access  Admin
+router.post('/blocked-companies', async (req, res) => {
+  try {
+    const { companyName, reason } = req.body;
+    if (!companyName || !companyName.trim()) {
+      return res.status(400).json({ error: 'companyName is required' });
+    }
+    const normalized = companyName.trim().toLowerCase();
+
+    const [blocked, created] = await BlockedCompany.findOrCreate({
+      where: { companyName: normalized },
+      defaults: { companyName: normalized, reason: reason || null, createdBy: req.user.id },
+    });
+    if (!created) {
+      return res.status(409).json({ error: 'Company already blocked', blocked });
+    }
+
+    // Purge immediately: matching boards (their jobs deactivate via the same
+    // path admin board-delete uses) and any aggregator-sourced job rows under
+    // that company name that aren't tied to a board row.
+    const boards = await ATSBoard.findAll({
+      where: sequelize.where(sequelize.fn('lower', sequelize.col('name')), normalized),
+    });
+    for (const board of boards) {
+      await ExternalJob.update(
+        { isActive: false },
+        { where: { source: board.platform, boardToken: board.boardToken } }
+      );
+      await board.update({ isActive: false, syncError: 'Company blocklisted by admin' });
+    }
+    const [jobsPurged] = await ExternalJob.update(
+      { isActive: false },
+      { where: sequelize.where(sequelize.fn('lower', sequelize.col('company')), normalized) }
+    );
+
+    try { require('../services/simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+    res.status(201).json({
+      blocked,
+      message: `Blocked "${companyName}". Deactivated ${boards.length} board(s) and ${jobsPurged} job(s).`,
+    });
+  } catch (error) {
+    console.error('Admin block company error:', error);
+    res.status(500).json({ error: 'Failed to block company' });
+  }
+});
+
+// @route   DELETE /api/admin/blocked-companies/:id
+// @desc    Unblock a company. Does NOT automatically reactivate its previously
+//          purged boards/jobs (avoids silently resurrecting stale data) — use
+//          PUT /api/admin/ats-boards/:id { isActive: true } and re-sync if the
+//          block was a mistake.
+// @access  Admin
+router.delete('/blocked-companies/:id', async (req, res) => {
+  try {
+    const blocked = await BlockedCompany.findByPk(req.params.id);
+    if (!blocked) {
+      return res.status(404).json({ error: 'Blocked company not found' });
+    }
+    await blocked.destroy();
+    res.json({ message: 'Company unblocked (boards/jobs not auto-restored)' });
+  } catch (error) {
+    console.error('Admin unblock company error:', error);
+    res.status(500).json({ error: 'Failed to unblock company' });
   }
 });
 

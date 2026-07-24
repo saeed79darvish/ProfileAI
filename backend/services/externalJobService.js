@@ -1,5 +1,22 @@
 const { Op } = require('sequelize');
-const { ExternalJob, ATSBoard } = require('../models');
+const { ExternalJob, ATSBoard, BlockedCompany } = require('../models');
+
+/**
+ * Admin moderation lever for scam / low-quality companies (see
+ * models/BlockedCompany — no automated scam detection exists, this is the
+ * manual override). Small table, queried fresh each call — board syncs run
+ * at most every ~15min via cron, never in a request hot path, so there's no
+ * need for a cache layer here.
+ */
+async function getBlockedCompanyNames() {
+  const rows = await BlockedCompany.findAll({ attributes: ['companyName'], raw: true });
+  return new Set(rows.map((r) => r.companyName));
+}
+async function isCompanyBlocked(name) {
+  if (!name) return false;
+  const blocked = await getBlockedCompanyNames();
+  return blocked.has(String(name).trim().toLowerCase());
+}
 
 // Lazy-load job embedding service (only when OPENAI_API_KEY is set)
 let jobEmbeddingService = null;
@@ -1290,6 +1307,30 @@ function clampVarchar255Fields(payload) {
  */
 async function syncBoard(atsBoard) {
   const startTime = Date.now();
+
+  // Admin moderation: a single-company board (greenhouse/lever/ashby, where
+  // atsBoard.name IS the company — see the enrichment step below) whose
+  // company was blocklisted stops syncing entirely, instead of fetching and
+  // discarding its jobs every cron pass forever. This is intentionally NOT
+  // treated as a failure (no consecutiveFailures bump / ghost-expiry path —
+  // it's a deliberate admin action, not a broken board) and never touches
+  // discovery: new, non-blocked companies keep flowing in unaffected.
+  // Aggregator platforms (jsearch/adzuna/theirstack/remoteok/wwr) span many
+  // companies per board and can't be checked here — those are filtered
+  // per-job further down instead.
+  if (['greenhouse', 'lever', 'ashby'].includes(atsBoard.platform)) {
+    const blocked = await isCompanyBlocked(atsBoard.name);
+    if (blocked) {
+      console.log(`[ExternalJobs] Skipping blocked board: ${atsBoard.name}`);
+      await atsBoard.update({ isActive: false, syncError: 'Company blocklisted by admin' });
+      const [deactivated] = await ExternalJob.update(
+        { isActive: false, lastFetchedAt: new Date() },
+        { where: { source: atsBoard.platform, boardToken: atsBoard.boardToken, isActive: true } }
+      );
+      return { success: true, skipped: 'blocked', created: 0, updated: 0, deactivated: deactivated || 0, total: 0 };
+    }
+  }
+
   console.log(`[ExternalJobs] Syncing board: ${atsBoard.name} (${atsBoard.platform}/${atsBoard.boardToken})`);
 
   try {
@@ -1332,6 +1373,26 @@ async function syncBoard(atsBoard) {
         ...job,
         company: atsBoard.name
       }));
+    }
+
+    // Admin moderation for aggregator sources: unlike greenhouse/lever/ashby
+    // (checked whole-board above), one aggregator board (jsearch/adzuna/
+    // theirstack/remoteok/wwr) spans many companies, so blocked companies are
+    // stripped per-job here instead. Filtering BEFORE fetchedExternalIds is
+    // computed means any previously-ingested row for a newly-blocked company
+    // naturally falls out of the fetch and gets caught by the normal
+    // "deactivate jobs not in this fetch" step below — no extra cleanup code
+    // needed, and legitimate companies on the same board are untouched.
+    const blockedNames = await getBlockedCompanyNames();
+    if (blockedNames.size > 0) {
+      const beforeCount = normalizedJobs.length;
+      normalizedJobs = normalizedJobs.filter(
+        (j) => !blockedNames.has(String(j.company || '').trim().toLowerCase())
+      );
+      const removed = beforeCount - normalizedJobs.length;
+      if (removed > 0) {
+        console.log(`[ExternalJobs] Filtered ${removed} blocked-company job(s) from ${atsBoard.name}`);
+      }
     }
 
     const fetchedExternalIds = new Set(normalizedJobs.map(j => j.externalId));
@@ -2146,6 +2207,102 @@ async function compactOldJobRows({ days = 7, limit = 500 } = {}) {
 }
 
 /**
+ * Self-balancing cap on total active ATS boards.
+ *
+ * Weekly startup-board discovery (cronWorker.js) crawls ~1,500 Getro VC
+ * networks + the whole YC directory and upserts every board it finds — with
+ * no ceiling. In one pass it took the corpus from 145 boards to 702, each
+ * dropping in its own job list, which is the dominant driver of ongoing DB
+ * growth (far more than any single old job). We do NOT want to throttle or
+ * disable discovery — the whole point is new legitimate companies keep
+ * flowing in — so instead this makes the ACTIVE SET self-balancing: when the
+ * number of active boards exceeds `maxBoards`, retire the weakest ones to
+ * make room, in bounded batches.
+ *
+ * "Weakest" = fewest active jobs (least user value per sync cycle), tie-broken
+ * by staleness (oldest lastSuccessfulSyncAt / never-synced first). Hand-curated
+ * SEED_BOARDS (config/seedBoards.js — Airbnb, Stripe, Datadog, …) are NEVER
+ * retired by this sweep, only discovery-sourced boards, so well-known companies
+ * are never silently dropped to make room for an obscure one.
+ *
+ * Retiring a board deactivates it (isActive=false, so syncAllBoards skips it —
+ * same mechanism the admin DELETE /ats-boards/:id endpoint uses) AND
+ * immediately deactivates its jobs, so the existing prune sweep reclaims the
+ * disk on its normal schedule instead of the jobs sitting live indefinitely.
+ * This is reversible: flipping the board back to isActive=true and re-syncing
+ * would re-populate it, so a wrongly-retired board isn't destroyed, just
+ * paused — an admin can undo via PUT /api/admin/ats-boards/:id.
+ *
+ * Bounded batch + single-flight, mirroring pruneStaleInactiveJobs.
+ *
+ * @param {Object} opts
+ * @param {number} opts.maxBoards - active-board ceiling (default 750)
+ * @param {number} opts.limit     - max boards retired per run (default 25)
+ * @returns {Promise<{retired:number, activeBoards:number, skipped?:string}>}
+ */
+let _boardCapInFlight = false;
+async function enforceActiveBoardCap({ maxBoards = 750, limit = 25 } = {}) {
+  if (_boardCapInFlight) return { retired: 0, activeBoards: 0, skipped: 'in-flight' };
+  _boardCapInFlight = true;
+  try {
+    const activeBoards = await ATSBoard.count({ where: { isActive: true } });
+    const over = activeBoards - maxBoards;
+    if (over <= 0) {
+      return { retired: 0, activeBoards };
+    }
+
+    const { SEED_BOARDS } = require('../config/seedBoards');
+    const seedPlatforms = SEED_BOARDS.map((b) => b.platform);
+    const seedTokens = SEED_BOARDS.map((b) => b.boardToken);
+    const batchLimit = Math.min(over, limit);
+
+    // Pick the weakest non-seed boards: fewest active jobs first, then
+    // staleness. LEFT JOIN so a board with 0 remaining active jobs (e.g. every
+    // posting expired) sorts first — it's contributing nothing.
+    const [candidates] = await ATSBoard.sequelize.query(
+      `SELECT ats.id, ats.name, ats.platform, ats."boardToken",
+              COUNT(ej.id) FILTER (WHERE ej."isActive" = true) AS active_job_count
+         FROM "ATSBoards" ats
+         LEFT JOIN "ExternalJobs" ej
+           ON ej.source::text = ats.platform::text
+          AND ej."boardToken" = ats."boardToken"
+        WHERE ats."isActive" = true
+          AND NOT EXISTS (
+                SELECT 1 FROM unnest($1::text[], $2::text[]) AS s(platform, token)
+                 WHERE s.platform = ats.platform::text AND s.token = ats."boardToken"
+              )
+        GROUP BY ats.id
+        ORDER BY active_job_count ASC, ats."lastSuccessfulSyncAt" ASC NULLS FIRST
+        LIMIT $3`,
+      { bind: [seedPlatforms, seedTokens, batchLimit] }
+    );
+
+    let retired = 0;
+    for (const c of candidates) {
+      await ATSBoard.update(
+        { isActive: false, syncError: 'Auto-retired: over active board cap (weakest by job count)' },
+        { where: { id: c.id } }
+      );
+      await ExternalJob.update(
+        { isActive: false, lastFetchedAt: new Date() },
+        { where: { source: c.platform, boardToken: c.boardToken, isActive: true } }
+      );
+      retired++;
+    }
+
+    if (retired > 0) {
+      console.log(`[ExternalJobs] ⚖️  Board cap: retired ${retired} weakest board(s) (${activeBoards} active > cap ${maxBoards})`);
+      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
+    }
+
+    return { retired, activeBoards };
+  } finally {
+    _boardCapInFlight = false;
+  }
+}
+
+/**
  * Deactivate aggregator jobs that duplicate a direct-ATS listing.
  *
  * The same role often arrives twice: once from the company's own ATS board
@@ -2236,6 +2393,9 @@ module.exports = {
   pruneStaleInactiveJobs,
   compactOldJobRows,
   deactivateAggregatorDuplicates,
+  enforceActiveBoardCap,
+  isCompanyBlocked,
+  getBlockedCompanyNames,
   validateBoard,
   STALE_THRESHOLD_MINUTES
 };

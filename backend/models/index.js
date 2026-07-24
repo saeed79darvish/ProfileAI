@@ -46,6 +46,7 @@ const ExternalApplication = require('./ExternalApplication');
 const ExternalJob = require('./ExternalJob');
 const ATSBoard = require('./ATSBoard');
 const Company = require('./Company');
+const BlockedCompany = require('./BlockedCompany');
 
 // Recruiter ATS Integrations (Greenhouse Harvest)
 const RecruiterATSIntegration = require('./RecruiterATSIntegration');
@@ -966,6 +967,11 @@ ATSBoard.belongsTo(User, {
   as: 'creator'
 });
 
+BlockedCompany.belongsTo(User, {
+  foreignKey: 'createdBy',
+  as: 'blocker'
+});
+
 // Recruiter ATS Integration associations
 User.hasMany(RecruiterATSIntegration, {
   foreignKey: 'userId',
@@ -1068,6 +1074,7 @@ module.exports = {
   ExternalJob,
   ATSBoard,
   Company,
+  BlockedCompany,
   // Recruiter ATS Integrations
   RecruiterATSIntegration,
   // ApplyPilot

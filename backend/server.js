@@ -525,6 +525,16 @@ const startServer = async () => {
       console.warn('⚠️  ExternalApplications job-link ensure skipped:', err.message);
     }
 
+    // BlockedCompanies — the manual moderation lever for scam/low-quality job
+    // postings (no automated scam detection exists). syncBoard checks this
+    // table before ingesting, so it must be awaited before any board sync runs.
+    try {
+      const { up: addBlockedCompaniesTable } = require('./scripts/migrations/addBlockedCompaniesTable');
+      await addBlockedCompaniesTable();
+    } catch (err) {
+      console.warn('⚠️  BlockedCompanies table ensure skipped:', err.message);
+    }
+
     // Ensure the ExternalJobs performance schema (HNSW vector index, recency
     // composite index, searchTsv + GIN, skills/filter/trigram indexes) exists.
     // These were previously only created by manual migration scripts run on
@@ -808,6 +818,32 @@ const startServer = async () => {
         console.log(`[JobDedupe] ✓ enabled (batch=${dedupeBatch}, every ${Math.round(dedupeIntervalMs / 1000)}s)`);
       } else {
         console.log('[JobDedupe] disabled');
+      }
+
+      // Self-balancing active-board cap. Weekly startup-board discovery
+      // (cronWorker.js) has no ceiling and is the dominant driver of ongoing
+      // DB growth — one discovery pass took the corpus from 145 to 702 boards.
+      // Rather than throttle discovery (new legitimate companies should keep
+      // flowing in), this retires the weakest EXISTING discovery-sourced
+      // boards (fewest active jobs, most stale) whenever the active-board
+      // count exceeds MAX_ACTIVE_BOARDS, making room. Hand-curated SEED_BOARDS
+      // are never touched. Reversible via PUT /api/admin/ats-boards/:id.
+      // Bounded + single-flight; disable with ENABLE_BOARD_CAP=false.
+      if (process.env.ENABLE_BOARD_CAP !== 'false') {
+        const { enforceActiveBoardCap } = require('./services/externalJobService');
+        const maxBoards = parseInt(process.env.MAX_ACTIVE_BOARDS || '750', 10);
+        const boardCapBatch = parseInt(process.env.BOARD_CAP_BATCH || '25', 10);
+        const boardCapIntervalMs = parseInt(process.env.BOARD_CAP_INTERVAL_MS || '1800000', 10);
+        const boardCapTick = () => enforceActiveBoardCap({ maxBoards, limit: boardCapBatch })
+          .then(r => {
+            if (r.retired) console.log(`[BoardCap] retired ${r.retired} weakest board(s) (${r.activeBoards} active > cap ${maxBoards})`);
+          })
+          .catch(err => console.warn('[BoardCap] error:', err.message));
+        setTimeout(boardCapTick, 180000);
+        setInterval(boardCapTick, boardCapIntervalMs);
+        console.log(`[BoardCap] ✓ enabled (max=${maxBoards}, batch=${boardCapBatch}, every ${Math.round(boardCapIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[BoardCap] disabled');
       }
 
       // Scheduled stale-board refresh rotation. OPT-IN, DEFAULT OFF.
