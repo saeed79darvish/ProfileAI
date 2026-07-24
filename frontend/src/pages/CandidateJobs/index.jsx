@@ -1122,29 +1122,34 @@ const CandidateJobs = () => {
   const externalJobIdParam = searchParams.get('externalJobId');
   useEffect(() => {
     if (!externalJobIdParam) return;
-    // When the deep link asks to tailor straight away (e.g. from the daily
-    // job-match digest email: /jobs?externalJobId=…&tailor=1), capture the
-    // flag now so we can fire the tailor action once the job is selected and
-    // the InlineJobAITools panel has mounted.
+    // When the deep link asks to tailor/write-a-cover-letter straight away
+    // (e.g. from the daily job-match digest email, or the "email me this
+    // link" CTA on the mobile desktop-nudge dialog: /jobs?externalJobId=…
+    // &tailor=1 or &coverletter=1), capture the flag now so we can fire the
+    // action once the job is selected and the InlineJobAITools panel has
+    // mounted.
     const wantTailor = searchParams.get('tailor') === '1';
+    const wantCoverLetter = searchParams.get('coverletter') === '1';
     externalJobAPI.getById(externalJobIdParam).then(response => {
       const job = { ...response.data, _isExternal: true };
       pinnedJobRef.current = job;
       setSelectedJob(job);
       setActiveTab('external');
       setExternalJobs(prev => [job, ...prev.filter(j => j.id !== job.id)]);
-      if (wantTailor) {
+      if (wantTailor || wantCoverLetter) {
         // Give InlineJobAITools time to mount with the selected job before
         // dispatching — mirrors the 500ms delay used by the match dialog's
         // "Tailor Resume" button above.
         setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: job.id } }));
+          const eventName = wantTailor ? 'trigger-tailor-resume' : 'trigger-cover-letter';
+          window.dispatchEvent(new CustomEvent(eventName, { detail: { jobId: job.id } }));
         }, 600);
       }
     }).catch(() => {});
     const newParams = new URLSearchParams(searchParams);
     newParams.delete('externalJobId');
     newParams.delete('tailor');
+    newParams.delete('coverletter');
     setSearchParams(newParams, { replace: true });
   }, [externalJobIdParam]);
 
@@ -3413,7 +3418,7 @@ const CandidateJobs = () => {
           {/* Hidden InlineJobAITools (needed for tailor/cover letter actions) */}
           {isAuthenticated && selectedJob?._isExternal && (
             <div style={{ display: 'none' }}>
-              <InlineJobAITools job={selectedJob} />
+              <InlineJobAITools job={selectedJob} renderMobileGateUI />
             </div>
           )}
         </MobileJobContent>

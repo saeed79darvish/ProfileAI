@@ -31,6 +31,8 @@ import TailoringProgressModal from './TailoringProgressModal';
 import TailoredResultsModal from './TailoredResultsModal';
 import ResumePreviewModal from './ResumePreviewModal';
 import AlreadyTailoredModal from './AlreadyTailoredModal';
+import SwitchToDesktopDialog, { isDesktopNudgeDismissed, dismissDesktopNudgeForever } from './SwitchToDesktopDialog';
+import { isMobileDevice } from '../hooks/useIsMobileDevice';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(8px); }
@@ -493,7 +495,7 @@ function MatchBillboard() {
  * Inline AI Tools that render directly inside the CandidateJobs page
  * replacing the old navigate-to-profile buttons.
  */
-export default function InlineJobAITools({ job }) {
+export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const { user } = useAuth();
   const toast = useToast();
   const [profile, setProfile] = useState(null);
@@ -540,6 +542,10 @@ export default function InlineJobAITools({ job }) {
   const [showAlreadyTailored, setShowAlreadyTailored] = useState(false);
   const [existingTailoredId, setExistingTailoredId] = useState(null);
 
+  // "Better on desktop" nudge shown once to mobile users before tailor/cover letter runs
+  const [showDesktopNudge, setShowDesktopNudge] = useState(false);
+  const [pendingMobileAction, setPendingMobileAction] = useState(null); // 'tailor' | 'coverLetter'
+
   // Fetch profile once
   useEffect(() => {
     if (!user || (user.role !== 'candidate' && user.role !== 'admin')) { setProfileLoaded(true); return; }
@@ -557,12 +563,21 @@ export default function InlineJobAITools({ job }) {
     setTailoredProfile(null);
     setCoverLetter('');
     setTailorSaved(false);
+    setShowDesktopNudge(false);
+    setPendingMobileAction(null);
   }, [job?.id]);
 
-  // Listen for external tailor trigger (e.g. from match dialog)
+  // Listen for external tailor trigger (e.g. from match dialog). On a real
+  // mobile device, the first trigger is intercepted with a one-time "this
+  // works better on desktop" nudge instead of opening the tailor flow.
   useEffect(() => {
     const handler = (e) => {
       if (job && e.detail?.jobId === job.id) {
+        if (isMobileDevice() && !isDesktopNudgeDismissed()) {
+          setPendingMobileAction('tailor');
+          setShowDesktopNudge(true);
+          return;
+        }
         handleTailorRef.current();
       }
     };
@@ -570,16 +585,30 @@ export default function InlineJobAITools({ job }) {
     return () => window.removeEventListener('trigger-tailor-resume', handler);
   }, [job]);
 
-  // Listen for external cover letter trigger
+  // Listen for external cover letter trigger — same mobile-nudge gate as tailor.
   useEffect(() => {
     const handler = (e) => {
       if (job && e.detail?.jobId === job.id) {
+        if (isMobileDevice() && !isDesktopNudgeDismissed()) {
+          setPendingMobileAction('coverLetter');
+          setShowDesktopNudge(true);
+          return;
+        }
         handleCoverLetter();
       }
     };
     window.addEventListener('trigger-cover-letter', handler);
     return () => window.removeEventListener('trigger-cover-letter', handler);
   }, [job]);
+
+  const handleDesktopNudgeContinue = () => {
+    dismissDesktopNudgeForever();
+    setShowDesktopNudge(false);
+    const action = pendingMobileAction;
+    setPendingMobileAction(null);
+    if (action === 'tailor') handleTailorRef.current();
+    else if (action === 'coverLetter') handleCoverLetter();
+  };
 
   const getJobDescription = useCallback(() => {
     if (!job) return '';
@@ -1052,6 +1081,16 @@ export default function InlineJobAITools({ job }) {
         jobTitle={job?.title}
         company={job?.company}
       />
+
+      {renderMobileGateUI && (
+        <SwitchToDesktopDialog
+          open={showDesktopNudge}
+          action={pendingMobileAction}
+          jobId={job?.id}
+          jobTitle={job?.title}
+          onContinue={handleDesktopNudgeContinue}
+        />
+      )}
     </>
   );
 }
