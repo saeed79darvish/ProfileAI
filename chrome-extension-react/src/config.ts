@@ -32,7 +32,7 @@ export const CONFIG = {
   // left blank until a client is provisioned; the panel hides LinkedIn when it
   // is empty. The backend must also have matching LINKEDIN_CLIENT_ID/SECRET.
   GOOGLE_CLIENT_ID: '188305923693-rsil9buaanu4e77eur9tahfivp23lobq.apps.googleusercontent.com',
-  LINKEDIN_CLIENT_ID: '',
+  LINKEDIN_CLIENT_ID: '86c2fpodeq02v3',
   LINKEDIN_SCOPE: 'openid profile email',
 
   // Feature flags
