@@ -2089,6 +2089,17 @@ async function fetchProfile(): Promise<FullProfile | null> {
       // Expired/invalid token: clear auth so the panel shows the signed-out
       // state instead of repeatedly throwing a generic "Failed to fetch" error.
       if (response.status === 401 || response.status === 403) {
+        // Don't tear down the session while a panel-initiated sign-in is still
+        // being finished. handleLogin() calls fetchProfile() right after
+        // setting a brand-new token; a 401 racing in right behind it is a
+        // concurrent-check artifact, not a genuinely invalid token — and
+        // handleLogout() clears pendingLogin as a side effect, which was
+        // silently cancelling the tab-close/refocus/panel-open redirect and
+        // stranding the user on the web app's success page.
+        if (await getPendingLogin()) {
+          console.warn('[ProfileAI] Profile fetch unauthorized during pending sign-in — leaving session intact');
+          return null;
+        }
         console.warn('[ProfileAI] Profile fetch unauthorized — clearing stale session');
         await handleLogout();
         return null;
