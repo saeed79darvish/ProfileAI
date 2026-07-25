@@ -5,6 +5,15 @@ const auth = require('../middleware/auth');
 const paymentService = require('../services/paymentService');
 const { getUsageSummary } = require('../middleware/aiRateLimiter');
 
+// Valid paid plan types, derived from the model so this can never drift out of
+// sync again (the old hardcoded ['pro','enterprise'] list rejected 'pro_plus'
+// after the model added it). Every plan key across roles except 'free'.
+const PAID_PLAN_TYPES = new Set(
+  Object.values(Subscription.PLANS)
+    .flatMap((rolePlans) => Object.keys(rolePlans))
+    .filter((key) => key !== 'free')
+);
+
 // Get subscription plans
 router.get('/plans', (req, res) => {
   const { role } = req.query;
@@ -53,8 +62,10 @@ router.post('/create-checkout-session', auth, async (req, res) => {
       return res.status(400).json({ error: 'Plan type is required' });
     }
 
-    if (!['pro', 'enterprise'].includes(planType)) {
-      return res.status(400).json({ error: `Invalid plan type: ${planType}. Must be 'pro' or 'enterprise'` });
+    if (!PAID_PLAN_TYPES.has(planType)) {
+      return res.status(400).json({
+        error: `Invalid plan type: ${planType}. Must be one of: ${[...PAID_PLAN_TYPES].join(', ')}`
+      });
     }
 
     // 'apple_pay' is a UI hint that maps to the same Stripe Checkout flow
