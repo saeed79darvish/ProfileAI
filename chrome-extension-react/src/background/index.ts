@@ -992,8 +992,24 @@ async function syncAuthFromWebApp(): Promise<boolean> {
     );
     
     console.log(`[ProfileAI] Found ${webAppTabs.length} potential web app tabs`);
-    
-    for (const tab of webAppTabs) {
+
+    // During a panel-initiated sign-in, ONLY trust the exact tab we opened for
+    // that login. Otherwise an unrelated profilleai.com tab that happens to be
+    // logged in as a DIFFERENT account (e.g. an admin dashboard tab) can be
+    // scanned first and its token synced — which is exactly how the panel ended
+    // up showing the wrong user. The login tab keeps its localStorage token
+    // across the login → /extension-auth-success navigation (same origin), so
+    // scoping to it is both correct and sufficient.
+    let tabsToCheck = webAppTabs;
+    if (pending?.loginTabId != null) {
+      const loginTabOnly = webAppTabs.filter(t => t.id === pending.loginTabId);
+      if (loginTabOnly.length > 0) {
+        tabsToCheck = loginTabOnly;
+        console.log(`[ProfileAI] Pending login — restricting auth sync to login tab ${pending.loginTabId}`);
+      }
+    }
+
+    for (const tab of tabsToCheck) {
       if (!tab.id) continue;
       
       try {
