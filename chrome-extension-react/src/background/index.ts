@@ -2074,9 +2074,25 @@ async function autofillSuggestBatch(payload: {
 }
 
 // Profile functions
+// Multiple message handlers (CHECK_AUTH_SILENT, SYNC_AUTH_FROM_WEB, LOGIN) can
+// fire within milliseconds of each other around a sign-in, each independently
+// calling fetchProfile(). Sharing one in-flight request avoids stampeding the
+// backend with concurrent calls that raced observably in production and made
+// the pending-login race above harder to reason about.
+let fetchProfileInFlight: Promise<FullProfile | null> | null = null;
+
 async function fetchProfile(): Promise<FullProfile | null> {
   if (!authToken) return null;
+  if (fetchProfileInFlight) return fetchProfileInFlight;
+  fetchProfileInFlight = fetchProfileImpl();
+  try {
+    return await fetchProfileInFlight;
+  } finally {
+    fetchProfileInFlight = null;
+  }
+}
 
+async function fetchProfileImpl(): Promise<FullProfile | null> {
   try {
     const response = await fetch(`${CONFIG.API_BASE}/profiles/me`, {
       headers: {
