@@ -33,8 +33,11 @@ import {
   PricePeriod,
   BilledText,
   PlanButton,
+  FeaturesHeader,
   FeaturesList,
   FeatureItem,
+  TrustBadges,
+  TrustBadge,
   CompareSection,
   PromoButton,
   SectionTitle,
@@ -100,7 +103,7 @@ const PlanTabsMobile = styled.div`
 const PlanTabMobile = styled.button`
   flex: 1;
   position: relative;
-  padding: 10px 12px;
+  padding: 8px 12px 10px;
   border: none;
   border-radius: 9px;
   background: ${(p) => (p.$active ? '#fff' : 'transparent')};
@@ -112,6 +115,14 @@ const PlanTabMobile = styled.button`
   transition: all 0.15s ease;
   box-shadow: ${(p) => (p.$active ? '0 1px 3px rgba(15, 23, 42, 0.10)' : 'none')};
   &:hover { color: #0f172a; }
+`;
+
+const PlanTabPrice = styled.span`
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: ${(p) => (p.$active ? '#7c3aed' : '#94a3b8')};
 `;
 
 const PlanTabDot = styled.span`
@@ -157,7 +168,7 @@ const Pricing = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const [billingCycle, setBillingCycle] = useState('monthly');
+  const [billingCycle, setBillingCycle] = useState('yearly');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [snackbar, setSnackbar] = useState({ show: false, message: '', type: 'info' });
@@ -196,6 +207,7 @@ const Pricing = () => {
       description: 'Try it out, no card required',
       popular: false,
       buttonText: 'Get started',
+      featuresHeader: 'Includes',
       features: [
         '3 Resume Tailorings (lifetime trial)',
         '1 Resume Parse / month',
@@ -213,6 +225,7 @@ const Pricing = () => {
       description: 'For active job seekers',
       popular: true,
       buttonText: 'Upgrade to Pro',
+      featuresHeader: 'Everything in Free, plus',
       features: [
         '50 Resume Tailorings / month',
         '30 AI Cover Letters / month',
@@ -231,8 +244,8 @@ const Pricing = () => {
       description: 'Hands-off auto-apply',
       popular: false,
       buttonText: 'Upgrade to Pro+',
+      featuresHeader: 'Everything in Pro, plus',
       features: [
-        'Everything in Pro, plus:',
         'ApplyPilot Auto-Apply (30/week)',
         '200 Resume Tailorings / month',
         '200 AI Cover Letters / month',
@@ -364,6 +377,7 @@ const Pricing = () => {
               >
                 {p.name}
                 {p.popular && <PlanTabDot />}
+                <PlanTabPrice $active={activePlanTab === p.type}>${getPrice(p, billingCycle)}</PlanTabPrice>
               </PlanTabMobile>
             ))}
           </PlanTabsMobile>
@@ -413,6 +427,9 @@ const Pricing = () => {
                 </PlanButton>
               )}
 
+              {plan.featuresHeader && (
+                <FeaturesHeader $popular={plan.popular}>{plan.featuresHeader}</FeaturesHeader>
+              )}
               <FeaturesList>
                 {plan.features.map((feature, idx) => (
                   <FeatureItem key={idx} $popular={plan.popular}>
@@ -424,6 +441,12 @@ const Pricing = () => {
             </PlanCard>
           ))}
         </PlansGrid>
+
+        <TrustBadges>
+          <TrustBadge><CheckIcon /> Cancel anytime</TrustBadge>
+          <TrustBadge><CheckIcon /> Credits never expire</TrustBadge>
+          <TrustBadge><CheckIcon /> Secure checkout</TrustBadge>
+        </TrustBadges>
       </PlansSection>
 
       {/* Application Credit Packs — only sell tailor + cover letter bundles.

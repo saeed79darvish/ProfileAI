@@ -143,6 +143,38 @@ export const PlansGrid = styled.div`
   }
 `;
 
+export const TrustBadges = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 28px;
+  margin-top: 36px;
+
+  @media (max-width: 640px) {
+    gap: 6px 20px;
+    margin-top: 24px;
+  }
+`;
+
+export const TrustBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: ${COLORS.TEXT_SECONDARY};
+
+  svg {
+    font-size: 16px;
+    color: ${COLORS.SUCCESS};
+  }
+
+  @media (max-width: 640px) {
+    font-size: 12px;
+  }
+`;
+
 export const PlanCard = styled.div`
   background: ${props => props.$popular ? COLORS.TEXT_PRIMARY : COLORS.BG_WHITE};
   color: ${props => props.$popular ? COLORS.BG_WHITE : COLORS.TEXT_PRIMARY};
@@ -290,6 +322,15 @@ export const PlanButton = styled.button`
     opacity: 0.55;
     cursor: not-allowed;
   }
+`;
+
+export const FeaturesHeader = styled.p`
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: ${props => props.$popular ? 'rgba(255,255,255,0.55)' : COLORS.TEXT_SECONDARY};
+  margin: 4px 0 4px;
 `;
 
 export const FeaturesList = styled.ul`
