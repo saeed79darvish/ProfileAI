@@ -186,11 +186,20 @@ async function handleMessage(
         });
         break;
 
-      case 'LOGIN':
+      case 'LOGIN': {
         const loginData = message.data as { token: string; user: User };
         await handleLogin(loginData.token, loginData.user);
+        // If this login landed while a panel-initiated web sign-in/sign-up
+        // was pending, finish it now instead of waiting on the side panel's
+        // next poll — the panel may not even be open to poll (e.g. it closed
+        // while the user was on the web tab), which otherwise left the user
+        // stranded on the web app's generic success page.
+        if (await getPendingLogin()) {
+          await finishExtensionLoginRedirect();
+        }
         sendResponse({ success: true });
         break;
+      }
 
       case 'LOGIN_WITH_CREDENTIALS': {
         const creds = message.data as { email: string; password: string };
