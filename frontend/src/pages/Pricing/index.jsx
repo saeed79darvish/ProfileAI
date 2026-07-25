@@ -193,9 +193,9 @@ const Pricing = () => {
       type: 'free',
       icon: <BoltIcon />,
       price: { monthly: 0, yearly: 0 },
-      description: 'Try every feature, no card needed',
+      description: 'Try it out, no card required',
       popular: false,
-      buttonText: 'Get Started Free',
+      buttonText: 'Get started',
       features: [
         '3 Resume Tailorings (lifetime trial)',
         '1 Resume Parse / month',
@@ -228,7 +228,7 @@ const Pricing = () => {
       type: 'pro_plus',
       icon: <AutoAwesomeIcon />,
       price: { monthly: 29.99, yearly: 239.00 },
-      description: 'Hands-off auto-apply with ApplyPilot',
+      description: 'Hands-off auto-apply',
       popular: false,
       buttonText: 'Upgrade to Pro+',
       features: [
@@ -320,10 +320,6 @@ const Pricing = () => {
         keywords="ProfilleAI pricing, AI resume builder cost, ApplyPilot pricing, AI career copilot subscription"
       />
       <ScrollToTop />
-      <PromoButton onClick={() => setPromoModalOpen(true)}>
-        <span className="icon"><GiftIcon /></span>
-        Have a Promo Code?
-      </PromoButton>
 
       {/* Header */}
       <Header>
@@ -393,7 +389,7 @@ const Pricing = () => {
               </PriceRow>
               <BilledText $popular={plan.popular}>
                 {plan.type === 'free'
-                  ? 'Free forever'
+                  ? 'Forever free'
                   : billingCycle === 'monthly'
                     ? 'Billed monthly'
                     : `Billed $${plan.price.yearly} annually`}
@@ -408,7 +404,7 @@ const Pricing = () => {
                   onClick={() => handleSubscribe(plan)}
                   disabled={user?.subscriptionTier === plan.type}
                 >
-                  {user?.subscriptionTier === plan.type ? 'Current Plan' : plan.buttonText}
+                  {user?.subscriptionTier === plan.type ? 'Current plan' : plan.buttonText}
                 </PlanButton>
               )}
               {plan.type === 'free' && user && (
@@ -446,10 +442,7 @@ const Pricing = () => {
             </DisclosureToggle>
             {creditPacksOpenMobile && (
               <>
-                <CreditPacksSubtitle>
-                  {TEXT.CREDIT_PACKS_SUBTITLE.split('Credits never expire')[0]}
-                  <strong>Credits never expire.</strong>
-                </CreditPacksSubtitle>
+                <CreditPacksSubtitle>{TEXT.CREDIT_PACKS_SUBTITLE}</CreditPacksSubtitle>
                 <CreditPacksGrid>
                   {CREDIT_PACKS.map((pack) => (
                     <CreditPackCard key={pack.id} $popular={pack.popular} onClick={() => handleBuyPack(pack.id)}>
@@ -470,10 +463,7 @@ const Pricing = () => {
         ) : (
           <>
             <SectionTitle>{TEXT.CREDIT_PACKS_TITLE}</SectionTitle>
-            <CreditPacksSubtitle>
-              {TEXT.CREDIT_PACKS_SUBTITLE.split('Credits never expire')[0]}
-              <strong>Credits never expire.</strong>
-            </CreditPacksSubtitle>
+            <CreditPacksSubtitle>{TEXT.CREDIT_PACKS_SUBTITLE}</CreditPacksSubtitle>
             <CreditPacksGrid>
               {CREDIT_PACKS.map((pack) => (
                 <CreditPackCard key={pack.id} $popular={pack.popular} onClick={() => handleBuyPack(pack.id)}>
@@ -492,22 +482,18 @@ const Pricing = () => {
         )}
       </CreditPacksSection>
 
-      {/* Compare Features. On mobile, hidden behind a disclosure to keep
-          the page short — most users decide from the plan card alone. */}
+      {/* Compare Features — collapsed behind a disclosure on both mobile and
+          desktop; most users decide from the plan card alone. */}
       <CompareSection>
-        {isMobile ? (
-          <DisclosureToggle
-            type="button"
-            onClick={() => setCompareOpenMobile(v => !v)}
-            aria-expanded={compareOpenMobile}
-          >
-            <span>{compareOpenMobile ? 'Hide' : 'Show'} full plan comparison</span>
-            <DisclosureChevron $open={compareOpenMobile} aria-hidden="true">▾</DisclosureChevron>
-          </DisclosureToggle>
-        ) : (
-          <SectionTitle>{TEXT.COMPARE_TITLE}</SectionTitle>
-        )}
-        {(!isMobile || compareOpenMobile) && (
+        <DisclosureToggle
+          type="button"
+          onClick={() => setCompareOpenMobile(v => !v)}
+          aria-expanded={compareOpenMobile}
+        >
+          <span>{TEXT.COMPARE_TITLE}</span>
+          <DisclosureChevron $open={compareOpenMobile} aria-hidden="true">▾</DisclosureChevron>
+        </DisclosureToggle>
+        {compareOpenMobile && (
         <CompareTable>
           <TableHeader>
             <TableHeaderCell>{TEXT.COL_FEATURES}</TableHeaderCell>
@@ -530,8 +516,8 @@ const Pricing = () => {
 
       {/* FAQ */}
       <FAQSection>
-        <SectionTitle>Frequently Asked Questions</SectionTitle>
-        
+        <SectionTitle>{TEXT.FAQ_TITLE}</SectionTitle>
+
         {FAQS.map((faq, index) => (
           <FAQItem key={index}>
             <FAQQuestion 
@@ -550,17 +536,22 @@ const Pricing = () => {
 
       {/* CTA */}
       <CTASection>
-        <CTATitle>Ready to supercharge your job search?</CTATitle>
-        <CTASubtitle>Start free, upgrade anytime. No credit card required.</CTASubtitle>
+        <CTATitle>{TEXT.CTA_TITLE}</CTATitle>
+        <CTASubtitle>{TEXT.CTA_SUBTITLE}</CTASubtitle>
         <CTAButtons>
           <CTAButton $primary onClick={() => navigate('/register')}>
-            Get Started Free
+            {TEXT.CTA_FREE}
           </CTAButton>
-          <CTAButton onClick={() => window.location.href = 'mailto:support@profileai.com'}>
-            Contact Support
+          <CTAButton onClick={() => window.location.href = `mailto:${TEXT.CONTACT_EMAIL}`}>
+            {TEXT.CTA_SUPPORT}
           </CTAButton>
         </CTAButtons>
       </CTASection>
+
+      <PromoButton onClick={() => setPromoModalOpen(true)}>
+        <span className="icon"><GiftIcon /></span>
+        {TEXT.PROMO_BUTTON}
+      </PromoButton>
 
       {/* Payment Method Selector */}
       {selectedPlan && (

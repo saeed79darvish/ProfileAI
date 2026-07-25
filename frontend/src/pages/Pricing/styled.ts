@@ -22,16 +22,19 @@ export const SpecialBadge = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: ${GRADIENTS.PRIMARY};
-  color: ${COLORS.TEXT_WHITE};
+  background: rgba(102, 126, 234, 0.12);
+  color: ${COLORS.SECONDARY};
   padding: 8px 16px;
   border-radius: 50px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   margin-bottom: 24px;
 
   svg {
     font-size: 16px;
+    color: ${COLORS.PRIMARY};
   }
 
   @media (max-width: 640px) {
@@ -318,62 +321,40 @@ export const CompareSection = styled.section`
   padding: 60px 20px;
 `;
 
-// Promo Section
+// Promo link — a quiet text link below the closing CTA, not a floating badge
+// (the old absolute-positioned version overlapped the nav bar on mobile).
 export const PromoButton = styled.button`
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  z-index: 10;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #f8f0ff 0%, #fff0f5 100%);
-  border: 1px solid #e8d5f5;
-  border-radius: 50px;
+  justify-content: center;
+  gap: 6px;
+  margin: 28px auto 0;
+  padding: 8px 12px;
+  background: none;
+  border: none;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
   color: ${COLORS.SECONDARY};
-  transition: all 0.2s;
-  
+  transition: opacity 0.2s;
+
   .icon {
-    width: 28px;
-    height: 28px;
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    
+
     svg {
-      color: ${COLORS.TEXT_WHITE};
-      font-size: 16px;
+      font-size: 18px;
     }
   }
-  
+
   &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(240, 147, 251, 0.25);
-    border-color: #d8b4fe;
+    opacity: 0.75;
   }
 
-  @media (max-width: 768px) {
-    /* Mobile: pin flush to the top of the header (no floating gap) so
-       it reads as part of the page, not an orphaned banner. */
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    margin: 0;
-    font-size: 12px;
-    padding: 6px 12px;
-
-    .icon {
-      width: 22px;
-      height: 22px;
-
-      svg { font-size: 13px; }
-    }
+  @media (max-width: 640px) {
+    font-size: 13px;
+    margin-top: 20px;
   }
 `;
 
