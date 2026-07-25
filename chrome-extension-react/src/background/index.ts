@@ -915,18 +915,34 @@ async function handleMessage(
 async function finishExtensionLoginRedirect(): Promise<void> {
   const pending = await getPendingLogin();
   await clearPendingLogin();
-  if (!pending) return;
+  if (!pending) {
+    console.log('[ProfileAI] finishExtensionLoginRedirect: no pending login, nothing to do');
+    return;
+  }
+  console.log('[ProfileAI] finishExtensionLoginRedirect: returning to job tab', {
+    closeLoginTab: pending.loginTabId,
+    focusJobTab: pending.originTabId,
+    focusWindow: pending.originWindowId,
+  });
   try {
     if (pending.loginTabId != null) {
-      try { await chrome.tabs.remove(pending.loginTabId); } catch (_) {}
+      try { await chrome.tabs.remove(pending.loginTabId); } catch (e) {
+        console.log('[ProfileAI] finishExtensionLoginRedirect: could not close login tab', e);
+      }
     }
     if (pending.originTabId != null) {
-      try { await chrome.tabs.update(pending.originTabId, { active: true }); } catch (_) {}
+      try { await chrome.tabs.update(pending.originTabId, { active: true }); } catch (e) {
+        console.log('[ProfileAI] finishExtensionLoginRedirect: could not focus job tab', e);
+      }
     }
     if (pending.originWindowId != null) {
       try { await chrome.windows.update(pending.originWindowId, { focused: true }); } catch (_) {}
+      // Side panel is per-window and normally already open through the flow; a
+      // best-effort reopen. This one can legitimately throw when there's no
+      // active user gesture — that's fine, the tab focus above is what matters.
       try { await chrome.sidePanel.open({ windowId: pending.originWindowId }); } catch (_) {}
     }
+    console.log('[ProfileAI] finishExtensionLoginRedirect: done');
   } catch (_) {
     /* best-effort — never block the auth flow on tab housekeeping */
   }
