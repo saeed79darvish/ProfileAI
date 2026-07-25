@@ -2093,6 +2093,7 @@ async function fetchProfile(): Promise<FullProfile | null> {
 }
 
 async function fetchProfileImpl(): Promise<FullProfile | null> {
+  const tokenFingerprint = authToken ? `${authToken.slice(0, 12)}…(len ${authToken.length})` : 'null';
   try {
     const response = await fetch(`${CONFIG.API_BASE}/profiles/me`, {
       headers: {
@@ -2105,6 +2106,16 @@ async function fetchProfileImpl(): Promise<FullProfile | null> {
       // Expired/invalid token: clear auth so the panel shows the signed-out
       // state instead of repeatedly throwing a generic "Failed to fetch" error.
       if (response.status === 401 || response.status === 403) {
+        // DIAGNOSTIC: log exactly what the backend said and which token we
+        // sent, so a future occurrence of this is provable instead of guessed.
+        let body = '';
+        try { body = await response.clone().text(); } catch (_) {}
+        console.warn('[ProfileAI] /profiles/me rejected:', {
+          status: response.status,
+          body,
+          apiBase: CONFIG.API_BASE,
+          tokenFingerprint,
+        });
         // Don't tear down the session while a panel-initiated sign-in is still
         // being finished. handleLogin() calls fetchProfile() right after
         // setting a brand-new token; a 401 racing in right behind it is a
