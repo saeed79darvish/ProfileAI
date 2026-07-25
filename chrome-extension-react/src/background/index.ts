@@ -2124,7 +2124,51 @@ async function fetchProfile(): Promise<FullProfile | null> {
   }
 }
 
-async function fetchProfileImpl(): Promise<FullProfile | null> {
+// Force-read the current token straight from an open web app tab, ignoring the
+// cached authToken. Used to self-heal when the cached token is stale: the web
+// app's localStorage holds the user's CURRENT valid token, so on a 401 we can
+// adopt it and retry instead of getting permanently stuck on a dead token.
+// Sets auth state directly (no fetchProfile) to avoid recursing back here.
+async function adoptFresherTokenFromWebApp(deadToken: string | null): Promise<boolean> {
+  try {
+    const allTabs = await chrome.tabs.query({});
+    const webAppTabs = allTabs.filter(tab =>
+      tab.url && (
+        tab.url.includes('localhost:3000') ||
+        tab.url.includes('profilleai.com') ||
+        tab.url.includes('127.0.0.1:3000')
+      )
+    );
+    for (const tab of webAppTabs) {
+      if (!tab.id) continue;
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            try {
+              const token = localStorage.getItem('token');
+              const userStr = localStorage.getItem('user');
+              return { token, user: userStr ? JSON.parse(userStr) : null };
+            } catch { return { token: null, user: null }; }
+          },
+        });
+        const r = results[0]?.result as { token: string | null; user: User | null } | undefined;
+        if (r?.token && r?.user && r.token !== deadToken) {
+          authToken = r.token;
+          currentUser = r.user;
+          cachedProfile = null;
+          await chrome.storage.local.remove(['profile', 'extSignedOut']);
+          await chrome.storage.local.set({ authToken: r.token, user: r.user });
+          console.log('[ProfileAI] Adopted a fresher token from web app tab after 401');
+          return true;
+        }
+      } catch (_) { /* tab not scriptable (chrome:// etc.) */ }
+    }
+  } catch (_) { /* ignore */ }
+  return false;
+}
+
+async function fetchProfileImpl(retryOn401 = true): Promise<FullProfile | null> {
   const tokenFingerprint = authToken ? `${authToken.slice(0, 12)}…(len ${authToken.length})` : 'null';
   try {
     const response = await fetch(`${CONFIG.API_BASE}/profiles/me`, {
@@ -2136,24 +2180,30 @@ async function fetchProfileImpl(): Promise<FullProfile | null> {
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
-        // This background profile check used to log the extension all the way
-        // out on a 401/403 (clearing authToken, pendingLogin, and setting
-        // extSignedOut). In production that fired repeatedly and unpredictably
-        // right around sign-in — every repro showed it destroying a session
-        // that the web app itself still considered valid, which cancelled the
-        // panel's tab-close/refocus redirect and put the user in a login loop.
-        // A stale profile cache is a cosmetic problem; forcibly signing the
-        // user back out from a background check is not a safe trade for that.
-        // If a token is genuinely dead, the next real user action against the
-        // API (not this passive check) will surface it.
         let body = '';
         try { body = await response.clone().text(); } catch (_) {}
-        console.warn('[ProfileAI] /profiles/me rejected — leaving session as-is:', {
+        console.warn('[ProfileAI] /profiles/me rejected:', {
           status: response.status,
           body,
           apiBase: CONFIG.API_BASE,
           tokenFingerprint,
         });
+        // Self-heal: the cached token is stale/dead, but an open web app tab
+        // almost certainly holds the user's CURRENT valid token. Adopt it and
+        // retry once. This is what was actually breaking the panel — the
+        // extension clung to a token from a previous session and never
+        // refreshed it, so every profile fetch 401'd forever.
+        if (retryOn401) {
+          const deadToken = authToken;
+          const adopted = await adoptFresherTokenFromWebApp(deadToken);
+          if (adopted && authToken !== deadToken) {
+            console.log('[ProfileAI] Retrying /profiles/me with the refreshed token');
+            return await fetchProfileImpl(false);
+          }
+        }
+        // No fresher token available — don't tear down the session here (that
+        // used to cancel the panel's post-login redirect); just report no
+        // profile. A genuinely dead token surfaces on the next real action.
         return null;
       }
       // 404 = this account simply has no candidate profile yet (e.g. a brand
