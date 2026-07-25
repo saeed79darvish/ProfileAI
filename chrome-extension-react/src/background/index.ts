@@ -2103,32 +2103,25 @@ async function fetchProfileImpl(): Promise<FullProfile | null> {
     });
 
     if (!response.ok) {
-      // Expired/invalid token: clear auth so the panel shows the signed-out
-      // state instead of repeatedly throwing a generic "Failed to fetch" error.
       if (response.status === 401 || response.status === 403) {
-        // DIAGNOSTIC: log exactly what the backend said and which token we
-        // sent, so a future occurrence of this is provable instead of guessed.
+        // This background profile check used to log the extension all the way
+        // out on a 401/403 (clearing authToken, pendingLogin, and setting
+        // extSignedOut). In production that fired repeatedly and unpredictably
+        // right around sign-in — every repro showed it destroying a session
+        // that the web app itself still considered valid, which cancelled the
+        // panel's tab-close/refocus redirect and put the user in a login loop.
+        // A stale profile cache is a cosmetic problem; forcibly signing the
+        // user back out from a background check is not a safe trade for that.
+        // If a token is genuinely dead, the next real user action against the
+        // API (not this passive check) will surface it.
         let body = '';
         try { body = await response.clone().text(); } catch (_) {}
-        console.warn('[ProfileAI] /profiles/me rejected:', {
+        console.warn('[ProfileAI] /profiles/me rejected — leaving session as-is:', {
           status: response.status,
           body,
           apiBase: CONFIG.API_BASE,
           tokenFingerprint,
         });
-        // Don't tear down the session while a panel-initiated sign-in is still
-        // being finished. handleLogin() calls fetchProfile() right after
-        // setting a brand-new token; a 401 racing in right behind it is a
-        // concurrent-check artifact, not a genuinely invalid token — and
-        // handleLogout() clears pendingLogin as a side effect, which was
-        // silently cancelling the tab-close/refocus/panel-open redirect and
-        // stranding the user on the web app's success page.
-        if (await getPendingLogin()) {
-          console.warn('[ProfileAI] Profile fetch unauthorized during pending sign-in — leaving session intact');
-          return null;
-        }
-        console.warn('[ProfileAI] Profile fetch unauthorized — clearing stale session');
-        await handleLogout();
         return null;
       }
       // 404 = this account simply has no candidate profile yet (e.g. a brand
