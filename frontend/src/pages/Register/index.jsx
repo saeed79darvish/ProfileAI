@@ -312,6 +312,12 @@ const Register = () => {
         </RoleOption>
       </RoleToggleWrapper>
 
+      {fromExtension && !error && (
+        <Alert severity="info" sx={alertSx}>
+          {TEXT.EXTENSION_NOTICE}
+        </Alert>
+      )}
+
       {error && (
         <Alert severity="error" sx={alertSx}>
           {error}

@@ -15,57 +15,8 @@ type AuthTab = 'signin' | 'create';
 
 export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialTab = 'signin', onBack }) => {
   const [activeTab, setActiveTab] = useState<AuthTab>(initialTab);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-
-    try {
-      if (activeTab === 'signin') {
-        if (!email || !password) {
-          setError('Please fill in all fields');
-          setSubmitting(false);
-          return;
-        }
-        const result = await chrome.runtime.sendMessage({
-          type: 'LOGIN_WITH_CREDENTIALS',
-          data: { email, password },
-        });
-        if (result?.success) {
-          onAuthSync?.();
-        } else {
-          setError(result?.error || 'Invalid email or password');
-        }
-      } else {
-        if (!email || !password || !firstName || !lastName) {
-          setError('Please fill in all fields');
-          setSubmitting(false);
-          return;
-        }
-        const result = await chrome.runtime.sendMessage({
-          type: 'REGISTER',
-          data: { email, password, firstName, lastName, role: 'candidate' },
-        });
-        if (result?.success) {
-          onAuthSync?.();
-        } else {
-          setError(result?.error || 'Registration failed');
-        }
-      }
-    } catch (err) {
-      setError('Connection failed. Is the server running?');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const mode: 'login' | 'register' = activeTab === 'create' ? 'register' : 'login';
+  const { webSyncing, signInOnWeb, checkWebAuthOnce } = useWebSignIn(onAuthSync);
 
   return (
     <div className="auth-required-container">
@@ -93,16 +44,19 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
         </svg>
       </div>
 
-      <h2 className="auth-title">Welcome Back</h2>
+      <h2 className="auth-title">{activeTab === 'create' ? 'Create Your Account' : 'Welcome Back'}</h2>
 
-      {/* Recommended path: sign in on ProfilleAI (supports Google + keeps the
-          web app and extension in sync for the full experience). */}
+      {/* Every path here hands off to ProfilleAI on the web — it keeps a
+          single account form (with full password rules, terms, etc.) and
+          syncs the resulting session back into the extension automatically. */}
       <GoogleSignInButton
         onAuthSync={onAuthSync}
+        mode={mode}
       />
 
       <LinkedInSignInButton
         onAuthSync={onAuthSync}
+        mode={mode}
       />
 
       <div className="auth-divider"><span>or use email</span></div>
@@ -111,98 +65,36 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
       <div className="auth-tabs">
         <button
           className={`auth-tab ${activeTab === 'signin' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('signin'); setError(null); }}
+          onClick={() => setActiveTab('signin')}
         >
           Sign In
         </button>
         <button
           className={`auth-tab ${activeTab === 'create' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('create'); setError(null); }}
+          onClick={() => setActiveTab('create')}
         >
           Create Account
         </button>
       </div>
 
-      {/* Form */}
-      <form className="auth-form" onSubmit={handleSubmit}>
-        {activeTab === 'create' && (
-          <div className="auth-name-row">
-            <div className="auth-field">
-              <label>First Name</label>
-              <input
-                type="text"
-                placeholder="John"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                autoComplete="given-name"
-              />
-            </div>
-            <div className="auth-field">
-              <label>Last Name</label>
-              <input
-                type="text"
-                placeholder="Doe"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                autoComplete="family-name"
-              />
-            </div>
-          </div>
-        )}
+      <button
+        type="button"
+        className="btn primary auth-submit"
+        onClick={() => signInOnWeb(undefined, mode)}
+        disabled={webSyncing}
+      >
+        {webSyncing
+          ? 'Waiting…'
+          : activeTab === 'create' ? 'Create account with email' : 'Sign in with email'}
+      </button>
 
-        <div className="auth-field">
-          <label>Email</label>
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
+      {webSyncing && (
+        <div className="auth-google-hint">
+          Finish on the ProfilleAI tab we opened, it will sync back here automatically.{' '}
+          <button type="button" className="link-btn" onClick={checkWebAuthOnce}>
+            Check now
+          </button>
         </div>
-
-        <div className="auth-field">
-          <label>Password</label>
-          <div className="auth-password-wrapper">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={activeTab === 'signin' ? 'current-password' : 'new-password'}
-            />
-            <button
-              type="button"
-              className="auth-password-toggle"
-              onClick={() => setShowPassword(!showPassword)}
-              tabIndex={-1}
-            >
-              {showPassword ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {error && <div className="auth-error">{error}</div>}
-
-        <button
-          type="submit"
-          className="btn primary auth-submit"
-          disabled={submitting}
-        >
-          {submitting
-            ? (activeTab === 'signin' ? 'Signing in...' : 'Creating account...')
-            : (activeTab === 'signin' ? 'Sign In' : 'Create Account')}
-        </button>
-      </form>
-
-      {activeTab === 'create' && (
-        <p className="auth-password-hint">
-          Password: 8+ chars, uppercase, lowercase, number &amp; special character
-        </p>
       )}
     </div>
   );

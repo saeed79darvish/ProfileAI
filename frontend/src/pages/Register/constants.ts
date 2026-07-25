@@ -17,6 +17,7 @@ export const TEXT = {
   ROLE_CANDIDATE: 'Candidate',
   ROLE_RECRUITER: 'Recruiter',
   COMING_SOON: 'COMING SOON',
+  EXTENSION_NOTICE: 'To use your Chrome extension, you need to complete your profile.',
   LINKEDIN_BUTTON: 'Sign up with LinkedIn',
   DIVIDER: 'Or register with email',
   LABELS: {

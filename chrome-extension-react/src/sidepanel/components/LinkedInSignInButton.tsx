@@ -5,28 +5,30 @@ interface LinkedInSignInButtonProps {
   onAuthSync?: () => void;
   /** Hint text shown under the button when not actively syncing. */
   hint?: string;
+  /** 'register' routes to the web sign-up page instead of sign-in. */
+  mode?: 'login' | 'register';
 }
 
 /**
- * "Continue with LinkedIn" button. Opens the ProfilleAI web login with a
- * `provider=linkedin` hint so the login page can auto-kick off LinkedIn
- * OAuth, then syncs the session back into the extension the same way the
- * Google button does. LinkedIn OAuth itself can't run inside a Chrome
- * extension popup (LinkedIn blocks chrome-extension:// redirects), so we
- * offload the whole OAuth roundtrip to the web app.
+ * "Continue with LinkedIn" button. Opens the ProfilleAI web login/register with
+ * a `provider=linkedin` hint so the page can auto-kick off LinkedIn OAuth,
+ * then syncs the session back into the extension the same way the Google
+ * button does. LinkedIn OAuth itself can't run inside a Chrome extension
+ * popup (LinkedIn blocks chrome-extension:// redirects), so we offload the
+ * whole OAuth roundtrip to the web app.
  */
-export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAuthSync, hint }) => {
+export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAuthSync, hint, mode = 'login' }) => {
   const { webSyncing, signInOnWeb, checkWebAuthOnce } = useWebSignIn(onAuthSync);
 
   const handleClick = () => {
-    // Pass provider=linkedin so the web login can auto-trigger LinkedIn
+    // Pass provider=linkedin so the web page can auto-trigger LinkedIn
     // OAuth. useWebSignIn's default URL already includes ?from=extension,
     // so we tack our hint on via chrome.storage as a fallback in case the
     // web app doesn't yet accept the querystring hint.
     try {
       chrome.storage.local.set({ pendingAuthProvider: 'linkedin' });
     } catch { /* ignore */ }
-    void signInOnWeb('linkedin');
+    void signInOnWeb('linkedin', mode);
   };
 
   return (
@@ -45,7 +47,7 @@ export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAu
             />
           </svg>
         </span>
-        {webSyncing ? 'Waiting for sign-in…' : 'Continue with LinkedIn'}
+        {webSyncing ? 'Waiting for sign-in…' : mode === 'register' ? 'Sign up with LinkedIn' : 'Continue with LinkedIn'}
       </button>
       {webSyncing ? (
         <div className="auth-linkedin-hint">

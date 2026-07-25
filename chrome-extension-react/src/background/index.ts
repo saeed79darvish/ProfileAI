@@ -899,9 +899,10 @@ async function handleMessage(
   }
 }
 
-// After a panel-initiated web sign-in completes, close the login tab and bring
-// the user back to the job page they came from. The side panel is per-window
-// and stays open, so it simply updates to the signed-in state.
+// After a panel-initiated web sign-in (or sign-up) completes, close the
+// login/register tab and bring the user back to the job page they came from,
+// with the side panel open — it's per-window and normally stays open across
+// the flow, but this covers the case where it got closed in the meantime.
 async function finishExtensionLoginRedirect(): Promise<void> {
   const pending = await getPendingLogin();
   await clearPendingLogin();
@@ -915,6 +916,7 @@ async function finishExtensionLoginRedirect(): Promise<void> {
     }
     if (pending.originWindowId != null) {
       try { await chrome.windows.update(pending.originWindowId, { focused: true }); } catch (_) {}
+      try { await chrome.sidePanel.open({ windowId: pending.originWindowId }); } catch (_) {}
     }
   } catch (_) {
     /* best-effort — never block the auth flow on tab housekeeping */

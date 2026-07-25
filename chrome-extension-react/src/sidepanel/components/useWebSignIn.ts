@@ -37,16 +37,17 @@ export function useWebSignIn(onAuthSync?: () => void) {
     return false;
   };
 
-  const signInOnWeb = async (providerHint?: 'linkedin' | 'google') => {
+  const signInOnWeb = async (providerHint?: 'linkedin' | 'google', mode: 'login' | 'register' = 'login') => {
     setWebSyncing(true);
-    // Base extension login URL. When the caller passes a provider hint the
-    // web app can read `?provider=…` from the querystring and auto-trigger
-    // that OAuth flow rather than showing the login form — see the
+    // Base extension login/register URL. When the caller passes a provider hint
+    // the web app can read `?provider=…` from the querystring and auto-trigger
+    // that OAuth flow rather than showing the form — see the
     // LinkedInSignInButton for why LinkedIn specifically can't run inside
     // the extension popup.
     const params = new URLSearchParams({ from: 'extension' });
     if (providerHint) params.set('provider', providerHint);
-    const url = `${CONFIG.WEB_BASE}/login?${params.toString()}`;
+    const path = mode === 'register' ? 'register' : 'login';
+    const url = `${CONFIG.WEB_BASE}/${path}?${params.toString()}`;
     try {
       // OPEN_WEB_LOGIN remembers the job page we came from so the background can
       // return us there once sign-in syncs back.
