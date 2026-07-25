@@ -1,44 +1,45 @@
-import React from 'react';
-import { useWebSignIn } from './useWebSignIn';
+import React, { useState } from 'react';
+import { CONFIG } from '../../config';
 
 interface LinkedInSignInButtonProps {
   onAuthSync?: () => void;
-  /** Hint text shown under the button when not actively syncing. */
+  /** Called when LinkedIn identity is valid but there's no ProfilleAI account. */
+  onNotRegistered?: () => void;
+  /** Hint text shown under the button when idle. */
   hint?: string;
-  /** 'register' routes to the web sign-up page instead of sign-in. */
-  mode?: 'login' | 'register';
 }
 
 /**
- * "Continue with LinkedIn" button. Opens the ProfilleAI web login/register with
- * a `provider=linkedin` hint so the page can auto-kick off LinkedIn OAuth,
- * then syncs the session back into the extension the same way the Google
- * button does. LinkedIn OAuth itself can't run inside a Chrome extension
- * popup (LinkedIn blocks chrome-extension:// redirects), so we offload the
- * whole OAuth roundtrip to the web app.
+ * "Continue with LinkedIn" — runs LinkedIn OAuth in a native popup window via the
+ * background's AUTH_LINKEDIN_INTERACTIVE handler (chrome.identity.launchWebAuthFlow),
+ * exchanging the auth code with our backend. Hidden entirely until a LinkedIn
+ * client id is configured (CONFIG.LINKEDIN_CLIENT_ID) and the extension's
+ * chromiumapp.org redirect URL is registered in the LinkedIn app.
  */
-export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAuthSync, hint, mode = 'login' }) => {
-  const { webSyncing, signInOnWeb, checkWebAuthOnce } = useWebSignIn(onAuthSync);
+export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAuthSync, onNotRegistered, hint }) => {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleClick = () => {
-    // Pass provider=linkedin so the web page can auto-trigger LinkedIn
-    // OAuth. useWebSignIn's default URL already includes ?from=extension,
-    // so we tack our hint on via chrome.storage as a fallback in case the
-    // web app doesn't yet accept the querystring hint.
+  // Not provisioned yet — don't show a button that can't work.
+  if (!CONFIG.LINKEDIN_CLIENT_ID) return null;
+
+  const handleClick = async () => {
+    setBusy(true); setError(null);
     try {
-      chrome.storage.local.set({ pendingAuthProvider: 'linkedin' });
-    } catch { /* ignore */ }
-    void signInOnWeb('linkedin', mode);
+      const r = await chrome.runtime.sendMessage({ type: 'AUTH_LINKEDIN_INTERACTIVE' });
+      if (r?.success) onAuthSync?.();
+      else if (r?.notRegistered) onNotRegistered?.();
+      else if (!r?.cancelled) setError(r?.error || 'LinkedIn sign-in failed');
+    } catch {
+      setError('LinkedIn sign-in failed');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <>
-      <button
-        type="button"
-        className="auth-linkedin-btn"
-        onClick={handleClick}
-        disabled={webSyncing}
-      >
+      <button type="button" className="auth-linkedin-btn" onClick={handleClick} disabled={busy}>
         <span className="auth-linkedin-glyph" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18">
             <path
@@ -47,15 +48,10 @@ export const LinkedInSignInButton: React.FC<LinkedInSignInButtonProps> = ({ onAu
             />
           </svg>
         </span>
-        {webSyncing ? 'Waiting for sign-in…' : mode === 'register' ? 'Sign up with LinkedIn' : 'Continue with LinkedIn'}
+        {busy ? 'Signing in…' : 'Continue with LinkedIn'}
       </button>
-      {webSyncing ? (
-        <div className="auth-linkedin-hint">
-          Finish signing in on the ProfilleAI tab we opened, it will sync back here automatically.{' '}
-          <button type="button" className="link-btn" onClick={checkWebAuthOnce}>
-            Check now
-          </button>
-        </div>
+      {error ? (
+        <div className="auth-error">{error}</div>
       ) : hint ? (
         <p className="auth-linkedin-hint">{hint}</p>
       ) : null}

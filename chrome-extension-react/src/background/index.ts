@@ -215,6 +215,18 @@ async function handleMessage(
         break;
       }
 
+      case 'AUTH_GOOGLE_INTERACTIVE': {
+        const r = await googleAuthInteractive();
+        sendResponse(r);
+        break;
+      }
+
+      case 'AUTH_LINKEDIN_INTERACTIVE': {
+        const r = await linkedinAuthInteractive();
+        sendResponse(r);
+        break;
+      }
+
       case 'LOGOUT':
         await handleLogout();
         sendResponse({ success: true });
@@ -1170,6 +1182,107 @@ async function loginWithCredentials(email: string, password: string) {
   } catch (error) {
     console.error('[ProfileAI] Login error:', error);
     return { success: false, error: 'Could not connect to server' };
+  }
+}
+
+// ── In-panel social sign-in via chrome.identity.launchWebAuthFlow ──
+// These run the provider's OAuth in a native popup window (no profilleai tab)
+// and exchange the result with our backend, then set the session in-place so
+// the panel updates without ever leaving the job page. The extension's OAuth
+// redirect URL — chrome.identity.getRedirectURL(), i.e.
+// https://<extension-id>.chromiumapp.org/ — MUST be registered as an authorized
+// redirect URI in the Google/LinkedIn OAuth apps or the flow fails.
+type InteractiveAuthResult =
+  | { success: true; token: string; user: User }
+  | { success: false; error?: string; notRegistered?: boolean; cancelled?: boolean };
+
+async function googleAuthInteractive(): Promise<InteractiveAuthResult> {
+  try {
+    if (!CONFIG.GOOGLE_CLIENT_ID) return { success: false, error: 'Google sign-in is not configured' };
+    const redirectUri = chrome.identity.getRedirectURL();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id: CONFIG.GOOGLE_CLIENT_ID,
+      response_type: 'token',
+      redirect_uri: redirectUri,
+      scope: 'openid email profile',
+      prompt: 'select_account',
+    }).toString();
+
+    let redirectResponse: string | undefined;
+    try {
+      redirectResponse = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+    } catch (e) {
+      // User closed the popup, or the redirect URI isn't registered on the client.
+      console.warn('[ProfileAI] Google launchWebAuthFlow failed:', e);
+      return { success: false, cancelled: true, error: 'Google sign-in was cancelled' };
+    }
+    if (!redirectResponse) return { success: false, cancelled: true };
+
+    const fragment = new URL(redirectResponse).hash.slice(1);
+    const accessToken = new URLSearchParams(fragment).get('access_token');
+    if (!accessToken) return { success: false, error: 'No Google access token returned' };
+
+    const resp = await fetch(`${CONFIG.API_BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken, clientId: CONFIG.GOOGLE_CLIENT_ID }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (resp.status === 404) return { success: false, notRegistered: true, error: data.error };
+      return { success: false, error: data.error || 'Google sign-in failed' };
+    }
+    await handleLogin(data.token, data.user);
+    return { success: true, token: data.token, user: data.user };
+  } catch (error) {
+    console.error('[ProfileAI] Google interactive auth error:', error);
+    return { success: false, error: 'Could not complete Google sign-in' };
+  }
+}
+
+async function linkedinAuthInteractive(): Promise<InteractiveAuthResult> {
+  try {
+    if (!CONFIG.LINKEDIN_CLIENT_ID) return { success: false, error: 'LinkedIn sign-in is not configured yet' };
+    const redirectUri = chrome.identity.getRedirectURL();
+    const state = Math.random().toString(36).slice(2);
+    const authUrl = 'https://www.linkedin.com/oauth/v2/authorization?' + new URLSearchParams({
+      response_type: 'code',
+      client_id: CONFIG.LINKEDIN_CLIENT_ID,
+      redirect_uri: redirectUri,
+      scope: CONFIG.LINKEDIN_SCOPE,
+      state,
+    }).toString();
+
+    let redirectResponse: string | undefined;
+    try {
+      redirectResponse = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+    } catch (e) {
+      console.warn('[ProfileAI] LinkedIn launchWebAuthFlow failed:', e);
+      return { success: false, cancelled: true, error: 'LinkedIn sign-in was cancelled' };
+    }
+    if (!redirectResponse) return { success: false, cancelled: true };
+
+    const url = new URL(redirectResponse);
+    const code = url.searchParams.get('code');
+    const returnedState = url.searchParams.get('state');
+    if (!code || returnedState !== state) return { success: false, error: 'LinkedIn sign-in was cancelled' };
+
+    const resp = await fetch(`${CONFIG.API_BASE}/auth/linkedin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, redirectUri }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      // Backend 404 = valid LinkedIn identity but no ProfilleAI account yet.
+      if (resp.status === 404) return { success: false, notRegistered: true, error: data.error };
+      return { success: false, error: data.error || 'LinkedIn sign-in failed' };
+    }
+    await handleLogin(data.token, data.user);
+    return { success: true, token: data.token, user: data.user };
+  } catch (error) {
+    console.error('[ProfileAI] LinkedIn interactive auth error:', error);
+    return { success: false, error: 'Could not complete LinkedIn sign-in' };
   }
 }
 

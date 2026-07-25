@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { JobInfo } from '../../types';
 import type { ProfileSummary } from '../profileProgress';
 import { formatLastActive } from '../profileProgress';
-import { AuthRequired } from './AuthRequired';
+import { AuthRequired, openRegisterOnWeb } from './AuthRequired';
 import { JobContextBanner } from './JobContextBanner';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { LinkedInSignInButton } from './LinkedInSignInButton';
@@ -87,9 +87,11 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
           <div className="auth-divider"><span>or</span></div>
           <GoogleSignInButton
             onAuthSync={onAuthSync}
+            onNotRegistered={openRegisterOnWeb}
           />
           <LinkedInSignInButton
             onAuthSync={onAuthSync}
+            onNotRegistered={openRegisterOnWeb}
           />
           <p className="signed-out-alt">
             Don't have an account?{' '}
@@ -145,9 +147,11 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, o
         <div className="auth-divider"><span>or</span></div>
         <GoogleSignInButton
           onAuthSync={onAuthSync}
+          onNotRegistered={openRegisterOnWeb}
         />
         <LinkedInSignInButton
           onAuthSync={onAuthSync}
+          onNotRegistered={openRegisterOnWeb}
         />
       </div>
 

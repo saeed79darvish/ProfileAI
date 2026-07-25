@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useWebSignIn } from './useWebSignIn';
+import { CONFIG } from '../../config';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { LinkedInSignInButton } from './LinkedInSignInButton';
 
@@ -13,10 +13,47 @@ interface AuthRequiredProps {
 
 type AuthTab = 'signin' | 'create';
 
+// Registration + profile creation still happen on the web app (it owns the full
+// sign-up form, password rules, terms, and the profile builder). Everything
+// ELSE — sign-in via email, Google, or LinkedIn — now stays inside the panel.
+export function openRegisterOnWeb() {
+  const url = `${CONFIG.WEB_BASE}/register?from=extension`;
+  try {
+    chrome.runtime.sendMessage({ type: 'OPEN_TAB', data: { url } });
+  } catch {
+    window.open(url, '_blank');
+  }
+}
+
 export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialTab = 'signin', onBack }) => {
   const [activeTab, setActiveTab] = useState<AuthTab>(initialTab);
-  const mode: 'login' | 'register' = activeTab === 'create' ? 'register' : 'login';
-  const { webSyncing, signInOnWeb, checkWebAuthOnce } = useWebSignIn(onAuthSync);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!email || !password) { setError('Please enter your email and password'); return; }
+    setSubmitting(true);
+    try {
+      const result = await chrome.runtime.sendMessage({
+        type: 'LOGIN_WITH_CREDENTIALS',
+        data: { email, password },
+      });
+      if (result?.success) {
+        onAuthSync?.();
+      } else {
+        setError(result?.error || 'Invalid email or password');
+      }
+    } catch {
+      setError('Connection failed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="auth-required-container">
@@ -44,57 +81,85 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
         </svg>
       </div>
 
-      <h2 className="auth-title">{activeTab === 'create' ? 'Create Your Account' : 'Welcome Back'}</h2>
+      {activeTab === 'signin' ? (
+        <>
+          <h2 className="auth-title">Welcome Back</h2>
 
-      {/* Every path here hands off to ProfilleAI on the web — it keeps a
-          single account form (with full password rules, terms, etc.) and
-          syncs the resulting session back into the extension automatically. */}
-      <GoogleSignInButton
-        onAuthSync={onAuthSync}
-        mode={mode}
-      />
+          {/* Social sign-in — runs in a native OAuth popup, stays in the panel. */}
+          <GoogleSignInButton onAuthSync={onAuthSync} onNotRegistered={openRegisterOnWeb} />
+          <LinkedInSignInButton onAuthSync={onAuthSync} onNotRegistered={openRegisterOnWeb} />
 
-      <LinkedInSignInButton
-        onAuthSync={onAuthSync}
-        mode={mode}
-      />
+          <div className="auth-divider"><span>or use email</span></div>
 
-      <div className="auth-divider"><span>or use email</span></div>
+          <form className="auth-form" onSubmit={handleEmailSignIn}>
+            <div className="auth-field">
+              <label>Email</label>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
 
-      {/* Tabs */}
-      <div className="auth-tabs">
-        <button
-          className={`auth-tab ${activeTab === 'signin' ? 'active' : ''}`}
-          onClick={() => setActiveTab('signin')}
-        >
-          Sign In
-        </button>
-        <button
-          className={`auth-tab ${activeTab === 'create' ? 'active' : ''}`}
-          onClick={() => setActiveTab('create')}
-        >
-          Create Account
-        </button>
-      </div>
+            <div className="auth-field">
+              <label>Password</label>
+              <div className="auth-password-wrapper">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  )}
+                </button>
+              </div>
+            </div>
 
-      <button
-        type="button"
-        className="btn primary auth-submit"
-        onClick={() => signInOnWeb(undefined, mode)}
-        disabled={webSyncing}
-      >
-        {webSyncing
-          ? 'Waiting…'
-          : activeTab === 'create' ? 'Create account with email' : 'Sign in with email'}
-      </button>
+            {error && <div className="auth-error">{error}</div>}
 
-      {webSyncing && (
-        <div className="auth-google-hint">
-          Finish on the ProfilleAI tab we opened, it will sync back here automatically.{' '}
-          <button type="button" className="link-btn" onClick={checkWebAuthOnce}>
-            Check now
+            <button type="submit" className="btn primary auth-submit" disabled={submitting}>
+              {submitting ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
+
+          <p className="auth-password-hint">
+            Don&apos;t have an account?{' '}
+            <button type="button" className="link-btn" onClick={() => { setError(null); setActiveTab('create'); }}>
+              Create one
+            </button>
+          </p>
+        </>
+      ) : (
+        <>
+          <h2 className="auth-title">Create Your Account</h2>
+          <p className="signed-out-sub">
+            To use ProfilleAI in the extension you need to complete your profile —
+            it powers auto-fill, tailoring, and cover letters. Set it up on
+            ProfilleAI, then come back and sign in here.
+          </p>
+          <button type="button" className="btn primary auth-submit" onClick={openRegisterOnWeb}>
+            Create profile on ProfilleAI
           </button>
-        </div>
+          <p className="auth-password-hint">
+            Already have an account?{' '}
+            <button type="button" className="link-btn" onClick={() => { setError(null); setActiveTab('signin'); }}>
+              Sign in
+            </button>
+          </p>
+        </>
       )}
     </div>
   );

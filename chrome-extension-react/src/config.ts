@@ -21,7 +21,20 @@ export const CONFIG = {
   // API URLs - automatically selected based on ENV
   WEB_BASE: URLS[ENV].WEB_BASE,
   API_BASE: URLS[ENV].API_BASE,
-  
+
+  // OAuth client IDs for in-panel sign-in via chrome.identity.launchWebAuthFlow.
+  // The extension's OAuth redirect URL is chrome.identity.getRedirectURL(), i.e.
+  //   https://mogppemdigdgbmgejonhfjpddhjbkngp.chromiumapp.org/
+  // That URL MUST be registered as an authorized redirect URI in each provider:
+  //   - Google Cloud Console → this OAuth client's "Authorized redirect URIs"
+  //   - LinkedIn Developer app → "Authorized redirect URLs"
+  // Google client ID is the same public web client already in use. LinkedIn is
+  // left blank until a client is provisioned; the panel hides LinkedIn when it
+  // is empty. The backend must also have matching LINKEDIN_CLIENT_ID/SECRET.
+  GOOGLE_CLIENT_ID: '188305923693-rsil9buaanu4e77eur9tahfivp23lobq.apps.googleusercontent.com',
+  LINKEDIN_CLIENT_ID: '',
+  LINKEDIN_SCOPE: 'openid profile email',
+
   // Feature flags
   FEATURES: {
     autofill: true,
