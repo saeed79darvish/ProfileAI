@@ -42,9 +42,9 @@ export const TEXT = {
 // profile_enhance are one-shot — when free users hit the cap we direct them
 // to upgrade to Pro instead.
 export const CREDIT_PACKS = [
-  { id: 'apply_10', name: 'Apply 10', description: '10 tailored resumes + 10 cover letters', price: 6.99, perCredit: '$0.70 / app', popular: false },
-  { id: 'apply_25', name: 'Apply 25', description: '25 tailored resumes + 25 cover letters', price: 13.99, perCredit: '$0.56 / app', popular: true },
-  { id: 'apply_60', name: 'Apply 60', description: '60 tailored resumes + 60 cover letters', price: 24.99, perCredit: '$0.42 / app', popular: false },
+  { id: 'apply_10', name: 'Apply 10', description: '10 résumés + 10 cover letters', price: 6.99, perCredit: '$0.70 / app', popular: false },
+  { id: 'apply_25', name: 'Apply 25', description: '25 résumés + 25 cover letters', price: 13.99, perCredit: '$0.56 / app', popular: true },
+  { id: 'apply_60', name: 'Apply 60', description: '60 résumés + 60 cover letters', price: 24.99, perCredit: '$0.42 / app', popular: false },
 ] as const;
 
 export const COMPARE_FEATURES = [

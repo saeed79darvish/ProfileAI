@@ -59,8 +59,11 @@ import {
   CreditPacksGrid,
   CreditPackCard,
   PackBadge,
+  PackInfo,
+  PackNameRow,
   PackName,
   PackDescription,
+  PackPricing,
   PackPrice,
   PackPerCredit,
   PackButton,
@@ -181,7 +184,6 @@ const Pricing = () => {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activePlanTab, setActivePlanTab] = useState('pro'); // default to the Most Popular tier
   const [compareOpenMobile, setCompareOpenMobile] = useState(false);
-  const [creditPacksOpenMobile, setCreditPacksOpenMobile] = useState(false);
 
   // Handle purchase success/cancel from Stripe redirect
   useEffect(() => {
@@ -449,60 +451,32 @@ const Pricing = () => {
         </TrustBadges>
       </PlansSection>
 
-      {/* Application Credit Packs — only sell tailor + cover letter bundles.
-          Mobile: collapsed behind a disclosure so it doesn't add 2 viewports
-          to the scroll for a feature most users won't immediately need. */}
+      {/* Application Credit Packs — flat, always-visible section on both mobile
+          and desktop (bold heading + subtitle + the three pack cards), matching
+          the reference. No disclosure toggle. */}
       <CreditPacksSection id="credit-packs">
-        {isMobile ? (
-          <>
-            <DisclosureToggle
-              type="button"
-              onClick={() => setCreditPacksOpenMobile(v => !v)}
-              aria-expanded={creditPacksOpenMobile}
-            >
-              <span>Need extra applications? View credit packs</span>
-              <DisclosureChevron $open={creditPacksOpenMobile} aria-hidden="true">▾</DisclosureChevron>
-            </DisclosureToggle>
-            {creditPacksOpenMobile && (
-              <>
-                <CreditPacksSubtitle>{TEXT.CREDIT_PACKS_SUBTITLE}</CreditPacksSubtitle>
-                <CreditPacksGrid>
-                  {CREDIT_PACKS.map((pack) => (
-                    <CreditPackCard key={pack.id} $popular={pack.popular} onClick={() => handleBuyPack(pack.id)}>
-                      {pack.popular && <PackBadge>{TEXT.BEST_VALUE}</PackBadge>}
-                      <PackName>{pack.name}</PackName>
-                      <PackDescription>{pack.description}</PackDescription>
-                      <PackPrice>${pack.price}</PackPrice>
-                      <PackPerCredit>{pack.perCredit}</PackPerCredit>
-                      <PackButton $popular={pack.popular} disabled={purchaseLoading === pack.id}>
-                        {purchaseLoading === pack.id ? TEXT.PROCESSING : TEXT.BUY_NOW}
-                      </PackButton>
-                    </CreditPackCard>
-                  ))}
-                </CreditPacksGrid>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <SectionTitle>{TEXT.CREDIT_PACKS_TITLE}</SectionTitle>
-            <CreditPacksSubtitle>{TEXT.CREDIT_PACKS_SUBTITLE}</CreditPacksSubtitle>
-            <CreditPacksGrid>
-              {CREDIT_PACKS.map((pack) => (
-                <CreditPackCard key={pack.id} $popular={pack.popular} onClick={() => handleBuyPack(pack.id)}>
-                  {pack.popular && <PackBadge>{TEXT.BEST_VALUE}</PackBadge>}
+        <SectionTitle>{TEXT.CREDIT_PACKS_TITLE}</SectionTitle>
+        <CreditPacksSubtitle>{TEXT.CREDIT_PACKS_SUBTITLE}</CreditPacksSubtitle>
+        <CreditPacksGrid>
+          {CREDIT_PACKS.map((pack) => (
+            <CreditPackCard key={pack.id} $popular={pack.popular} onClick={() => handleBuyPack(pack.id)}>
+              <PackInfo>
+                <PackNameRow>
                   <PackName>{pack.name}</PackName>
-                  <PackDescription>{pack.description}</PackDescription>
-                  <PackPrice>${pack.price}</PackPrice>
-                  <PackPerCredit>{pack.perCredit}</PackPerCredit>
-                  <PackButton $popular={pack.popular} disabled={purchaseLoading === pack.id}>
-                    {purchaseLoading === pack.id ? TEXT.PROCESSING : TEXT.BUY_NOW}
-                  </PackButton>
-                </CreditPackCard>
-              ))}
-            </CreditPacksGrid>
-          </>
-        )}
+                  {pack.popular && <PackBadge>{TEXT.BEST_VALUE}</PackBadge>}
+                </PackNameRow>
+                <PackDescription>{pack.description}</PackDescription>
+              </PackInfo>
+              <PackPricing>
+                <PackPrice>${pack.price}</PackPrice>
+                <PackPerCredit>{pack.perCredit}</PackPerCredit>
+              </PackPricing>
+              <PackButton $popular={pack.popular} disabled={purchaseLoading === pack.id}>
+                {purchaseLoading === pack.id ? TEXT.PROCESSING : TEXT.BUY_NOW}
+              </PackButton>
+            </CreditPackCard>
+          ))}
+        </CreditPacksGrid>
       </CreditPacksSection>
 
       {/* Compare Features — collapsed behind a disclosure on both mobile and

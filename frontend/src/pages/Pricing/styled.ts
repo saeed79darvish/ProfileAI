@@ -120,7 +120,7 @@ export const PlansSection = styled.section`
   padding: 40px 20px 60px;
 
   @media (max-width: 640px) {
-    padding: 20px 14px 32px;
+    padding: 20px 14px 8px;
   }
 `;
 
@@ -360,6 +360,10 @@ export const CompareSection = styled.section`
   max-width: 900px;
   margin: 0 auto;
   padding: 60px 20px;
+
+  @media (max-width: 768px) {
+    padding: 28px 16px;
+  }
 `;
 
 // Promo link — a quiet text link below the closing CTA, not a floating badge
@@ -404,7 +408,12 @@ export const SectionTitle = styled.h2`
   font-weight: 700;
   color: ${COLORS.TEXT_PRIMARY};
   text-align: center;
-  margin: 0 0 40px;
+  margin: 0 0 12px;
+
+  @media (max-width: 768px) {
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
 `;
 
 export const CompareTable = styled.div`
@@ -475,6 +484,10 @@ export const FAQSection = styled.section`
   max-width: 700px;
   margin: 0 auto;
   padding: 60px 20px;
+
+  @media (max-width: 768px) {
+    padding: 28px 16px;
+  }
 `;
 
 export const FAQItem = styled.div`
@@ -535,6 +548,12 @@ export const CTASection = styled.section`
   margin-left: auto;
   margin-right: auto;
   margin-bottom: 60px;
+
+  @media (max-width: 768px) {
+    padding: 36px 20px;
+    margin-top: 16px;
+    margin-bottom: 32px;
+  }
 `;
 
 export const CTATitle = styled.h3`
@@ -588,89 +607,109 @@ export const CTAButton = styled.button`
 export const CreditPacksSection = styled.section`
   max-width: 1000px;
   margin: 0 auto;
-  padding: 60px 20px;
+  padding: 40px 20px;
+
+  @media (max-width: 768px) {
+    padding: 28px 16px;
+  }
 `;
 
 export const CreditPacksGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  max-width: 900px;
-  margin: 0 auto 32px;
-
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
-    max-width: 400px;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+  margin: 20px auto 0;
 `;
 
 export const CreditPackCard = styled.div`
   background: ${COLORS.BG_WHITE};
-  border-radius: 16px;
-  padding: 24px;
+  border-radius: 14px;
+  padding: 16px 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   border: ${props => props.$popular ? `2px solid ${COLORS.PRIMARY}` : `1px solid ${COLORS.BORDER_LIGHT}`};
   position: relative;
   transition: all 0.2s;
   cursor: pointer;
-  
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
   &:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   }
 `;
 
+export const PackInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+export const PackNameRow = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+`;
+
 export const PackBadge = styled.div`
-  position: absolute;
-  top: -10px;
-  right: 16px;
   background: ${GRADIENTS.PRIMARY};
   color: ${COLORS.TEXT_WHITE};
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: 50px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
 `;
 
 export const PackName = styled.h4`
   font-size: 16px;
   font-weight: 700;
   color: ${COLORS.TEXT_PRIMARY};
-  margin: 0 0 4px;
+  margin: 0;
+  white-space: nowrap;
 `;
 
 export const PackDescription = styled.p`
   font-size: 13px;
   color: ${COLORS.TEXT_SECONDARY};
-  margin: 0 0 16px;
-  line-height: 1.4;
+  margin: 0;
+  line-height: 1.3;
+`;
+
+export const PackPricing = styled.div`
+  text-align: right;
+  flex-shrink: 0;
 `;
 
 export const PackPrice = styled.div`
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
   color: ${COLORS.TEXT_PRIMARY};
-  margin-bottom: 4px;
+  line-height: 1.1;
 `;
 
 export const PackPerCredit = styled.div`
   font-size: 12px;
   color: ${COLORS.TEXT_MUTED};
-  margin-bottom: 16px;
 `;
 
 export const PackButton = styled.button`
-  width: 100%;
-  padding: 10px;
+  flex-shrink: 0;
+  padding: 10px 22px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  background: ${props => props.$popular ? '${GRADIENTS.PRIMARY}' : COLORS.BG_GRAY};
-  color: ${props => props.$popular ? COLORS.BG_WHITE : '#374151'};
-  
+  background: ${props => props.$popular ? GRADIENTS.PRIMARY : COLORS.BG_GRAY};
+  color: ${props => props.$popular ? COLORS.BG_WHITE : COLORS.SECONDARY};
+
   &:hover {
     background: ${props => props.$popular ? 'linear-gradient(135deg, #5a6fd6, #6a4198)' : COLORS.BORDER_LIGHT};
   }
@@ -767,9 +806,10 @@ export const Snackbar = styled.div`
 export const CreditPacksSubtitle = styled.p`
   text-align: center;
   color: ${COLORS.TEXT_SECONDARY};
-  margin-top: -24px;
-  margin-bottom: 32px;
+  margin: 0 auto;
+  max-width: 480px;
   font-size: 15px;
+  line-height: 1.4;
 `;
 
 export const AddOnSectionHeader = styled.p`
