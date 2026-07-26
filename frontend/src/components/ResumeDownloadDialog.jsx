@@ -32,6 +32,7 @@ import {
   Refresh as RefreshIcon,
   PictureAsPdf as PdfIcon,
   Description as WordIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -49,6 +50,9 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
   const [editData, setEditData] = useState(null);
   const [previewDirty, setPreviewDirty] = useState(false);
   const [format, setFormat] = useState('pdf');
+  // Per-section instructions the user can hand to the AI before downloading.
+  const [sectionPrompts, setSectionPrompts] = useState({});
+  const [regenerating, setRegenerating] = useState(false);
 
   // Load profile data when dialog opens
   useEffect(() => {
@@ -59,6 +63,8 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
     setActiveTab(0);
     setPreviewDirty(false);
     setPreviewUrl('');
+    setSectionPrompts({});
+    setRegenerating(false);
 
     const namePart = userName ? userName.replace(/\s+/g, '_') : 'Resume';
     const jobPart = tailoredJobTitle ? `_${tailoredJobTitle.replace(/\s+/g, '_')}` : '';
@@ -209,6 +215,39 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
     updateField('skills', skills);
   };
 
+  const setSectionPrompt = (section, value) => {
+    setSectionPrompts(prev => ({ ...prev, [section]: value }));
+  };
+
+  const activePromptCount = Object.values(sectionPrompts).filter(v => (v || '').trim()).length;
+
+  const handleRegenerate = async () => {
+    if (!editData || activePromptCount === 0) return;
+    setRegenerating(true);
+    setError('');
+    setSuccess('');
+    try {
+      const instructions = {};
+      Object.entries(sectionPrompts).forEach(([k, v]) => {
+        if ((v || '').trim()) instructions[k] = v.trim();
+      });
+      const { data } = await profileAPI.regenerateSections({ profileData: editData, instructions });
+      const updated = data?.data || {};
+      const merged = { ...editData, ...updated };
+      setEditData(merged);
+      setPreviewDirty(true);
+      setSuccess('Sections regenerated. Review the changes, then update the preview or download.');
+      // Clear the prompts we just applied so the user isn't charged twice for the same ask.
+      setSectionPrompts({});
+      loadPreview(merged);
+    } catch (err) {
+      console.error('Regenerate error:', err);
+      setError(err.response?.data?.error || 'Failed to regenerate sections. Please try again.');
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   const handleDownload = async () => {
     setDownloading(true);
     setError('');
@@ -242,6 +281,25 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
   };
 
   const canEdit = editData && !tailoredProfileId;
+
+  const renderSectionPrompt = (section, placeholder) => (
+    <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px dashed #e5e7eb' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+        <AutoAwesomeIcon sx={{ fontSize: 15, color: '#764ba2' }} />
+        <Typography variant="caption" sx={{ fontWeight: 600, color: '#764ba2' }}>
+          Ask AI to adjust this section (optional)
+        </Typography>
+      </Box>
+      <TextField
+        fullWidth multiline rows={2} size="small"
+        value={sectionPrompts[section] || ''}
+        onChange={(e) => setSectionPrompt(section, e.target.value)}
+        placeholder={placeholder}
+        inputProps={{ maxLength: 400 }}
+        disabled={regenerating}
+      />
+    </Box>
+  );
 
   return (
     <Dialog
@@ -372,6 +430,7 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   placeholder="Write a professional summary..."
                   size="small"
                 />
+                {renderSectionPrompt('summary', 'e.g. Make it punchier and lead with my fintech impact.')}
               </AccordionDetails>
             </Accordion>
 
@@ -390,6 +449,7 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   size="small"
                   helperText="Separate skills with commas"
                 />
+                {renderSectionPrompt('skills', 'e.g. Prioritize cloud & backend skills, drop the outdated ones.')}
               </AccordionDetails>
             </Accordion>
 
@@ -414,6 +474,7 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   </Box>
                 ))}
                 <Button startIcon={<AddIcon />} onClick={addExperience} size="small" variant="outlined">Add Experience</Button>
+                {renderSectionPrompt('experience', 'e.g. Quantify every bullet with metrics and use strong action verbs.')}
               </AccordionDetails>
             </Accordion>
 
@@ -440,6 +501,7 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   </Box>
                 ))}
                 <Button startIcon={<AddIcon />} onClick={addEducation} size="small" variant="outlined">Add Education</Button>
+                {renderSectionPrompt('education', 'e.g. Keep it concise — just degree, school, and year.')}
               </AccordionDetails>
             </Accordion>
 
@@ -466,16 +528,31 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   </Box>
                 ))}
                 <Button startIcon={<AddIcon />} onClick={addProject} size="small" variant="outlined">Add Project</Button>
+                {renderSectionPrompt('projects', 'e.g. Emphasize impact and the tech stack for each project.')}
               </AccordionDetails>
             </Accordion>
 
             <Divider sx={{ my: 2 }} />
 
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                startIcon={regenerating ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />}
+                onClick={handleRegenerate}
+                disabled={regenerating || activePromptCount === 0}
+                sx={{ borderColor: '#764ba2', color: '#764ba2', '&:hover': { borderColor: '#6a4190', bgcolor: 'rgba(118,75,162,0.06)' } }}
+              >
+                {regenerating
+                  ? 'Regenerating...'
+                  : activePromptCount > 0
+                    ? `Regenerate ${activePromptCount} section${activePromptCount > 1 ? 's' : ''} with AI`
+                    : 'Regenerate with AI'}
+              </Button>
               <Button
                 variant="contained"
                 startIcon={previewDirty ? <RefreshIcon /> : <PreviewIcon />}
                 onClick={() => { loadPreview(editData); setActiveTab(0); }}
+                disabled={regenerating}
                 sx={{
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   '&:hover': { background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)' }

@@ -1202,6 +1202,45 @@ router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), 
   }
 });
 
+// @route   POST /api/profiles/regenerate-sections
+// @desc    Rewrite specific resume sections per user instructions (used by the
+//          Download modal's "regenerate with AI" step). No job description needed.
+// @access  Private
+router.post('/regenerate-sections', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+  try {
+    const { profileData, instructions } = req.body;
+
+    if (!profileData) {
+      return res.status(400).json({ error: 'Profile data is required' });
+    }
+    if (!instructions || typeof instructions !== 'object') {
+      return res.status(400).json({ error: 'Section instructions are required' });
+    }
+
+    const hasAny = ['summary', 'skills', 'experience', 'education', 'projects']
+      .some((k) => (instructions[k] || '').toString().trim());
+    if (!hasAny) {
+      return res.status(400).json({ error: 'Add an instruction for at least one section' });
+    }
+
+    const result = await resumeParserService.regenerateSections(profileData, instructions);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to regenerate sections' });
+    }
+
+    await recordAIUsage(req.user.id, 'profile_enhance');
+
+    res.json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error regenerating sections:', error);
+    if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
+      return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
+    }
+    res.status(500).json({ error: 'Error regenerating sections' });
+  }
+});
+
 // @route   POST /api/profiles/generate-answers
 // @desc    Generate AI answers for job application screening questions
 // @access  Private

@@ -257,6 +257,7 @@ export const profileAPI = {
   enhanceText: (text, type, context, config) => api.post('/profiles/enhance-text', { text, type, context }, config),
   analyzeGaps: ({ profileData, jobDescription }) => api.post('/profiles/analyze-gaps', { profileData, jobDescription }),
   tailorProfileForJob: ({ profileData, jobDescription, gapSelections, tailorSettings }) => api.post('/profiles/tailor-for-job', { profileData, jobDescription, gapSelections, tailorSettings }),
+  regenerateSections: ({ profileData, instructions }) => api.post('/profiles/regenerate-sections', { profileData, instructions }),
   generateCoverLetter: (data) => api.post('/profiles/generate-cover-letter', data),
   keywordOptimization: ({ profileData, jobDescription }) => api.post('/profiles/keyword-optimization', { profileData, jobDescription })
 };

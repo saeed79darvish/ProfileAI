@@ -423,6 +423,35 @@ const ReasonBox = styled.div`
   .icon { flex-shrink: 0; font-size: 16px; }
 `;
 
+const GapPromptWrap = styled.div`
+  margin-top: 4px;
+`;
+
+const GapPromptLabel = styled.label`
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6941C6;
+  margin-bottom: 6px;
+`;
+
+const GapPromptInput = styled.textarea`
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+  background: white;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1a1a2e;
+  line-height: 1.45;
+  transition: border-color 0.2s;
+  &::placeholder { color: #9ca3af; }
+  &:focus { outline: none; border-color: #6941C6; }
+`;
+
 const CoveredSection = styled.div`
   margin-top: 8px;
   padding: 14px 18px;
@@ -547,6 +576,8 @@ export default function GapReviewDialog({ open, onClose, gaps, satisfiedAlternat
   const [selections, setSelections] = useState({});
   const [expandedGaps, setExpandedGaps] = useState({});
   const [expandedCategories, setExpandedCategories] = useState({});
+  // Per-gap freeform instruction the AI should honor when weaving this gap in.
+  const [gapPrompts, setGapPrompts] = useState({});
 
   // Group gaps by category
   const groupedGaps = useMemo(() => {
@@ -601,14 +632,15 @@ export default function GapReviewDialog({ open, onClose, gaps, satisfiedAlternat
 
     (gaps || []).forEach((gap, i) => {
       const selection = selections[i];
+      const customPrompt = (gapPrompts[i] || '').trim();
       if (selection === 'accept') {
         acceptedGaps.push(gap.skill);
-        acceptedGapObjects.push({ ...gap, status: 'pending' });
+        acceptedGapObjects.push({ ...gap, status: 'pending', customPrompt });
       } else if (selection === 'skip') {
         skippedGaps.push(gap.skill);
       } else {
         acceptedGaps.push(gap.skill);
-        acceptedGapObjects.push({ ...gap, status: 'pending' });
+        acceptedGapObjects.push({ ...gap, status: 'pending', customPrompt });
       }
     });
 
@@ -737,6 +769,20 @@ export default function GapReviewDialog({ open, onClose, gaps, satisfiedAlternat
                               <span className="icon">🎓</span>
                               <span>{gap.learningResource}</span>
                             </ReasonBox>
+                          )}
+                          {selected !== 'skip' && (
+                            <GapPromptWrap>
+                              <GapPromptLabel htmlFor={`gap-prompt-${idx}`}>
+                                Tell the AI how to handle this gap (optional)
+                              </GapPromptLabel>
+                              <GapPromptInput
+                                id={`gap-prompt-${idx}`}
+                                value={gapPrompts[idx] || ''}
+                                maxLength={300}
+                                onChange={(e) => setGapPrompts(prev => ({ ...prev, [idx]: e.target.value }))}
+                                placeholder={`e.g. Mention ${gap.skill} only in Skills, or frame it as "familiar with" since I've only used it on a side project.`}
+                              />
+                            </GapPromptWrap>
                           )}
                         </>
                       )}

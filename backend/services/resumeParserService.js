@@ -1279,7 +1279,9 @@ NOTE: The SKILLS section is where keywords matter most for ATS. For EXPERIENCE e
           const gapObj = acceptedObjects.find(g => g.skill === gapName);
           if (gapObj) {
             const typeLabel = gapObj.type === 'required' ? 'REQUIRED' : 'NICE-TO-HAVE';
-            return `• ${gapName} [${typeLabel}]${gapObj.reason ? ` — ${gapObj.reason}` : ''}`;
+            const note = (gapObj.customPrompt || '').toString().trim();
+            const noteText = note ? `\n    ↳ Candidate's instruction for this gap: ${note.slice(0, 300)}` : '';
+            return `• ${gapName} [${typeLabel}]${gapObj.reason ? ` — ${gapObj.reason}` : ''}${noteText}`;
           }
           return `• ${gapName}`;
         };
@@ -1325,6 +1327,12 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         }
         if (tailorSettings.focusAreas && tailorSettings.focusAreas.length > 0) {
           parts.push(`EMPHASIS AREAS: Especially emphasize these aspects throughout the resume: ${tailorSettings.focusAreas.join(', ')}. Weave these themes more prominently into descriptions.`);
+        }
+        // Freeform note the candidate typed — treat as a strong steer, but it can
+        // never override the "enrich, never fabricate" safety rules above.
+        const customNote = (tailorSettings.customInstructions || '').toString().trim();
+        if (customNote) {
+          parts.push(`CANDIDATE'S CUSTOM INSTRUCTIONS (honor these wherever they don't conflict with the honesty rules — never invent experience the candidate doesn't have): ${customNote.slice(0, 500)}`);
         }
         settingsContext = `\n═══ USER'S TAILORING PREFERENCES ═══\n${parts.join('\n')}\n`;
       }
@@ -1619,6 +1627,77 @@ Return ONLY valid JSON, no additional text.`;
         success: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Rewrite one or more resume sections according to per-section user
+   * instructions, without a job description. Used by the Download modal's
+   * "regenerate with AI" step so the user can nudge individual sections
+   * (e.g. "make the summary punchier", "quantify every experience bullet")
+   * right before exporting the PDF/Word file.
+   *
+   * @param {Object} profileData - the current resume data
+   * @param {Object} instructions - { summary, skills, experience, education, projects } (each optional string)
+   * @returns {Object} { success, data } where data holds only the regenerated sections
+   */
+  async regenerateSections(profileData, instructions = {}) {
+    // Only act on sections the user actually left an instruction for.
+    const SECTIONS = ['summary', 'skills', 'experience', 'education', 'projects'];
+    const active = SECTIONS.filter((k) => (instructions[k] || '').toString().trim());
+
+    if (active.length === 0) {
+      return { success: true, data: {} };
+    }
+
+    const sectionBlocks = active.map((key) => {
+      const current = profileData?.[key];
+      const currentStr = current === undefined || current === null
+        ? '(empty)'
+        : JSON.stringify(current, null, 2);
+      return `── SECTION: ${key} ──
+CURRENT CONTENT:
+${currentStr}
+USER INSTRUCTION: ${instructions[key].toString().trim().slice(0, 500)}`;
+    }).join('\n\n');
+
+    const system = 'You are a professional resume editor. You revise resume sections to follow the candidate\'s instructions while staying strictly truthful — never invent employers, dates, degrees, or experience the candidate does not have.';
+
+    const prompt = `Revise ONLY the resume sections listed below, each according to its USER INSTRUCTION. Preserve the exact data shape of each section (a string stays a string; an array of objects stays an array of objects with the same keys). Do not fabricate facts — you may rephrase, reorder, tighten, expand, or re-emphasize existing content, but every claim must remain supported by the original content.
+
+${sectionBlocks}
+
+═══ OUTPUT FORMAT ═══
+Return ONLY a valid JSON object containing exactly these keys: ${active.join(', ')}.
+Each key's value must use the SAME structure as its current content shown above.
+No commentary, no markdown fences — just the JSON object.`;
+
+    try {
+      const responseText = await callAI({
+        system,
+        prompt,
+        temperature: 0.3,
+        max_tokens: 3000,
+      });
+
+      let jsonText = responseText.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
+      } else if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+      }
+
+      const parsed = JSON.parse(jsonText);
+      // Only return the sections we asked for, guarding against extra keys.
+      const data = {};
+      active.forEach((k) => {
+        if (parsed[k] !== undefined) data[k] = parsed[k];
+      });
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error regenerating sections:', error);
+      return { success: false, error: error.message };
     }
   }
 }

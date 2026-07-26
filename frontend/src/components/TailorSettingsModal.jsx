@@ -14,7 +14,10 @@ const DEFAULT_SETTINGS = {
   includeSections: ['education', 'certifications', 'awards'],
   tone: 'detailed',
   focusAreas: [],
+  customInstructions: '', // freeform note the AI should consider when tailoring
 };
+
+const CUSTOM_MAX = 500;
 
 const TONE_OPTIONS = [
   { value: 'concise', icon: '⚡', label: 'Concise', desc: 'Short, ATS-friendly bullets' },
@@ -466,7 +469,34 @@ const ContinueBtn = styled.button`
     background: #5B34B5;
     box-shadow: 0 4px 14px rgba(105, 65, 198, 0.35);
   }
-  .arrow { font-size: 18px; }
+`;
+
+/* ── Custom instructions ── */
+const CustomTextarea = styled.textarea`
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+  background: white;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1a1a2e;
+  line-height: 1.5;
+  transition: border-color 0.2s;
+  &::placeholder { color: #9ca3af; }
+  &:focus {
+    outline: none;
+    border-color: #6941C6;
+  }
+`;
+
+const CharCount = styled.div`
+  margin-top: 6px;
+  text-align: right;
+  font-size: 11px;
+  color: #9ca3af;
 `;
 // === Segment Control helper ===
 function SegmentControl({ label, presets, value, onChange }) {
@@ -650,6 +680,21 @@ export default function TailorSettingsModal({ open, onClose, jobTitle, company, 
               })}
             </FocusChipGrid>
           </Section>
+
+          {/* Custom instructions — freeform note for the AI */}
+          <Section>
+            <SectionLabelRow>
+              <h4>Anything else for the AI?</h4>
+              <span className="hint">Optional</span>
+            </SectionLabelRow>
+            <CustomTextarea
+              value={settings.customInstructions}
+              maxLength={CUSTOM_MAX}
+              onChange={(e) => updateSetting('customInstructions', e.target.value)}
+              placeholder="e.g. Emphasize my fintech background, keep it under one page, and highlight leadership on the payments team."
+            />
+            <CharCount>{settings.customInstructions.length}/{CUSTOM_MAX}</CharCount>
+          </Section>
         </Body>
 
         <Footer>
@@ -661,7 +706,7 @@ export default function TailorSettingsModal({ open, onClose, jobTitle, company, 
             <FooterBadge>{settings.maxSkills} skills</FooterBadge>
           </FooterMeta>
           <ContinueBtn onClick={handleContinue}>
-            Continue to tailor <span className="arrow">→</span>
+            Continue to tailor
           </ContinueBtn>
         </Footer>
       </ModalContainer>
