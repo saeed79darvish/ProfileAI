@@ -13,7 +13,7 @@ interface GapReviewModalProps {
   onContinue: (selections: {
     acceptedGaps: string[];
     skippedGaps: string[];
-    acceptedGapObjects: (Gap & { status: string })[];
+    acceptedGapObjects: (Gap & { status: string; customPrompt?: string })[];
   }) => void;
   onCancel: () => void;
   loading?: boolean;
@@ -40,6 +40,8 @@ export const GapReviewModal: React.FC<GapReviewModalProps> = ({
   loading = false,
 }) => {
   const [selections, setSelections] = useState<Record<number, 'accept' | 'skip'>>({});
+  // Per-gap freeform instruction the AI should honor when weaving this gap in.
+  const [gapPrompts, setGapPrompts] = useState<Record<number, string>>({});
 
   const stats = useMemo(() => {
     const total = gaps.length;
@@ -62,7 +64,7 @@ export const GapReviewModal: React.FC<GapReviewModalProps> = ({
   const handleContinue = () => {
     const acceptedGaps: string[] = [];
     const skippedGaps: string[] = [];
-    const acceptedGapObjects: (Gap & { status: string })[] = [];
+    const acceptedGapObjects: (Gap & { status: string; customPrompt?: string })[] = [];
 
     gaps.forEach((gap, i) => {
       const selection = selections[i];
@@ -70,7 +72,7 @@ export const GapReviewModal: React.FC<GapReviewModalProps> = ({
         skippedGaps.push(gap.skill);
       } else {
         acceptedGaps.push(gap.skill);
-        acceptedGapObjects.push({ ...gap, status: 'pending' });
+        acceptedGapObjects.push({ ...gap, status: 'pending', customPrompt: (gapPrompts[i] || '').trim() });
       }
     });
 
@@ -175,6 +177,21 @@ export const GapReviewModal: React.FC<GapReviewModalProps> = ({
                     ⏭ Skip
                   </button>
                 </div>
+                {selected !== 'skip' && (
+                  <div className="gap-prompt-wrap">
+                    <label className="gap-prompt-label" htmlFor={`gap-prompt-${i}`}>
+                      Tell the AI how to handle this gap (optional)
+                    </label>
+                    <textarea
+                      id={`gap-prompt-${i}`}
+                      className="gap-prompt-input"
+                      value={gapPrompts[i] || ''}
+                      maxLength={300}
+                      onChange={(e) => setGapPrompts((prev) => ({ ...prev, [i]: e.target.value }))}
+                      placeholder={`e.g. Mention ${gap.skill} only in Skills, or frame it as "familiar with".`}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}

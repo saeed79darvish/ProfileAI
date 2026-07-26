@@ -19,7 +19,11 @@ export interface TailorSettings {
   includeSections: string[];
   tone: 'professional' | 'concise' | 'detailed';
   focusAreas: string[];
+  /** Freeform note the AI should consider when tailoring. */
+  customInstructions: string;
 }
+
+const CUSTOM_MAX = 500;
 
 interface TailorSettingsModalProps {
   jobTitle: string;
@@ -39,6 +43,7 @@ const DEFAULT_SETTINGS: TailorSettings = {
   includeSections: ['education', 'certifications', 'awards'],
   tone: 'detailed',
   focusAreas: [],
+  customInstructions: '',
 };
 
 interface ToneOption { value: TailorSettings['tone']; icon: string; label: string; desc: string; }
@@ -285,6 +290,22 @@ export const TailorSettingsModal: React.FC<TailorSettingsModalProps> = ({
               })}
             </div>
           </div>
+
+          {/* Custom instructions — freeform note for the AI */}
+          <div className="tsm-section">
+            <div className="tsm-section-label-row">
+              <div className="tsm-section-label">Anything else for the AI?</div>
+              <span className="tsm-section-hint">Optional</span>
+            </div>
+            <textarea
+              className="tsm-custom-textarea"
+              value={settings.customInstructions}
+              maxLength={CUSTOM_MAX}
+              onChange={(e) => updateSetting('customInstructions', e.target.value)}
+              placeholder="e.g. Emphasize my fintech background, keep it to one page, highlight leadership on the payments team."
+            />
+            <div className="tsm-custom-count">{settings.customInstructions.length}/{CUSTOM_MAX}</div>
+          </div>
         </div>
 
         {/* Footer */}
@@ -297,7 +318,7 @@ export const TailorSettingsModal: React.FC<TailorSettingsModalProps> = ({
             <span className="tsm-footer-badge">{settings.maxSkills} skills</span>
           </div>
           <button className="tsm-btn-continue" onClick={handleContinue}>
-            Continue to tailor <span className="tsm-btn-arrow">→</span>
+            Continue to tailor
           </button>
         </div>
       </div>

@@ -1002,42 +1002,33 @@ const AIPromptInput = styled.textarea`
   &:disabled { background: #f9fafb; }
 `;
 
-const RegenBar = styled.div`
-  position: sticky;
-  top: 0;
-  z-index: 2;
+const AIPromptRow = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 12px;
-  margin-bottom: 16px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(102,126,234,0.08), rgba(118,75,162,0.08));
-  border: 1px solid rgba(118,75,162,0.18);
+  margin-top: 8px;
 `;
 
-const RegenButton = styled.button`
+const AIPromptBtn = styled.button`
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 16px;
-  border-radius: 10px;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 9px;
   border: none;
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: white;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.2s;
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
 `;
 
-const RegenNote = styled.span`
-  font-size: 12px;
-  color: #4b5563;
-  flex: 1;
-  min-width: 160px;
+const AIPromptNote = styled.span`
+  font-size: 11.5px;
+  color: ${p => p.$error ? '#dc2626' : '#4b5563'};
 `;
 
 const SkillsWrap = styled.div`
@@ -1355,8 +1346,8 @@ export default function ResumePreviewModal({
   const [sectionOrder, setSectionOrder] = useState(ALL_SECTIONS);
   // Per-section instructions the user can hand to the AI before downloading.
   const [sectionPrompts, setSectionPrompts] = useState({});
-  const [regenerating, setRegenerating] = useState(false);
-  const [regenMsg, setRegenMsg] = useState('');
+  const [regeneratingSection, setRegeneratingSection] = useState(null);
+  const [regenStatus, setRegenStatus] = useState({}); // { [section]: { msg, error } }
   // The AI-suggested order for this candidate + whether it's currently applied.
   const [suggestion, setSuggestion] = useState({ order: ALL_SECTIONS, label: 'Standard order' });
   const previewDebounceRef = useRef(null);
@@ -1372,8 +1363,8 @@ export default function ResumePreviewModal({
       setActiveTab(initialTab === 'edit' ? 'edit' : 'preview');
       setSkillInput('');
       setSectionPrompts({});
-      setRegenerating(false);
-      setRegenMsg('');
+      setRegeneratingSection(null);
+      setRegenStatus({});
       const data = tailoredProfileData || profileData;
       if (data) {
         const merged = JSON.parse(JSON.stringify(data));
@@ -1519,49 +1510,67 @@ export default function ResumePreviewModal({
     setSectionPrompts(prev => ({ ...prev, [section]: value }));
   };
 
-  const activePromptCount = Object.values(sectionPrompts).filter(v => (v || '').trim()).length;
-
-  const handleRegenerateSections = async () => {
+  const handleRegenerateSection = async (section) => {
     const base = editData || tailoredProfileData || profileData;
-    if (!base || activePromptCount === 0 || regenerating) return;
-    setRegenerating(true);
-    setRegenMsg('');
+    const instruction = (sectionPrompts[section] || '').trim();
+    if (!base || !instruction || regeneratingSection) return;
+    setRegeneratingSection(section);
+    setRegenStatus(prev => ({ ...prev, [section]: null }));
     try {
-      const instructions = {};
-      Object.entries(sectionPrompts).forEach(([k, v]) => {
-        if ((v || '').trim()) instructions[k] = v.trim();
+      const { data } = await profileAPI.regenerateSections({
+        profileData: base,
+        instructions: { [section]: instruction },
       });
-      const { data } = await profileAPI.regenerateSections({ profileData: base, instructions });
       const updated = data?.data || {};
-      const merged = { ...base, ...updated };
-      setEditData(merged);
-      schedulePreviewUpdate(merged);
-      setSectionPrompts({});
-      const names = Object.keys(updated);
-      setRegenMsg(names.length ? `Updated: ${names.join(', ')}. Review below or in the preview.` : 'No changes returned.');
+      if (updated[section] !== undefined) {
+        const merged = { ...base, [section]: updated[section] };
+        setEditData(merged);
+        schedulePreviewUpdate(merged);
+        setSectionPrompt(section, '');
+        setRegenStatus(prev => ({ ...prev, [section]: { msg: 'Updated. Check the preview.' } }));
+      } else {
+        setRegenStatus(prev => ({ ...prev, [section]: { msg: 'No change returned.' } }));
+      }
     } catch (err) {
       console.error('Regenerate error:', err);
-      setRegenMsg(err.response?.data?.error || 'Failed to regenerate. Please try again.');
+      setRegenStatus(prev => ({ ...prev, [section]: { msg: err.response?.data?.error || 'Failed. Try again.', error: true } }));
     } finally {
-      setRegenerating(false);
+      setRegeneratingSection(null);
     }
   };
 
-  const renderAIPrompt = (section, placeholder) => (
-    <AIPromptBox>
-      <AIPromptLabel htmlFor={`ai-prompt-${section}`}>
-        <span className="spark">✦</span> Ask AI to adjust this section (optional)
-      </AIPromptLabel>
-      <AIPromptInput
-        id={`ai-prompt-${section}`}
-        value={sectionPrompts[section] || ''}
-        maxLength={400}
-        disabled={regenerating}
-        onChange={e => setSectionPrompt(section, e.target.value)}
-        placeholder={placeholder}
-      />
-    </AIPromptBox>
-  );
+  const renderAIPrompt = (section, placeholder) => {
+    const busy = regeneratingSection === section;
+    const hasText = !!(sectionPrompts[section] || '').trim();
+    const status = regenStatus[section];
+    return (
+      <AIPromptBox>
+        <AIPromptLabel htmlFor={`ai-prompt-${section}`}>
+          <span className="spark">✦</span> Ask AI to adjust this section (optional)
+        </AIPromptLabel>
+        <AIPromptInput
+          id={`ai-prompt-${section}`}
+          value={sectionPrompts[section] || ''}
+          maxLength={400}
+          disabled={busy}
+          onChange={e => setSectionPrompt(section, e.target.value)}
+          placeholder={placeholder}
+        />
+        <AIPromptRow>
+          <AIPromptBtn
+            type="button"
+            onClick={() => handleRegenerateSection(section)}
+            disabled={!hasText || !!regeneratingSection}
+          >
+            {busy
+              ? <><CircularProgress size={12} sx={{ color: 'white' }} /> Regenerating…</>
+              : <><span>✦</span> Regenerate with AI</>}
+          </AIPromptBtn>
+          {status && <AIPromptNote $error={status.error}>{status.msg}</AIPromptNote>}
+        </AIPromptRow>
+      </AIPromptBox>
+    );
+  };
 
   const updateField = (field, value) => {
     setEditData(prev => {
@@ -2087,21 +2096,6 @@ export default function ResumePreviewModal({
               {renderPreview()}
               <RightPane>
                 <EditScroll>
-                  <RegenBar>
-                    <RegenButton
-                      type="button"
-                      onClick={handleRegenerateSections}
-                      disabled={regenerating || activePromptCount === 0}
-                    >
-                      {regenerating
-                        ? <><CircularProgress size={14} sx={{ color: 'white' }} /> Regenerating…</>
-                        : <><span>✦</span> {activePromptCount > 0 ? `Regenerate ${activePromptCount} section${activePromptCount > 1 ? 's' : ''} with AI` : 'Regenerate with AI'}</>}
-                    </RegenButton>
-                    <RegenNote>
-                      {regenMsg || 'Add an instruction under any section below, then let AI rewrite it before you download.'}
-                    </RegenNote>
-                  </RegenBar>
-
                   <EditSection>
                     <EditSectionLabel>Full Name</EditSectionLabel>
                     <FieldInput
