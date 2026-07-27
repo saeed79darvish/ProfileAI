@@ -51,7 +51,9 @@ function withUtm(pathAndQuery) {
   return `${FRONTEND}${pathAndQuery}${sep}${UTM}`;
 }
 function jobDeepLink(jobId) {
-  return withUtm(`/jobs/${jobId}`);
+  // External job ids resolve on the /jobs list page (via ?jobId=), not
+  // /jobs/:id. `tailor=1` opens the AI resume-tailoring flow on arrival.
+  return withUtm(`/jobs?jobId=${encodeURIComponent(jobId)}&tailor=1`);
 }
 function resumeDeepLink(id) {
   return withUtm(`/profile?tailored=${encodeURIComponent(id)}`);

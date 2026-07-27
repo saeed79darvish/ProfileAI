@@ -7,10 +7,10 @@
  * platform.
  */
 
-const BASE_URL = process.env.PUBLIC_APP_URL || 'https://profileai.pro';
+const BASE_URL = process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://www.profilleai.com';
 const LOGO_URL =
   process.env.PUBLIC_LOGO_URL ||
-  'https://profileai.pro/logo.png';
+  `${BASE_URL}/logo.png`;
 const CHROME_EXTENSION_URL =
   process.env.PUBLIC_CHROME_EXTENSION_URL ||
   'https://chromewebstore.google.com/detail/profileai';
@@ -23,7 +23,8 @@ function withUtm(path) {
 }
 
 function jobUrl(id) {
-  return withUtm(`/jobs/${id}`);
+  // External job ids resolve on the /jobs list page via ?jobId=, not /jobs/:id.
+  return withUtm(`/jobs?jobId=${encodeURIComponent(id)}`);
 }
 function profileUrl(idOrSlug) {
   return withUtm(`/profile/${idOrSlug}`);

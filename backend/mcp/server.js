@@ -122,9 +122,11 @@ function buildMcpServer(ctx) {
     async (args) => {
       try {
         // Auth optional for search_jobs to lower friction.
-        const { jobs } = await jobSearchService.searchJobs({
+        // The harvested ExternalJob table powers the real /jobs page; the
+        // internal Job table is typically empty. Search that so the connector
+        // returns actual listings.
+        const { jobs } = await jobSearchService.searchExternalJobs({
           ...args,
-          page: 1,
           limit: args.limit || 10,
         });
         // Spec-shaped jobs for the interactive card widget + structuredContent.

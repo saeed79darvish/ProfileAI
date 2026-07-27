@@ -142,8 +142,44 @@ async function getJobById(id, { incrementViews = true } = {}) {
   return job;
 }
 
+/**
+ * Search the ExternalJob table — the harvested listings that actually power
+ * the /jobs page (the internal Job table is typically empty). Used by the
+ * Claude connector's search_jobs tool so it returns real results.
+ */
+async function searchExternalJobs(params = {}) {
+  const { ExternalJob } = require('../models');
+  const {
+    query, location, locationType, employmentType, experienceLevel,
+    salaryMin, salaryMax, limit = 10,
+  } = params;
+
+  const where = { isActive: true };
+  if (query) {
+    where[Op.or] = [
+      { title: { [Op.iLike]: `%${query}%` } },
+      { company: { [Op.iLike]: `%${query}%` } },
+      { description: { [Op.iLike]: `%${query}%` } },
+    ];
+  }
+  if (location) where.location = { [Op.iLike]: `%${location}%` };
+  if (locationType) where.locationType = { [Op.iLike]: `%${locationType}%` };
+  if (employmentType) where.employmentType = { [Op.iLike]: `%${employmentType}%` };
+  if (experienceLevel) where.experienceLevel = { [Op.iLike]: `%${experienceLevel}%` };
+  if (salaryMin) where.salaryMax = { [Op.gte]: parseInt(salaryMin, 10) };
+  if (salaryMax) where.salaryMin = { [Op.lte]: parseInt(salaryMax, 10) };
+
+  const jobs = await ExternalJob.findAll({
+    where,
+    order: [['createdAt', 'DESC']],
+    limit: Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25),
+  });
+  return { jobs };
+}
+
 module.exports = {
   buildJobWhereClause,
   searchJobs,
+  searchExternalJobs,
   getJobById,
 };
