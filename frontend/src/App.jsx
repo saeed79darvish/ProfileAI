@@ -40,6 +40,7 @@ const JobApplication = lazyWithReload(() => import('./pages/JobApplication'));
 const Pricing = lazyWithReload(() => import('./pages/Pricing'));
 const SubscriptionSuccess = lazyWithReload(() => import('./pages/SubscriptionSuccess'));
 const ConnectClaude = lazyWithReload(() => import('./pages/ConnectClaude'));
+const IntegrationsClaude = lazyWithReload(() => import('./pages/IntegrationsClaude'));
 const FeedPage = lazyWithReload(() => import('./pages/FeedPage'));
 const MessagesPage = lazyWithReload(() => import('./pages/MessagesPage'));
 const FollowersPage = lazyWithReload(() => import('./pages/FollowersPage'));
@@ -263,6 +264,7 @@ function AppContent() {
             } />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/connect/claude" element={<ConnectClaude />} />
+            <Route path="/integrations/claude" element={<IntegrationsClaude />} />
             <Route path="/blog" element={<BlogIndex />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
             <Route path="/subscription/success" element={<SubscriptionSuccess />} />
