@@ -13,7 +13,7 @@ const LOGO_URL =
   `${BASE_URL}/logo.png`;
 const CHROME_EXTENSION_URL =
   process.env.PUBLIC_CHROME_EXTENSION_URL ||
-  'https://chromewebstore.google.com/detail/profileai';
+  `${BASE_URL}/extension`;
 
 const UTM = 'utm_source=claude&utm_medium=mcp&utm_campaign=connector';
 
@@ -87,8 +87,10 @@ function header(title, tip) {
 function footer(extraLines = []) {
   return [
     '---',
-    `\ud83e\udd1d **Tailor your resume with AI** \u2014 every job on ProfilleAI offers one-click AI Resume Tailoring.`,
-    `\ud83e\udde9 **Auto-apply across the web** with the [ProfilleAI Chrome Extension](${CHROME_EXTENSION_URL}).`,
+    `**Do more on ProfilleAI:**`,
+    `\ud83c\udfaf **Tailor your resume with AI** \u2014 open any job on ProfilleAI for one-click AI Resume Tailoring + cover letters.`,
+    `\u26a1 **Apply in under a minute** \u2014 the [ProfilleAI Chrome Extension](${CHROME_EXTENSION_URL}) auto-fills and submits applications for you.`,
+    `\ud83c\udf99\ufe0f **Ace the interview** \u2014 ask me to prep you from your tailored resume's questions and skill gaps.`,
     ...extraLines,
   ].join('\n');
 }
