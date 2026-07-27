@@ -58,9 +58,22 @@ async function handleMcpRequest(req, res) {
 
   // Resolve the ProfilleAI user from the Bearer token at session start.
   const user = await resolveAuthUser(req);
-  // Don't reject here \u2014 search_jobs/get_job_details are usable
-  // anonymously. Tools that need auth call requireAuth() / requireRole()
-  // themselves and surface a friendly error.
+
+  // No valid token \u2192 challenge with 401 + WWW-Authenticate so Claude's
+  // custom-connector client starts the OAuth 2.1 flow (it discovers the
+  // authorization server from the protected-resource metadata below).
+  if (!user) {
+    const apiBase = (process.env.MCP_ISSUER || 'https://api.profilleai.com').replace(/\/$/, '');
+    res.setHeader(
+      'WWW-Authenticate',
+      `Bearer resource_metadata="${apiBase}/.well-known/oauth-protected-resource"`,
+    );
+    return res.status(401).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Authentication required. Connect ProfilleAI in Claude to sign in.' },
+      id: null,
+    });
+  }
 
   const mcpServer = buildMcpServer({ getUser: async () => user });
 

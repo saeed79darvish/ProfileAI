@@ -224,8 +224,11 @@ if (featureFlags.feed) {
 }
 
 // Claude.ai Custom Connector (MCP). Off by default; enable with
-// ENABLE_CLAUDE_CONNECTOR=true. Exposes POST /mcp.
+// ENABLE_CLAUDE_CONNECTOR=true. Exposes POST /mcp plus the OAuth 2.1
+// endpoints (.well-known metadata, /oauth/*) that Claude drives to sign in.
 if (featureFlags.claudeConnector) {
+  const mountMcpOAuth = require('./oauth/mcpOAuth');
+  mountMcpOAuth(app);
   const mountMcp = require('./mcp/transport');
   mountMcp(app);
 }
