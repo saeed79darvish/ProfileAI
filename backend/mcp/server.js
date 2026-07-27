@@ -9,6 +9,12 @@
  *   - connect_with_user      (any authed user, rate-limited 20/day)
  *   - list_tailored_resumes  (authed user — their own tailored resumes)
  *   - get_interview_prep     (authed user — questions + gaps for one resume)
+ *   - get_portfolio          (authed user — portfolio card)
+ *   - get_resume_downloads   (authed user — resume download cards)
+ *
+ * search_jobs / get_portfolio / get_resume_downloads are "MCP Apps": their
+ * results embed an interactive UI resource (backend/mcp/ui/) that Claude
+ * renders as cards, with a deep-link button back into the platform.
  *
  * Each tool returns dual content: a Markdown card for chat rendering
  * AND `structuredContent` so Claude can reason about the result.
@@ -27,6 +33,18 @@ const connectionService = require('../services/connectionService');
 const tailoredResumeService = require('../services/tailoredResumeService');
 const { requireAuth, requireRole } = require('./auth');
 const renderers = require('./renderers');
+const apps = require('./apps');
+
+/** Flatten profile skills (array or { category: [...] }) to a string list. */
+function normalizeSkills(skills, n = 24) {
+  if (!skills) return [];
+  const arr = Array.isArray(skills)
+    ? skills
+    : typeof skills === 'object'
+      ? Object.values(skills).flat()
+      : [];
+  return arr.map((s) => (typeof s === 'string' ? s : s?.name)).filter(Boolean).slice(0, n);
+}
 
 // In-memory daily rate-limit window for `connect_with_user`. A more
 // durable counter (e.g. Redis) can replace this without touching tools.
@@ -73,6 +91,10 @@ function buildMcpServer(ctx) {
     version: '1.0.0',
   });
 
+  // Register the interactive UI resource (job/portfolio/resume cards) that
+  // app-enabled tools reference in their _meta.
+  apps.registerAppResource(server);
+
   // -------------------- search_jobs --------------------
   server.tool(
     'search_jobs',
@@ -105,26 +127,24 @@ function buildMcpServer(ctx) {
           page: 1,
           limit: args.limit || 10,
         });
-        return {
-          content: [
-            { type: 'text', text: renderers.renderJobsListMarkdown(args.query, jobs) },
-          ],
-          structuredContent: {
-            count: jobs.length,
-            jobs: jobs.map((j) => ({
-              id: j.id,
-              title: j.title,
-              company: j.company,
-              location: j.location,
-              locationType: j.locationType,
-              employmentType: j.employmentType,
-              experienceLevel: j.experienceLevel,
-              salaryMin: j.salaryMin,
-              salaryMax: j.salaryMax,
-              url: renderers.jobUrl(j.id),
-            })),
-          },
-        };
+        // Spec-shaped jobs for the interactive card widget + structuredContent.
+        const jobsOut = jobs.map((j) => ({
+          jobId: j.id,
+          title: j.title,
+          company: j.company,
+          location: j.location,
+          salaryRange: apps.salaryRange(j),
+          matchScore: null, // search results aren't scored against a specific user
+          shortDescription: apps.truncate(j.description || j.summary || '', 140),
+          fullDescription: apps.truncate(j.description || '', 600),
+          requirements: Array.isArray(j.requirements) ? j.requirements.slice(0, 8) : [],
+          deepLinkUrl: apps.jobDeepLink(j.id),
+        }));
+        return apps.appResult({
+          fallbackText: renderers.renderJobsListMarkdown(args.query, jobs),
+          data: { kind: 'jobs', title: `Jobs matching “${args.query}”`, jobs: jobsOut },
+          structuredContent: { count: jobsOut.length, jobs: jobsOut },
+        });
       } catch (err) {
         return toToolError(err);
       }
@@ -353,6 +373,72 @@ function buildMcpServer(ctx) {
             url: renderers.resumeUrl(resume.id),
           },
         };
+      } catch (err) {
+        return toToolError(err);
+      }
+    },
+  );
+
+  // -------------------- get_portfolio --------------------
+  server.tool(
+    'get_portfolio',
+    'Show the signed-in user’s ProfilleAI portfolio as an interactive card — headline, location, top skills, projects, and links (LinkedIn/GitHub/website). Use when the user asks to see, review, or share their portfolio.',
+    {},
+    async () => {
+      try {
+        const user = requireAuth(await ctx.getUser());
+        const { Profile } = require('../models');
+        const p = await Profile.findOne({ where: { userId: user.id } });
+        const portfolio = {
+          name: [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Portfolio',
+          headline: p?.headline || p?.title || '',
+          location: p?.location || '',
+          summary: apps.truncate(p?.summary || '', 260),
+          skills: normalizeSkills(p?.skills),
+          projects: (Array.isArray(p?.projects) ? p.projects : []).slice(0, 6).map((pr) => ({
+            name: pr.name || pr.title || 'Project',
+            description: apps.truncate(pr.description || '', 160),
+          })),
+          links: [
+            p?.linkedinUrl && { label: 'LinkedIn', url: p.linkedinUrl },
+            p?.githubUrl && { label: 'GitHub', url: p.githubUrl },
+            p?.portfolioUrl && { label: 'Website', url: p.portfolioUrl },
+          ].filter(Boolean),
+          deepLinkUrl: apps.portfolioDeepLink(),
+        };
+        return apps.appResult({
+          fallbackText: `**${portfolio.name}**${portfolio.headline ? ` — ${portfolio.headline}` : ''}`,
+          data: { kind: 'portfolio', title: 'Portfolio', portfolio },
+          structuredContent: { portfolio },
+        });
+      } catch (err) {
+        return toToolError(err);
+      }
+    },
+  );
+
+  // -------------------- get_resume_downloads --------------------
+  server.tool(
+    'get_resume_downloads',
+    'List the signed-in user’s tailored resume versions with a link to download each (PDF/Word) on ProfilleAI. Use when the user wants to download, export, or share a resume.',
+    {},
+    async () => {
+      try {
+        const user = requireAuth(await ctx.getUser());
+        const rows = await tailoredResumeService.listForUser(user.id, { limit: 20 });
+        const resumes = rows.map((r) => ({
+          id: r.id,
+          jobTitle: r.jobTitle,
+          company: r.companyName,
+          matchScore: r.matchScore,
+          createdAt: r.createdAt,
+          downloadUrl: apps.resumeDeepLink(r.id),
+        }));
+        return apps.appResult({
+          fallbackText: `${resumes.length} resume version${resumes.length === 1 ? '' : 's'} available to download.`,
+          data: { kind: 'resumeDownloads', title: 'Your resumes', resumes },
+          structuredContent: { count: resumes.length, resumes },
+        });
       } catch (err) {
         return toToolError(err);
       }
