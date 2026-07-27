@@ -16,6 +16,10 @@ interface AnalyzeLinkedInPillProps {
    *  instead of the sign-in redirect. Distinct copy so it reads as a live
    *  CTA, not a paywall. */
   guest?: boolean;
+  /** The pill now shows on every page. When the active tab isn't a LinkedIn
+   *  profile, we keep the button visible but flip the copy to a prompt; the
+   *  click handler guides the user to open a profile instead of analyzing. */
+  offProfile?: boolean;
 }
 
 const formatAgo = (ts: number): string => {
@@ -36,11 +40,12 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
   analyzedAt,
   requiresSignIn,
   guest,
+  offProfile,
 }) => {
   const hasResult = !!analyzedAt && !loading && !requiresSignIn;
   return (
     <button
-      className={`profile-analyze-linkedin${hasResult ? ' analyzed' : ''}${guest ? ' guest' : ''}`}
+      className={`profile-analyze-linkedin${hasResult ? ' analyzed' : ''}${guest ? ' guest' : ''}${offProfile && !loading ? ' off-profile' : ''}`}
       onClick={onClick}
       disabled={loading}
       title={
@@ -48,9 +53,11 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
           ? 'Free instant analysis. No account needed.'
           : requiresSignIn
             ? 'Sign in free to run the recruiter-POV analysis on this profile'
-            : hasResult
-              ? 'You already analyzed this profile. Opens the saved result. Re-analyze from inside if you want a fresh grade.'
-              : 'Analyze this LinkedIn profile like a recruiter'
+            : offProfile && !hasResult
+              ? 'Open a LinkedIn profile (linkedin.com/in/…), then tap to analyze it'
+              : hasResult
+                ? 'You already analyzed this profile. Opens the saved result. Re-analyze from inside if you want a fresh grade.'
+                : 'Analyze this LinkedIn profile like a recruiter'
       }
     >
       <span className="pal-icon" aria-hidden>
@@ -91,7 +98,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
               ? 'Analyze my profile'
               : hasResult
                 ? 'View LinkedIn analysis'
-                : 'Analyze this LinkedIn profile'}
+                : offProfile
+                  ? 'Analyze a LinkedIn profile'
+                  : 'Analyze this LinkedIn profile'}
         </span>
         <span className="pal-sub">
           {guest
@@ -102,7 +111,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
                 ? 'Recruiter-POV grade + rewrites'
                 : hasResult
                   ? `Analyzed ${formatAgo(analyzedAt!)} · re-analyze inside`
-                  : 'Recruiter-POV grade + rewrites'}
+                  : offProfile
+                    ? 'Open a profile, then tap to grade it'
+                    : 'Recruiter-POV grade + rewrites'}
         </span>
       </span>
       <svg className="pal-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -32,7 +32,9 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User'
     : 'User';
 
-  const showLinkedIn = !!(isOnLinkedInProfile && onAnalyzeLinkedIn);
+  // The analyzer pill now shows on every page (not just LinkedIn profiles).
+  // When off-profile, the click prompts the user to open a profile first.
+  const showLinkedIn = !!onAnalyzeLinkedIn;
 
   return (
     <div className="panel-section profile-compact">
@@ -59,6 +61,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
           onClick={onAnalyzeLinkedIn!}
           loading={isAnalyzingLinkedIn}
           analyzedAt={linkedInAnalyzedAt}
+          offProfile={!isOnLinkedInProfile}
         />
       )}
     </div>

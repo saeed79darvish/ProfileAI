@@ -738,6 +738,13 @@ export const SidePanel: React.FC = () => {
    * when it doesn't).
    */
   const openAnalyzeGoalPicker = useCallback(async (flow: 'authed' | 'guest') => {
+    // The analyzer pill is always visible now. If the active tab isn't a
+    // LinkedIn profile, there's nothing to grade — guide the user there
+    // instead of opening the goal picker on an irrelevant page.
+    if (!isOnLinkedInProfile) {
+      showNotification('Open a LinkedIn profile (linkedin.com/in/…) in your browser tab, then tap Analyze.', 'info');
+      return;
+    }
     setPendingAnalyzeFlow(flow);
     // Best-effort own-profile detection. Same slug match the analyzer itself
     // uses. Fails safe to 'other-profile' so we don't misleadingly prefill.
@@ -750,7 +757,7 @@ export const SidePanel: React.FC = () => {
     } catch { /* leave ctx undefined */ }
     setGoalPickerContext(ctx);
     setShowGoalPicker(true);
-  }, [profile]);
+  }, [profile, isOnLinkedInProfile]);
 
   const closeGoalPicker = useCallback(() => {
     setShowGoalPicker(false);
@@ -1147,15 +1154,14 @@ export const SidePanel: React.FC = () => {
               it grades the LinkedIn page itself. Surfacing it before profile
               setup gives new users instant value (hook), then the setup guide
               below converts them to the full product. */}
-          {isOnLinkedInProfile && (
-            <div className="panel-section li-preprofile-section">
-              <AnalyzeLinkedInPill
-                onClick={() => void openAnalyzeGoalPicker('authed')}
-                loading={linkedInLoading && linkedInMode === 'authed'}
-                analyzedAt={linkedInTabAnalyzedAt}
-              />
-            </div>
-          )}
+          <div className="panel-section li-preprofile-section">
+            <AnalyzeLinkedInPill
+              onClick={() => void openAnalyzeGoalPicker('authed')}
+              loading={linkedInLoading && linkedInMode === 'authed'}
+              analyzedAt={linkedInTabAnalyzedAt}
+              offProfile={!isOnLinkedInProfile}
+            />
+          </div>
           <ProfileSetupGuide
             profile={profile}
             currentJob={currentJob}
