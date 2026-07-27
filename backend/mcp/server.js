@@ -1,12 +1,14 @@
 /**
  * MCP server definition for ProfilleAI's Claude.ai Custom Connector.
  *
- * Exposes five tools:
- *   - search_jobs           (candidates)
- *   - get_job_details       (any authed user)
- *   - search_candidates     (recruiters only)
- *   - get_candidate_profile (recruiters only)
- *   - connect_with_user     (any authed user, rate-limited 20/day)
+ * Exposes these tools:
+ *   - search_jobs            (candidates)
+ *   - get_job_details        (any authed user)
+ *   - search_candidates      (recruiters only)
+ *   - get_candidate_profile  (recruiters only)
+ *   - connect_with_user      (any authed user, rate-limited 20/day)
+ *   - list_tailored_resumes  (authed user — their own tailored resumes)
+ *   - get_interview_prep     (authed user — questions + gaps for one resume)
  *
  * Each tool returns dual content: a Markdown card for chat rendering
  * AND `structuredContent` so Claude can reason about the result.
@@ -22,6 +24,7 @@ const { z } = require('zod');
 const jobSearchService = require('../services/jobSearchService');
 const candidateSearchService = require('../services/candidateSearchService');
 const connectionService = require('../services/connectionService');
+const tailoredResumeService = require('../services/tailoredResumeService');
 const { requireAuth, requireRole } = require('./auth');
 const renderers = require('./renderers');
 
@@ -280,6 +283,74 @@ function buildMcpServer(ctx) {
             messageId: result.messageId,
             recipient: result.recipient,
             url: renderers.conversationUrl(result.conversationId),
+          },
+        };
+      } catch (err) {
+        return toToolError(err);
+      }
+    },
+  );
+
+  // -------------------- list_tailored_resumes --------------------
+  server.tool(
+    'list_tailored_resumes',
+    'List the signed-in user’s tailored resumes on ProfilleAI (one per job they tailored for). Call this first when the user wants to prepare for an interview so you can pick the right role. Returns each resume’s id, job title, company, match score, and how many skill gaps it has. Use an id with `get_interview_prep`.',
+    {
+      limit: z.number().int().min(1).max(20).optional().default(20),
+    },
+    async (args) => {
+      try {
+        const user = requireAuth(await ctx.getUser());
+        const resumes = await tailoredResumeService.listForUser(user.id, {
+          limit: args.limit || 20,
+        });
+        return {
+          content: [
+            { type: 'text', text: renderers.renderTailoredResumesListMarkdown(resumes) },
+          ],
+          structuredContent: {
+            count: resumes.length,
+            resumes,
+          },
+        };
+      } catch (err) {
+        return toToolError(err);
+      }
+    },
+  );
+
+  // -------------------- get_interview_prep --------------------
+  server.tool(
+    'get_interview_prep',
+    'Get everything needed to prep the signed-in user for a specific interview: the tailored role, its match score, the interview questions (with why-asked + suggested approach), behavioral prompts, and the skill gaps to address. Use the returned data to run a mock interview, drill individual questions, or coach the user through their gaps. Get the id from `list_tailored_resumes`.',
+    {
+      resumeId: z
+        .string()
+        .uuid()
+        .describe('Tailored resume id (UUID) from `list_tailored_resumes`.'),
+    },
+    async ({ resumeId }) => {
+      try {
+        const user = requireAuth(await ctx.getUser());
+        const resume = await tailoredResumeService.getForUser(user.id, resumeId);
+        if (!resume) {
+          return toToolError(
+            new Error('Tailored resume not found. Use `list_tailored_resumes` to see valid ids.'),
+          );
+        }
+        return {
+          content: [
+            { type: 'text', text: renderers.renderInterviewPrepMarkdown(resume) },
+          ],
+          structuredContent: {
+            id: resume.id,
+            jobTitle: resume.jobTitle,
+            companyName: resume.companyName,
+            matchScore: resume.matchScore,
+            hasInterviewPrep: !!resume.interviewPrep,
+            interviewPrep: resume.interviewPrep,
+            skillGaps: resume.skillGaps,
+            url: renderers.resumeUrl(resume.id),
           },
         };
       } catch (err) {

@@ -34,6 +34,9 @@ function conversationUrl(id) {
 function jobSearchUrl(query) {
   return withUtm(`/jobs?search=${encodeURIComponent(query || '')}`);
 }
+function resumeUrl(id) {
+  return withUtm(`/profile?tailored=${encodeURIComponent(id || '')}`);
+}
 
 function relativeTime(date) {
   if (!date) return '';
@@ -289,6 +292,132 @@ function renderConnectConfirmation({ recipient, conversationId }) {
   ].join('\n');
 }
 
+/** List of the user's tailored resumes, for interview prep. */
+function renderTailoredResumesListMarkdown(resumes) {
+  if (!resumes || resumes.length === 0) {
+    return [
+      header('No tailored resumes yet', 'Tailor your resume to a job on ProfilleAI, then come back to prep for the interview.'),
+      '',
+      `Get started: [Tailor a resume on ProfilleAI](${withUtm('/profile')})`,
+      '',
+      footer(),
+    ].join('\n');
+  }
+
+  const parts = [
+    header(
+      `${resumes.length} tailored resume${resumes.length === 1 ? '' : 's'} ready for interview prep`,
+      'Pick one, then ask me to prep you for its interview — I’ll use that role’s questions and skill gaps.',
+    ),
+    '',
+  ];
+
+  resumes.forEach((r) => {
+    const bits = [];
+    if (r.companyName) bits.push(r.companyName);
+    if (typeof r.matchScore === 'number') bits.push(`${r.matchScore}% match`);
+    bits.push(`${r.gapCount} gap${r.gapCount === 1 ? '' : 's'}`);
+    bits.push(r.hasInterviewPrep ? 'prep ready' : 'prep on demand');
+    parts.push(`### ${r.jobTitle}`);
+    parts.push(bits.join(' · '));
+    parts.push(`\`id: ${r.id}\` · [View on ProfilleAI](${resumeUrl(r.id)})`);
+    parts.push('');
+  });
+
+  parts.push(footer());
+  return parts.join('\n');
+}
+
+/** Full interview-prep guide for one tailored resume. */
+function renderInterviewPrepMarkdown(resume) {
+  const title = resume.companyName
+    ? `${resume.jobTitle} at ${resume.companyName}`
+    : resume.jobTitle;
+  const parts = [header(`Interview prep: ${title}`, 'Ask me to run a mock interview, drill any question, or coach you through a gap.'), ''];
+
+  const gaps = resume.skillGaps || [];
+  const prep = resume.interviewPrep || null;
+
+  if (typeof resume.matchScore === 'number') {
+    parts.push(`**Match:** ${resume.matchScore}%`);
+    parts.push('');
+  }
+
+  if (prep?.roundOverview) {
+    parts.push(`**What to expect:** ${prep.roundOverview}`);
+    parts.push('');
+  }
+
+  if (Array.isArray(prep?.expectedTopics) && prep.expectedTopics.length) {
+    parts.push('**Likely topics**');
+    prep.expectedTopics.forEach((t) => parts.push(`- ${t}`));
+    parts.push('');
+  }
+
+  const tq = Array.isArray(prep?.technicalQuestions) ? prep.technicalQuestions : [];
+  if (tq.length) {
+    parts.push('## Technical questions');
+    tq.forEach((q, i) => {
+      parts.push(`**${i + 1}. ${q.question}**`);
+      if (q.whyAsked) parts.push(`- _Why:_ ${q.whyAsked}`);
+      if (q.suggestedApproach) parts.push(`- _Approach:_ ${q.suggestedApproach}`);
+      if (q.relatedGap) parts.push(`- _Related gap:_ ${q.relatedGap}`);
+      parts.push('');
+    });
+  }
+
+  const bq = Array.isArray(prep?.behavioralQuestions) ? prep.behavioralQuestions : [];
+  if (bq.length) {
+    parts.push('## Behavioral questions');
+    bq.forEach((q, i) => {
+      parts.push(`**${i + 1}. ${q.question}**`);
+      if (q.whyAsked) parts.push(`- _Why:_ ${q.whyAsked}`);
+      if (q.starExample) parts.push(`- _STAR:_ ${q.starExample}`);
+      parts.push('');
+    });
+  }
+
+  if (gaps.length) {
+    parts.push('## Skill gaps to address');
+    gaps.forEach((g) => {
+      const sev = g.severity ? ` _(${g.severity})_` : '';
+      parts.push(`- **${g.skill || g.name}**${sev}${g.description ? ` — ${g.description}` : ''}`);
+    });
+    parts.push('');
+  }
+
+  const gm = Array.isArray(prep?.gapMitigation) ? prep.gapMitigation : [];
+  if (gm.length) {
+    parts.push('## How to handle gap questions');
+    gm.forEach((m) => parts.push(`- **${m.gap}:** ${m.strategy}`));
+    parts.push('');
+  }
+
+  if (Array.isArray(prep?.talkingPoints) && prep.talkingPoints.length) {
+    parts.push('## Lead with these');
+    prep.talkingPoints.forEach((t) => parts.push(`- ${t}`));
+    parts.push('');
+  }
+
+  if (Array.isArray(prep?.questionsToAsk) && prep.questionsToAsk.length) {
+    parts.push('## Questions to ask them');
+    prep.questionsToAsk.forEach((q) => parts.push(`- ${q}`));
+    parts.push('');
+  }
+
+  if (!prep) {
+    parts.push(
+      '_Detailed prep hasn’t been generated for this resume yet — the questions above are derived from its skill gaps. Generate full prep on ProfilleAI for STAR examples, a study plan, and do’s/don’ts._',
+    );
+    parts.push('');
+    parts.push(`[Open this resume on ProfilleAI](${resumeUrl(resume.id)})`);
+    parts.push('');
+  }
+
+  parts.push(footer());
+  return parts.join('\n');
+}
+
 module.exports = {
   // urls
   BASE_URL,
@@ -298,10 +427,13 @@ module.exports = {
   profileUrl,
   conversationUrl,
   jobSearchUrl,
+  resumeUrl,
   // renderers
   renderJobsListMarkdown,
   renderJobDetailMarkdown,
   renderCandidatesListMarkdown,
   renderCandidateDetailMarkdown,
   renderConnectConfirmation,
+  renderTailoredResumesListMarkdown,
+  renderInterviewPrepMarkdown,
 };
