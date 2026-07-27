@@ -90,7 +90,7 @@ function appResult({ fallbackText, data, structuredContent }) {
         type: 'resource',
         resource: {
           uri: WIDGET_URI,
-          mimeType: 'text/html+skybridge',
+          mimeType: 'text/html',
           text: widgetHtml(data),
         },
       },
@@ -111,10 +111,10 @@ function registerAppResource(server) {
     {
       title: 'ProfilleAI cards',
       description: 'Interactive job / portfolio / resume cards for ProfilleAI.',
-      mimeType: 'text/html+skybridge',
+      mimeType: 'text/html',
     },
     async () => ({
-      contents: [{ uri: WIDGET_URI, mimeType: 'text/html+skybridge', text: baseHtml() }],
+      contents: [{ uri: WIDGET_URI, mimeType: 'text/html', text: baseHtml() }],
     }),
   );
 }
