@@ -19,6 +19,7 @@ import {
   Rocket as RocketIcon,
   Paid as PricingIcon,
   Extension as ExtensionIcon,
+  AutoAwesome as ClaudeIcon,
   AdminPanelSettings as AdminIcon,
   LocalOffer as PromoIcon,
   PrivacyTip as PrivacyIcon,
@@ -570,6 +571,7 @@ const CANDIDATE_ITEMS = [
   { label: 'My Jobs',    path: '/jobs',       Icon: WorkIcon },
   { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
   { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
+  { label: 'Claude',     path: '/integrations/claude', Icon: ClaudeIcon },
   { label: 'Profile',    path: '/profile',    Icon: PersonIcon },
 ];
 
@@ -582,6 +584,9 @@ const PUBLIC_ITEMS = [
   // ENABLE_APPLYPILOT goes live for general candidates.
   // { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
   { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
+  // /integrations/claude is a public page — logged-out visitors can read
+  // the guide before signing up, same as Extension.
+  { label: 'Claude',     path: '/integrations/claude', Icon: ClaudeIcon },
 ];
 
 /* ------------------------------------------------------------------ */
