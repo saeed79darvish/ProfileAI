@@ -8,6 +8,39 @@ import React, { useState } from 'react';
 
 const MCP_URL = 'https://api.profilleai.com/mcp';
 
+/**
+ * Each entry maps to a real MCP tool in backend/mcp/server.js. Keep this
+ * list in sync with the tools actually registered there — promising Claude
+ * can do something it has no tool for is the fastest way to make the whole
+ * connector feel broken.
+ */
+const CAPABILITIES = [
+  {
+    icon: '💼',
+    title: 'Search jobs and open the right one',
+    body:
+      'Claude searches the ProfilleAI job board and returns company, location, salary, and a link straight into one-click AI Resume Tailoring. Ask it to drill into any role for the full requirements and benefits.',
+  },
+  {
+    icon: '🎤',
+    title: 'Run a mock interview off your real prep',
+    body:
+      'This is the one worth connecting for. Claude pulls a role you already tailored for — its match score, the interview questions with why each is asked, your STAR examples, and your flagged skill gaps — then drills you on them out loud. Same prep you see in the app, now conversational.',
+  },
+  {
+    icon: '📄',
+    title: 'Reach your resumes and portfolio',
+    body:
+      'List every tailored resume version with PDF/Word download links, or have Claude show your portfolio card — headline, top skills, projects, and links.',
+  },
+  {
+    icon: '🤝',
+    title: 'Send a first message',
+    body:
+      'Ask Claude to reach out to a recruiter or hiring contact you found through a search. Capped at 20 messages a day.',
+  },
+];
+
 const PROMPT_GROUPS = [
   {
     label: 'Find jobs',
@@ -15,6 +48,7 @@ const PROMPT_GROUPS = [
     prompts: [
       'Use ProfilleAI to find senior frontend engineer jobs in San Francisco.',
       'Find remote React roles on ProfilleAI and show me the best matches.',
+      'Pull the full requirements and benefits for that second role.',
     ],
   },
   {
@@ -23,6 +57,8 @@ const PROMPT_GROUPS = [
     prompts: [
       'List my tailored resumes on ProfilleAI.',
       'Prep me for my Frontend Engineer interview — run a mock interview and drill my skill gaps.',
+      'Ask me the behavioral questions from that role one at a time and critique my answers.',
+      'What gaps did ProfilleAI flag for that role, and how should I answer if they come up?',
     ],
   },
   {
@@ -39,6 +75,25 @@ const PROMPT_GROUPS = [
     prompts: [
       'Message the recruiter about that role on ProfilleAI.',
     ],
+  },
+];
+
+const TROUBLESHOOTING = [
+  {
+    q: 'Claude searched the web instead of using ProfilleAI',
+    a: 'Say “ProfilleAI” in the prompt. Without it Claude has no reason to prefer the connector over a plain web search.',
+  },
+  {
+    q: 'It says you have no tailored resumes',
+    a: 'Interview prep is built from a resume you tailored for a specific job. Tailor one in ProfilleAI first, then ask Claude again.',
+  },
+  {
+    q: 'Claude connected but can’t see your data',
+    a: 'The connector acts as whoever authorized it. Re-run the authorize step and confirm you signed in with the same ProfilleAI account you use here.',
+  },
+  {
+    q: 'There’s no “Add custom connector” button',
+    a: 'Custom connectors aren’t available on every Claude plan. If you don’t see the option under Settings → Connectors, your current plan doesn’t include them.',
   },
 ];
 
@@ -76,6 +131,22 @@ export default function IntegrationsClaude() {
             downloads — all from your own account.
           </p>
         </header>
+
+        {/* What you actually get */}
+        <section style={S.section}>
+          <h2 style={S.h2}>What Claude can do once it&apos;s connected</h2>
+          <div style={S.caps}>
+            {CAPABILITIES.map((c) => (
+              <div key={c.title} style={S.cap}>
+                <span style={S.capIcon} aria-hidden>{c.icon}</span>
+                <div>
+                  <div style={S.capTitle}>{c.title}</div>
+                  <div style={S.capBody}>{c.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         {/* Connect steps */}
         <section style={S.section}>
@@ -134,6 +205,19 @@ export default function IntegrationsClaude() {
           </div>
         </section>
 
+        {/* Troubleshooting */}
+        <section style={S.section}>
+          <h2 style={S.h2}>If something doesn&apos;t work</h2>
+          <div style={S.faqs}>
+            {TROUBLESHOOTING.map((t) => (
+              <div key={t.q} style={S.faq}>
+                <div style={S.faqQ}>{t.q}</div>
+                <div style={S.faqA}>{t.a}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <footer style={S.footer}>
           Each result links back into ProfilleAI — open a job to tailor your resume, or download a
           version — so Claude becomes the front door to your job search.
@@ -174,6 +258,18 @@ const S = {
     background: '#fffbeb', border: '1px solid #fde68a', color: '#7c5b12', borderRadius: 12,
     padding: '12px 14px', fontSize: 13.5, lineHeight: 1.55, marginBottom: 16,
   },
+  caps: { display: 'flex', flexDirection: 'column', gap: 16 },
+  cap: { display: 'flex', gap: 13, alignItems: 'flex-start' },
+  capIcon: {
+    flexShrink: 0, width: 34, height: 34, borderRadius: 10, background: '#f0ecfb',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
+  },
+  capTitle: { fontSize: 15, fontWeight: 700, color: '#16181d', marginBottom: 3 },
+  capBody: { fontSize: 14, color: '#4b5563', lineHeight: 1.55 },
+  faqs: { display: 'flex', flexDirection: 'column', gap: 14 },
+  faq: { borderLeft: '3px solid #ececf1', paddingLeft: 13 },
+  faqQ: { fontSize: 14.5, fontWeight: 700, color: '#16181d', marginBottom: 4 },
+  faqA: { fontSize: 14, color: '#4b5563', lineHeight: 1.55 },
   groups: { display: 'flex', flexDirection: 'column', gap: 16 },
   group: {},
   groupHead: { fontSize: 13, fontWeight: 700, color: PURPLE, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 },

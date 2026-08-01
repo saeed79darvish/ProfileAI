@@ -177,9 +177,16 @@ async function searchExternalJobs(params = {}) {
   return { jobs };
 }
 
+/** Fetch one active ExternalJob by id (the connector's get_job_details source). */
+async function getExternalJobById(id) {
+  const { ExternalJob } = require('../models');
+  return ExternalJob.findOne({ where: { id, isActive: true } });
+}
+
 module.exports = {
   buildJobWhereClause,
   searchJobs,
   searchExternalJobs,
   getJobById,
+  getExternalJobById,
 };

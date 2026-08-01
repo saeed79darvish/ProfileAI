@@ -189,7 +189,8 @@ function buildMcpServer(ctx) {
     },
     async ({ id }) => {
       try {
-        const job = await jobSearchService.getJobById(id, { incrementViews: false });
+        // Listings live in ExternalJob (the internal Job table is empty).
+        const job = await jobSearchService.getExternalJobById(id);
         if (!job) {
           return toToolError(new Error('Job not found or no longer active.'));
         }
