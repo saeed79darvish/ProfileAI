@@ -1,3 +1,4 @@
+import { forwardRef, useImperativeHandle } from 'react';
 import { Button, CircularProgress } from '@mui/material';
 import { useGoogleLogin } from '@react-oauth/google';
 
@@ -17,14 +18,17 @@ const GoogleLogo = (props) => (
  * with the official "G" logo, regardless of the user's Google session state.
  * Uses the OAuth2 implicit flow and forwards the access token to onSuccess.
  */
-const GoogleAuthButton = ({
+const GoogleAuthButton = forwardRef(({
   onSuccess,
   onError,
   loading = false,
   disabled = false,
   label = 'Continue with Google',
   fullWidth = true,
-}) => {
+  // Runs synchronously on click. Return false to stop the flow — used to put a
+  // terms-consent step in front of Google's popup.
+  onGuard,
+}, ref) => {
   const login = useGoogleLogin({
     flow: 'implicit',
     scope: 'openid email profile',
@@ -32,12 +36,22 @@ const GoogleAuthButton = ({
     onError: (err) => onError?.(err),
   });
 
+  // Lets a parent resume the flow from its own click handler (e.g. the consent
+  // dialog's Accept button), which keeps the browser's user-gesture context so
+  // the popup is not blocked.
+  useImperativeHandle(ref, () => ({ start: () => login() }), [login]);
+
+  const handleClick = () => {
+    if (onGuard && onGuard() === false) return;
+    login();
+  };
+
   return (
     <Button
       type="button"
       variant="outlined"
       fullWidth={fullWidth}
-      onClick={() => login()}
+      onClick={handleClick}
       disabled={disabled || loading}
       startIcon={loading ? <CircularProgress size={18} thickness={5} /> : <GoogleLogo />}
       sx={{
@@ -72,6 +86,8 @@ const GoogleAuthButton = ({
       {label}
     </Button>
   );
-};
+});
+
+GoogleAuthButton.displayName = 'GoogleAuthButton';
 
 export default GoogleAuthButton;

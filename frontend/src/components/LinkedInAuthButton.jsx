@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { Box, Button, CircularProgress } from '@mui/material';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import { authAPI } from '@/services/api';
@@ -50,14 +50,17 @@ const LinkedInLogo = () => (
  * trip (linkedinLogin / linkedinRegister) that runs after this button's
  * own popup step finishes.
  */
-const LinkedInAuthButton = ({
+const LinkedInAuthButton = forwardRef(({
   onSuccess,
   onError,
   loading = false,
   disabled = false,
   label = 'Continue with LinkedIn',
   fullWidth = true,
-}) => {
+  // Runs synchronously on click. Return false to stop the flow — used to put a
+  // terms-consent step in front of the LinkedIn popup.
+  onGuard,
+}, ref) => {
   const [popupLoading, setPopupLoading] = useState(false);
   const popupRef = useRef(null);
   const popupPollRef = useRef(null);
@@ -96,6 +99,16 @@ const LinkedInAuthButton = ({
     }
     try { popupRef.current?.close?.(); } catch (_) { /* ignore */ }
     popupRef.current = null;
+  };
+
+  // Lets a parent resume the flow from its own click handler (e.g. the consent
+  // dialog's Accept button), which keeps the browser's user-gesture context so
+  // the popup is not blocked.
+  useImperativeHandle(ref, () => ({ start: () => handleClick() }));
+
+  const guardedClick = () => {
+    if (onGuard && onGuard() === false) return;
+    handleClick();
   };
 
   const handleClick = async () => {
@@ -202,7 +215,7 @@ const LinkedInAuthButton = ({
       type="button"
       variant="contained"
       fullWidth={fullWidth}
-      onClick={handleClick}
+      onClick={guardedClick}
       disabled={disabled || isBusy}
       startIcon={isBusy
         ? <CircularProgress size={18} thickness={5} sx={{ color: '#ffffff' }} />
@@ -238,6 +251,8 @@ const LinkedInAuthButton = ({
       {label}
     </Button>
   );
-};
+});
+
+LinkedInAuthButton.displayName = 'LinkedInAuthButton';
 
 export default LinkedInAuthButton;

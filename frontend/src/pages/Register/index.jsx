@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -23,6 +23,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import GoogleAuthButton from '@/components/GoogleAuthButton';
 import LinkedInAuthButton from '@/components/LinkedInAuthButton';
+import TermsConsentDialog from '@/components/TermsConsentDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { authAPI, referralAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -75,6 +76,34 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [fromExtension] = useState(isFromExtension());
+
+  // Consent for the OAuth paths is captured by TermsConsentDialog. The ref
+  // mirrors the state because the provider callbacks fire from closures created
+  // before the accept re-render lands — reading state there would still see
+  // false and wrongly block a user who just consented.
+  const acceptedTermsRef = useRef(false);
+  const googleBtnRef = useRef(null);
+  const linkedinBtnRef = useRef(null);
+  const [consentProvider, setConsentProvider] = useState(null);
+
+  // Called synchronously from a social button's click. Returning false stops
+  // the provider handoff and opens the consent dialog instead.
+  const guardConsent = (provider) => {
+    if (acceptedTermsRef.current) return true;
+    setConsentProvider(provider);
+    return false;
+  };
+
+  // Runs from the dialog's Accept click, so the browser still treats this as a
+  // user gesture and the provider popup is not blocked.
+  const acceptConsentAndContinue = () => {
+    acceptedTermsRef.current = true;
+    setAcceptedTerms(true);
+    const provider = consentProvider;
+    setConsentProvider(null);
+    if (provider === 'google') googleBtnRef.current?.start();
+    else if (provider === 'linkedin') linkedinBtnRef.current?.start();
+  };
   const referrerId = searchParams.get('ref') || null;
   const token = localStorage.getItem('token');
   const authDebugEnabled =
@@ -143,7 +172,7 @@ const Register = () => {
   // --- OAuth ---
   const handleGoogleSuccess = async (payload) => {
     setError('');
-    if (!acceptedTerms) {
+    if (!acceptedTermsRef.current) {
       setError(TEXT.ERRORS.CONSENT_REQUIRED);
       return;
     }
@@ -152,7 +181,7 @@ const Register = () => {
       const response = await authAPI.googleRegister(
         payload?.credential ? { credential: payload.credential } : payload,
         formData.role,
-        acceptedTerms
+        true
       );
       const { token, user } = response.data;
       authDebug('google register response', {
@@ -194,13 +223,13 @@ const Register = () => {
   // selectable in the UI, but we pass it explicitly for future-proofing).
   const handleLinkedInSuccess = async ({ code, redirectUri }) => {
     setError('');
-    if (!acceptedTerms) {
+    if (!acceptedTermsRef.current) {
       setError(TEXT.ERRORS.CONSENT_REQUIRED);
       return;
     }
     setLoading(true);
     try {
-      const response = await authAPI.linkedinRegister(code, redirectUri, formData.role, acceptedTerms);
+      const response = await authAPI.linkedinRegister(code, redirectUri, formData.role, true);
       const { token, user } = response.data;
       authDebug('linkedin register response', {
         role: user?.role,
@@ -333,48 +362,31 @@ const Register = () => {
         </Alert>
       )}
 
-      {/* Terms consent.
-          Deliberately ABOVE the social buttons: it gates them (and the submit
-          button), and when it sat below the fold users saw two greyed-out
-          OAuth buttons with no visible reason why. */}
-      <FormControlLabel
-        sx={{ alignItems: 'flex-start', mt: 0.5, mb: 2, mr: 0 }}
-        control={
-          <Checkbox
-            checked={acceptedTerms}
-            onChange={(e) => setAcceptedTerms(e.target.checked)}
-            size="small"
-            required
-            inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
-            sx={{ pt: 0.25 }}
-          />
-        }
-        label={
-          <Typography variant="caption" color="text.secondary" sx={termsSx}>
-            I have read and agree to the{' '}
-            <Link component={RouterLink} to={ROUTES.TERMS} target="_blank" rel="noopener" sx={termsLinkSx}>
-              {TEXT.TERMS_LINK}
-            </Link>{' '}and{' '}
-            <Link component={RouterLink} to={ROUTES.PRIVACY} target="_blank" rel="noopener" sx={termsLinkSx}>
-              {TEXT.PRIVACY_LINK}
-            </Link>.
-          </Typography>
-        }
+      <TermsConsentDialog
+        open={Boolean(consentProvider)}
+        provider={consentProvider}
+        termsPath={ROUTES.TERMS}
+        privacyPath={ROUTES.PRIVACY}
+        onAccept={acceptConsentAndContinue}
+        onCancel={() => setConsentProvider(null)}
       />
 
-      {/* Social buttons */}
+      {/* Social buttons. Never disabled — clicking one opens the consent
+          dialog, which continues into the provider flow on accept. */}
       <Box sx={socialButtonsWrapperSx}>
         <GoogleAuthButton
+          ref={googleBtnRef}
           label={formData.role === 'recruiter' ? 'Sign up with Google' : 'Sign up with Google'}
           loading={loading}
-          disabled={!acceptedTerms}
+          onGuard={() => guardConsent('google')}
           onSuccess={(payload) => handleGoogleSuccess(payload)}
           onError={handleGoogleError}
         />
         <LinkedInAuthButton
+          ref={linkedinBtnRef}
           label={TEXT.LINKEDIN_BUTTON}
           loading={loading}
-          disabled={!acceptedTerms}
+          onGuard={() => guardConsent('linkedin')}
           onSuccess={handleLinkedInSuccess}
           onError={handleLinkedInError}
         />
@@ -498,6 +510,35 @@ const Register = () => {
           </Grid>
         </Grid>
 
+        {/* Terms consent for the email signup path. The OAuth buttons above
+            capture the same consent through TermsConsentDialog instead. */}
+        <FormControlLabel
+          sx={{ alignItems: 'flex-start', mt: 1, mr: 0 }}
+          control={
+            <Checkbox
+              checked={acceptedTerms}
+              onChange={(e) => {
+                acceptedTermsRef.current = e.target.checked;
+                setAcceptedTerms(e.target.checked);
+              }}
+              size="small"
+              required
+              inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
+              sx={{ pt: 0.25 }}
+            />
+          }
+          label={
+            <Typography variant="caption" color="text.secondary" sx={termsSx}>
+              I have read and agree to the{' '}
+              <Link component={RouterLink} to={ROUTES.TERMS} target="_blank" rel="noopener" sx={termsLinkSx}>
+                {TEXT.TERMS_LINK}
+              </Link>{' '}and{' '}
+              <Link component={RouterLink} to={ROUTES.PRIVACY} target="_blank" rel="noopener" sx={termsLinkSx}>
+                {TEXT.PRIVACY_LINK}
+              </Link>.
+            </Typography>
+          }
+        />
       </form>
 
       <MobileStickyFooter>
