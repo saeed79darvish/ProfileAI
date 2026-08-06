@@ -173,11 +173,12 @@ export const authAPI = {
       ...(typeof payload === 'string' ? { credential: payload } : payload),
       clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || undefined
     }),
-  googleRegister: (payload, role) =>
+  googleRegister: (payload, role, termsAccepted) =>
     api.post('/auth/google/register', {
       ...(typeof payload === 'string' ? { credential: payload } : payload),
       clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || undefined,
-      role
+      role,
+      termsAccepted
     }),
   // GitHub OAuth
   githubLogin: (code) => api.post('/auth/github', { code }),
@@ -186,7 +187,8 @@ export const authAPI = {
   linkedinAuthorizeUrl: (redirectUri, state) =>
     api.get('/auth/linkedin/authorize-url', { params: { redirectUri, state } }),
   linkedinLogin: (code, redirectUri) => api.post('/auth/linkedin', { code, redirectUri }),
-  linkedinRegister: (code, redirectUri, role) => api.post('/auth/linkedin/register', { code, redirectUri, role }),
+  linkedinRegister: (code, redirectUri, role, termsAccepted) =>
+    api.post('/auth/linkedin/register', { code, redirectUri, role, termsAccepted }),
   // Email verification
   verifyEmail: (token) => api.post('/auth/verify-email', { token }),
   resendVerification: () => api.post('/auth/resend-verification')

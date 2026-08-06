@@ -143,11 +143,16 @@ const Register = () => {
   // --- OAuth ---
   const handleGoogleSuccess = async (payload) => {
     setError('');
+    if (!acceptedTerms) {
+      setError(TEXT.ERRORS.CONSENT_REQUIRED);
+      return;
+    }
     setLoading(true);
     try {
       const response = await authAPI.googleRegister(
         payload?.credential ? { credential: payload.credential } : payload,
-        formData.role
+        formData.role,
+        acceptedTerms
       );
       const { token, user } = response.data;
       authDebug('google register response', {
@@ -189,9 +194,13 @@ const Register = () => {
   // selectable in the UI, but we pass it explicitly for future-proofing).
   const handleLinkedInSuccess = async ({ code, redirectUri }) => {
     setError('');
+    if (!acceptedTerms) {
+      setError(TEXT.ERRORS.CONSENT_REQUIRED);
+      return;
+    }
     setLoading(true);
     try {
-      const response = await authAPI.linkedinRegister(code, redirectUri, formData.role);
+      const response = await authAPI.linkedinRegister(code, redirectUri, formData.role, acceptedTerms);
       const { token, user } = response.data;
       authDebug('linkedin register response', {
         role: user?.role,
@@ -329,12 +338,14 @@ const Register = () => {
         <GoogleAuthButton
           label={formData.role === 'recruiter' ? 'Sign up with Google' : 'Sign up with Google'}
           loading={loading}
+          disabled={!acceptedTerms}
           onSuccess={(payload) => handleGoogleSuccess(payload)}
           onError={handleGoogleError}
         />
         <LinkedInAuthButton
           label={TEXT.LINKEDIN_BUTTON}
           loading={loading}
+          disabled={!acceptedTerms}
           onSuccess={handleLinkedInSuccess}
           onError={handleLinkedInError}
         />
