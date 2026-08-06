@@ -1464,41 +1464,51 @@ router.post('/linkedin', async (req, res) => {
       return res.status(400).json({ error: 'LinkedIn authorization code and redirectUri are required' });
     }
 
-    const { linkedinId, email, emailVerified: linkedinEmailVerified, picture } = await fetchLinkedInProfile(code, redirectUri);
+    const { linkedinId, email, emailVerified: linkedinEmailVerified, firstName, lastName, picture } = await fetchLinkedInProfile(code, redirectUri);
 
     if (!email) {
       return res.status(400).json({ error: 'Could not retrieve email from LinkedIn.' });
     }
 
-    let user = await User.findOne({ where: { linkedinId } });
+    let user = await User.findOne({
+      where: {
+        [require('sequelize').Op.or]: [{ linkedinId }, { email }]
+      }
+    });
 
     if (!user) {
-      user = await User.findOne({ where: { email } });
-
-      if (user) {
-        const updates = {
-          linkedinId,
-          profilePictureUrl: picture || user.profilePictureUrl
-        };
-        if (linkedinEmailVerified && !user.emailVerified) {
-          updates.emailVerified = true;
-          updates.emailVerifiedAt = new Date();
-          updates.emailVerificationToken = null;
-          updates.emailVerificationExpiresAt = null;
-        }
-        await user.update(updates);
-      } else {
-        return res.status(404).json({ error: 'No account found with this LinkedIn email. Please sign up first.' });
-      }
-    } else if (picture && user.profilePictureUrl !== picture) {
-      await user.update({ profilePictureUrl: picture });
-    } else if (linkedinEmailVerified && !user.emailVerified) {
-      await user.update({
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        emailVerificationToken: null,
-        emailVerificationExpiresAt: null
+      const slug = await buildUniqueUserSlug(User, firstName, lastName);
+      user = await User.create({
+        email,
+        firstName,
+        lastName,
+        linkedinId,
+        profilePictureUrl: picture,
+        role: 'candidate',
+        password: null,
+        slug,
+        emailVerified: linkedinEmailVerified,
+        emailVerifiedAt: linkedinEmailVerified ? new Date() : null,
+        termsAccepted: true,
+        termsAcceptedAt: new Date()
       });
+    } else {
+      const updates = {};
+      if (!user.linkedinId) {
+        updates.linkedinId = linkedinId;
+      }
+      if (picture && user.profilePictureUrl !== picture) {
+        updates.profilePictureUrl = picture;
+      }
+      if (linkedinEmailVerified && !user.emailVerified) {
+        updates.emailVerified = true;
+        updates.emailVerifiedAt = new Date();
+        updates.emailVerificationToken = null;
+        updates.emailVerificationExpiresAt = null;
+      }
+      if (Object.keys(updates).length > 0) {
+        await user.update(updates);
+      }
     }
 
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
