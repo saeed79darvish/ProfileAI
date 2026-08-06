@@ -1016,7 +1016,6 @@ const RecruiterProfileForm = () => {
         open={enhancingDescription}
         title="AI Enhancing Company Description"
         subtitle="AI is crafting a compelling company description..."
-        phase="Analyzing Company Profile"
         type="enhancement"
       />
       
@@ -1024,7 +1023,6 @@ const RecruiterProfileForm = () => {
         open={enhancingBio}
         title="AI Enhancing Bio"
         subtitle="AI is creating a professional bio that stands out..."
-        phase="Crafting Professional Bio"
         type="enhancement"
       />
     </Box>

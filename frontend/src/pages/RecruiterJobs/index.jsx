@@ -1778,7 +1778,6 @@ const RecruiterJobs = () => {
         onClose={() => setShowAIProcessingModal(false)}
         title={aiProcessingData.title}
         subtitle={aiProcessingData.subtitle}
-        phase={aiProcessingData.phase}
         progress={aiProcessingData.progress}
         stats={aiProcessingData.stats}
         type={aiProcessingData.type}

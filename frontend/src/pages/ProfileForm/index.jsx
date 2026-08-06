@@ -4130,8 +4130,7 @@ const ProfileForm = () => {
         onCancel={() => { enhanceAbortRef.current?.abort(); }}
         title="AI Enhancing Profile"
         subtitle="AI is analyzing your profile and generating professional insights..."
-        phase="Analyzing Experience & Skills"
-        type="enhancement"
+        type="enhance"
       />
       
       <AIProcessingModal 
@@ -4139,8 +4138,7 @@ const ProfileForm = () => {
         onCancel={() => { suggestionsAbortRef.current?.abort(); }}
         title="AI Generating Suggestions"
         subtitle="AI is analyzing your career path and generating personalized suggestions..."
-        phase="Generating Career Insights"
-        type="enhancement"
+        type="suggestions"
       />
       
       {/* Upgrade Modal for Rate Limit */}
@@ -4165,8 +4163,7 @@ const ProfileForm = () => {
         open={analyzingGaps}
         title="Analyzing Skill Gaps"
         subtitle="AI is comparing your profile against the job requirements..."
-        phase="Identifying Gaps & Learning Resources"
-        type="enhancement"
+        type="gaps"
       />
 
       {/* Re-tailor Confirmation Dialog */}

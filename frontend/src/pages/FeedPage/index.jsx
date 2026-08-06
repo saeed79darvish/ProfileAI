@@ -1892,8 +1892,7 @@ const FeedPage = () => {
         open={aiEnhancing}
         title="AI Enhancing Post"
         subtitle="AI is analyzing your content and making it more engaging..."
-        phase="Optimizing Content for Maximum Engagement"
-        type="enhancement"
+        type="post"
       />
 
       {/* Create Poll Modal */}

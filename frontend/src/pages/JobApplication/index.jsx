@@ -953,7 +953,6 @@ const JobApplication = () => {
         type="resume"
         title="Parsing Resume"
         subtitle="AI is extracting information from your resume to auto-fill the application..."
-        phase="Analyzing document..."
       />
       
       {/* Submitting Application Modal */}
@@ -962,7 +961,6 @@ const JobApplication = () => {
         type="submit"
         title="Submitting Application"
         subtitle="Please wait while we submit your application to the employer..."
-        phase="Sending application..."
       />
     </PageContainer>
   );

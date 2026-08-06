@@ -2741,7 +2741,6 @@ const Dashboard = () => {
         type="resume"
         title="Processing Resume"
         subtitle="AI is parsing your resume and extracting your professional information..."
-        phase="Analyzing document..."
       />
       
       {/* Snackbar */}
@@ -2784,7 +2783,6 @@ const Dashboard = () => {
         type="enhance"
         title="Enhancing Profile"
         subtitle="AI is optimizing your profile content..."
-        phase="Rewriting sections..."
       />
 
       {/* Tips Processing Modal */}
@@ -2793,7 +2791,6 @@ const Dashboard = () => {
         type="tips"
         title="Analyzing Profile"
         subtitle="AI recruiter is reviewing your profile..."
-        phase="Generating feedback..."
       />
 
       {/* Career Tips Dialog */}
@@ -2981,10 +2978,9 @@ const Dashboard = () => {
       {/* Tailor: Gap Analysis Processing Modal */}
       <ProcessingModal
         open={analyzingGaps}
-        type="ai"
+        type="gaps"
         title="Analyzing Gaps"
         subtitle="AI is comparing your profile against the job requirements..."
-        phase="Identifying skill gaps..."
       />
 
       {/* Tailor: Gap Review Dialog */}
@@ -3000,10 +2996,9 @@ const Dashboard = () => {
       {/* Tailor: Processing Modal */}
       <ProcessingModal
         open={tailoring}
-        type="ai"
+        type="tailor"
         title="Tailoring Profile"
         subtitle="AI is customizing your profile for this job..."
-        phase="Rewriting sections..."
       />
 
       {/* Tailor: Result & Save Dialog */}
