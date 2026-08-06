@@ -198,6 +198,7 @@ const miniProgress = keyframes`
 
 // === Styled Components ===
 const Container = styled.div`
+  position: relative;
   display: flex;
   flex-direction: column;
 `;
@@ -519,6 +520,31 @@ const HintText = styled.p`
   font-style: italic;
 `;
 
+const DismissBtn = styled.button`
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.7);
+  color: #6b7280;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 2;
+
+  &:hover {
+    background: white;
+    color: #1a1a2e;
+  }
+`;
+
 const STEP_MS = 3500;
 
 export default function ProgressModal({
@@ -548,6 +574,9 @@ export default function ProgressModal({
   const [stepIdx, setStepIdx] = useState(startFromStep);
   const [tipIdx, setTipIdx] = useState(0);
   const [smoothProgress, setSmoothProgress] = useState((startFromStep / STEPS.length) * 100);
+  // Minimised by the user. Distinct from cancelling: the underlying request
+  // keeps running, and the modal reappears on its own once the run finishes.
+  const [dismissed, setDismissed] = useState(false);
 
   const isDone = stepIdx >= STEPS.length;
   // A caller-supplied progress number takes over the bar entirely; otherwise we
@@ -617,6 +646,17 @@ export default function ProgressModal({
     return () => clearInterval(interval);
   }, [isDone, open, TIPS.length]);
 
+  // A fresh run always starts visible, even if the previous one was minimised.
+  useEffect(() => {
+    if (open) setDismissed(false);
+  }, [open]);
+
+  // The whole point of minimising: bring it back when the work is actually
+  // finished, so a user who tucked it away still sees the result.
+  useEffect(() => {
+    if (completed || isDone) setDismissed(false);
+  }, [completed, isDone]);
+
   const progress = isDone ? 100 : isDriven ? progressOverride : Math.round(smoothProgress);
   const stepLabel = isDone ? 'All steps complete' : `Step ${Math.min(stepIdx + 1, STEPS.length)} of ${STEPS.length}`;
   const isMobile = useMediaQuery('(max-width:768px)');
@@ -628,19 +668,34 @@ export default function ProgressModal({
     ? Object.entries(stats).filter(([, v]) => v !== undefined && v !== null)
     : [];
 
-  const dismiss = onCancel || onClose;
+  // Minimising never cancels. When the run is already finished there is nothing
+  // to come back for, so closing then hands control back to the parent.
+  const handleDismiss = () => {
+    if (isDone) {
+      (onClose || onViewResult)?.();
+      setDismissed(true);
+      return;
+    }
+    setDismissed(true);
+  };
 
   return (
     <Dialog
-      open={open}
+      open={open && !dismissed}
       maxWidth="xs"
       fullWidth
       fullScreen={isMobile}
-      onClose={dismiss || undefined}
-      disableEscapeKeyDown={!dismiss}
+      onClose={handleDismiss}
       PaperProps={{ style: { borderRadius: isMobile ? 0 : 20, overflow: 'hidden' } }}
     >
       <Container>
+        <DismissBtn
+          onClick={handleDismiss}
+          aria-label={isDone ? 'Close' : 'Hide and keep working'}
+          title={isDone ? 'Close' : 'Hide — this keeps running in the background'}
+        >
+          ×
+        </DismissBtn>
         <HeaderSection $done={isDone}>
           <HeaderRow>
             <IconCircleWrap>
@@ -734,9 +789,9 @@ export default function ProgressModal({
           </FooterRow>
         )}
 
-        {!isDone && !onCancel && onClose && (
+        {!isDone && !onCancel && (
           <HintText>
-            You can close this and keep working. It will finish in the background.
+            You can hide this and keep working. It will reopen when finished.
           </HintText>
         )}
       </Container>

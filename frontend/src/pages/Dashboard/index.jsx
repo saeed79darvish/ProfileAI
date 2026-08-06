@@ -1375,11 +1375,6 @@ const Dashboard = () => {
               <span className="label">Download Resume</span>
               <span className="description">Export your profile as a PDF resume.</span>
             </AIToolButton>
-            <AIToolButton onClick={() => navigate('/integrations/claude')}>
-              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #6941C6, #7C5CFC)', fontSize: 22 }} aria-hidden>✦</span>
-              <span className="label">Use in Claude</span>
-              <span className="description">Prep for interviews and tailor resumes right inside Claude.</span>
-            </AIToolButton>
           </AIToolsGrid>
         </AIToolsCard>
 
