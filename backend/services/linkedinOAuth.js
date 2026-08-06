@@ -43,6 +43,7 @@ async function fetchLinkedInProfile(code, redirectUri) {
   return {
     linkedinId: String(profile.sub),
     email: profile.email,
+    emailVerified: profile.email_verified === true || profile.email_verified === 'true',
     firstName: profile.given_name || profile.name?.split(' ')[0] || 'User',
     lastName: profile.family_name || profile.name?.split(' ').slice(1).join(' ') || '',
     picture: profile.picture || null

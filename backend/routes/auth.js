@@ -936,10 +936,14 @@ router.post('/google', async (req, res) => {
 // @access  Public
 router.post('/google/register', async (req, res) => {
   try {
-    const { credential, accessToken, role = 'candidate', clientId } = req.body;
+    const { credential, accessToken, role = 'candidate', clientId, termsAccepted } = req.body;
 
     if (!credential && !accessToken) {
       return res.status(400).json({ error: 'Google credential is required' });
+    }
+
+    if (!termsAccepted) {
+      return res.status(400).json({ error: 'You must accept the terms and privacy policy to sign up.' });
     }
 
     if (!['candidate', 'recruiter'].includes(role)) {
@@ -978,6 +982,10 @@ router.post('/google/register', async (req, res) => {
       if (!user.slug) {
         updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
       }
+      if (!user.termsAccepted) {
+        updates.termsAccepted = true;
+        updates.termsAcceptedAt = new Date();
+      }
       // Trust Google-verified email on link.
       if (googleEmailVerified && !user.emailVerified) {
         updates.emailVerified = true;
@@ -1002,7 +1010,9 @@ router.post('/google/register', async (req, res) => {
         password: null,
         slug,
         emailVerified: true,
-        emailVerifiedAt: new Date()
+        emailVerifiedAt: new Date(),
+        termsAccepted: true,
+        termsAcceptedAt: new Date()
       });
 
       if (role === 'recruiter') {
@@ -1037,7 +1047,9 @@ router.post('/google/register', async (req, res) => {
           emailVerified: false,
           emailVerificationToken: verificationTokenHash,
           emailVerificationCode: verificationCode,
-          emailVerificationExpiresAt: verificationExpiresAt
+          emailVerificationExpiresAt: verificationExpiresAt,
+          termsAccepted: true,
+          termsAcceptedAt: new Date()
         });
       } catch (dbErr) {
         if (!isSchemaDriftDbError(dbErr)) throw dbErr;
@@ -1053,7 +1065,9 @@ router.post('/google/register', async (req, res) => {
           slug,
           emailVerified: false,
           emailVerificationToken: verificationTokenHash,
-          emailVerificationExpiresAt: verificationExpiresAt
+          emailVerificationExpiresAt: verificationExpiresAt,
+          termsAccepted: true,
+          termsAcceptedAt: new Date()
         });
       }
 
@@ -1450,7 +1464,7 @@ router.post('/linkedin', async (req, res) => {
       return res.status(400).json({ error: 'LinkedIn authorization code and redirectUri are required' });
     }
 
-    const { linkedinId, email, picture } = await fetchLinkedInProfile(code, redirectUri);
+    const { linkedinId, email, emailVerified: linkedinEmailVerified, picture } = await fetchLinkedInProfile(code, redirectUri);
 
     if (!email) {
       return res.status(400).json({ error: 'Could not retrieve email from LinkedIn.' });
@@ -1462,15 +1476,29 @@ router.post('/linkedin', async (req, res) => {
       user = await User.findOne({ where: { email } });
 
       if (user) {
-        await user.update({
+        const updates = {
           linkedinId,
           profilePictureUrl: picture || user.profilePictureUrl
-        });
+        };
+        if (linkedinEmailVerified && !user.emailVerified) {
+          updates.emailVerified = true;
+          updates.emailVerifiedAt = new Date();
+          updates.emailVerificationToken = null;
+          updates.emailVerificationExpiresAt = null;
+        }
+        await user.update(updates);
       } else {
         return res.status(404).json({ error: 'No account found with this LinkedIn email. Please sign up first.' });
       }
     } else if (picture && user.profilePictureUrl !== picture) {
       await user.update({ profilePictureUrl: picture });
+    } else if (linkedinEmailVerified && !user.emailVerified) {
+      await user.update({
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        emailVerificationToken: null,
+        emailVerificationExpiresAt: null
+      });
     }
 
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -1511,10 +1539,14 @@ router.post('/linkedin', async (req, res) => {
 // @access  Public
 router.post('/linkedin/register', async (req, res) => {
   try {
-    const { code, redirectUri, role = 'candidate' } = req.body;
+    const { code, redirectUri, role = 'candidate', termsAccepted } = req.body;
 
     if (!code || !redirectUri) {
       return res.status(400).json({ error: 'LinkedIn authorization code and redirectUri are required' });
+    }
+
+    if (!termsAccepted) {
+      return res.status(400).json({ error: 'You must accept the terms and privacy policy to sign up.' });
     }
 
     if (!['candidate', 'recruiter'].includes(role)) {
@@ -1525,7 +1557,7 @@ router.post('/linkedin/register', async (req, res) => {
       return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
     }
 
-    const { linkedinId, email, firstName, lastName, picture } = await fetchLinkedInProfile(code, redirectUri);
+    const { linkedinId, email, emailVerified: linkedinEmailVerified, firstName, lastName, picture } = await fetchLinkedInProfile(code, redirectUri);
 
     if (!email) {
       return res.status(400).json({ error: 'Could not retrieve email from LinkedIn.' });
@@ -1546,6 +1578,16 @@ router.post('/linkedin/register', async (req, res) => {
       if (!user.slug) {
         updates.slug = await buildUniqueUserSlug(User, user.firstName, user.lastName, { excludeUserId: user.id });
       }
+      if (!user.termsAccepted) {
+        updates.termsAccepted = true;
+        updates.termsAcceptedAt = new Date();
+      }
+      if (linkedinEmailVerified && !user.emailVerified) {
+        updates.emailVerified = true;
+        updates.emailVerifiedAt = new Date();
+        updates.emailVerificationToken = null;
+        updates.emailVerificationExpiresAt = null;
+      }
       if (Object.keys(updates).length > 0) {
         await user.update(updates);
       }
@@ -1559,7 +1601,11 @@ router.post('/linkedin/register', async (req, res) => {
         profilePictureUrl: picture,
         role,
         password: null,
-        slug
+        slug,
+        termsAccepted: true,
+        termsAcceptedAt: new Date(),
+        emailVerified: linkedinEmailVerified,
+        emailVerifiedAt: linkedinEmailVerified ? new Date() : null
       });
 
       if (role === 'recruiter') {
