@@ -124,8 +124,19 @@ api.interceptors.response.use(
         : Number.POSITIVE_INFINITY;
       const isWithinBootGrace = sinceBoot < bootGraceMs;
 
+      // Sitting on /login or /register with a dead token (expired, or the
+      // account was deleted server-side): /auth/me is authoritative, so purge
+      // the stale credentials that would otherwise re-fire authed calls on
+      // every page load. No navigation — we're already on the auth page.
+      if (!isAuthEndpoint && isAuthPage && isGetMe) {
+        console.log('[API] 401 from /auth/me on auth page - clearing stale token');
+        diag('api.401.staleTokenOnAuthPage', { url });
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.dispatchEvent(new CustomEvent('profileai:session-expired'));
+      }
       // Only force logout if it's a protected endpoint returning 401 (token expired/invalid)
-      if (!isAuthEndpoint && !isAuthPage && (isGetMe || !isWithinBootGrace)) {
+      else if (!isAuthEndpoint && !isAuthPage && (isGetMe || !isWithinBootGrace)) {
         console.log('[API] 401 from protected endpoint - session expired', { url, isGetMe });
         diag('api.401.forceLogout', { url, isGetMe, sinceBoot });
         localStorage.removeItem('token');
