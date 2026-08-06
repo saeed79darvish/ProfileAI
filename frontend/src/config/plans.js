@@ -45,6 +45,13 @@ export const PLANS = {
     label: 'Pro',
     price: 14.99,
     popular: true,
+    // Curated selling points shown on the upgrade card. `{from}` is replaced
+    // with the user's current limit for the feature they were blocked on.
+    highlights: [
+      { strong: '30 enhancements', rest: ' a month, up from {from}' },
+      { strong: '50 résumé tailorings', rest: ' + 30 cover letters' },
+      { rest: 'Unlimited job tracking and priority support' },
+    ],
     limits: {
       resume_parse: 20,
       profile_enhance: 30,
@@ -59,6 +66,11 @@ export const PLANS = {
     id: 'pro_plus',
     label: 'Pro+',
     price: 29.99,
+    highlights: [
+      { strong: '50 enhancements', rest: ' a month, up from {from}' },
+      { strong: '150 résumé tailorings', rest: ' + 150 cover letters' },
+      { rest: 'ApplyPilot auto-apply and unlimited interview prep' },
+    ],
     limits: {
       resume_parse: 50,
       profile_enhance: 50,
@@ -102,6 +114,17 @@ export function planHighlights(plan, currentPlan, featureType) {
   const out = [];
   const cur = currentPlan?.limits || {};
   const next = plan?.limits || {};
+
+  // Curated copy wins when a plan defines it, so the card reads exactly as
+  // designed. {from} resolves to the user's real current limit for the feature
+  // they hit, keeping the comparison honest across tiers.
+  if (Array.isArray(plan?.highlights) && plan.highlights.length > 0) {
+    const from = featureType && typeof cur[featureType] === 'number' ? cur[featureType] : 0;
+    return plan.highlights.map((h) => ({
+      strong: h.strong || '',
+      rest: (h.rest || '').replace('{from}', String(from)),
+    }));
+  }
 
   const NAMES = {
     resume_parse: 'resume parses',
@@ -152,20 +175,60 @@ export function planHighlights(plan, currentPlan, featureType) {
  * is why the limiter reports creditPacksAvailable:false for those. The modal
  * must not offer a pack that cannot unblock the feature the user hit.
  */
-export const CREDIT_PACKS = [
-  { id: 'apply_10', credits: 10, price: 6.99, grants: ['tailor_profile', 'cover_letter'] },
-  { id: 'apply_25', credits: 25, price: 13.99, grants: ['tailor_profile', 'cover_letter'], popular: true },
-  { id: 'apply_60', credits: 60, price: 24.99, grants: ['tailor_profile', 'cover_letter'] },
+const ALL_CREDIT_FEATURES = [
+  'resume_parse',
+  'profile_enhance',
+  'tailor_profile',
+  'cover_letter',
+  'career_suggestions',
+  'post_enhance',
+  'interview_prep',
 ];
+
+export const CREDIT_PACKS = [
+  { id: 'credits_10', credits: 10, price: 7.99, savePct: 0, grants: ALL_CREDIT_FEATURES },
+  { id: 'credits_30', credits: 30, price: 19.99, savePct: 17, popular: true, grants: ALL_CREDIT_FEATURES },
+  { id: 'credits_100', credits: 100, price: 49.99, savePct: 38, grants: ALL_CREDIT_FEATURES },
+];
+
+/**
+ * First-month promotional pricing shown on the upgrade card.
+ *
+ * IMPORTANT: this only changes what the modal DISPLAYS. Checkout must actually
+ * charge `firstMonthPrice` for the first month — that means a matching coupon
+ * on the Stripe price used by /pricing. If checkout still bills the full
+ * `price`, users are shown $11.99 and charged $14.99.
+ *
+ * Set `enabled: false` to remove the banner, the strikethrough and the
+ * discounted CTA; the card falls back to the plan's standard price.
+ */
+export const PROMO = {
+  enabled: true,
+  appliesTo: ['pro', 'pro_plus'],
+  firstMonthPrice: 11.99,
+  banner: '20% off your first month, offer ends tonight',
+};
+
+export function promoFor(plan) {
+  if (!PROMO.enabled || !plan) return null;
+  if (!PROMO.appliesTo.includes(plan.id)) return null;
+  if (!(PROMO.firstMonthPrice < plan.price)) return null;
+  return { price: PROMO.firstMonthPrice, was: plan.price, banner: PROMO.banner };
+}
 
 export function packsFor(featureType) {
   if (!featureType) return [];
   return CREDIT_PACKS.filter((p) => p.grants.includes(featureType));
 }
 
-/** Per-credit price, and savings vs the cheapest pack. */
+/**
+ * Per-credit price, and savings vs the smallest pack.
+ * `savePct` on the pack wins when set, so the displayed figure matches the
+ * agreed pricing rather than drifting with float rounding.
+ */
 export function packEconomics(pack, all) {
   const per = pack.price / pack.credits;
+  if (typeof pack.savePct === 'number') return { per, savePct: pack.savePct };
   const base = all.length ? Math.max(...all.map((p) => p.price / p.credits)) : per;
   const savePct = base > 0 ? Math.round((1 - per / base) * 100) : 0;
   return { per, savePct };

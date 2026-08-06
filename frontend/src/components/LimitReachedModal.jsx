@@ -10,6 +10,7 @@ import {
   planHighlights,
   packsFor,
   packEconomics,
+  promoFor,
 } from '@/config/plans';
 
 /**
@@ -181,6 +182,12 @@ const PriceRow = styled.div`
 
   .amount { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
   .per { font-size: 15px; color: rgba(255, 255, 255, 0.82); }
+  .was {
+    font-size: 17px;
+    color: rgba(255, 255, 255, 0.6);
+    text-decoration: line-through;
+    margin-left: 2px;
+  }
 `;
 
 const Benefits = styled.ul`
@@ -410,6 +417,9 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
 
   const pack = packs.find((p) => p.id === selected) || packs[0];
   const highlights = target ? planHighlights(target, current, feature) : [];
+  // Promo from config, unless the caller passes one explicitly.
+  const offer = promo || (target ? promoFor(target) : null);
+  const payNow = offer ? offer.price : target?.price ?? 0;
 
   const go = (path) => {
     try {
@@ -468,14 +478,15 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
                 <FromLabel>Upgrade from {current.label}</FromLabel>
                 <PlanName>{target.label}</PlanName>
                 <PriceRow>
-                  <span className="amount">{money(target.price)}</span>
-                  <span className="per">/mo</span>
+                  <span className="amount">{money(payNow)}</span>
+                  <span className="per">{offer ? '/mo first month' : '/mo'}</span>
+                  {offer && <span className="was">{money(offer.was)}</span>}
                 </PriceRow>
                 <Benefits>
                   {highlights.map((h, i) => (
                     <li key={i}>
                       <span className="tick">✓</span>
-                      <span><strong>{h.strong}</strong>{h.rest}</span>
+                      <span>{h.strong ? <strong>{h.strong}</strong> : null}{h.rest}</span>
                     </li>
                   ))}
                 </Benefits>
@@ -523,14 +534,14 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
         </Body>
 
         <Foot>
-          {promo?.message && <Nudge>🕐 {promo.message}</Nudge>}
-          {!promo?.message && activeTab === 'credits' && showPlan && (
-            <Nudge>💡 {target.label} gives you more credits for less each month</Nudge>
+          {activeTab === 'plan' && offer?.banner && <Nudge>🕐 {offer.banner}</Nudge>}
+          {activeTab === 'credits' && showPlan && (
+            <Nudge>🕐 {target.label} gives you more credits for less each month</Nudge>
           )}
 
           {activeTab === 'plan' && target ? (
             <Cta onClick={() => go('/pricing')}>
-              ⚡ Upgrade to {target.label} for {money(target.price)}
+              ⚡ Upgrade to {target.label} for {money(payNow)}
             </Cta>
           ) : pack ? (
             <Cta onClick={() => go(limit.buyMoreUrl || '/pricing#credit-packs')}>
