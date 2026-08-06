@@ -333,6 +333,35 @@ const Register = () => {
         </Alert>
       )}
 
+      {/* Terms consent.
+          Deliberately ABOVE the social buttons: it gates them (and the submit
+          button), and when it sat below the fold users saw two greyed-out
+          OAuth buttons with no visible reason why. */}
+      <FormControlLabel
+        sx={{ alignItems: 'flex-start', mt: 0.5, mb: 2, mr: 0 }}
+        control={
+          <Checkbox
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            size="small"
+            required
+            inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
+            sx={{ pt: 0.25 }}
+          />
+        }
+        label={
+          <Typography variant="caption" color="text.secondary" sx={termsSx}>
+            I have read and agree to the{' '}
+            <Link component={RouterLink} to={ROUTES.TERMS} target="_blank" rel="noopener" sx={termsLinkSx}>
+              {TEXT.TERMS_LINK}
+            </Link>{' '}and{' '}
+            <Link component={RouterLink} to={ROUTES.PRIVACY} target="_blank" rel="noopener" sx={termsLinkSx}>
+              {TEXT.PRIVACY_LINK}
+            </Link>.
+          </Typography>
+        }
+      />
+
       {/* Social buttons */}
       <Box sx={socialButtonsWrapperSx}>
         <GoogleAuthButton
@@ -469,31 +498,6 @@ const Register = () => {
           </Grid>
         </Grid>
 
-        {/* Terms consent */}
-        <FormControlLabel
-          sx={{ alignItems: 'flex-start', mt: 1, mr: 0 }}
-          control={
-            <Checkbox
-              checked={acceptedTerms}
-              onChange={(e) => setAcceptedTerms(e.target.checked)}
-              size="small"
-              required
-              inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
-              sx={{ pt: 0.25 }}
-            />
-          }
-          label={
-            <Typography variant="caption" color="text.secondary" sx={termsSx}>
-              I have read and agree to the{' '}
-              <Link component={RouterLink} to={ROUTES.TERMS} target="_blank" rel="noopener" sx={termsLinkSx}>
-                {TEXT.TERMS_LINK}
-              </Link>{' '}and{' '}
-              <Link component={RouterLink} to={ROUTES.PRIVACY} target="_blank" rel="noopener" sx={termsLinkSx}>
-                {TEXT.PRIVACY_LINK}
-              </Link>.
-            </Typography>
-          }
-        />
       </form>
 
       <MobileStickyFooter>
