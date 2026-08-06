@@ -279,30 +279,104 @@ Important guidelines:
 - Include soft skills and technical skills
 - For the summary, if there's no explicit summary section, create a brief 2-3 sentence professional summary based on the resume content
 - Keep descriptions concise but informative
+- "company" must be ONLY the employer's name (e.g. "Autodesk"). Never put the job
+  title, a skills list, or a sentence fragment in it. If the employer genuinely
+  cannot be determined, use null — do NOT invent a placeholder.
+- "title" must be the complete job title, kept intact even when it contains
+  commas or parentheses (e.g. "Senior UI Engineer (TypeScript, React, Node)").
+- "location" is the CANDIDATE's own city/region from the contact header only.
+  Never take it from a skills list or a job entry. Use null if absent.
+- Some resumes contain review annotations or AI commentary (e.g. "LOW RELEVANCE —
+  consider removing", "consider expanding with metrics"). These are notes ABOUT
+  the resume, not resume content. Strip them entirely — never copy them into a
+  description, company, or any other field.
 - Return ONLY valid JSON, no additional text or explanation`;
 
       const responseText = await callAI({
         system: 'You are a professional resume parser that extracts structured data from resumes. You always return valid JSON.',
         prompt,
         temperature: 0.3,
-        max_tokens: 2000
+        // A senior resume routinely carries 6-8 roles; the previous 2000 cap
+        // truncated the JSON mid-array, which then failed JSON.parse and threw
+        // the whole parse away.
+        max_tokens: 8000
       });
-      
-      // Remove markdown code blocks if present
-      let jsonText = responseText;
-      if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
-      } else if (jsonText.startsWith('```')) {
-        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+
+      // Strip markdown fences and any prose the model wrapped around the JSON,
+      // then fall back to the truncation repairer before giving up.
+      let jsonText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const firstBrace = jsonText.indexOf('{');
+      const lastBrace = jsonText.lastIndexOf('}');
+      if (firstBrace > 0 && lastBrace > firstBrace) {
+        jsonText = jsonText.slice(firstBrace, lastBrace + 1);
       }
 
-      const parsedData = JSON.parse(jsonText);
-      
-      return parsedData;
+      let parsedData;
+      try {
+        parsedData = JSON.parse(jsonText);
+      } catch (parseErr) {
+        parsedData = repairTruncatedJSON(jsonText);
+        if (!parsedData) throw parseErr;
+        console.warn('[Resume] AI returned truncated JSON; recovered via repairTruncatedJSON');
+      }
+
+      return this.sanitizeParsedResume(parsedData);
     } catch (error) {
       console.error('Error parsing resume with AI:', error);
       throw new Error('Failed to parse resume content with AI');
     }
+  }
+
+  /**
+   * Last line of defence over whatever the parser produced.
+   *
+   * Two classes of garbage have reached the profile form in production:
+   *   1. Review annotations baked into the uploaded document ("LOW RELEVANCE —
+   *      consider removing…") copied verbatim into descriptions and even into
+   *      the company field.
+   *   2. Sentence fragments and skills lists landing in `company` / `location`,
+   *      courtesy of the heuristic splitter.
+   *
+   * Neither should ever be persisted, so scrub both here rather than trusting
+   * any single parse path to behave.
+   */
+  sanitizeParsedResume(data) {
+    if (!data || typeof data !== 'object') return data;
+
+    // Review-note phrasing that is commentary ABOUT a resume, never content OF one.
+    const ANNOTATION = /(?:^|\s)[•\-*]?\s*(?:LOW|HIGH|MEDIUM)\s+RELEVANCE\b[\s\S]*$|\bconsider (?:removing|expanding|adding|rewording|shortening)\b[\s\S]*$/i;
+
+    const clean = (value) => {
+      if (typeof value !== 'string') return value;
+      return value.replace(ANNOTATION, '').replace(/\s+/g, ' ').trim();
+    };
+
+    // A company name is a short proper noun, not prose and not a skills list.
+    const plausibleCompany = (value) => {
+      if (typeof value !== 'string') return false;
+      const v = value.trim();
+      if (!v || v.length > 80) return false;
+      if (/^unknown company$/i.test(v)) return false;
+      if (ANNOTATION.test(v)) return false;
+      if (/[.;:]\s/.test(v)) return false;           // contains sentence punctuation
+      if (v.split(/\s+/).length > 8) return false;    // prose, not a name
+      return true;
+    };
+
+    data.location = clean(data.location) || null;
+    data.summary = clean(data.summary);
+
+    if (Array.isArray(data.experience)) {
+      data.experience = data.experience.map((exp) => {
+        const next = { ...exp };
+        next.title = clean(next.title);
+        next.description = clean(next.description);
+        next.company = plausibleCompany(clean(next.company)) ? clean(next.company) : '';
+        return next;
+      });
+    }
+
+    return data;
   }
 
   /**
@@ -356,9 +430,20 @@ Important guidelines:
       }
     }
     
-    // Extract location (City, State pattern)
-    const locationMatch = text.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)?),\s*([A-Z]{2}|[A-Z][a-z]+)/);
-    const location = locationMatch ? `${locationMatch[1]}, ${locationMatch[2]}` : null;
+    // Extract location (City, State pattern).
+    //
+    // Scoped to the contact header, and anchored on word boundaries. The old
+    // pattern scanned the whole document for the first "Word, Word" and had no
+    // \b anchors, so a skills line like "React, TypeScript, Node" matched
+    // "React" + "Type" (the [A-Z][a-z]+ stopping at TypeScript's capital S)
+    // and the profile's location came out as "React, Type".
+    const headerText = lines.slice(0, 15).join('\n');
+    const locationMatch = headerText.match(
+      /\b([A-Z][a-z]+(?:[\s-][A-Z][a-z]+)?),\s*(?:([A-Z]{2})\b|\b([A-Z][a-z]+)\b)/
+    );
+    const location = locationMatch
+      ? `${locationMatch[1]}, ${locationMatch[2] || locationMatch[3]}`
+      : null;
     
     // Extract skills - look for common skill keywords and programming languages
     const skillPatterns = [
@@ -487,17 +572,29 @@ Important guidelines:
           let company = '';
           let title = '';
           
-          // Split by various delimiters and get the LAST few meaningful parts
-          const allParts = textBefore.split(/[,|–—\n]+/).map(p => p.trim()).filter(p => p.length > 2);
+          // Split by various delimiters and get the LAST few meaningful parts.
+          //
+          // Commas are deliberately NOT delimiters: real job titles embed them
+          // ("Senior UI Engineer (TypeScript, React, Node, GraphQL)") and
+          // splitting on them tore the title in half, leaving the tail to be
+          // glued onto the company below ("React Node GraphQL) • Autodesk").
+          // Pipes, dashes, bullets and newlines are the actual separators
+          // resumes use between title and employer.
+          const allParts = textBefore.split(/[|•·–—\n]+/).map(p => p.trim()).filter(p => p.length > 2);
           
           // Take only the last 3-4 parts which should contain title and company
           const parts = allParts.slice(-4);
           console.log(`  Last parts found:`, parts);
           
           // Title patterns to detect job titles
+          // NOTE: every role noun is \b-anchored. Without the trailing boundary
+          // "Architect" matched inside "architecture" (and "Engineer" inside
+          // "engineering"), so a previous job's description sentence — which is
+          // what precedes the next date in textBefore — scored as a job title
+          // and displaced the real one into the company field.
           const titlePatterns = [
-            /(?:Senior|Junior|Lead|Principal|Staff|Associate|Sr\.?|Jr\.?)?\s*(?:Software|Frontend|Backend|Full[- ]?Stack|UI|UX|DevOps|Data|ML|AI|Cloud|Mobile|Web|QA|Platform|SRE|Solutions?|Systems?)?\s*(?:Engineer|Developer|Architect|Designer|Scientist|Analyst|Manager|Specialist|Consultant|Lead)/i,
-            /(?:CEO|CTO|CFO|COO|VP|Director|Manager|Lead|Head|Principal|Staff|Senior|Junior)\s+(?:of\s+)?(?:\w+\s*)+/i,
+            /(?:Senior|Junior|Lead|Principal|Staff|Associate|Sr\.?|Jr\.?)?\s*(?:Software|Frontend|Backend|Full[- ]?Stack|UI|UX|DevOps|Data|ML|AI|Cloud|Mobile|Web|QA|Platform|SRE|Solutions?|Systems?)?\s*\b(?:Engineer|Developer|Architect|Designer|Scientist|Analyst|Manager|Specialist|Consultant|Lead)\b/i,
+            /\b(?:CEO|CTO|CFO|COO|VP|Director|Manager|Lead|Head|Principal|Staff|Senior|Junior)\b\s+(?:of\s+)?(?:\w+\s*)+/i,
             /\b(?:Engineer|Developer|Architect|Designer|Manager)\b.*\b(?:I{1,3}|IV|V|1|2|3|4|5)?\b/i
           ];
           
@@ -903,12 +1000,23 @@ Important guidelines:
 
       console.log(`Extracted ${resumeText.length} characters from resume`);
 
-      // Step 2: Parse with pattern matching (NO AI)
-      console.log('Parsing resume with pattern matching...');
-      const parsedData = this.parseResumeWithPatterns(resumeText);
+      // Step 2: Parse with AI. The pattern matcher below is a heuristic that
+      // splits on commas and picks the first "Word, Word" match in the document
+      // for location — it shreds any job title containing a comma or parens
+      // ("Senior UI Engineer (TypeScript, React, Node)") and happily lifts a
+      // skills line into the location field. It stays as a fallback so an AI
+      // outage still yields *something*, but it must not be the primary path.
+      let parsedData = null;
+      try {
+        console.log('Parsing resume with AI...');
+        parsedData = await this.parseResumeWithAI(resumeText);
+        console.log('Resume parsed successfully (AI)');
+      } catch (aiError) {
+        console.warn('[Resume] AI parse failed, falling back to pattern matching:', aiError.message);
+        parsedData = this.sanitizeParsedResume(this.parseResumeWithPatterns(resumeText));
+        console.log('Resume parsed successfully (pattern fallback)');
+      }
 
-      console.log('Resume parsed successfully');
-      
       return {
         success: true,
         data: parsedData,
