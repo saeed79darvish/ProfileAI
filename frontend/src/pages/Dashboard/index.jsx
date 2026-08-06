@@ -80,6 +80,8 @@ import { profileAPI, tailoredProfileAPI, subscriptionAPI, postAPI, resolveImageU
 import { formatDateRange } from '@/utils/dateRange';
 import { diag } from '@/utils/diagLogger';
 import { extractApiError } from '@/utils/apiError';
+import { parseLimitError } from '@/utils/aiLimit';
+import LimitReachedModal from '@/components/LimitReachedModal';
 import ResumePreviewModal from '@/components/ResumePreviewModal';
 import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
@@ -337,6 +339,8 @@ const Dashboard = () => {
   // In-place Enhancement state
   const [showEnhancePrompt, setShowEnhancePrompt] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
+  // Full 429 payload from the AI rate limiter; null when not limited.
+  const [limitInfo, setLimitInfo] = useState(null);
   const [pendingEnhancements, setPendingEnhancements] = useState(null);
   const [showEnhancementPreview, setShowEnhancementPreview] = useState(false);
   const [enhanceSaving, setEnhanceSaving] = useState(false);
@@ -868,7 +872,9 @@ const Dashboard = () => {
         setSnackbar({ open: true, message: response.data.message || 'Enhancement failed' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.message || 'Enhancement failed. Please try again.' });
+      const limit = parseLimitError(err);
+      if (limit) { setLimitInfo(limit); return; }
+      setSnackbar({ open: true, message: extractApiError(err, 'Enhancement failed. Please try again.') });
     } finally {
       setEnhancing(false);
     }
@@ -922,7 +928,9 @@ const Dashboard = () => {
         setSnackbar({ open: true, message: 'Could not get feedback' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to get feedback. Please try again.' });
+      const limit = parseLimitError(err);
+      if (limit) { setLimitInfo(limit); return; }
+      setSnackbar({ open: true, message: extractApiError(err, 'Failed to get feedback. Please try again.') });
     } finally {
       setGettingTips(false);
     }
@@ -946,7 +954,9 @@ const Dashboard = () => {
         setSnackbar({ open: true, message: response.data.error || 'Failed to analyze gaps' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.error || 'Gap analysis failed. Please try again.' });
+      const limit = parseLimitError(err);
+      if (limit) { setLimitInfo(limit); return; }
+      setSnackbar({ open: true, message: extractApiError(err, 'Gap analysis failed. Please try again.') });
     } finally {
       setAnalyzingGaps(false);
     }
@@ -969,7 +979,9 @@ const Dashboard = () => {
         setSnackbar({ open: true, message: response.data.error || 'Tailoring failed' });
       }
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.error || 'Tailoring failed. Please try again.' });
+      const limit = parseLimitError(err);
+      if (limit) { setLimitInfo(limit); return; }
+      setSnackbar({ open: true, message: extractApiError(err, 'Tailoring failed. Please try again.') });
     } finally {
       setTailoring(false);
     }
@@ -2731,6 +2743,12 @@ const Dashboard = () => {
         user={user}
       />
       
+      {/* Out-of-credits modal, driven by the limiter's own 429 payload */}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
+      />
+
       {/* Resume Upload Processing Modal */}
       <ProcessingModal
         open={uploadingResume}

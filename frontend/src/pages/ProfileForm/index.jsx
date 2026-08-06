@@ -109,7 +109,8 @@ import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
 import ProfileWelcomeOnboardingModal from '@/components/ProfileWelcomeOnboardingModal';
 import GapReviewDialog from '@/components/GapReviewDialog';
 import AIProcessingModal from '@/components/AIProcessingModal';
-import UpgradeModal from '@/components/UpgradeModal';
+import LimitReachedModal from '@/components/LimitReachedModal';
+import { parseLimitError } from '@/utils/aiLimit';
 import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
@@ -329,8 +330,8 @@ const ProfileForm = () => {
   const [existingTailorJob, setExistingTailorJob] = useState(null);
   
   // Upgrade modal state for rate limiting
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [rateLimitFeature, setRateLimitFeature] = useState('');
+  // Full 429 payload from the AI rate limiter; null when not limited.
+  const [limitInfo, setLimitInfo] = useState(null);
   
   // Resume upload state
   const [uploadingResume, setUploadingResume] = useState(false);
@@ -1187,8 +1188,7 @@ const ProfileForm = () => {
       }
     } catch (err) {
       if (err.response?.status === 429) {
-        setRateLimitFeature('profile_enhance');
-        setShowUpgradeModal(true);
+        setLimitInfo(parseLimitError(err) || { featureType: 'profile_enhance', upgradeRequired: true, buyMoreUrl: '/pricing' });
       } else {
         setError(extractApiError(err, 'Failed to enhance text'));
       }
@@ -1384,8 +1384,7 @@ const ProfileForm = () => {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED' || controller.signal.aborted) {
         // Cancelled by the user; no-op.
       } else if (err.response?.status === 429) {
-        setRateLimitFeature(err.response?.data?.feature || 'profile_enhance');
-        setShowUpgradeModal(true);
+        setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'profile_enhance', upgradeRequired: true, buyMoreUrl: '/pricing' });
       } else {
         setError(extractApiError(err, 'Failed to enhance profile with AI'));
       }
@@ -1417,8 +1416,7 @@ const ProfileForm = () => {
         // Cancelled by the user; no-op.
       } else if (err.response?.status === 429) {
         // Rate limit exceeded - show upgrade modal
-        setRateLimitFeature(err.response?.data?.feature || 'career_suggestions');
-        setShowUpgradeModal(true);
+        setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'career_suggestions', upgradeRequired: true, buyMoreUrl: '/pricing' });
       } else {
         setError(extractApiError(err, 'Failed to get suggestions'));
       }
@@ -1543,8 +1541,7 @@ const ProfileForm = () => {
       }
     } catch (err) {
       if (err.response?.status === 429) {
-        setRateLimitFeature(err.response?.data?.feature || 'tailor_profile');
-        setShowUpgradeModal(true);
+        setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'tailor_profile', upgradeRequired: true, buyMoreUrl: '/pricing' });
       } else {
         // If gap analysis fails, fall back to direct tailoring
         console.warn('Gap analysis failed, proceeding to tailor directly:', err);
@@ -1597,8 +1594,7 @@ const ProfileForm = () => {
       }
     } catch (err) {
       if (err.response?.status === 429) {
-        setRateLimitFeature(err.response?.data?.feature || 'tailor_profile');
-        setShowUpgradeModal(true);
+        setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'tailor_profile', upgradeRequired: true, buyMoreUrl: '/pricing' });
       } else {
         setError(extractApiError(err, 'Failed to tailor profile for job'));
       }
@@ -4142,11 +4138,10 @@ const ProfileForm = () => {
         type="suggestions"
       />
       
-      {/* Upgrade Modal for Rate Limit */}
-      <UpgradeModal 
-        open={showUpgradeModal} 
-        onClose={() => setShowUpgradeModal(false)} 
-        feature={rateLimitFeature}
+      {/* Out-of-credits modal, driven by the limiter's own 429 payload */}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
       />
 
       {/* Gap Review Dialog (Step 1 of tailoring) */}
