@@ -1,0 +1,11 @@
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>ProfilleAI</title>
+  <defs>
+    <linearGradient id="pfa" x1="14" y1="14" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5A4BB4"/>
+      <stop offset="1" stop-color="#241C61"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="26" height="26" rx="6" fill="#C9CCE9"/>
+  <rect x="14" y="14" width="26" height="26" rx="6" fill="url(#pfa)"/>
+</svg>

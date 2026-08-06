@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { Dialog, useMediaQuery } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import BrandIcon from './BrandIcon';
 
 /**
  * Consent step shown when a user starts an OAuth signup.
@@ -18,15 +19,15 @@ const Wrap = styled.div`
   background: #fff;
 `;
 
-const IconCircle = styled.div`
+const IconFrame = styled.div`
   width: 56px;
   height: 56px;
-  border-radius: 50%;
+  border-radius: 16px;
   display: grid;
   place-items: center;
-  font-size: 26px;
   margin-bottom: 18px;
   background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+  border: 1px solid #e7e9f5;
 `;
 
 const Title = styled.h3`
@@ -124,7 +125,7 @@ export default function TermsConsentDialog({
       PaperProps={{ style: { borderRadius: isMobile ? 14 : 20, overflow: 'hidden' } }}
     >
       <Wrap>
-        <IconCircle>📄</IconCircle>
+        <IconFrame><BrandIcon size={30} /></IconFrame>
         <Title>Before you continue</Title>
         <Copy>
           By creating an account you confirm that you have read and agree to our{' '}

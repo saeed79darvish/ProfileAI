@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import BrandWordmark from './BrandWordmark';
+import BrandIcon from './BrandIcon';
 import {
   ExitToApp as LogoutIcon,
   Person as PersonIcon,
@@ -88,6 +89,7 @@ const Logo = styled.button`
   padding: 0;
   display: flex;
   align-items: center;
+  gap: 9px;
   cursor: pointer;
   flex-shrink: 0;
 `;
@@ -1124,6 +1126,7 @@ const Navbar = () => {
             }}
             aria-label="profilleai home"
           >
+            <BrandIcon size={30} onDark style={{ flexShrink: 0 }} />
             <LogoText><BrandWordmark /></LogoText>
           </Logo>
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { Box, Typography, Link, IconButton } from '@mui/material';
+import BrandLogo from './BrandLogo';
 import {
   AutoAwesome as SparkleIcon,
   Extension as ExtensionIcon,
@@ -339,17 +340,7 @@ const AuthLayout = ({ children }) => {
         <LeftContent>
           {/* Brand */}
           <BrandMark to="/">
-            <Box sx={{
-              width: 34, height: 34, borderRadius: '9px',
-              background: 'linear-gradient(135deg, #667eea, #764ba2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 16px rgba(102,126,234,0.3)',
-            }}>
-              <SparkleIcon sx={{ color: '#fff', fontSize: 18 }} />
-            </Box>
-            <Typography sx={{ color: 'white', fontWeight: 800, fontSize: '1.3rem', letterSpacing: '-0.5px' }}>
-              ProfilleAI
-            </Typography>
+            <BrandLogo iconSize={34} fontSize="1.3rem" onDark />
           </BrandMark>
 
           {/* Headline */}
@@ -408,12 +399,7 @@ const AuthLayout = ({ children }) => {
         <FormContainer>
           <MobileTopBar>
             <MobileBrand to="/">
-              <MobileBrandLogo>
-                <SparkleIcon sx={{ color: '#fff', fontSize: 18 }} />
-              </MobileBrandLogo>
-              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', letterSpacing: '-0.3px' }}>
-                ProfilleAI
-              </Typography>
+              <BrandLogo iconSize={30} fontSize="1.05rem" />
             </MobileBrand>
             <Link
               component={RouterLink}

@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { featureFlags } from '../../config/featureFlags';
 import { extensionConfig } from '../../config/extension';
 import SEO from '../../components/SEO';
+import BrandLogo from '../../components/BrandLogo';
 import * as S from './styled';
 import {
   STATS, HERO_CHIP_LABEL, HERO_TITLE_PARTS, HERO_SUBTITLE, HERO_BUTTONS,
@@ -596,10 +597,7 @@ const Home = () => {
           <Grid container spacing={{ xs: 3, md: 6 }}>
             <Grid item xs={12} md={4}>
               <Box sx={S.footerBrandSx}>
-                <Box sx={S.footerBrandIconSx}>
-                  <SparkleIcon sx={{ color: '#fff', fontSize: 20 }} />
-                </Box>
-                <Typography variant="h6" sx={S.footerBrandTitleSx}>ProfilleAI</Typography>
+                <BrandLogo iconSize={34} fontSize="1.25rem" onDark />
               </Box>
               <Typography variant="body2" sx={S.footerDescSx}>{FOOTER_DESC}</Typography>
               <Box sx={S.footerSocialWrapperSx}>
