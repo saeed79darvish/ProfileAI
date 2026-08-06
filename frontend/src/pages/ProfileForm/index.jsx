@@ -113,6 +113,7 @@ import UpgradeModal from '@/components/UpgradeModal';
 import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
+import { extractApiError } from '@/utils/apiError';
 
 // (Date helpers live in @/utils/dateRange so ProfileForm, Dashboard, and
 // PublicProfile all render periods identically.)
@@ -1189,7 +1190,7 @@ const ProfileForm = () => {
         setRateLimitFeature('profile_enhance');
         setShowUpgradeModal(true);
       } else {
-        setError(err.response?.data?.error || 'Failed to enhance text');
+        setError(extractApiError(err, 'Failed to enhance text'));
       }
     } finally {
       setEnhancingField(null);
@@ -1353,7 +1354,7 @@ const ProfileForm = () => {
         setTimeout(() => navigate('/profile'), 1500);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save profile');
+      setError(extractApiError(err, 'Failed to save profile'));
     } finally {
       setLoading(false);
     }
@@ -1386,7 +1387,7 @@ const ProfileForm = () => {
         setRateLimitFeature(err.response?.data?.feature || 'profile_enhance');
         setShowUpgradeModal(true);
       } else {
-        setError(err.response?.data?.error || 'Failed to enhance profile with AI');
+        setError(extractApiError(err, 'Failed to enhance profile with AI'));
       }
     } finally {
       enhanceAbortRef.current = null;
@@ -1419,7 +1420,7 @@ const ProfileForm = () => {
         setRateLimitFeature(err.response?.data?.feature || 'career_suggestions');
         setShowUpgradeModal(true);
       } else {
-        setError(err.response?.data?.error || 'Failed to get suggestions');
+        setError(extractApiError(err, 'Failed to get suggestions'));
       }
     } finally {
       suggestionsAbortRef.current = null;
@@ -1481,7 +1482,7 @@ const ProfileForm = () => {
         try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
         setSuccess('🎉 Profile enhanced and saved successfully!');
       } catch (err) {
-        setError(err.response?.data?.error || 'Failed to save enhanced profile');
+        setError(extractApiError(err, 'Failed to save enhanced profile'));
       } finally {
         setLoading(false);
       }
@@ -1599,7 +1600,7 @@ const ProfileForm = () => {
         setRateLimitFeature(err.response?.data?.feature || 'tailor_profile');
         setShowUpgradeModal(true);
       } else {
-        setError(err.response?.data?.error || 'Failed to tailor profile for job');
+        setError(extractApiError(err, 'Failed to tailor profile for job'));
       }
     } finally {
       setTailoring(false);
@@ -1631,7 +1632,7 @@ const ProfileForm = () => {
         setSuccess('🎯 Profile tailored for job and saved successfully!');
         setTimeout(() => navigate('/profile'), 2000);
       } catch (err) {
-        setError(err.response?.data?.error || 'Failed to save tailored profile');
+        setError(extractApiError(err, 'Failed to save tailored profile'));
         setLoading(false);
       }
     } else {
@@ -1685,7 +1686,7 @@ const ProfileForm = () => {
       const companyText = companyName ? ` at ${companyName}` : '';
       setSuccess(`🎯 Saved tailored version "${jobTitle}"${companyText} as a separate profile! Original profile unchanged.`);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save tailored version');
+      setError(extractApiError(err, 'Failed to save tailored version'));
     } finally {
       setSavingTailoredVersion(false);
     }

@@ -79,6 +79,7 @@ import { featureFlags } from '@/config/featureFlags';
 import { profileAPI, tailoredProfileAPI, subscriptionAPI, postAPI, resolveImageUrl } from '@/services/api';
 import { formatDateRange } from '@/utils/dateRange';
 import { diag } from '@/utils/diagLogger';
+import { extractApiError } from '@/utils/apiError';
 import ResumePreviewModal from '@/components/ResumePreviewModal';
 import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
@@ -903,7 +904,7 @@ const Dashboard = () => {
       setShowEnhancementPreview(false);
       setSnackbar({ open: true, message: 'Profile enhanced and saved successfully!' });
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to save enhanced profile' });
+      setSnackbar({ open: true, message: extractApiError(err, 'Failed to save enhanced profile') });
     } finally {
       setEnhanceSaving(false);
     }
