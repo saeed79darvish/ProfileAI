@@ -90,5 +90,15 @@ export function formatReset(resetAt) {
   if (!resetAt) return null;
   const d = new Date(resetAt);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+/** Whole days from now until the reset, or null if unknown/past. */
+export function daysUntil(resetAt) {
+  if (!resetAt) return null;
+  const d = new Date(resetAt);
+  if (Number.isNaN(d.getTime())) return null;
+  const ms = d.getTime() - Date.now();
+  if (ms <= 0) return null;
+  return Math.ceil(ms / 86400000);
 }

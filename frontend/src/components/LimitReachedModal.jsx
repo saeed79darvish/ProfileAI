@@ -1,215 +1,415 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { Dialog, useMediaQuery } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { FEATURE_LABELS, readUsage, formatReset, daysUntil } from '@/utils/aiLimit';
 import {
-  PACK_COVERED_FEATURES,
-  FEATURE_LABELS,
-  readUsage,
-  formatReset,
-} from '@/utils/aiLimit';
+  currentPlanFor,
+  nextPlanFor,
+  planHighlights,
+  packsFor,
+  packEconomics,
+} from '@/config/plans';
 
 /**
- * Shown when the AI rate limiter returns 429 for a specific feature.
+ * Shown when the AI rate limiter returns 429.
  *
- * Driven entirely by the limiter's payload, so the copy always names the real
- * feature, the real counts and the real reset date rather than a hardcoded
- * "you've hit your daily limit" that may not even be the window that was
- * enforced.
- *
- * Running out of credits is a purchase moment, so this replaces the inline red
- * error the AI flows used to show.
+ * Everything is derived from the limiter's payload plus the user's current
+ * tier: which plan to pitch, what the new limits would be, whether credit
+ * packs can even unblock this feature. No hardcoded prices or counts — a user
+ * reading "30 enhancements a month, up from 2" is reading the limits the
+ * limiter will actually enforce.
  */
 
 const fadeIn = keyframes`
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 `;
 
-const Container = styled.div`
+const Wrap = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
   animation: ${fadeIn} 0.25s ease;
+  background: #fff;
 `;
 
-const Header = styled.div`
-  padding: 32px 28px 24px;
-  background: linear-gradient(135deg, #eef2ff, #faf5ff);
-  text-align: center;
-`;
+const Head = styled.div`padding: 26px 26px 0;`;
 
-const IconCircle = styled.div`
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  margin: 0 auto 16px;
-  display: flex;
+const PlanChip = styled.span`
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  font-size: 30px;
-  background: white;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.18);
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #f1f2f6;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #4b5563;
+
+  &::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #9ca3af;
+  }
 `;
 
 const Title = styled.h3`
-  margin: 0 0 6px;
-  font-size: 21px;
+  margin: 16px 0 14px;
+  font-size: 27px;
   font-weight: 800;
-  color: #1a1a2e;
-`;
-
-const Sub = styled.p`
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #6b7280;
-`;
-
-const Body = styled.div`
-  padding: 24px 28px 8px;
-`;
-
-const MeterWrap = styled.div`
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 16px 18px;
-  margin-bottom: 18px;
+  letter-spacing: -0.5px;
+  color: #0f1020;
+  line-height: 1.15;
 `;
 
 const MeterTop = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 10px;
+  gap: 12px;
+  font-size: 14px;
+  color: #6b7280;
+
+  strong { color: #0f1020; font-weight: 800; }
+  .reset { font-size: 13px; font-weight: 600; color: #6b7280; text-align: right; }
 `;
 
-const MeterLabel = styled.span`
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-`;
-
-const MeterCount = styled.span`
-  font-size: 13px;
-  font-weight: 700;
-  color: #dc2626;
-`;
-
-const MeterBar = styled.div`
-  height: 8px;
+const Meter = styled.div`
+  height: 7px;
   border-radius: 4px;
-  background: #f3f4f6;
+  background: #eceef3;
   overflow: hidden;
+  margin: 10px 0 0;
 `;
 
 const MeterFill = styled.div`
   height: 100%;
-  border-radius: 4px;
   width: ${p => p.$pct}%;
-  background: linear-gradient(90deg, #f87171, #dc2626);
+  border-radius: 4px;
+  background: linear-gradient(90deg, #5b4fe0, #7c3aed);
 `;
 
-const ResetNote = styled.div`
-  margin-top: 10px;
-  font-size: 12.5px;
-  color: #6b7280;
+const Tabs = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 20px 26px 0;
+  padding: 6px;
+  border-radius: 14px;
+  background: #eeeef5;
 `;
 
-const OptionList = styled.div`
+const Tab = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 10px;
+  border-radius: 10px;
+  border: ${p => p.$active ? '2px solid #3b6fe0' : '2px solid transparent'};
+  background: ${p => p.$active ? '#fff' : 'transparent'};
+  font-size: 15px;
+  font-weight: 700;
+  color: ${p => p.$active ? '#0f1020' : '#4b5563'};
+  cursor: pointer;
+  transition: all 0.18s;
+
+  &:hover { color: #0f1020; }
+`;
+
+const BestValue = styled.span`
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+`;
+
+const Body = styled.div`padding: 16px 26px 0;`;
+
+const PlanCard = styled.div`
+  position: relative;
+  border-radius: 18px;
+  padding: 22px 24px;
+  background: linear-gradient(150deg, #6b5ce0, #8b5cf6);
+  color: white;
+  overflow: hidden;
+`;
+
+const PopularTag = styled.span`
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+`;
+
+const FromLabel = styled.div`
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+`;
+
+const PlanName = styled.div`
+  font-size: 30px;
+  font-weight: 800;
+  margin-top: 4px;
+  letter-spacing: -0.5px;
+`;
+
+const PriceRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+
+  .amount { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+  .per { font-size: 15px; color: rgba(255, 255, 255, 0.82); }
+`;
+
+const Benefits = styled.ul`
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    font-size: 14.5px;
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .tick { font-weight: 800; flex-shrink: 0; }
+  strong { color: #fff; font-weight: 800; }
 `;
 
-const Option = styled.button`
+const CrossLink = styled.div`
+  text-align: center;
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: #6b7280;
+
+  button {
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: #5b4fe0;
+    cursor: pointer;
+    &:hover { text-decoration: underline; }
+  }
+`;
+
+const PackRow = styled.button`
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
   text-align: left;
   padding: 16px 18px;
+  margin-bottom: 10px;
   border-radius: 14px;
   cursor: pointer;
+  background: ${p => p.$sel ? '#fbfaff' : '#fff'};
+  border: 2px solid ${p => p.$sel ? '#5b4fe0' : '#e8eaef'};
+  transition: all 0.18s;
+
+  &:hover { border-color: ${p => p.$sel ? '#5b4fe0' : '#cfd4dd'}; }
+`;
+
+const Radio = styled.span`
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid ${p => p.$sel ? '#5b4fe0' : '#cbd0d9'};
+  display: grid;
+  place-items: center;
+
+  &::after {
+    content: '';
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: ${p => p.$sel ? '#5b4fe0' : 'transparent'};
+  }
+`;
+
+const PackInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+
+  .n { font-size: 18px; font-weight: 800; color: #0f1020; }
+  .per { font-size: 13.5px; color: #6b7280; margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+`;
+
+const SaveTag = styled.span`
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 800;
+`;
+
+const PackPrice = styled.div`
+  font-size: 21px;
+  font-weight: 800;
+  color: #0f1020;
+  flex-shrink: 0;
+`;
+
+const PopularPill = styled.span`
+  position: absolute;
+  top: -11px;
+  right: 14px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: #5b4fe0;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+`;
+
+const Foot = styled.div`
+  margin-top: 18px;
+  padding: 18px 26px 22px;
+  border-top: 1px solid #eef0f4;
+`;
+
+const Nudge = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: #fdf6e7;
+  color: #92400e;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 14px;
+`;
+
+const Cta = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 18px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #5b4fe0, #8b5cf6);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
   transition: all 0.2s;
-  border: 1.5px solid ${p => p.$primary ? 'transparent' : '#e5e7eb'};
-  background: ${p => p.$primary ? 'linear-gradient(135deg, #6366f1, #7c3aed)' : 'white'};
 
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: ${p => p.$primary
-      ? '0 6px 18px rgba(99, 102, 241, 0.35)'
-      : '0 4px 12px rgba(0,0,0,0.06)'};
-    border-color: ${p => p.$primary ? 'transparent' : '#d1d5db'};
-  }
+  &:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(91, 79, 224, 0.4); }
+`;
 
-  .glyph {
-    font-size: 22px;
-    flex-shrink: 0;
-  }
+const FootRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
 
-  .copy { flex: 1; min-width: 0; }
-
-  .head {
-    font-size: 15px;
-    font-weight: 700;
-    color: ${p => p.$primary ? 'white' : '#1a1a2e'};
-  }
-
-  .sub {
-    font-size: 12.5px;
-    margin-top: 2px;
-    color: ${p => p.$primary ? 'rgba(255,255,255,0.85)' : '#6b7280'};
-  }
+  .assure { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: #4b5563; }
+  .tick { color: #16a34a; font-weight: 800; }
 `;
 
 const Later = styled.button`
-  width: 100%;
-  margin: 16px 0 24px;
-  padding: 12px;
   border: none;
   background: none;
-  color: #6b7280;
+  padding: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  color: #6b7280;
   cursor: pointer;
-  border-radius: 10px;
-
-  &:hover { background: #f9fafb; color: #374151; }
+  &:hover { color: #0f1020; }
 `;
 
-const DismissBtn = styled.button`
+const Close = styled.button`
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 20px;
+  right: 20px;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.7);
-  color: #6b7280;
-  font-size: 20px;
+  border-radius: 50%;
+  background: none;
+  color: #9ca3af;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
   z-index: 2;
-
-  &:hover { background: white; color: #1a1a2e; }
+  &:hover { background: #f3f4f6; color: #0f1020; }
 `;
 
-export default function LimitReachedModal({ limit, onClose }) {
+const money = (n) => `$${n.toFixed(2)}`;
+
+export default function LimitReachedModal({ limit, onClose, promo = null }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth() || {};
   const isMobile = useMediaQuery('(max-width:768px)');
+
+  const tier = user?.subscriptionTier || 'free';
+  const current = currentPlanFor(tier);
+  const target = nextPlanFor(tier);
+  const feature = limit?.featureType;
+  const packs = useMemo(() => packsFor(feature), [feature]);
+
+  const [tab, setTab] = useState('plan');
+  const [selected, setSelected] = useState(() => {
+    const p = packsFor(feature);
+    return (p.find((x) => x.popular) || p[0])?.id || null;
+  });
 
   if (!limit) return null;
 
-  const label = FEATURE_LABELS[limit.featureType] || 'This feature';
-  const { used, total, window } = readUsage(limit.usage);
+  const label = FEATURE_LABELS[feature] || 'AI';
+  const { used, total } = readUsage(limit.usage);
   const resetOn = formatReset(limit.resetAt);
+  const inDays = daysUntil(limit.resetAt);
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 100;
 
-  // Only offer a purchase when a pack actually grants credits for this feature.
-  const canBuyCredits = PACK_COVERED_FEATURES.has(limit.featureType);
+  // Only offer the packs tab when a pack actually grants credits for the
+  // feature that was blocked. Selling a tailoring pack to someone who ran out
+  // of enhancements would take their money without unblocking them.
+  const canBuy = packs.length > 0;
+  const showPlan = Boolean(target);
+  const activeTab = !canBuy ? 'plan' : !showPlan ? 'credits' : tab;
+
+  const pack = packs.find((p) => p.id === selected) || packs[0];
+  const highlights = target ? planHighlights(target, current, feature) : [];
 
   const go = (path) => {
     try {
@@ -219,6 +419,10 @@ export default function LimitReachedModal({ limit, onClose }) {
     navigate(path);
   };
 
+  const headline = showPlan
+    ? `Keep ${label.toLowerCase() === 'profile enhancement' ? 'enhancing your profile' : `using ${label}`}`
+    : `You're out of ${label} credits`;
+
   return (
     <Dialog
       open={Boolean(limit)}
@@ -226,70 +430,127 @@ export default function LimitReachedModal({ limit, onClose }) {
       maxWidth="xs"
       fullWidth
       fullScreen={isMobile}
-      PaperProps={{ style: { borderRadius: isMobile ? 0 : 20, overflow: 'hidden' } }}
+      PaperProps={{ style: { borderRadius: isMobile ? 0 : 24, overflow: 'hidden' } }}
     >
-      <Container>
-        <DismissBtn onClick={onClose} aria-label="Close">×</DismissBtn>
+      <Wrap>
+        <Close onClick={onClose} aria-label="Close">×</Close>
 
-        <Header>
-          <IconCircle>⚡</IconCircle>
-          <Title>You're out of {label} credits</Title>
-          <Sub>{limit.message || `You've used all your ${label} credits.`}</Sub>
-        </Header>
+        <Head>
+          <PlanChip>{current.label}</PlanChip>
+          <Title>{headline}</Title>
+          <MeterTop>
+            <span><strong>{used} of {total}</strong> credits used</span>
+            {resetOn && (
+              <span className="reset">
+                Resets {resetOn}{inDays !== null ? `, in ${inDays} days` : ''}
+              </span>
+            )}
+          </MeterTop>
+          <Meter><MeterFill $pct={pct} /></Meter>
+        </Head>
+
+        {showPlan && canBuy && (
+          <Tabs>
+            <Tab $active={activeTab === 'plan'} onClick={() => setTab('plan')}>
+              Upgrade plan <BestValue>BEST VALUE</BestValue>
+            </Tab>
+            <Tab $active={activeTab === 'credits'} onClick={() => setTab('credits')}>
+              Buy credits
+            </Tab>
+          </Tabs>
+        )}
 
         <Body>
-          {total > 0 && (
-            <MeterWrap>
-              <MeterTop>
-                <MeterLabel>{label} used {window}</MeterLabel>
-                <MeterCount>{used} of {total}</MeterCount>
-              </MeterTop>
-              <MeterBar><MeterFill $pct={pct} /></MeterBar>
-              {resetOn && (
-                <ResetNote>
-                  Your free credits refresh on <strong>{resetOn}</strong>.
-                </ResetNote>
-              )}
-            </MeterWrap>
+          {activeTab === 'plan' && target && (
+            <>
+              <PlanCard>
+                {target.popular && <PopularTag>MOST POPULAR</PopularTag>}
+                <FromLabel>Upgrade from {current.label}</FromLabel>
+                <PlanName>{target.label}</PlanName>
+                <PriceRow>
+                  <span className="amount">{money(target.price)}</span>
+                  <span className="per">/mo</span>
+                </PriceRow>
+                <Benefits>
+                  {highlights.map((h, i) => (
+                    <li key={i}>
+                      <span className="tick">✓</span>
+                      <span><strong>{h.strong}</strong>{h.rest}</span>
+                    </li>
+                  ))}
+                </Benefits>
+              </PlanCard>
+
+              <CrossLink>
+                {canBuy ? (
+                  <>Just need a few this month?{' '}
+                    <button onClick={() => setTab('credits')}>Buy a credit pack</button></>
+                ) : (
+                  <button onClick={() => go('/pricing')}>Compare all plans</button>
+                )}
+              </CrossLink>
+            </>
           )}
 
-          <OptionList>
-            {limit.upgradeRequired && (
-              <Option $primary onClick={() => go('/pricing')}>
-                <span className="glyph">🚀</span>
-                <span className="copy">
-                  <span className="head">Upgrade your plan</span>
-                  <span className="sub">Higher limits across every AI feature, billed monthly</span>
-                </span>
-              </Option>
-            )}
-
-            {canBuyCredits && (
-              <Option onClick={() => go(limit.buyMoreUrl)}>
-                <span className="glyph">🎟️</span>
-                <span className="copy">
-                  <span className="head">Buy {label} credits</span>
-                  <span className="sub">A one-off pack for this feature, no subscription</span>
-                </span>
-              </Option>
-            )}
-
-            {!limit.upgradeRequired && !canBuyCredits && (
-              <Option onClick={() => go('/pricing')}>
-                <span className="glyph">📈</span>
-                <span className="copy">
-                  <span className="head">See your plan options</span>
-                  <span className="sub">Compare limits and find one that fits your search</span>
-                </span>
-              </Option>
-            )}
-          </OptionList>
-
-          <Later onClick={onClose}>
-            {resetOn ? `Not now — I'll wait until ${resetOn}` : 'Not now'}
-          </Later>
+          {activeTab === 'credits' && canBuy && (
+            <>
+              {packs.map((p) => {
+                const { per, savePct } = packEconomics(p, packs);
+                const sel = pack?.id === p.id;
+                return (
+                  <PackRow key={p.id} $sel={sel} onClick={() => setSelected(p.id)}>
+                    {p.popular && <PopularPill>MOST POPULAR</PopularPill>}
+                    <Radio $sel={sel} />
+                    <PackInfo>
+                      <div className="n">{p.credits} credits</div>
+                      <div className="per">
+                        {money(per)} per credit
+                        {savePct > 0 && <SaveTag>SAVE {savePct}%</SaveTag>}
+                      </div>
+                    </PackInfo>
+                    <PackPrice>{money(p.price)}</PackPrice>
+                  </PackRow>
+                );
+              })}
+              <CrossLink>
+                Credits never expire.{' '}
+                <button onClick={() => (showPlan ? setTab('plan') : go('/pricing'))}>
+                  Compare with a plan
+                </button>
+              </CrossLink>
+            </>
+          )}
         </Body>
-      </Container>
+
+        <Foot>
+          {promo?.message && <Nudge>🕐 {promo.message}</Nudge>}
+          {!promo?.message && activeTab === 'credits' && showPlan && (
+            <Nudge>💡 {target.label} gives you more credits for less each month</Nudge>
+          )}
+
+          {activeTab === 'plan' && target ? (
+            <Cta onClick={() => go('/pricing')}>
+              ⚡ Upgrade to {target.label} for {money(target.price)}
+            </Cta>
+          ) : pack ? (
+            <Cta onClick={() => go(limit.buyMoreUrl || '/pricing#credit-packs')}>
+              ⚡ Buy {pack.credits} credits for {money(pack.price)}
+            </Cta>
+          ) : (
+            <Cta onClick={() => go('/pricing')}>⚡ See plan options</Cta>
+          )}
+
+          <FootRow>
+            <span className="assure">
+              <span className="tick">✓</span>
+              {activeTab === 'plan'
+                ? 'Cancel anytime. Instant access.'
+                : 'One time charge. Credits never expire.'}
+            </span>
+            <Later onClick={onClose}>Maybe later</Later>
+          </FootRow>
+        </Foot>
+      </Wrap>
     </Dialog>
   );
 }
