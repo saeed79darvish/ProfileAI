@@ -278,6 +278,28 @@ const Pricing = () => {
     setCheckoutOpen(true);
   };
 
+  // Deep link: /pricing?plan=pro&checkout=1 opens the payment step straight
+  // away for that plan. LimitReachedModal sends users here, and they have
+  // already chosen an upgrade in that modal — asking them to pick the same
+  // plan again loses people at the last step.
+  //
+  // `plans` is intentionally not a dependency: it is static data rebuilt on
+  // every render, so including it would re-run this effect in a loop.
+  useEffect(() => {
+    if (searchParams.get('checkout') !== '1') return;
+    const planType = searchParams.get('plan');
+    if (!planType) return;
+    const match = plans.find((p) => p.type === planType);
+    if (!match || match.type === 'free') return;
+    if (!user) {
+      navigate('/register');
+      return;
+    }
+    setSelectedPlan(match);
+    setCheckoutOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
+
   const handleBuyPack = async (packId) => {
     if (!user) {
       navigate('/register');

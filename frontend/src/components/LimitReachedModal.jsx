@@ -3,7 +3,6 @@ import styled, { keyframes } from 'styled-components';
 import { Dialog, useMediaQuery } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import api from '@/services/api';
 import { FEATURE_LABELS, readUsage, formatReset, daysUntil } from '@/utils/aiLimit';
 import {
   currentPlanFor,
@@ -416,8 +415,6 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
   const packs = useMemo(() => packsFor(feature), [feature]);
 
   const [tab, setTab] = useState('plan');
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [checkoutError, setCheckoutError] = useState('');
   const [selected, setSelected] = useState(() => {
     const p = packsFor(feature);
     return (p.find((x) => x.popular) || p[0])?.id || null;
@@ -452,31 +449,12 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     navigate(path);
   };
 
-  // Straight to Stripe Checkout for the pitched plan — the pricing page is an
-  // extra hop when the user has already chosen. Falls back to /pricing if the
-  // session can't be created, so the upgrade path is never a dead end.
-  const startCheckout = async () => {
-    if (!target || checkingOut) return;
-    setCheckingOut(true);
-    setCheckoutError('');
-    try {
-      sessionStorage.setItem('upgradeReturnPath', location.pathname + location.search);
-    } catch (_) { /* private mode */ }
-    try {
-      const { data } = await api.post('/subscriptions/create-checkout-session', {
-        planType: target.id,
-        billingCycle: 'monthly',
-        paymentMethod: 'stripe',
-      });
-      const url = data?.url || data?.approvalUrl;
-      if (!url) throw new Error('No checkout URL returned');
-      window.location.href = url;
-    } catch (err) {
-      console.error('[LimitReachedModal] checkout failed:', err);
-      setCheckingOut(false);
-      setCheckoutError('We could not open checkout. Taking you to pricing instead.');
-      setTimeout(() => go('/pricing'), 1200);
-    }
+  // Send the user to ProfilleAI's own payment page with the pitched plan
+  // preselected, so the payment step opens directly instead of making them
+  // re-pick a plan they already chose in this modal.
+  const goToPayment = () => {
+    if (!target) return go('/pricing');
+    go(`/pricing?plan=${target.id}&checkout=1`);
   };
 
   const headline = showPlan
@@ -588,18 +566,17 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
         </Body>
 
         <Foot>
-          {checkoutError && <Nudge>⚠️ {checkoutError}</Nudge>}
-          {!checkoutError && activeTab === 'plan' && offer?.banner && <Nudge>🕐 {offer.banner}</Nudge>}
+          {activeTab === 'plan' && offer?.banner && <Nudge>🕐 {offer.banner}</Nudge>}
           {activeTab === 'credits' && showPlan && (
             <Nudge>🕐 {target.label} gives you more credits for less each month</Nudge>
           )}
 
           {activeTab === 'plan' && target ? (
-            <Cta onClick={startCheckout} disabled={checkingOut}>
-              ⚡ {checkingOut ? 'Opening checkout…' : `Upgrade to ${target.label} for ${money(payNow)}`}
+            <Cta onClick={goToPayment}>
+              ⚡ Upgrade to {target.label} for {money(payNow)}
             </Cta>
           ) : pack ? (
-            <Cta onClick={() => go(limit.buyMoreUrl || '/pricing#credit-packs')}>
+            <Cta onClick={() => go(`/pricing?pack=${pack.id}&checkout=1#credit-packs`)}>
               ⚡ Buy {pack.credits} credits for {money(pack.price)}
             </Cta>
           ) : (
