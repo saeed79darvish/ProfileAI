@@ -34,6 +34,10 @@ export const FEATURE_LABELS = {
   interview_prep: 'Interview Preparation',
   analyze_gaps: 'Skill Gap Analysis',
   generate_answers: 'Application Answer Generation',
+  // Tier-gated features rather than metered ones; they reach the same modal
+  // via a synthesised payload so the upgrade path is identical.
+  agent_apply: 'AI Agent Apply',
+  agent_arena: 'Agent Arena',
 };
 
 /**

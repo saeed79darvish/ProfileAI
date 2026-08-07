@@ -207,7 +207,8 @@ const JobDetail = () => {
 
   const [showApplicationModal, setShowApplicationModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // Tier gate for the AI-agent apply feature (not a rate-limit 429).
+  const [limitInfo, setLimitInfo] = useState(null);
   const [applicationMethod, setApplicationMethod] = useState(null); // 'manual' or 'agent'
   
   // Check for return from subscription page with state to open agent modal
@@ -241,7 +242,7 @@ const JobDetail = () => {
     
     // Check if user has a paid subscription
     if (!user?.subscriptionTier || user.subscriptionTier === 'free') {
-      setShowUpgradeModal(true);
+      setLimitInfo({ featureType: 'agent_apply', upgradeRequired: true, usage: {}, buyMoreUrl: '/pricing' });
       return;
     }
     
@@ -889,11 +890,9 @@ const JobDetail = () => {
       )}
       
       {/* Upgrade Modal - For free users trying to use Agent */}
-      <UpgradeModal
-        open={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        feature="agent_apply"
-        showAgentFeature={true}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
       />
     </PageContainer>
   );

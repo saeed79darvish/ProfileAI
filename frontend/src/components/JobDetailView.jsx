@@ -18,7 +18,7 @@ import {
 import { Dialog, DialogContent, IconButton } from '@mui/material';
 import { resolveImageUrl } from '../services/api';
 import AgentNegotiationModal from './AgentNegotiationModal';
-import UpgradeModal from './UpgradeModal';
+import LimitReachedModal from './LimitReachedModal';
 import JobAIToolsPanel from './JobAIToolsPanel';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -410,7 +410,8 @@ const JobDetailView = ({ job, onApply }) => {
   const [saved, setSaved] = useState(false);
   const [showApplicationModal, setShowApplicationModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // Tier gate for the AI-agent apply feature (not a rate-limit 429).
+  const [limitInfo, setLimitInfo] = useState(null);
   
   // Check for return from subscription page with state to open agent modal
   useEffect(() => {
@@ -485,7 +486,7 @@ const JobDetailView = ({ job, onApply }) => {
     
     // Check if user has a paid subscription
     if (!user?.subscriptionTier || user.subscriptionTier === 'free') {
-      setShowUpgradeModal(true);
+      setLimitInfo({ featureType: 'agent_apply', upgradeRequired: true, usage: {}, buyMoreUrl: '/pricing' });
       return;
     }
     
@@ -691,11 +692,9 @@ const JobDetailView = ({ job, onApply }) => {
       />
       
       {/* Upgrade Modal - For free users trying to use Agent */}
-      <UpgradeModal
-        open={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        feature="agent_apply"
-        showAgentFeature={true}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
       />
     </Container>
   );

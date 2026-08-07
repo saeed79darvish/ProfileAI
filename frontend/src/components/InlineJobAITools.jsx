@@ -23,7 +23,8 @@ import { profileAPI, tailoredProfileAPI, resumeAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import GapReviewDialog from './GapReviewDialog';
-import UpgradeModal from './UpgradeModal';
+import LimitReachedModal from './LimitReachedModal';
+import { parseLimitError } from '@/utils/aiLimit';
 import TailorSettingsModal from './TailorSettingsModal';
 import CoverLetterModal from './CoverLetterModal';
 import JobMatchAnalysis from './JobMatchAnalysis';
@@ -535,8 +536,8 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const [preloadedPreviewUrl, setPreloadedPreviewUrl] = useState('');
   
   // Upgrade
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [rateLimitFeature, setRateLimitFeature] = useState('');
+  // Full 429 payload from the AI rate limiter; null when not limited.
+  const [limitInfo, setLimitInfo] = useState(null);
 
   // Already tailored check
   const [showAlreadyTailored, setShowAlreadyTailored] = useState(false);
@@ -639,8 +640,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
 
   const handleRateLimit = (err) => {
     if (err.response?.status === 429) {
-      setRateLimitFeature(err.response?.data?.feature || 'tailor_profile');
-      setShowUpgradeModal(true);
+      setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'tailor_profile', upgradeRequired: true, usage: {}, buyMoreUrl: '/pricing' });
       return true;
     }
     if (err.response?.status === 503) {
@@ -1066,10 +1066,9 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         preloadedPreviewUrl={preloadedPreviewUrl}
       />
 
-      <UpgradeModal
-        open={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        feature={rateLimitFeature}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
       />
 
       {/* Already Tailored Warning */}

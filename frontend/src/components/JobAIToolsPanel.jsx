@@ -25,7 +25,8 @@ import { CircularProgress, Tooltip, Chip, LinearProgress, Dialog, DialogContent,
 import { profileAPI, tailoredProfileAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import GapReviewDialog from './GapReviewDialog';
-import UpgradeModal from './UpgradeModal';
+import LimitReachedModal from './LimitReachedModal';
+import { parseLimitError } from '@/utils/aiLimit';
 import TailorSettingsModal from './TailorSettingsModal';
 import TailoringProgressModal from './TailoringProgressModal';
 import TailoredResultsModal from './TailoredResultsModal';
@@ -549,8 +550,8 @@ export default function JobAIToolsPanel({ job }) {
   const [keywordResult, setKeywordResult] = useState(null);
   
   // Upgrade modal
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [rateLimitFeature, setRateLimitFeature] = useState('');
+  // Full 429 payload from the AI rate limiter; null when not limited.
+  const [limitInfo, setLimitInfo] = useState(null);
 
   // New modal states
   const [showTailorSettings, setShowTailorSettings] = useState(false);
@@ -616,8 +617,7 @@ export default function JobAIToolsPanel({ job }) {
 
   const handleRateLimit = (err) => {
     if (err.response?.status === 429) {
-      setRateLimitFeature(err.response?.data?.feature || 'profile_enhance');
-      setShowUpgradeModal(true);
+      setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'profile_enhance', upgradeRequired: true, usage: {}, buyMoreUrl: '/pricing' });
       return true;
     }
     return false;
@@ -1185,10 +1185,9 @@ export default function JobAIToolsPanel({ job }) {
       />
       
       {/* Upgrade Modal */}
-      <UpgradeModal
-        open={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        feature={rateLimitFeature}
+      <LimitReachedModal
+        limit={limitInfo}
+        onClose={() => setLimitInfo(null)}
       />
     </>
   );
