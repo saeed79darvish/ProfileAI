@@ -3,6 +3,7 @@ import styled, { keyframes } from 'styled-components';
 import { Dialog, useMediaQuery } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import api from '@/services/api';
 import { FEATURE_LABELS, readUsage, formatReset, daysUntil } from '@/utils/aiLimit';
 import {
   currentPlanFor,
@@ -36,7 +37,7 @@ const Wrap = styled.div`
   background: #fff;
 `;
 
-const Head = styled.div`padding: 26px 26px 0;`;
+const Head = styled.div`padding: 22px 26px 0;`;
 
 const PlanChip = styled.span`
   display: inline-flex;
@@ -61,8 +62,8 @@ const PlanChip = styled.span`
 `;
 
 const Title = styled.h3`
-  margin: 16px 0 14px;
-  font-size: 27px;
+  margin: 12px 0 12px;
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.5px;
   color: #0f1020;
@@ -100,8 +101,8 @@ const Tabs = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin: 20px 26px 0;
-  padding: 6px;
+  margin: 16px 26px 0;
+  padding: 5px;
   border-radius: 14px;
   background: #eeeef5;
 `;
@@ -111,8 +112,8 @@ const Tab = styled.button`
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 13px 10px;
-  border-radius: 10px;
+  padding: 11px 10px;
+  border-radius: 9px;
   border: ${p => p.$active ? '2px solid #3b6fe0' : '2px solid transparent'};
   background: ${p => p.$active ? '#fff' : 'transparent'};
   font-size: 15px;
@@ -134,12 +135,12 @@ const BestValue = styled.span`
   letter-spacing: 0.3px;
 `;
 
-const Body = styled.div`padding: 16px 26px 0;`;
+const Body = styled.div`padding: 14px 26px 0;`;
 
 const PlanCard = styled.div`
   position: relative;
-  border-radius: 18px;
-  padding: 22px 24px;
+  border-radius: 16px;
+  padding: 18px 22px;
   background: linear-gradient(150deg, #6b5ce0, #8b5cf6);
   color: white;
   overflow: hidden;
@@ -166,21 +167,34 @@ const FromLabel = styled.div`
 `;
 
 const PlanName = styled.div`
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 800;
-  margin-top: 4px;
+  margin-top: 2px;
   letter-spacing: -0.5px;
+`;
+
+// Two columns on desktop so the price and the benefits sit side by side; the
+// card was tall and narrow when everything stacked.
+const PlanGrid = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 22px;
+  align-items: center;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
 `;
 
 const PriceRow = styled.div`
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  margin-top: 6px;
 
-  .amount { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+  .amount { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
   .per { font-size: 15px; color: rgba(255, 255, 255, 0.82); }
   .was {
     font-size: 17px;
@@ -192,11 +206,18 @@ const PriceRow = styled.div`
 
 const Benefits = styled.ul`
   list-style: none;
-  margin: 16px 0 0;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 0 22px;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 8px;
+
+  @media (max-width: 600px) {
+    padding: 13px 0 0;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
+  }
 
   li {
     display: flex;
@@ -213,8 +234,8 @@ const Benefits = styled.ul`
 
 const CrossLink = styled.div`
   text-align: center;
-  margin: 16px 0 0;
-  font-size: 14px;
+  margin: 12px 0 0;
+  font-size: 13.5px;
   color: #6b7280;
 
   button {
@@ -236,8 +257,8 @@ const PackRow = styled.button`
   gap: 14px;
   width: 100%;
   text-align: left;
-  padding: 16px 18px;
-  margin-bottom: 10px;
+  padding: 13px 16px;
+  margin-bottom: 8px;
   border-radius: 14px;
   cursor: pointer;
   background: ${p => p.$sel ? '#fbfaff' : '#fff'};
@@ -303,8 +324,8 @@ const PopularPill = styled.span`
 `;
 
 const Foot = styled.div`
-  margin-top: 18px;
-  padding: 18px 26px 22px;
+  margin-top: 14px;
+  padding: 14px 26px 18px;
   border-top: 1px solid #eef0f4;
 `;
 
@@ -313,13 +334,13 @@ const Nudge = styled.div`
   align-items: center;
   justify-content: center;
   gap: 9px;
-  padding: 13px 16px;
-  border-radius: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
   background: #fdf6e7;
   color: #92400e;
   font-size: 14px;
   font-weight: 700;
-  margin-bottom: 14px;
+  margin-bottom: 11px;
 `;
 
 const Cta = styled.button`
@@ -328,9 +349,9 @@ const Cta = styled.button`
   justify-content: center;
   gap: 10px;
   width: 100%;
-  padding: 18px;
+  padding: 15px;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #5b4fe0, #8b5cf6);
   color: #fff;
   font-size: 17px;
@@ -346,7 +367,7 @@ const FootRow = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 11px;
 
   .assure { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: #4b5563; }
   .tick { color: #16a34a; font-weight: 800; }
@@ -395,6 +416,8 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
   const packs = useMemo(() => packsFor(feature), [feature]);
 
   const [tab, setTab] = useState('plan');
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
   const [selected, setSelected] = useState(() => {
     const p = packsFor(feature);
     return (p.find((x) => x.popular) || p[0])?.id || null;
@@ -429,6 +452,33 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     navigate(path);
   };
 
+  // Straight to Stripe Checkout for the pitched plan — the pricing page is an
+  // extra hop when the user has already chosen. Falls back to /pricing if the
+  // session can't be created, so the upgrade path is never a dead end.
+  const startCheckout = async () => {
+    if (!target || checkingOut) return;
+    setCheckingOut(true);
+    setCheckoutError('');
+    try {
+      sessionStorage.setItem('upgradeReturnPath', location.pathname + location.search);
+    } catch (_) { /* private mode */ }
+    try {
+      const { data } = await api.post('/subscriptions/create-checkout-session', {
+        planType: target.id,
+        billingCycle: 'monthly',
+        paymentMethod: 'stripe',
+      });
+      const url = data?.url || data?.approvalUrl;
+      if (!url) throw new Error('No checkout URL returned');
+      window.location.href = url;
+    } catch (err) {
+      console.error('[LimitReachedModal] checkout failed:', err);
+      setCheckingOut(false);
+      setCheckoutError('We could not open checkout. Taking you to pricing instead.');
+      setTimeout(() => go('/pricing'), 1200);
+    }
+  };
+
   const headline = showPlan
     ? `Keep ${label.toLowerCase() === 'profile enhancement' ? 'enhancing your profile' : `using ${label}`}`
     : `You're out of ${label} credits`;
@@ -437,7 +487,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     <Dialog
       open={Boolean(limit)}
       onClose={onClose}
-      maxWidth="xs"
+      maxWidth="sm"
       fullWidth
       fullScreen={isMobile}
       PaperProps={{ style: { borderRadius: isMobile ? 0 : 24, overflow: 'hidden' } }}
@@ -475,21 +525,25 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
             <>
               <PlanCard>
                 {target.popular && <PopularTag>MOST POPULAR</PopularTag>}
-                <FromLabel>Upgrade from {current.label}</FromLabel>
-                <PlanName>{target.label}</PlanName>
-                <PriceRow>
-                  <span className="amount">{money(payNow)}</span>
-                  <span className="per">{offer ? '/mo first month' : '/mo'}</span>
-                  {offer && <span className="was">{money(offer.was)}</span>}
-                </PriceRow>
-                <Benefits>
-                  {highlights.map((h, i) => (
-                    <li key={i}>
-                      <span className="tick">✓</span>
-                      <span>{h.strong ? <strong>{h.strong}</strong> : null}{h.rest}</span>
-                    </li>
-                  ))}
-                </Benefits>
+                <PlanGrid>
+                  <div>
+                    <FromLabel>Upgrade from {current.label}</FromLabel>
+                    <PlanName>{target.label}</PlanName>
+                    <PriceRow>
+                      <span className="amount">{money(payNow)}</span>
+                      <span className="per">{offer ? '/mo first month' : '/mo'}</span>
+                      {offer && <span className="was">{money(offer.was)}</span>}
+                    </PriceRow>
+                  </div>
+                  <Benefits>
+                    {highlights.map((h, i) => (
+                      <li key={i}>
+                        <span className="tick">✓</span>
+                        <span>{h.strong ? <strong>{h.strong}</strong> : null}{h.rest}</span>
+                      </li>
+                    ))}
+                  </Benefits>
+                </PlanGrid>
               </PlanCard>
 
               <CrossLink>
@@ -534,14 +588,15 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
         </Body>
 
         <Foot>
-          {activeTab === 'plan' && offer?.banner && <Nudge>🕐 {offer.banner}</Nudge>}
+          {checkoutError && <Nudge>⚠️ {checkoutError}</Nudge>}
+          {!checkoutError && activeTab === 'plan' && offer?.banner && <Nudge>🕐 {offer.banner}</Nudge>}
           {activeTab === 'credits' && showPlan && (
             <Nudge>🕐 {target.label} gives you more credits for less each month</Nudge>
           )}
 
           {activeTab === 'plan' && target ? (
-            <Cta onClick={() => go('/pricing')}>
-              ⚡ Upgrade to {target.label} for {money(payNow)}
+            <Cta onClick={startCheckout} disabled={checkingOut}>
+              ⚡ {checkingOut ? 'Opening checkout…' : `Upgrade to ${target.label} for ${money(payNow)}`}
             </Cta>
           ) : pack ? (
             <Cta onClick={() => go(limit.buyMoreUrl || '/pricing#credit-packs')}>
