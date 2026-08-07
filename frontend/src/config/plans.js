@@ -175,20 +175,22 @@ export function planHighlights(plan, currentPlan, featureType) {
  * is why the limiter reports creditPacksAvailable:false for those. The modal
  * must not offer a pack that cannot unblock the feature the user hit.
  */
-const ALL_CREDIT_FEATURES = [
-  'resume_parse',
-  'profile_enhance',
-  'tailor_profile',
-  'cover_letter',
-  'career_suggestions',
-  'post_enhance',
-  'interview_prep',
-];
+// Exactly the features a pack's credits can unblock, matching the backend
+// catalog (backend/config/aiLimits.js CREDIT_PACKS, whose credits object is
+// { tailor_profile, cover_letter }). packsFor() filters on this, so listing a
+// feature here that packs do NOT grant would offer the user a pack that cannot
+// unblock the limit they just hit.
+const PACK_GRANTS = ['tailor_profile', 'cover_letter'];
 
+// IDs MUST match backend CREDIT_PACKS keys — they are posted verbatim to
+// POST /api/credit-packs/purchase, which rejects anything else with
+// 400 "Invalid pack ID". They previously read credits_10/30/100, which the
+// backend has never accepted, so every purchase from the limit-reached paywall
+// failed at checkout. Prices and credit counts mirror the backend catalog.
 export const CREDIT_PACKS = [
-  { id: 'credits_10', credits: 10, price: 7.99, savePct: 0, grants: ALL_CREDIT_FEATURES },
-  { id: 'credits_30', credits: 30, price: 19.99, savePct: 17, popular: true, grants: ALL_CREDIT_FEATURES },
-  { id: 'credits_100', credits: 100, price: 49.99, savePct: 38, grants: ALL_CREDIT_FEATURES },
+  { id: 'apply_10', credits: 10, price: 6.99, savePct: 0, grants: PACK_GRANTS },
+  { id: 'apply_25', credits: 25, price: 13.99, savePct: 20, popular: true, grants: PACK_GRANTS },
+  { id: 'apply_60', credits: 60, price: 24.99, savePct: 40, grants: PACK_GRANTS },
 ];
 
 /**

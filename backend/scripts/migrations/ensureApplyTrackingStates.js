@@ -50,12 +50,19 @@
 
 const sequelize = require('../../config/database');
 const { normalizeJobUrl } = require('../../utils/jobUrl');
+const { withMigrationLock, LOCK_KEYS } = require('./_migrationLock');
 
 const BATCH_SIZE = 2000;
 const MAX_BATCHES = 200;
 const WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
 
-async function up({ verbose = true } = {}) {
+async function up(opts = {}) {
+  // Serialised across processes — concurrent ALTER TYPE / column adds against
+  // the same catalog rows fail with "tuple concurrently updated".
+  return withMigrationLock(LOCK_KEYS.applyTrackingStates, () => _up(opts));
+}
+
+async function _up({ verbose = true } = {}) {
   const log = verbose ? console.log : () => {};
   log('🚀 Ensuring ExternalApplications apply-tracking states…');
 

@@ -33,6 +33,7 @@
  */
 
 const sequelize = require('../../config/database');
+const { withMigrationLock, LOCK_KEYS } = require('./_migrationLock');
 
 // Rows per batch. Small enough that one UPDATE stays far inside the raised
 // timeout even on the smallest managed instance, large enough that a ~70k-row
@@ -48,7 +49,13 @@ const WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000',
 // first sighting is the whole point — see the model comment on the field.
 const EFFECTIVE_EXPR = `LEAST(COALESCE("postedAt", "createdAt"), "createdAt")`;
 
-async function up({ verbose = true } = {}) {
+async function up(opts = {}) {
+  // Serialised across processes: concurrent boots running this same DDL fail
+  // with "tuple concurrently updated". See _migrationLock.js.
+  return withMigrationLock(LOCK_KEYS.effectivePostedAt, () => _up(opts));
+}
+
+async function _up({ verbose = true } = {}) {
   const log = verbose ? console.log : () => {};
   log('🚀 Ensuring ExternalJobs.effectivePostedAt (blocking — jobs feed depends on it)…');
 
