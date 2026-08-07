@@ -12,6 +12,7 @@ import {
   packEconomics,
   promoFor,
 } from '@/config/plans';
+import PaymentMethodSelector from './PaymentMethodSelector';
 
 /**
  * Shown when the AI rate limiter returns 429.
@@ -415,6 +416,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
   const packs = useMemo(() => packsFor(feature), [feature]);
 
   const [tab, setTab] = useState('plan');
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const p = packsFor(feature);
     return (p.find((x) => x.popular) || p[0])?.id || null;
@@ -449,12 +451,26 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     navigate(path);
   };
 
-  // Send the user to ProfilleAI's own payment page with the pitched plan
-  // preselected, so the payment step opens directly instead of making them
-  // re-pick a plan they already chose in this modal.
-  const goToPayment = () => {
+  // The plan was chosen here, so the payment step opens here too — bouncing to
+  // /pricing made the user watch a page load only to be shown the same choice
+  // again. Stripe still takes over from the method picker, so the return
+  // breadcrumb is written exactly as the redirect used to write it.
+  const openCheckout = () => {
     if (!target) return go('/pricing');
-    go(`/pricing?plan=${target.id}&checkout=1`);
+    try {
+      sessionStorage.setItem('upgradeReturnPath', location.pathname + location.search);
+    } catch (_) { /* private mode */ }
+    setCheckoutOpen(true);
+  };
+
+  // PaymentMethodSelector speaks the /pricing page's plan shape. `type` is the
+  // only field that reaches the checkout API; the rest is display. Billing is
+  // monthly because that's the number the CTA below quotes — opening an annual
+  // checkout under a monthly price would be a bait and switch.
+  const checkoutPlan = target && {
+    type: target.id,
+    name: target.label,
+    price: { monthly: target.price, yearly: 0 },
   };
 
   const headline = showPlan
@@ -462,6 +478,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     : `You're out of ${label} credits`;
 
   return (
+    <>
     <Dialog
       open={Boolean(limit)}
       onClose={onClose}
@@ -572,7 +589,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
           )}
 
           {activeTab === 'plan' && target ? (
-            <Cta onClick={goToPayment}>
+            <Cta onClick={openCheckout}>
               ⚡ Upgrade to {target.label} for {money(payNow)}
             </Cta>
           ) : pack ? (
@@ -595,5 +612,18 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
         </Foot>
       </Wrap>
     </Dialog>
+
+    {/* Stacked over this modal rather than replacing it, so closing the picker
+        drops the user back on the plan they were considering — and on the
+        credits tab they can still fall back to. */}
+    {checkoutPlan && (
+      <PaymentMethodSelector
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        plan={checkoutPlan}
+        billingCycle="monthly"
+      />
+    )}
+    </>
   );
 }
