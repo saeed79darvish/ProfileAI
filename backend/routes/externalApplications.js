@@ -43,7 +43,14 @@ router.get('/', authMiddleware, async (req, res) => {
         {
           model: TailoredProfile,
           as: 'tailoredProfile',
-          attributes: ['id', 'matchScore', 'optimizedSummary'],
+          // NOTE: this list previously included 'optimizedSummary', which does
+          // not exist on TailoredProfile (nor in the database) and never has —
+          // it dates to the initial commit. PostgreSQL rejected the SELECT with
+          // "column tailoredProfile.optimizedSummary does not exist", so THIS
+          // ENDPOINT RETURNED 500 FOR EVERY USER ON EVERY CALL, which is why
+          // the My Jobs list came up empty. Keep this to columns the model
+          // actually declares.
+          attributes: ['id', 'jobTitle', 'companyName', 'matchScore'],
           required: false,
         },
       ],
@@ -68,8 +75,20 @@ router.get('/stats', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const [total, byStatus, thisWeek, avgMatchScore] = await Promise.all([
-      ExternalApplication.count({ where: { userId } }),
+    // `total` counts CONFIRMED applications only. Rows sitting at 'clicked' or
+    // 'in_progress' are jobs the user opened or started, not applied to, and
+    // including them is exactly what made this number overstate reality. They
+    // are still reported separately as `started` so the UI can surface them as
+    // unfinished work.
+    const { STAGE_ORDER } = require('../services/applicationTrackingService');
+    const STARTED_STATUSES = ['clicked', 'in_progress'];
+    const CONFIRMED_STATUSES = STAGE_ORDER
+      .filter((s) => !STARTED_STATUSES.includes(s))
+      .concat(['rejected', 'no_response']);
+
+    const [total, started, byStatus, thisWeek, avgMatchScore] = await Promise.all([
+      ExternalApplication.count({ where: { userId, status: { [Op.in]: CONFIRMED_STATUSES } } }),
+      ExternalApplication.count({ where: { userId, status: { [Op.in]: STARTED_STATUSES } } }),
       ExternalApplication.findAll({
         where: { userId },
         attributes: [
@@ -103,6 +122,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
 
     res.json({
       total,
+      started,
       thisWeek,
       avgMatchScore: avgMatchScore?.avg ? Math.round(parseFloat(avgMatchScore.avg)) : null,
       byStatus: statusMap,
@@ -139,36 +159,53 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'jobTitle is required' });
     }
 
-    // Check for duplicate (same user + same URL)
-    if (jobUrl) {
-      const existing = await ExternalApplication.findOne({
-        where: { userId: req.user.id, jobUrl },
-      });
-      if (existing) {
-        return res.status(409).json({
-          message: 'Application already tracked',
-          application: existing,
-        });
-      }
-    }
+    // Optional stage reported by the caller. The Chrome extension fires this
+    // endpoint when it AUTOFILLS a form, which is evidence the user started the
+    // application — not that they submitted it — so an updated extension sends
+    // stage='in_progress' there and stage='applied' only once it detects a real
+    // form submit or confirmation page.
+    //
+    // The default stays 'applied' deliberately: extensions update on the Chrome
+    // Web Store's schedule, so older versions in the wild keep sending no stage
+    // at all, and a manual "add application" from the UI genuinely IS a
+    // confirmed application. Defaulting to 'applied' therefore preserves both
+    // behaviours; the extension gets more honest as users update.
+    const { recordApplicationSignal, STAGE_ORDER } = require('../services/applicationTrackingService');
+    const requestedStage = STAGE_ORDER.includes(req.body.stage) ? req.body.stage : 'applied';
+    const provenance = req.body.confirmedBy
+      || (requestedStage === 'applied' ? 'user' : 'extension_autofill');
 
-    const application = await ExternalApplication.create({
+    const { application, created } = await recordApplicationSignal({
       userId: req.user.id,
-      jobTitle,
-      company,
-      location,
+      externalJobId: req.body.externalJobId || null,
       jobUrl,
-      platform,
-      salary,
-      jobType,
-      locationType,
-      notes,
-      tailoredProfileId,
-      resumeUsed,
-      coverLetterUsed: coverLetterUsed || false,
-      matchScore,
-      appliedAt: appliedAt || new Date(),
+      stage: requestedStage,
+      confirmedBy: provenance,
+      fields: {
+        jobTitle,
+        company,
+        location,
+        platform,
+        salary,
+        jobType,
+        locationType,
+        notes,
+        tailoredProfileId,
+        resumeUsed,
+        coverLetterUsed: coverLetterUsed || false,
+        matchScore,
+      },
     });
+
+    // Preserve the previous contract: callers (including shipped extension
+    // builds) treat 409 as "already tracked, stop retrying".
+    if (!created) {
+      return res.status(409).json({ message: 'Application already tracked', application });
+    }
+    if (appliedAt && created) {
+      // Honour a caller-supplied timestamp for imports/backfills.
+      await application.update({ appliedAt });
+    }
 
     res.status(201).json(application);
   } catch (error) {
