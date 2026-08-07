@@ -94,12 +94,12 @@ const Register = () => {
     return false;
   };
 
-  // Runs from the dialog's Accept click, so the browser still treats this as a
-  // user gesture and the provider popup is not blocked.
-  const acceptConsentAndContinue = () => {
+  // Runs from the dialog's continue click, so the browser still treats this as
+  // a user gesture and the provider popup is not blocked. The dialog passes the
+  // provider it acted on — its secondary button switches to the other one.
+  const acceptConsentAndContinue = (provider = consentProvider) => {
     acceptedTermsRef.current = true;
     setAcceptedTerms(true);
-    const provider = consentProvider;
     setConsentProvider(null);
     if (provider === 'google') googleBtnRef.current?.start();
     else if (provider === 'linkedin') linkedinBtnRef.current?.start();
