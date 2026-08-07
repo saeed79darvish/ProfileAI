@@ -18,6 +18,13 @@ import { lazyWithReload } from './utils/lazyWithReload';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+// Eager on purpose. This one renders in a throwaway OAuth popup whose only job
+// is to relay the authorization code back to the opener and close. A lazy chunk
+// gives that job a network dependency that fails whenever the popup's
+// index.html came from a deployment we've since replaced — the chunk 404s,
+// Suspense never resolves, and the opener waits on a window that will never
+// answer. It's ~1KB; the entry bundle is the one file we know is present.
+import LinkedInOAuthCallback from './pages/LinkedInOAuthCallback';
 
 // Everything else, lazy loaded
 const ForgotPassword = lazyWithReload(() => import('./pages/ForgotPassword'));
@@ -60,7 +67,6 @@ const GuestScreeningPage = lazyWithReload(() => import('./pages/GuestScreeningPa
 const TrackApplicationPage = lazyWithReload(() => import('./pages/TrackApplicationPage'));
 const ExtensionAuthSuccess = lazyWithReload(() => import('./pages/ExtensionAuthSuccess'));
 const ResumeDownloadPage = lazyWithReload(() => import('./pages/ResumeDownloadPage'));
-const LinkedInOAuthCallback = lazyWithReload(() => import('./pages/LinkedInOAuthCallback'));
 const HelpCenter = lazyWithReload(() => import('./pages/HelpCenter'));
 const PrivacyPolicy = lazyWithReload(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = lazyWithReload(() => import('./pages/TermsOfService'));
@@ -104,6 +110,10 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 // Routes where the Navbar should be hidden (full-screen auth layouts)
 const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
+
+// OAuth popup callbacks render in a bare relay window — site chrome there is
+// noise the user sees for the third of a second before it closes itself.
+const OAUTH_CALLBACK_ROUTE = /^\/auth\/[^/]+\/callback\/?$/;
 
 // `/applypilot` is shared between the public marketing landing page
 // and the candidate auto-apply dashboard. ANY authenticated user that
@@ -178,6 +188,7 @@ function AppContent() {
   const hideNavbar =
     AUTH_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
+    OAUTH_CALLBACK_ROUTE.test(location.pathname) ||
     isOverlayMode;
 
   // Register navigate so the api.js 401 interceptor can do SPA navigation
