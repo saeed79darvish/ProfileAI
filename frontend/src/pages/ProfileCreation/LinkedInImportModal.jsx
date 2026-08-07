@@ -24,6 +24,7 @@ import {
 import { profileAPI, authAPI } from '../../services/api';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
 import LinkedInPdfHint from './LinkedInPdfHint';
+import { oauthRedirectUri, isOnCanonicalOrigin, goToCanonicalOrigin } from '../../utils/oauthOrigin';
 
 // Same relaxed pattern the backend uses in linkedinEnrichmentService.
 const LINKEDIN_URL_REGEX = /^https?:\/\/(www\.)?linkedin\.com\/(in|pub|profile)\/[a-zA-Z0-9_-]+\/?/i;
@@ -208,8 +209,15 @@ const LinkedInImportModal = ({
       return;
     }
 
+    // Same-origin requirement as the sign-in button: a popup that comes back
+    // on a different origin than this window can't post its payload through.
+    if (!isOnCanonicalOrigin()) {
+      goToCanonicalOrigin();
+      return;
+    }
+
     setOauthLoading(true);
-    const redirectUri = `${window.location.origin}${ROUTES.LINKEDIN_OAUTH_CALLBACK}`;
+    const redirectUri = oauthRedirectUri(ROUTES.LINKEDIN_OAUTH_CALLBACK);
     // Cryptographically-random state token guards against CSRF on the
     // popup roundtrip. Stored in sessionStorage so the callback tab can
     // read it back through the same origin.

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 're
 import { Box, Button, CircularProgress } from '@mui/material';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import { authAPI } from '@/services/api';
+import { oauthRedirectUri, isOnCanonicalOrigin, goToCanonicalOrigin } from '@/utils/oauthOrigin';
 
 // Callback route that the LinkedIn OAuth popup redirects to. Must match
 // exactly one of the "Authorized redirect URLs" registered in the
@@ -9,6 +10,12 @@ import { authAPI } from '@/services/api';
 const CALLBACK_PATH = '/auth/linkedin/callback';
 const OAUTH_STATE_KEY = 'profileai_linkedin_auth_state';
 const POPUP_MESSAGE_TYPE = 'profileai:linkedin-oauth';
+
+// Ceiling on the whole popup roundtrip. Generous — the user may have to sign
+// in to LinkedIn and clear a 2FA prompt first — but bounded, so a popup that
+// can never talk back (blocked postMessage, a page that navigated away) ends
+// in a real error instead of a spinner that runs until the tab is closed.
+const POPUP_TIMEOUT_MS = 3 * 60 * 1000;
 
 // LinkedIn brand glyph — white "in" tile matching the treatment used in
 // LinkedInImportModal (blue-on-white square, 20px). Kept in its own Box so
@@ -64,34 +71,17 @@ const LinkedInAuthButton = forwardRef(({
   const [popupLoading, setPopupLoading] = useState(false);
   const popupRef = useRef(null);
   const popupPollRef = useRef(null);
+  const popupTimeoutRef = useRef(null);
   const messageHandlerRef = useRef(null);
-
-  // Guarantee we clean up popup polling + window listeners if the button
-  // unmounts mid-flight (e.g. user navigates away while consenting).
-  useEffect(() => {
-    return () => {
-      if (popupPollRef.current) {
-        clearInterval(popupPollRef.current);
-        popupPollRef.current = null;
-      }
-      if (messageHandlerRef.current) {
-        window.removeEventListener('message', messageHandlerRef.current);
-        messageHandlerRef.current = null;
-      }
-      try { popupRef.current?.close?.(); } catch (_) { /* ignore */ }
-      popupRef.current = null;
-    };
-  }, []);
-
-  const raiseError = (message) => {
-    setPopupLoading(false);
-    onError?.(message || 'LinkedIn sign-in failed. Please try again.');
-  };
 
   const teardown = () => {
     if (popupPollRef.current) {
       clearInterval(popupPollRef.current);
       popupPollRef.current = null;
+    }
+    if (popupTimeoutRef.current) {
+      clearTimeout(popupTimeoutRef.current);
+      popupTimeoutRef.current = null;
     }
     if (messageHandlerRef.current) {
       window.removeEventListener('message', messageHandlerRef.current);
@@ -99,6 +89,19 @@ const LinkedInAuthButton = forwardRef(({
     }
     try { popupRef.current?.close?.(); } catch (_) { /* ignore */ }
     popupRef.current = null;
+  };
+
+  // Guarantee we clean up popup polling, timers and window listeners if the
+  // button unmounts mid-flight (e.g. user navigates away while consenting).
+  // The ref is kept current in an effect rather than during render so a
+  // discarded render can't leave a stale closure behind.
+  const teardownRef = useRef(teardown);
+  useEffect(() => { teardownRef.current = teardown; });
+  useEffect(() => () => teardownRef.current(), []);
+
+  const raiseError = (message) => {
+    setPopupLoading(false);
+    onError?.(message || 'LinkedIn sign-in failed. Please try again.');
   };
 
   // Lets a parent resume the flow from its own click handler (e.g. the consent
@@ -114,8 +117,18 @@ const LinkedInAuthButton = forwardRef(({
   const handleClick = async () => {
     if (popupLoading || loading || disabled) return;
 
+    // The popup always returns to the canonical origin. If we're not on it,
+    // its postMessage would be dropped as cross-origin and this button would
+    // hang, so move the page there first — the same thing the edge redirect
+    // does — and let the user start the flow from an origin that can complete
+    // it. Normally unreachable: the 301 gets there before any of this runs.
+    if (!isOnCanonicalOrigin()) {
+      goToCanonicalOrigin();
+      return;
+    }
+
     setPopupLoading(true);
-    const redirectUri = `${window.location.origin}${CALLBACK_PATH}`;
+    const redirectUri = oauthRedirectUri(CALLBACK_PATH);
 
     // Cryptographically-random state guards against CSRF on the popup
     // roundtrip. Stashed in sessionStorage so this same tab can read it
@@ -160,16 +173,10 @@ const LinkedInAuthButton = forwardRef(({
     popupRef.current = popup;
 
     // Detect the user closing the popup manually so we don't spin forever.
-    // The message handler clears this interval when it fires first.
+    // The message handler tears this down when it fires first.
     popupPollRef.current = setInterval(() => {
       if (popupRef.current && popupRef.current.closed) {
-        clearInterval(popupPollRef.current);
-        popupPollRef.current = null;
-        if (messageHandlerRef.current) {
-          window.removeEventListener('message', messageHandlerRef.current);
-          messageHandlerRef.current = null;
-        }
-        popupRef.current = null;
+        teardown();
         sessionStorage.removeItem(OAUTH_STATE_KEY);
         // Only bubble a cancel error if the parent is still waiting.
         setPopupLoading((wasLoading) => {
@@ -178,6 +185,14 @@ const LinkedInAuthButton = forwardRef(({
         });
       }
     }, 500);
+
+    // Backstop for a popup that neither posts back nor closes — the state we
+    // were stuck in when the callback page got navigated away mid-handshake.
+    popupTimeoutRef.current = setTimeout(() => {
+      teardown();
+      sessionStorage.removeItem(OAUTH_STATE_KEY);
+      raiseError('LinkedIn sign-in timed out. Please try again.');
+    }, POPUP_TIMEOUT_MS);
 
     const handler = (event) => {
       // Reject cross-origin messages outright. The callback page runs on

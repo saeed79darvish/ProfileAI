@@ -103,9 +103,19 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const url = error.config?.url || '';
       const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
-      const isAuthPage = window.location.pathname.includes('/login') || 
-                         window.location.pathname.includes('/register');
       const isGetMe = url.includes('/auth/me');
+
+      // OAuth popup callbacks (/auth/<provider>/callback) run in a throwaway
+      // window whose only job is to postMessage the authorization code back to
+      // the opener and close itself. Navigating one to /login unmounts the
+      // callback page before it can do either — the opener never gets the code
+      // and never sees the popup close, so it spins forever while the popup
+      // sits there showing a login form. Treat those pages like the auth pages:
+      // purge a dead token, but never redirect.
+      const isOAuthCallbackPage = /^\/auth\/[^/]+\/callback\/?$/.test(window.location.pathname);
+      const isAuthPage = window.location.pathname.includes('/login') ||
+                         window.location.pathname.includes('/register') ||
+                         isOAuthCallbackPage;
 
       // Hard-refresh hardening:
       // On page boot many endpoints fire in parallel (notifications, profile,
