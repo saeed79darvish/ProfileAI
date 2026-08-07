@@ -159,7 +159,7 @@ async function buildMatchesForProfile(profile) {
         { postedAt: null, createdAt: { [Op.gte]: since } },
       ],
     },
-    order: [literal('COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") DESC NULLS LAST')],
+    order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
     limit: POOL_SIZE,
     attributes: { exclude: ['descriptionHtml', 'metadata', 'embedding'] },
     include: [{
@@ -203,7 +203,7 @@ async function buildMatchesForProfile(profile) {
         locationType: job.locationType,
         employmentType: job.employmentType,
         salary: formatSalary(job),
-        postedAgo: timeAgo(job.postedAt || job.createdAt),
+        postedAgo: timeAgo(job.effectivePostedAt || job.postedAt || job.createdAt),
         applyUrl: job.applyUrl,
         logoUrl: job.companyInfo && job.companyInfo.logoUrl,
         present: [...new Set(present)].slice(0, 4).map(toTitleCase),

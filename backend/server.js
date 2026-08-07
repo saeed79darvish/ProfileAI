@@ -548,8 +548,20 @@ const startServer = async () => {
     // objects exist. Run in the BACKGROUND (not awaited): a first-time index
     // build must never delay server readiness, and a failure must never block
     // boot.
+    // Gate: in development the block further down DROPS "searchTsvAB" so that
+    // sequelize.sync({ alter: true }) can touch the columns it depends on, then
+    // recreates it. Because this guard runs in the background it used to race
+    // that sequence — it recreated searchTsvAB between the drop and the sync,
+    // so sync hit "cannot alter type of a column used by a generated column"
+    // and the server refused to boot entirely. Waiting on the gate keeps the
+    // background behaviour in production (where sync never runs, so the gate is
+    // already resolved) while making dev boots deterministic.
+    let releaseSchemaSyncGate;
+    const schemaSyncGate = new Promise((resolve) => { releaseSchemaSyncGate = resolve; });
+
     (async () => {
       try {
+        await schemaSyncGate;
         const { up: ensureExternalJobPerfSchema } = require('./scripts/migrations/ensureExternalJobPerfSchema');
         await ensureExternalJobPerfSchema();
       } catch (err) {
@@ -607,6 +619,7 @@ const startServer = async () => {
     // refuses to run alter mode.
     if (isProduction) {
       console.log('✓ Skipping sequelize.sync (production — use migrations)');
+      releaseSchemaSyncGate();
     } else if (process.env.NODE_ENV === 'development') {
       // "ExternalJobs"."searchTsvAB" is a STORED generated column depending on
       // title/company/department. Sequelize's sync({ alter: true }) blindly
@@ -670,7 +683,11 @@ const startServer = async () => {
           console.warn('[startup] Could not recreate searchTsvAB:', e.message);
         }
       }
+      releaseSchemaSyncGate();
     }
+    // Neither branch ran (e.g. NODE_ENV set to something else): nothing will
+    // touch the generated column, so let the perf-schema guard proceed.
+    releaseSchemaSyncGate();
 
     // Startup recovery — any application left in 'preparing' from a previous
     // crash or unclean shutdown will never exit that state on its own.
@@ -689,6 +706,20 @@ const startServer = async () => {
       }
     } catch (recoveryErr) {
       console.warn('[startup] Preparing-app recovery failed (non-blocking):', recoveryErr.message);
+    }
+
+    // BLOCKING migration — must complete before we accept a single request.
+    // Every /external-jobs query filters and sorts on "effectivePostedAt", so
+    // serving traffic before this lands means either 500s (column missing) or
+    // an empty jobs page (column not yet backfilled). Deliberately NOT wrapped
+    // in try/catch: on failure we want the throw to reach the handler below,
+    // exit non-zero, and let the platform keep the PREVIOUS release serving.
+    // A failed deploy is a much better outcome than a deployed empty feed.
+    // Idempotent and self-resuming, so a retried deploy picks up where it left
+    // off; steady-state boots are a single cheap no-op check.
+    {
+      const { up: ensureEffectivePostedAt } = require('./scripts/migrations/ensureEffectivePostedAt');
+      await ensureEffectivePostedAt();
     }
 
     // Start server

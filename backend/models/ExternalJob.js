@@ -99,6 +99,17 @@ const ExternalJob = sequelize.define('ExternalJob', {
     type: DataTypes.DATE,
     allowNull: true
   },
+  effectivePostedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'DERIVED, DB-maintained: LEAST(COALESCE(postedAt, createdAt), createdAt) — '
+      + 'the single date every feed query sorts and filters on. Never write this from '
+      + 'application code; a BEFORE INSERT OR UPDATE trigger recomputes it on every write '
+      + '(see scripts/migrations/ensureExternalJobPerfSchema.js). Bounding the source date '
+      + 'by our own first sighting is what stops a Greenhouse bulk edit (which re-stamps '
+      + 'updated_at) or a newly discovered board back-catalogue from flooding the top of '
+      + 'the feed with jobs that are not actually new.'
+  },
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

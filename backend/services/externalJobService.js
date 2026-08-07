@@ -159,7 +159,7 @@ async function getNewestJobAgeMinutes() {
     return _newestJobAgeCache.value;
   }
   const [row] = await ExternalJob.sequelize.query(
-    `SELECT MAX(COALESCE("postedAt", "createdAt")) AS newest
+    `SELECT MAX("effectivePostedAt") AS newest
        FROM "ExternalJobs" WHERE "isActive" = true`,
     { type: ExternalJob.sequelize.constructor.QueryTypes.SELECT }
   );
@@ -1543,6 +1543,9 @@ async function syncBoard(atsBoard) {
     const NEVER_UPDATE = new Set([
       'id', 'source', 'externalId', 'postedAt', 'createdAt',
       'embedding', 'embeddingUpdatedAt',
+      // Derived and DB-maintained by a trigger. Listing it here would make the
+      // upsert write the payload's (absent → NULL) value over a correct date.
+      'effectivePostedAt',
     ]);
     const updateOnDuplicate = Object.keys(ExternalJob.rawAttributes)
       .filter((k) => !NEVER_UPDATE.has(k));
@@ -2286,7 +2289,7 @@ async function compactOldJobRows({ days = 7, limit = 500 } = {}) {
            SELECT ej.id
              FROM "ExternalJobs" ej
             WHERE (ej."descriptionHtml" IS NOT NULL OR ej."metadata" IS NOT NULL)
-              AND COALESCE(ej."postedAt", ej."createdAt")
+              AND ej."effectivePostedAt"
                   < NOW() - ($1 || ' days')::interval
             LIMIT $2
          )

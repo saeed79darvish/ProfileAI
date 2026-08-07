@@ -340,7 +340,7 @@ async function scoutForUser(cfg) {
   const [externalJobs, internalJobs] = await Promise.all([
     ExternalJob.findAll({
       where: externalWhere,
-      order: [literal('COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") DESC NULLS LAST')],
+      order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
       limit: BATCH_JOBS_PER_USER,
     }),
     Job.findAll({
@@ -399,7 +399,7 @@ async function scoutForUser(cfg) {
   const scored = candidates.map(({ job, kind }) => {
     const jobPlain = job.toJSON ? job.toJSON() : job;
     const { score: relevanceScore, matchDetails } = scoreJobDeterministic(jobPlain, profileData);
-    const anchor = jobPlain.postedAt || jobPlain.createdAt;
+    const anchor = jobPlain.effectivePostedAt || jobPlain.postedAt || jobPlain.createdAt;
     const anchorMs = anchor ? new Date(anchor).getTime() : 0;
     // Mirrors jobRelevanceService.scoreJob's recency factor:
     //   0d→1.0, 3d→~0.89, 7d→0.75, 14d+→0.50 (floor); unknown date→0.75.

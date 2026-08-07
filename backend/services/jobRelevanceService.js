@@ -368,7 +368,7 @@ function scoreJob(job, profileData) {
   // Use COALESCE(postedAt, createdAt) so Greenhouse jobs (which intentionally
   // store postedAt = NULL — see normalizeGreenhouseJob) still get a recency
   // signal from when we first saw them.
-  const recencyAnchor = job.postedAt || job.createdAt;
+  const recencyAnchor = job.effectivePostedAt || job.postedAt || job.createdAt;
   if (recencyAnchor) {
     const daysAgo = (Date.now() - new Date(recencyAnchor).getTime()) / (1000 * 60 * 60 * 24);
     if (daysAgo <= 1) matchDetails.recencyBonus = 5;
@@ -472,8 +472,8 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
   // carrying each job's match % badge — product decision is "recommended =
   // latest first". Jobs are already personalized candidates here.
   scored.sort((a, b) => {
-    const ra = a.postedAt || a.createdAt || 0;
-    const rb = b.postedAt || b.createdAt || 0;
+    const ra = a.effectivePostedAt || a.postedAt || a.createdAt || 0;
+    const rb = b.effectivePostedAt || b.postedAt || b.createdAt || 0;
     const recDiff = new Date(rb) - new Date(ra);
     if (sortMode === 'match') {
       if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;

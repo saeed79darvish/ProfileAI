@@ -136,6 +136,19 @@ async function up() {
     WHERE "isActive" = TRUE;
   `);
 
+  // NOTE: "effectivePostedAt" (the canonical date every feed query sorts and
+  // filters on) is NOT created here. It is a CORRECTNESS dependency, not a
+  // performance one — a missing or half-filled column renders the jobs page
+  // empty rather than slow — so it must land before the server accepts traffic.
+  // It lives in scripts/migrations/ensureEffectivePostedAt.js, which server.js
+  // awaits before app.listen(). This guard only ensures its supporting index
+  // (below), which is safe to add late.
+  await runStep('effectivePostedAt index', `
+    CREATE INDEX IF NOT EXISTS external_jobs_active_effective_posted_idx
+    ON "ExternalJobs" ("effectivePostedAt" DESC NULLS LAST)
+    WHERE "isActive" = TRUE;
+  `);
+
   // The `skills` column must be jsonb (not json) for the @> containment
   // filter, jsonb_typeof()/jsonb_array_elements_text() in /skills, and the
   // jsonb_path_ops GIN index below to work. The model originally declared it
