@@ -956,22 +956,8 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // by a recency factor so fresh-and-relevant jobs land at the very top —
   // not just relevant. This is what the user sees as "most recent and
   // related on top" without watering down what the badge percentage means.
-  let scoreExpr;
-  if (searchEmbBindIdx) {
-    // Blended score: 70% search relevance + 30% profile relevance.
-    // COALESCE → 0 so rows without an embedding (not yet backfilled) score 0
-    // instead of NULL and still rank/appear (recency leads in recommended).
-    scoreExpr = `ROUND(
-      COALESCE(
-        0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
-        + 0.3 * (1 - (ej.embedding <=> $1::vector)),
-        0
-      ) * 100
-    )`;
-  } else {
-    scoreExpr = `ROUND(COALESCE(1 - (ej.embedding <=> $1::vector), 0) * 100)`;
-  }
-
+  // The badge percentage the UI shows. Declared AFTER the normalisation block
+  // below sets up REL_FLOOR/REL_CEIL — see `scoreExpr` further down.
   // 'recommended' ordering goal: a candidate (e.g. a SF Frontend dev) opening
   // the jobs page should see the LATEST posted RELEVANT jobs on top — i.e.
   // strict newest-first ordering AMONG the jobs that actually match their
@@ -980,32 +966,71 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // postedAt = NULL (see normalizeGreenhouseJob comment).
   const recencyOrderExpr = `ej."effectivePostedAt" DESC NULLS LAST`;
 
-  // Relevance score used for ORDERING in 'recommended' mode. Unlike scoreExpr
-  // (which is the badge value and COALESCEs a missing embedding to 0), an
-  // un-embedded row here gets a NEUTRAL score rather than a zero one.
-  // New jobs are embedded asynchronously after ingest, so scoring them 0 would
-  // bury exactly the freshest listings — the opposite of what this mode is for.
-  // NEUTRAL_RELEVANCE sits near the middle of the observed cosine band for
-  // text-embedding-3-small (~0.1–0.6 on related text), so an unscored job ranks
-  // among average matches and is neither promoted nor buried.
-  const NEUTRAL_RELEVANCE = 0.3;
-  const orderingRelevanceExpr = searchEmbBindIdx
-    ? `COALESCE(
-         0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
-         + 0.3 * (1 - (ej.embedding <=> $1::vector)),
-         ${NEUTRAL_RELEVANCE}
-       )`
-    : `COALESCE(1 - (ej.embedding <=> $1::vector), ${NEUTRAL_RELEVANCE})`;
+  // ── Relevance normalisation ────────────────────────────────────────────────
+  // Raw cosine similarity is a TERRIBLE ranking signal on its own here because
+  // its dynamic range is tiny. Measured against this corpus for the query
+  // "Frontend Engineer" (text-embedding-3-small, 512d):
+  //
+  //     frontend roles        avg 0.543   (0.442 - 0.635)
+  //     generic software eng  avg 0.465
+  //     sales roles           avg 0.464
+  //     solutions engineer    avg 0.453
+  //
+  // A frontend role scores barely 0.08 above a SALES role. So multiplying raw
+  // cosine by a freshness factor that swings 1.0 -> 0.5 let recency dominate
+  // completely: a day-old "Senior Solutions Engineer" (0.483 x 1.0 = 0.483)
+  // outranked the single best frontend match in the corpus (0.635 x 0.5 =
+  // 0.318). That is exactly the "unrelated jobs on top" complaint.
+  //
+  // Fix: stretch the useful cosine band onto 0..1 first, so a real difference
+  // in fit becomes a real difference in score, then combine ADDITIVELY with a
+  // modest freshness term. Additive keeps freshness from ever erasing a large
+  // relevance gap — it can only reorder jobs of comparable fit.
+  //
+  // The band is model- and corpus-dependent, so it is tunable without a deploy.
+  const REL_FLOOR = parseFloat(process.env.JOBS_REL_COS_FLOOR || '0.43');
+  const REL_CEIL = parseFloat(process.env.JOBS_REL_COS_CEIL || '0.63');
+  const REL_SPAN = Math.max(0.01, REL_CEIL - REL_FLOOR);
+  const normalizeRel = (cos) =>
+    `LEAST(1.0, GREATEST(0.0, ((${cos}) - ${REL_FLOOR}) / ${REL_SPAN}))`;
 
-  // Freshness multiplier, mirroring the JS keyword path in
-  // jobRelevanceService.scoreJob so both ranking implementations agree:
-  //   0 days → 1.00, 3 days → ~0.89, 7 days → 0.75, 14+ days → 0.50 (floor).
-  const freshnessFactorExpr = `
-    GREATEST(0.5, 1.0 - LEAST(
+  // Blended similarity: search/roleHint text dominates, profile provides the
+  // background signal. NULL when the row has no embedding yet.
+  const blendedCosExpr = searchEmbBindIdx
+    ? `(0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
+        + 0.3 * (1 - (ej.embedding <=> $1::vector)))`
+    : `(1 - (ej.embedding <=> $1::vector))`;
+
+  // Un-embedded rows. New jobs are embedded asynchronously after ingest, and a
+  // large share of the freshest listings have no vector yet, so this value
+  // decides whether "not yet scored" beats "scored and genuinely relevant".
+  // It must sit LOW: at the previous mid-band 0.3 an unscored day-old job
+  // outranked most real matches purely by being new. Low-but-nonzero keeps
+  // them visible in the body of the list until the embedding sweep catches up.
+  const NEUTRAL_REL_NORM = parseFloat(process.env.JOBS_REL_NEUTRAL || '0.15');
+  const orderingRelevanceExpr = `COALESCE(${normalizeRel(blendedCosExpr)}, ${NEUTRAL_REL_NORM})`;
+
+  // Freshness, normalised to 0..1 over a 30-day horizon rather than used as a
+  // multiplier. Weighted well below relevance so it breaks ties among
+  // comparable matches instead of overriding fit.
+  const freshnessNormExpr = `
+    GREATEST(0.0, 1.0 - LEAST(
       EXTRACT(EPOCH FROM (NOW() - ej."effectivePostedAt")) / 86400.0,
-      14.0
-    ) / 28.0)`;
-  const recommendedRankExpr = `(${orderingRelevanceExpr}) * (${freshnessFactorExpr})`;
+      30.0
+    ) / 30.0)`;
+  const REL_WEIGHT = parseFloat(process.env.JOBS_RANK_REL_WEIGHT || '0.8');
+  const FRESH_WEIGHT = Math.max(0, 1 - REL_WEIGHT);
+  const recommendedRankExpr =
+    `(${REL_WEIGHT} * (${orderingRelevanceExpr}) + ${FRESH_WEIGHT} * (${freshnessNormExpr}))`;
+
+  // Badge percentage. Deliberately the SAME normalised scale the ordering uses,
+  // so the number a candidate reads agrees with the position they see it in.
+  // Raw cosine was previously shown directly, which meant a sales role sat at
+  // ~46% and a strong frontend match at ~60% — close enough that the UI called
+  // both a "Good match". On the normalised scale those become ~15% and ~85%.
+  // Rows with no embedding yet report 0 rather than the neutral ordering value,
+  // because "we have not scored this" should not render as a confident number.
+  const scoreExpr = `ROUND(COALESCE(${normalizeRel(blendedCosExpr)}, 0) * 100)`;
 
   // ORDER BY differs by sort mode:
   //   recommended → latest posted first, exact score tiebreak

@@ -1763,13 +1763,15 @@ const CandidateJobs = () => {
   };
 
   // Single source of truth for what the percentage on a match badge
-  // means in words. The raw cosine-similarity score reads as "poor"
-  // to candidates when it's 52% (in their head 90+ = good fit), even
-  // though 52% pgvector similarity to their profile is actually a
-  // reasonable signal. We bucket scores into named tiers and only
-  // show the percentage when it's in territory where it reads as a
-  // strength. Below "Possible match" we suppress the badge entirely
-  // so weak signals don't drag the perceived quality of the list.
+  // means in words.
+  //
+  // The score is NOT raw cosine similarity. Raw cosine occupies a very narrow
+  // band (a frontend role scored ~0.54 against a "Frontend Engineer" query
+  // while a SALES role scored ~0.46), so shown directly it labelled genuinely
+  // unrelated jobs a "Good match". The backend now stretches that band onto
+  // 0-100 before returning it, so these thresholds describe real differences
+  // in fit. Below "Possible match" the badge is suppressed entirely rather
+  // than advertising a weak signal.
   //
   //   >=78  → "NN% · Excellent match"
   //   >=65  → "NN% · Strong match"
@@ -1786,7 +1788,7 @@ const CandidateJobs = () => {
   };
   // Tooltip copy reused on every match badge — spelled out once here so
   // tweaks don't drift between desktop / mobile renderings.
-  const MATCH_BADGE_TITLE = 'Score blends how closely the job’s skills and description match your profile with how recently it was posted. Click to see why.';
+  const MATCH_BADGE_TITLE = 'How closely this job matches your profile and role. Recency affects the order of the list, not this score. Click to see why.';
 
   const getMatchColor = (score) => {
     if (score >= 70) return '#027A48';
