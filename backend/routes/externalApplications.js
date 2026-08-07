@@ -293,22 +293,29 @@ router.post('/bulk', authMiddleware, async (req, res) => {
           continue;
         }
 
-        // Skip duplicates by URL
-        if (app.jobUrl) {
-          const existing = await ExternalApplication.findOne({
-            where: { userId: req.user.id, jobUrl: app.jobUrl },
-          });
-          if (existing) {
-            results.duplicates++;
-            continue;
-          }
-        }
-
-        await ExternalApplication.create({
+        // Route through the tracking service rather than creating rows
+        // directly, so bulk-synced rows get the same identity resolution as
+        // every other path. The old code deduped on the RAW jobUrl, which
+        // missed tracking-param variants of a posting the user had already
+        // tracked — so a re-sync could insert a second row for the same
+        // application. It also left normalizedJobUrl unset, making those rows
+        // invisible to later dedup.
+        const { recordApplicationSignal, STAGE_ORDER } =
+          require('../services/applicationTrackingService');
+        const stage = STAGE_ORDER.includes(app.stage) ? app.stage : 'applied';
+        const { application, created } = await recordApplicationSignal({
           userId: req.user.id,
-          ...app,
-          appliedAt: app.appliedAt || new Date(),
+          externalJobId: app.externalJobId || null,
+          jobUrl: app.jobUrl || null,
+          stage,
+          confirmedBy: app.confirmedBy || 'import',
+          fields: app,
         });
+        if (!created) {
+          results.duplicates++;
+          continue;
+        }
+        if (app.appliedAt) await application.update({ appliedAt: app.appliedAt });
         results.created++;
       } catch (err) {
         results.errors++;
