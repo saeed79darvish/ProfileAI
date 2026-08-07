@@ -306,6 +306,78 @@ const SOURCE_LABELS = {
   hn_hiring: 'HN: Who is Hiring'
 };
 
+// Words that describe seniority rather than the role itself. The jobs API ANDs
+// every search token, and most postings don't repeat the candidate's exact
+// level in the title, so keeping these only shrinks the result set.
+const SENIORITY_WORD_RE = /^(?:senior|sr\.?|junior|jr\.?|staff|principal|chief|head|entry|mid|associate|intern|interim|lead|vp|vice|president|deputy|assistant|level)$/i;
+// Filler that appears in a person's title but rarely in the postings they want
+// ("Frontend Software Engineer" should still match a "Frontend Engineer" role).
+const ROLE_FILLER_RE = /^(?:full[-\s]?stack|fullstack|software|web|technical|technology|digital|global|of|the|and|for|i{1,3}|iv|v)$/i;
+// Nouns that name a role family. Used to locate the anchor token when a title
+// is long enough that we have to drop something.
+const ROLE_FAMILY_WORDS = new Set([
+  'engineer', 'engineering', 'developer', 'programmer', 'architect', 'scientist',
+  'analyst', 'designer', 'manager', 'director', 'consultant', 'specialist',
+  'administrator', 'researcher', 'recruiter', 'marketer', 'writer', 'strategist',
+  'accountant', 'technician', 'nurse', 'teacher', 'producer', 'editor', 'planner',
+]);
+
+/**
+ * Turn a candidate's profile title/headline into a short jobs-search query.
+ *
+ * The backend requires EVERY token to hit a job's title/company/department, so
+ * one stray token silently empties the feed. Two rules keep the query usable:
+ *
+ *   1. Cut the employer clause. "Frontend Engineer at Equinix" says where the
+ *      candidate works, not what they want to find — keeping "Equinix" searched
+ *      for frontend roles *at Equinix* and returned nothing. Everything from
+ *      the first separator onward is dropped.
+ *   2. Reduce by dropping seniority and filler words, not by taking an
+ *      arbitrary token pair. Only when a title is still longer than three
+ *      words do we fall back to "first word + role-family noun".
+ *
+ * Returns '' when nothing usable survives, in which case the caller skips
+ * seeding entirely rather than searching for a fragment.
+ */
+export function deriveRoleQuery(rawTitle) {
+  const text = String(rawTitle || '').trim();
+  if (!text) return '';
+
+  // Employer / location clause: " at Equinix", " @ Stripe", " | Acme",
+  // " - Acme", " , Acme". Also drop parenthetical asides like "(Contract)".
+  const head = text.split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
+    .replace(/[([{].*?[)\]}]/g, ' ');
+
+  const tokens = head
+    .split(/[\s/]+/)
+    .map((t) => t.replace(/[^A-Za-z0-9+#.-]/g, '').replace(/^[.-]+|[.-]+$/g, ''))
+    .filter(Boolean);
+
+  // Seniority always goes. Filler only goes while at least two words remain —
+  // "Frontend Software Engineer" should shed "Software", but "Staff Software
+  // Engineer" must not be reduced all the way to a bare "Engineer".
+  const meaningful = tokens.filter((t) => !SENIORITY_WORD_RE.test(t));
+  for (let i = meaningful.length - 1; i >= 0 && meaningful.length > 2; i--) {
+    if (ROLE_FILLER_RE.test(meaningful[i])) meaningful.splice(i, 1);
+  }
+  // Everything was seniority/filler ("Senior Staff") — nothing to search for.
+  if (meaningful.length === 0) return '';
+  // Short enough to use as-is. Three tokens is the sweet spot: it keeps
+  // genuinely multi-word roles intact ("Machine Learning Engineer") instead of
+  // truncating them into something meaningless ("Learning Engineer").
+  if (meaningful.length <= 3) return meaningful.join(' ').slice(0, 80);
+
+  // Still long: anchor on the last role-family noun and keep the leading
+  // specialty word with it ("Frontend Platform Growth Engineer" →
+  // "Frontend Engineer").
+  let familyIdx = -1;
+  for (let i = meaningful.length - 1; i >= 0; i--) {
+    if (ROLE_FAMILY_WORDS.has(meaningful[i].toLowerCase())) { familyIdx = i; break; }
+  }
+  if (familyIdx <= 0) return meaningful.slice(0, 2).join(' ').slice(0, 80);
+  return `${meaningful[0]} ${meaningful[familyIdx]}`.slice(0, 80);
+}
+
 const CandidateJobs = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -445,9 +517,6 @@ const CandidateJobs = () => {
   // re-apply if the candidate clears it (otherwise their "remote-anywhere"
   // intent is silently overridden on every render).
   const locationAutoAppliedRef = useRef(false);
-  // Same one-shot guard for the experience-level filter, inferred from the
-  // candidate's profile title/headline (e.g. "Senior …" → senior level).
-  const experienceAutoAppliedRef = useRef(false);
 
   // Disclosure banner state (Fix 6.1). When the page auto-applies a role
   // or location from the candidate's profile we surface a one-line
@@ -456,7 +525,15 @@ const CandidateJobs = () => {
   // corpus total. The state holds the *values* we seeded so we can
   // (a) detect when the user has edited them (banner self-dismisses), and
   // (b) restore the corpus view on demand.
-  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null, experience: null });
+  const [autoSeeded, setAutoSeeded] = useState({ role: null, location: null });
+  // Set when a seeded filter had to be dropped because it produced an empty
+  // feed (see the auto-relax step in fetchExternalJobs). Drives the one-line
+  // explanation above the list so the widening never looks like a glitch.
+  const [seedRelaxNotice, setSeedRelaxNotice] = useState(null);
+  // Mirror of `autoSeeded` for the fetch callback, which must read the current
+  // value without re-subscribing on every change.
+  const autoSeededRef = useRef({ role: null, location: null });
+  useEffect(() => { autoSeededRef.current = autoSeeded; }, [autoSeeded]);
   // IN-MEMORY dismissal only. Clicking "Show all jobs" stops the auto-seed
   // for the CURRENT mount (so it doesn't immediately re-apply while they
   // browse), but we deliberately do NOT persist it: every fresh page load /
@@ -521,19 +598,7 @@ const CandidateJobs = () => {
       //        "Product Manager" → "Product Manager"
       //      This keeps results fresh (more matches) while still
       //      preserving the candidate's specialty.
-      const SENIORITY_PREFIX_RE = /^(?:senior|sr\.?|junior|jr\.?|staff|lead|principal|chief|head\s+of|head|entry[-\s]?level|mid[-\s]?level|associate|intern|interim)\s+/i;
-      const NOISE_TOKEN_RE = /^(?:full[-\s]?stack|fullstack)$/i;
-      let role = String(res.data?.title || res.data?.headline || '').trim();
-      role = role.replace(SENIORITY_PREFIX_RE, '').replace(SENIORITY_PREFIX_RE, '').trim();
-      const tokens = role.split(/\s+/).filter(t => t && !NOISE_TOKEN_RE.test(t));
-      if (tokens.length > 2) {
-        // Specialty (first) + role family (last). Drops middle filler
-        // like "Software" or "Web" that would AND-narrow the search.
-        role = `${tokens[0]} ${tokens[tokens.length - 1]}`;
-      } else {
-        role = tokens.join(' ');
-      }
-      role = role.slice(0, 80);
+      const role = deriveRoleQuery(res.data?.title || res.data?.headline);
       if (role) {
         setDetectedRole(role);
         // Apply the role to the search box synchronously HERE (rather than
@@ -586,33 +651,13 @@ const CandidateJobs = () => {
         }
       }
 
-      // Auto-seed the EXPERIENCE filter from the candidate's profile title /
-      // headline so the first feed matches their seniority. Same one-shot,
-      // never-override rules as the location seed. We only seed a *clear*
-      // signal (entry / senior / lead / executive) and deliberately skip the
-      // ambiguous "mid" default — seeding mid would silently narrow the feed
-      // for every untitled profile without the candidate ever asking for it.
-      const profileTitleRaw = String(res.data?.title || res.data?.headline || '').toLowerCase();
-      if (
-        profileTitleRaw &&
-        !experienceAutoAppliedRef.current &&
-        !autoSeedDismissedRef.current &&
-        !searchParams.get('experienceLevel')
-      ) {
-        let level = null;
-        if (/\b(junior|jr\.?|entry|associate|intern)\b/.test(profileTitleRaw)) level = 'entry';
-        else if (/\b(senior|sr\.?|staff|principal)\b/.test(profileTitleRaw)) level = 'senior';
-        else if (/\b(lead|manager)\b/.test(profileTitleRaw)) level = 'lead';
-        else if (/\b(director|vp|vice president|head of|chief|c-level)\b/.test(profileTitleRaw)) level = 'executive';
-        if (level) {
-          experienceAutoAppliedRef.current = true;
-          setFilters(prev => ({ ...prev, experienceLevel: level }));
-          setDebouncedFilters(prev => ({ ...prev, experienceLevel: level }));
-          setAutoSeeded(prev => ({ ...prev, experience: level }));
-          // eslint-disable-next-line no-console
-          console.debug('[Jobs] Auto-applied profile experience to filter:', level);
-        }
-      }
+      // NOTE: we deliberately do NOT auto-seed the EXPERIENCE filter.
+      // Role + location already narrow the feed; adding seniority as a third
+      // hard AND-filter is what turned a first visit into "No jobs match your
+      // filters" over a 70k-job corpus. Seniority is not lost — the ranking
+      // path scores level fit (see jobRelevanceService.inferExperienceLevel),
+      // so senior candidates still see senior roles first. The filter stays
+      // available as an explicit user choice in the chip row.
     }).catch(() => {}).finally(() => {
       // Release the first-fetch gate once profile seeding has settled (or
       // failed). For authenticated users with a clean URL this guarantees the
@@ -938,6 +983,39 @@ const CandidateJobs = () => {
       }
       setExternalJobsPagination(response.data.pagination || { total: 0, page: 1, pages: 1 });
 
+      // --- Auto-relax: never show an empty feed built from OUR guesses ---
+      // The role and location seeds come from the candidate's profile, not
+      // from anything they typed, and both are hard AND-filters server-side.
+      // A stale profile location or an unusual title therefore produced "No
+      // jobs match your filters" on a first visit over a 70k-job corpus, with
+      // nothing on screen explaining why. When a seeded query comes back empty
+      // we drop the seeds one at a time (least valuable first) and let the
+      // fetch effect re-run. Anything the user typed themselves is never
+      // touched, and each seed is relaxed at most once because clearing it
+      // also clears it from `autoSeeded`.
+      const seeded = autoSeededRef.current;
+      const isEmptyFirstPage =
+        !append && page === 1 && (response.data.pagination?.total || 0) === 0;
+      if (isEmptyFirstPage && seeded.location && debouncedFilters.location === seeded.location) {
+        // eslint-disable-next-line no-console
+        console.debug('[Jobs] Seeded location produced 0 results — widening:', seeded.location);
+        setAutoSeeded(prev => ({ ...prev, location: null }));
+        setSeedRelaxNotice({ kind: 'location', value: seeded.location });
+        setLocationInput('');
+        setFilters(prev => ({ ...prev, location: '' }));
+        setDebouncedFilters(prev => ({ ...prev, location: '' }));
+        return;
+      }
+      if (isEmptyFirstPage && seeded.role && debouncedSearch === seeded.role) {
+        // eslint-disable-next-line no-console
+        console.debug('[Jobs] Seeded role produced 0 results — widening:', seeded.role);
+        setAutoSeeded(prev => ({ ...prev, role: null }));
+        setSeedRelaxNotice({ kind: 'role', value: seeded.role });
+        setSearchQuery('');
+        setDebouncedSearch('');
+        return;
+      }
+
       // Log a compact view of params + top results so we can audit whether
       // recent-first ordering is actually holding under search/filters.
       // Lives behind console.debug so it's silent unless DevTools verbose
@@ -956,7 +1034,7 @@ const CandidateJobs = () => {
             id: j.id,
             title: j.title,
             company: j.company || j.companyInfo?.name,
-            postedAt: j.postedAt || j.createdAt,
+            postedAt: j.effectivePostedAt || j.postedAt || j.createdAt,
           })),
         });
       } catch {}
@@ -1342,6 +1420,8 @@ const CandidateJobs = () => {
     // `startup` toggle serialized as 'true' / removed when off).
     setFilters(prev => ({ ...prev, [key]: value }));
     setOpenDropdown(null);
+    // The candidate is steering now; the auto-widen explanation is stale.
+    setSeedRelaxNotice(null);
   };
 
   const clearFilters = () => {
@@ -1358,6 +1438,7 @@ const CandidateJobs = () => {
     setDebouncedSearch('');
     setOpenDropdown(null);
     setActiveTab('external');
+    setSeedRelaxNotice(null);
   };
 
   // Smart "broaden" for the empty state. Rather than dumping the candidate
@@ -1408,7 +1489,7 @@ const CandidateJobs = () => {
   // Drives the green ✨ NEW pill on cards. Uses the same COALESCE convention
   // as the date filter: real postedAt when available, else first-seen.
   const isFreshJob = (job) => {
-    const anchor = job?.postedAt || job?.createdAt;
+    const anchor = job?.effectivePostedAt || job?.postedAt || job?.createdAt;
     if (!anchor) return false;
     const ageHours = (Date.now() - new Date(anchor).getTime()) / 36e5;
     return ageHours >= 0 && ageHours < 24;
@@ -2564,6 +2645,26 @@ const CandidateJobs = () => {
             /* ─── External Jobs Tab ─── */
             ) : activeTab === 'external' ? (
               <>
+                {/* One-line explanation when a profile-seeded filter had to be
+                    dropped because it returned nothing. Without this the feed
+                    silently widens and the candidate can't tell whether the
+                    page ignored their profile or simply found nothing. */}
+                {seedRelaxNotice && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 12px', marginBottom: 10,
+                    background: '#F9F5FF', border: '1px solid #E9D7FE',
+                    borderRadius: 8, fontSize: 12.5, color: '#53389E',
+                    lineHeight: 1.4,
+                  }}>
+                    <AutoAwesomeIcon style={{ fontSize: 14, flexShrink: 0 }} />
+                    <span>
+                      {seedRelaxNotice.kind === 'location'
+                        ? `No jobs near "${seedRelaxNotice.value}" right now, so we widened the search to all locations.`
+                        : `No open roles matched "${seedRelaxNotice.value}" from your profile, so we're showing a broader set.`}
+                    </span>
+                  </div>
+                )}
                 {/* Result count header. Sort dropdown removed — the page
                     always shows the best matches that were posted most
                     recently (backend 'recommended' mode = match × recency).
