@@ -428,7 +428,7 @@ async function backfillMissingJobEmbeddings({ limit = 50 } = {}) {
                 "experienceLevel", skills, requirements, description
          FROM "ExternalJobs"
          WHERE "isActive" = true AND embedding IS NULL
-         ORDER BY COALESCE("postedAt", "createdAt") DESC
+         ORDER BY "effectivePostedAt" DESC
          LIMIT $1`,
         { bind: [limit], type: sequelize.constructor.QueryTypes.SELECT }
       );
@@ -761,7 +761,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       // Greenhouse jobs store postedAt = NULL by design (see normalizeGreenhouseJob).
       // Fall back to createdAt so the date filter matches the UI label, which
       // already uses COALESCE(postedAt, createdAt).
-      conditions.push(`COALESCE(ej."postedAt", ej."createdAt") >= $${bindIndex}`);
+      conditions.push(`ej."effectivePostedAt" >= $${bindIndex}`);
       binds.push(dateMap[datePosted].toISOString());
       bindIndex++;
     }
@@ -770,7 +770,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     // results match the recency/keyword paths and don't surface year-old
     // "active" postings. Mirrors JOBS_DEFAULT_MAX_AGE_DAYS in routes/externalJobs.
     const cutoff = new Date(Date.now() - defaultMaxAgeDays * 24 * 60 * 60 * 1000);
-    conditions.push(`COALESCE(ej."postedAt", ej."createdAt") >= $${bindIndex}`);
+    conditions.push(`ej."effectivePostedAt" >= $${bindIndex}`);
     binds.push(cutoff.toISOString());
     bindIndex++;
   }
@@ -978,7 +978,34 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // profile, with off-target roles (recruiter, design, sales) kept out of the
   // top. Uses COALESCE(postedAt, createdAt) because Greenhouse jobs store
   // postedAt = NULL (see normalizeGreenhouseJob comment).
-  const recencyOrderExpr = `COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST`;
+  const recencyOrderExpr = `ej."effectivePostedAt" DESC NULLS LAST`;
+
+  // Relevance score used for ORDERING in 'recommended' mode. Unlike scoreExpr
+  // (which is the badge value and COALESCEs a missing embedding to 0), an
+  // un-embedded row here gets a NEUTRAL score rather than a zero one.
+  // New jobs are embedded asynchronously after ingest, so scoring them 0 would
+  // bury exactly the freshest listings — the opposite of what this mode is for.
+  // NEUTRAL_RELEVANCE sits near the middle of the observed cosine band for
+  // text-embedding-3-small (~0.1–0.6 on related text), so an unscored job ranks
+  // among average matches and is neither promoted nor buried.
+  const NEUTRAL_RELEVANCE = 0.3;
+  const orderingRelevanceExpr = searchEmbBindIdx
+    ? `COALESCE(
+         0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
+         + 0.3 * (1 - (ej.embedding <=> $1::vector)),
+         ${NEUTRAL_RELEVANCE}
+       )`
+    : `COALESCE(1 - (ej.embedding <=> $1::vector), ${NEUTRAL_RELEVANCE})`;
+
+  // Freshness multiplier, mirroring the JS keyword path in
+  // jobRelevanceService.scoreJob so both ranking implementations agree:
+  //   0 days → 1.00, 3 days → ~0.89, 7 days → 0.75, 14+ days → 0.50 (floor).
+  const freshnessFactorExpr = `
+    GREATEST(0.5, 1.0 - LEAST(
+      EXTRACT(EPOCH FROM (NOW() - ej."effectivePostedAt")) / 86400.0,
+      14.0
+    ) / 28.0)`;
+  const recommendedRankExpr = `(${orderingRelevanceExpr}) * (${freshnessFactorExpr})`;
 
   // ORDER BY differs by sort mode:
   //   recommended → latest posted first, exact score tiebreak
@@ -990,15 +1017,16 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   } else if (sortMode === 'recent') {
     orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
   } else {
-    // recommended (default): sort STRICTLY by latest posted date (newest
-    // first), with the exact match score as the tiebreak for same-date jobs.
-    // The candidate pool is still personalized — the CTE below UNIONs the
-    // cosine-ANN pool with the newest-matching jobs, and every row carries
-    // its match % badge — but ORDERING is pure recency so the freshest
-    // relevant jobs always lead the list. (Earlier this tiered by a 5-point
-    // relevance band first, which let a high-match job from weeks ago sit
-    // above a fresh one; product decision is "recommended = latest first".)
-    orderExpr = `${recencyOrderExpr}, ${scoreExpr} DESC`;
+    // recommended (default): rank the freshest matching jobs by how well they
+    // fit the candidate, decayed by age — NOT by pure recency.
+    //
+    // This mode previously ordered by `recencyOrderExpr` alone, which made it
+    // byte-for-byte identical to 'recent' and meant the top of a signed-in
+    // candidate's feed was simply whichever board the crawler happened to sync
+    // last. Personalization was effectively off, which is why unrelated roles
+    // led the list. Ordering by relevance × freshness restores it while
+    // keeping fresh listings ahead of stale-but-similar ones.
+    orderExpr = `${recommendedRankExpr} DESC, ${recencyOrderExpr}`;
   }
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
@@ -1018,63 +1046,64 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // 'recent' bypasses this — pure date ordering uses the
   // (isActive, postedAt DESC) composite index directly; cosine is only
   // a tiebreaker computed on the already LIMIT-clamped result set.
-  const needsAnn = sortMode !== 'recent' && total > SMALL_SET_THRESHOLD;
+  // 'recommended' uses a RECENCY-BOUNDED pool instead of an ANN pool. The
+  // mode's promise is "the freshest jobs that fit you", so the candidate set
+  // is defined by freshness (an index-ordered LIMIT on the partial
+  // (isActive, recency) index) and relevance decides the ORDER within it.
+  //
+  // This is both more correct and cheaper than the previous ANN+UNION pool:
+  //   - Correct: every recent matching job is a candidate, so a brand-new
+  //     posting can never be locked out by a rising cosine bar as the corpus
+  //     grows (the failure mode that made the feed look stale).
+  //   - Cheap: cosine is computed on at most RECOMMENDED_POOL rows instead of
+  //     being ORDER BY-driven across the corpus, and it needs no HNSW probe.
+  //     That is what makes it affordable to rank on relevance again after the
+  //     earlier timeout-driven retreat to pure recency.
+  const isRecommended = sortMode === 'recommended';
+  const needsAnn = sortMode === 'match' && total > SMALL_SET_THRESHOLD;
   // POOL = max(500, (limit + offset) * 3), capped at 3000. Allows ~25
   // pages of 20 results; cap keeps the worst case bounded.
   const annPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 3000)`;
+  // Recommended pool: generous enough that deep pagination still has ranked
+  // content, bounded so the per-row cosine stays milliseconds.
+  const RECOMMENDED_POOL_MAX = 4000;
+  const recommendedPoolExpr = `LEAST(GREATEST(2000, ($2::int + $3::int) * 5), ${RECOMMENDED_POOL_MAX})`;
 
-  // Freshness-pool size for 'recommended' mode. See the UNION rationale
-  // below; sized smaller than the ANN pool since it only needs to seed the
-  // newest few hundred matching jobs into the candidate set.
-  const recencyPoolExpr = `LEAST(GREATEST(300, ($2::int + $3::int) * 2), 1500)`;
-
-  // In 'recommended' mode the final ORDER BY tiers by freshness FIRST. But
-  // the candidate CTE below only narrowed to the top-N jobs by *cosine
-  // similarity to the profile* — so a brand-new posting that isn't already
-  // among the candidate's strongest matches never enters the pool and can
-  // never reach the freshness tiers, no matter how recent it is. As the
-  // corpus grows the similarity bar to enter the top-N keeps rising, which
-  // is exactly why fresh listings stop surfacing and the list "looks
-  // stale". Fix: UNION the cosine-ANN pool with a recency pool (newest
-  // matching jobs) so genuinely-new postings are always candidates and the
-  // freshness tiering can lift them. 'match' mode keeps the pure ANN pool
-  // (relevance is the whole point there); 'recent' bypasses the CTE.
-  const unionRecency = sortMode === 'recommended';
-  const candidateCte = unionRecency
+  const candidateCte = isRecommended
     ? `
     WITH ann_candidates AS (
-      (
-        SELECT ej.id
-        FROM "ExternalJobs" ej
-        WHERE ${whereClause} AND ej.embedding IS NOT NULL
-        ORDER BY ej.embedding <=> $1::vector
-        LIMIT ${annPoolExpr}
-      )
-      UNION
-      (
-        SELECT ej.id
-        FROM "ExternalJobs" ej
-        WHERE ${whereClause}
-        ORDER BY COALESCE(ej."postedAt", ej."createdAt") DESC NULLS LAST
-        LIMIT ${recencyPoolExpr}
-      )
+      SELECT ej.id
+      FROM "ExternalJobs" ej
+      WHERE ${whereClause}
+      ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
+      LIMIT ${recommendedPoolExpr}
     )`
     : `
     WITH ann_candidates AS (
       SELECT ej.id
       FROM "ExternalJobs" ej
       WHERE ${whereClause} AND ej.embedding IS NOT NULL
-      ORDER BY ej.embedding <=> $1::vector
+      ORDER BY ej.embedding <=> $1::vector, ej.id DESC
       LIMIT ${annPoolExpr}
     )`;
 
-  const query = needsAnn ? `${candidateCte}
+  const usesCandidateCte = isRecommended || needsAnn;
+
+  // Pagination must not promise pages the pool can't fill. In 'recommended'
+  // mode only the newest RECOMMENDED_POOL matching jobs are ranked, so
+  // reporting the full corpus count would render page links that come back
+  // empty. Cap the advertised total at the pool size for that mode only.
+  const effectiveTotal = isRecommended
+    ? Math.min(total, Math.min(Math.max(2000, (limit + offset) * 5), RECOMMENDED_POOL_MAX))
+    : total;
+
+  const query = usesCandidateCte ? `${candidateCte}
     SELECT 
       ej.id, ej."externalId", ej.source, ej."boardToken", ej.title, ej.company,
       ej.location, ej."locationType", ej."employmentType", ej."experienceLevel",
       ej.department, ej.description, ej.requirements, ej.skills,
       ej."salaryMin", ej."salaryMax", ej."salaryCurrency", ej."salaryPeriod",
-      ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."isActive",
+      ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."effectivePostedAt", ej."isActive",
       ej."lastFetchedAt", ej."createdAt", ej."updatedAt",
       ${scoreExpr} as "relevanceScore",
       json_build_object(
@@ -1087,7 +1116,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     FROM "ExternalJobs" ej
     JOIN ann_candidates ac ON ac.id = ej.id
     LEFT JOIN "Companies" c ON ej."companyId" = c.id
-    ORDER BY ${orderExpr}, ej."createdAt" DESC
+    ORDER BY ${orderExpr}, ej."createdAt" DESC, ej.id DESC
     LIMIT $2 OFFSET $3
   ` : `
     SELECT 
@@ -1095,7 +1124,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       ej.location, ej."locationType", ej."employmentType", ej."experienceLevel",
       ej.department, ej.description, ej.requirements, ej.skills,
       ej."salaryMin", ej."salaryMax", ej."salaryCurrency", ej."salaryPeriod",
-      ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."isActive",
+      ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."effectivePostedAt", ej."isActive",
       ej."lastFetchedAt", ej."createdAt", ej."updatedAt",
       ${scoreExpr} as "relevanceScore",
       json_build_object(
@@ -1108,7 +1137,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     FROM "ExternalJobs" ej
     LEFT JOIN "Companies" c ON ej."companyId" = c.id
     WHERE ${whereClause}
-    ORDER BY ${orderExpr}, ej."createdAt" DESC
+    ORDER BY ${orderExpr}, ej."createdAt" DESC, ej.id DESC
     LIMIT $2 OFFSET $3
   `;
 
@@ -1133,7 +1162,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     if (listMs > 1500) {
       console.warn(
         `[JobEmbedding] slow searchSimilarJobs: ${listMs}ms ` +
-        `(needsAnn=${needsAnn}, total=${total}, ` +
+        `(mode=${sortMode}, needsAnn=${needsAnn}, total=${total}, ` +
         `filters=${filterBinds.length}, search=${!!search})`
       );
     }
@@ -1144,7 +1173,10 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
         relevanceScore: Math.max(0, Math.min(100, parseInt(row.relevanceScore) || 0)),
         companyInfo: row.companyInfo?.id ? row.companyInfo : null
       })),
-      total
+      total: effectiveTotal,
+      // The unclamped corpus count, for callers that want to report "N jobs
+      // available" separately from "N jobs ranked for you".
+      matchingTotal: total
     };
   } catch (error) {
     // Don't swallow: returning empty rows on a SQL error masks broken

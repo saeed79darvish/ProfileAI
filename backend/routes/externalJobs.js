@@ -130,28 +130,32 @@ function intersectSkills(profileSkillSet, jobSkills) {
 /**
  * Normalize the user-facing sort parameter to a known mode.
  *
- *   'recent' (default) — search-filtered, newest first. The typed query's
- *                        hard text filter (title/company/dept) provides
- *                        relevance; ordering is pure recency. This is the
- *                        single fast indexed path.
- *   'match'            — opt-in semantic ranking (highest profile-fit %),
- *                        recency only as tiebreak. Heavier (OpenAI search
- *                        embedding + pgvector HNSW); reachable via ?sort=match.
+ *   'recommended' (default) — for signed-in candidates, the FRESHEST jobs
+ *                        ranked by profile fit: a recency-bounded candidate
+ *                        pool ordered by relevance × freshness decay. See
+ *                        jobEmbeddingService.searchSimilarJobs.
+ *   'recent'           — pure newest-first. The typed query's hard text filter
+ *                        (title/company/dept) supplies relevance; ordering is
+ *                        pure recency. Also the path anonymous visitors take,
+ *                        since there's no profile to rank against.
+ *   'match'            — pure profile-fit %, recency only as tiebreak. Heavier
+ *                        (HNSW ANN pool); reachable via ?sort=match.
  *
- * 'recommended'/'relevance'/missing all resolve to 'recent'. The old
- * 'recommended' mode ran the full semantic pipeline (search-embedding
- * generation, HNSW ANN + recency UNION, per-row cosine) but then ORDERED
- * purely by recency — identical output to 'recent' at multi-second cost and
- * frequent statement-timeouts. We collapsed it onto the fast path: same
- * result, a fraction of the latency. Match-% badges are simply omitted on
- * this path (the UI hides them when absent).
+ * HISTORY: 'recommended' was previously aliased to 'recent' because its old
+ * implementation ran the full semantic pipeline (HNSW ANN + recency UNION,
+ * per-row cosine over the corpus) and then ordered purely by recency anyway —
+ * identical output at multi-second cost and frequent statement timeouts. That
+ * alias meant signed-in candidates got NO personalization at all: the top of
+ * the feed was whichever board synced most recently. The mode now uses a
+ * bounded recency pool (index-ordered LIMIT, cosine on at most a few thousand
+ * rows), which is both personalized and cheaper than the version that was
+ * retired, so the alias is gone.
  */
 function normalizeSortMode(s) {
   const v = String(s || '').toLowerCase();
-  if (v === 'recent' || v === 'match') return v;
-  // 'recommended' (the old default) is now an alias for 'recent' — see above.
+  if (v === 'recent' || v === 'match' || v === 'recommended') return v;
   // 'relevance' was a legacy alias for the default; missing → default.
-  return 'recent';
+  return 'recommended';
 }
 
 /**
@@ -408,7 +412,7 @@ router.get('/', optionalAuth, async (req, res) => {
         whereReplacements.dateCutoff = dateMap[datePosted].toISOString();
         where[Op.and] = [
           ...(where[Op.and] || []),
-          literal(`COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") >= :dateCutoff`)
+          literal(`"ExternalJob"."effectivePostedAt" >= :dateCutoff`)
         ];
       }
     }
@@ -428,7 +432,7 @@ router.get('/', optionalAuth, async (req, res) => {
       whereReplacements.defaultDateCutoff = cutoff.toISOString();
       where[Op.and] = [
         ...(where[Op.and] || []),
-        literal(`COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") >= :defaultDateCutoff`)
+        literal(`"ExternalJob"."effectivePostedAt" >= :defaultDateCutoff`)
       ];
     }
 
@@ -534,6 +538,13 @@ router.get('/', optionalAuth, async (req, res) => {
       // semantics; invalidated on Profile.afterSave.
       const profileCached = await loadProfileForJobsRanking(req.user.id);
       stamp('profile');
+
+      // A signed-in user with NO profile row (signed up but never built one)
+      // has nothing to rank against, so they take the plain recency path
+      // below rather than the keyword fallback. That fallback pools only 200
+      // rows and reports the pool as the pagination total, which would strand
+      // a profile-less user on a 200-job slice of the corpus.
+      if (profileCached) {
 
       // --- AI Semantic Ranking via pgvector ---
       let profileEmbedding = profileCached?.profileEmbedding || null;
@@ -663,7 +674,7 @@ router.get('/', optionalAuth, async (req, res) => {
         // COALESCE so Greenhouse jobs (postedAt = NULL) sort by when we
         // first saw them, intermixed with other-source jobs by their real
         // postedAt — produces a true chronological order across sources.
-        order: [literal('COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") DESC NULLS LAST')],
+        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
         limit: POOL_SIZE,
         attributes: {
           exclude: ['descriptionHtml', 'metadata', 'embedding']
@@ -690,6 +701,7 @@ router.get('/', optionalAuth, async (req, res) => {
         },
         sortMethod: 'keyword'
       });
+      } // end: profileCached
     }
 
     // --- Default: most recent ---
@@ -706,7 +718,7 @@ router.get('/', optionalAuth, async (req, res) => {
     const { count, rows: jobs } = await ExternalJob.findAndCountAll({
       where,
       replacements: whereReplacements,
-      order: [literal('COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") DESC NULLS LAST')],
+      order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
       limit: limitNum,
       offset,
       attributes: {
@@ -1001,9 +1013,9 @@ router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => 
     // exactly what the list query and the datePosted filter sort/filter on.
     const freshnessRow = await ExternalJob.sequelize.query(
       `SELECT
-         MAX(COALESCE("postedAt", "createdAt")) AS newest,
-         COUNT(*) FILTER (WHERE COALESCE("postedAt", "createdAt") >= NOW() - INTERVAL '24 hours') AS last24h,
-         COUNT(*) FILTER (WHERE COALESCE("postedAt", "createdAt") >= NOW() - INTERVAL '7 days')  AS last7d
+         MAX("effectivePostedAt") AS newest,
+         COUNT(*) FILTER (WHERE "effectivePostedAt" >= NOW() - INTERVAL '24 hours') AS last24h,
+         COUNT(*) FILTER (WHERE "effectivePostedAt" >= NOW() - INTERVAL '7 days')  AS last7d
        FROM "ExternalJobs"
        WHERE "isActive" = true`,
       { type: ExternalJob.sequelize.constructor.QueryTypes.SELECT }
@@ -1233,13 +1245,13 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
         where: {
           isActive: true,
           [Op.and]: [
-            literal(`COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") >= '${since.toISOString()}'`),
+            literal(`"ExternalJob"."effectivePostedAt" >= '${since.toISOString()}'`),
           ]
         },
         // COALESCE so Greenhouse jobs (postedAt = NULL) sort by when we
         // first saw them, intermixed with other-source jobs by their real
         // postedAt — produces a true chronological order across sources.
-        order: [literal('COALESCE("ExternalJob"."postedAt", "ExternalJob"."createdAt") DESC NULLS LAST')],
+        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
         limit: 200,
         attributes: { exclude: ['descriptionHtml', 'metadata', 'embedding'] },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
@@ -1328,7 +1340,7 @@ function buildReason(job, profileSkills) {
   }
 
   // Recency
-  const anchor = job.postedAt || job.createdAt;
+  const anchor = job.effectivePostedAt || job.postedAt || job.createdAt;
   if (anchor) {
     const days = Math.floor((Date.now() - new Date(anchor).getTime()) / (1000 * 60 * 60 * 24));
     if (days <= 0) parts.push('new today');
