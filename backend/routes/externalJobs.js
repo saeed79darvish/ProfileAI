@@ -12,6 +12,7 @@ const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmb
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
+const { normalizeJobUrl } = require('../utils/jobUrl');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1420,30 +1421,10 @@ router.post('/check-saved', authMiddleware, requireVerifiedEmail, async (req, re
   }
 });
 
-/**
- * Normalize a job URL for applied-status matching. The same posting can be
- * recorded with different tracking params (utm_*, ref, src, ...) depending
- * on where the user clicked from, so we strip known tracking params and
- * sort the rest. Query params are otherwise KEPT — embedded Greenhouse
- * boards identify the job via ?gh_jid=..., so dropping the query entirely
- * would collide every job on the same careers page.
- */
-const TRACKING_PARAM_RE = /^(utm_\w+|ref|referrer|source|src|gh_src|lever-source(\[\])?|fbclid|gclid)$/i;
-function normalizeJobUrl(raw) {
-  if (!raw) return null;
-  try {
-    const url = new URL(String(raw).trim());
-    const params = [...url.searchParams.entries()]
-      .filter(([k]) => !TRACKING_PARAM_RE.test(k))
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}=${v}`)
-      .join('&');
-    const path = url.pathname.replace(/\/+$/, '');
-    return `${url.origin.toLowerCase()}${path.toLowerCase()}${params ? `?${params}` : ''}`;
-  } catch {
-    return null;
-  }
-}
+// Job-URL normalization moved to utils/jobUrl.js. It must stay identical to the
+// version used when PERSISTING ExternalApplications.normalizedJobUrl — a second
+// copy that drifted would stop stored keys matching lookup keys and let
+// duplicates reappear silently. Imported at the top of this file.
 
 /**
  * @route   POST /api/external-jobs/check-applied
@@ -1467,12 +1448,15 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
     // Cap to one page worth of ids — the client sends the visible list.
     const ids = externalJobIds.slice(0, 200);
     if (ids.length === 0) {
-      return res.json({ appliedExternalJobIds: [] });
+      return res.json({ appliedExternalJobIds: [], startedExternalJobIds: [] });
     }
 
     const applied = new Set();
+    const started = new Set();
 
-    // 1. ApplyPilot agent applications (direct externalJobId link).
+    // 1. ApplyPilot agent applications (direct externalJobId link). These are
+    //    the one signal that has always been trustworthy: the statuses below
+    //    mean the agent actually reached the ATS.
     const pilotApps = await ApplyPilotApplication.findAll({
       where: {
         userId: req.user.id,
@@ -1483,20 +1467,20 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
     });
     for (const a of pilotApps) applied.add(a.externalJobId);
 
-    // 2. Click-tracked applications with a direct externalJobId link (exact
-    //    match — set when the user taps "Apply Now" on an in-app job card).
-    const linkedApps = await ExternalApplication.findAll({
-      where: {
-        userId: req.user.id,
-        externalJobId: { [Op.in]: ids },
-        status: { [Op.ne]: 'withdrawn' },
-      },
-      attributes: ['externalJobId'],
-    });
-    for (const a of linkedApps) applied.add(a.externalJobId);
+    // 2. Tracked applications linked directly by externalJobId. Split by stage:
+    //    only a CONFIRMED application earns the "Applied" badge. A row that is
+    //    merely 'clicked' (the user opened the ATS) or 'in_progress' (they
+    //    started the form) is reported separately so the UI can show a softer
+    //    "started" affordance instead of claiming they applied.
+    const { classifyJobIdsForUser } = require('../services/applicationTrackingService');
+    const classified = await classifyJobIdsForUser(req.user.id, ids);
+    for (const id of classified.applied) applied.add(id);
+    for (const id of classified.started) started.add(id);
 
     // 3. Extension/manual applications with no FK — matched by URL.
-    const remaining = ids.filter(id => !applied.has(id));
+    //     Skip ids already resolved above by either bucket; a row we've already
+    //     classified as merely 'clicked' must not be re-added as applied here.
+    const remaining = ids.filter(id => !applied.has(id) && !started.has(id));
     if (remaining.length > 0) {
       const jobs = await ExternalJob.findAll({
         where: { id: { [Op.in]: remaining } },
@@ -1521,17 +1505,32 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
         // on userId, and users have at most a few thousand rows.
         const extApps = await ExternalApplication.findAll({
           where: { userId: req.user.id },
-          attributes: ['jobUrl'],
+          attributes: ['jobUrl', 'normalizedJobUrl', 'status'],
         });
+        const { isConfirmedApplication } = require('../services/applicationTrackingService');
         for (const a of extApps) {
-          const key = normalizeJobUrl(a.jobUrl);
+          // Prefer the stored normalized key; fall back to normalizing the raw
+          // URL for rows written before that column existed.
+          const key = a.normalizedJobUrl || normalizeJobUrl(a.jobUrl);
           const hit = key && urlToJobIds.get(key);
-          if (hit) for (const id of hit) applied.add(id);
+          if (!hit) continue;
+          // Same stage rule as above — a URL match proves WHICH job the row is
+          // about, not that the user finished applying to it.
+          const bucket = isConfirmedApplication(a.status)
+            ? applied
+            : (a.status === 'withdrawn' ? null : started);
+          if (bucket) for (const id of hit) bucket.add(id);
         }
       }
     }
 
-    res.json({ appliedExternalJobIds: [...applied] });
+    res.json({
+      appliedExternalJobIds: [...applied],
+      // Jobs the user opened or began but has not confirmed applying to. The
+      // list page renders these differently from "Applied" and can prompt for
+      // confirmation instead of silently assuming.
+      startedExternalJobIds: [...started].filter(id => !applied.has(id)),
+    });
   } catch (error) {
     console.error('Error checking applied external jobs:', error);
     res.status(500).json({ message: 'Server error' });
@@ -1543,10 +1542,12 @@ router.post('/check-applied', authMiddleware, requireVerifiedEmail, async (req, 
  * @desc    Record that the current user applied to an external job — fired when
  *          they tap "Apply Now" on an in-app job card (the actual application
  *          happens off-site on the company ATS, which we can't observe, so this
- *          records intent). Idempotent: creates one ExternalApplication linked
- *          by externalJobId, or returns the existing row. Denormalizes the job's
- *          title/company/location/url so the Applications view renders without a
- *          join. Never resurrects a withdrawn row unless the client asks to.
+ *          records intent as status='clicked' — NOT as an application. See
+ *          services/applicationTrackingService.js for the stage ladder.
+ *          Idempotent: creates or advances one ExternalApplication per
+ *          (user, job). Denormalizes the job's title/company/location/url so the
+ *          Applications view renders without a join. Never resurrects a
+ *          withdrawn row.
  * @access  Private (Candidate)
  */
 router.post('/:id/applied', authMiddleware, requireVerifiedEmail, async (req, res) => {
@@ -1559,22 +1560,31 @@ router.post('/:id/applied', authMiddleware, requireVerifiedEmail, async (req, re
       return res.status(404).json({ message: 'Job not found' });
     }
 
-    // Idempotent on (userId, externalJobId) — the partial unique index backs
-    // this. findOrCreate avoids a duplicate when the user taps Apply twice.
-    const [application, created] = await ExternalApplication.findOrCreate({
-      where: { userId: req.user.id, externalJobId: job.id },
-      defaults: {
-        userId: req.user.id,
-        externalJobId: job.id,
+    // A click records INTENT, not an application. All we actually observe is
+    // that the user opened the company's ATS in a new tab — whether they filled
+    // anything in, let alone submitted, happens off-site where we cannot see
+    // it. Recording this as 'applied' (the old behaviour) inflated every
+    // applied count and badged jobs the user never applied to.
+    //
+    // The row is promoted to 'applied' later by a signal that actually proves
+    // submission: the extension detecting a form submit / confirmation page,
+    // ApplyPilot reaching the ATS, or the user confirming. Promotion is
+    // monotonic, so a second visit to a job already applied to cannot demote it
+    // back to 'clicked'.
+    const { recordApplicationSignal } = require('../services/applicationTrackingService');
+    const { application, created } = await recordApplicationSignal({
+      userId: req.user.id,
+      externalJobId: job.id,
+      jobUrl: job.applyUrl || job.sourceUrl || null,
+      stage: 'clicked',
+      confirmedBy: 'click',
+      fields: {
         jobTitle: job.title,
         company: job.company,
         location: job.location,
         locationType: job.locationType,
         jobType: job.employmentType,
-        jobUrl: job.applyUrl || job.sourceUrl || null,
         platform: job.source,
-        status: 'applied',
-        appliedAt: new Date(),
       },
     });
 

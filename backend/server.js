@@ -722,6 +722,16 @@ const startServer = async () => {
       await ensureEffectivePostedAt();
     }
 
+    // Also blocking: the apply-tracking state machine. The routes below write
+    // status='clicked' and read the confirmedBy/normalizedJobUrl columns, so
+    // serving before this lands would throw on every Apply click and on the
+    // applied-badge lookup. Additive and idempotent — no existing row changes
+    // status — so a retried deploy is safe.
+    {
+      const { up: ensureApplyTrackingStates } = require('./scripts/migrations/ensureApplyTrackingStates');
+      await ensureApplyTrackingStates();
+    }
+
     // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running on 0.0.0.0:${PORT}`);

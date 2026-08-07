@@ -38,8 +38,16 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     comment: 'e.g. LinkedIn, Greenhouse, Lever, Workday',
   },
   // Application status
+  // Ordered ladder — see services/applicationTrackingService.js, which owns the
+  // transitions. 'clicked' and 'in_progress' sit BELOW 'applied' and must never
+  // be counted as an application: a tap on "Apply Now" only tells us the user
+  // opened the company's ATS, and an extension autofill only tells us they
+  // started the form. Treating either as applied is what inflated applied
+  // counts and badged jobs users never actually applied to.
   status: {
     type: DataTypes.ENUM(
+      'clicked',
+      'in_progress',
       'applied',
       'screening',
       'interviewing',
@@ -50,8 +58,33 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     ),
     defaultValue: 'applied',
   },
+  // Which signal justified the current status, for auditing and analytics:
+  // click | extension_autofill | extension_submit | applypilot |
+  // tailored_resume | user | import | legacy_pre_state_machine.
+  confirmedBy: {
+    type: DataTypes.STRING(40),
+    allowNull: true,
+  },
+  confirmedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  // jobUrl with tracking params stripped and the remainder canonically ordered
+  // (utils/jobUrl.js). The in-app click stores the job's applyUrl while the
+  // extension stores the browser URL; those differ by utm_*/ref/gh_src for the
+  // SAME posting, so matching on the raw column let one application occupy two
+  // rows. Never compute this inline — use normalizeJobUrl so stored keys and
+  // lookup keys can never diverge.
+  normalizedJobUrl: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  // When the row became a real application. NULL while it is only 'clicked' or
+  // 'in_progress', so the UI never shows an "Applied <date>" for a job the user
+  // merely opened.
   appliedAt: {
     type: DataTypes.DATE,
+    allowNull: true,
     defaultValue: DataTypes.NOW,
   },
   // Optional metadata
@@ -119,6 +152,11 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     { fields: ['status'] },
     { fields: ['appliedAt'] },
     { fields: ['userId', 'jobUrl'], unique: true },
+    // Non-unique on purpose: pre-existing rows may already collide once
+    // normalized (that IS the duplicate bug), so a unique constraint could fail
+    // the migration and block a deploy. Dedup is enforced in
+    // applicationTrackingService, which merges instead of rejecting.
+    { fields: ['userId', 'normalizedJobUrl'] },
     // One application row per (user, externalJob). Partial so it only applies
     // to the click-tracked rows (externalJobId set); extension/manual rows with
     // NULL externalJobId are unaffected. Makes record-on-click idempotent.

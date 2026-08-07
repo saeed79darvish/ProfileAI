@@ -5,6 +5,13 @@ export const ROUTES = {
 } as const;
 
 export const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  // Pre-application stages. These exist because tapping "Apply" only opens the
+  // company's ATS in a new tab — we never observe whether the user submitted.
+  // They MUST have entries here: the page falls back to STATUS_CONFIG.applied
+  // for unknown statuses, which would label a job the user merely opened as
+  // "Applied" — the exact overstatement the stage ladder was added to remove.
+  clicked: { label: 'Opened', color: '#94a3b8', bg: '#f1f5f9', icon: '👀' },
+  in_progress: { label: 'In Progress', color: '#0ea5e9', bg: '#e0f2fe', icon: '✏️' },
   applied: { label: 'Applied', color: '#667eea', bg: '#eef0ff', icon: '📤' },
   screening: { label: 'Screening', color: '#f59e0b', bg: '#fef3c7', icon: '📋' },
   interviewing: { label: 'Interviewing', color: '#8b5cf6', bg: '#ede9fe', icon: '🎯' },
@@ -14,7 +21,10 @@ export const STATUS_CONFIG: Record<string, { label: string; color: string; bg: s
   no_response: { label: 'No Response', color: '#9ca3af', bg: '#f9fafb', icon: '⏳' },
 };
 
-export const KANBAN_COLUMNS = ['applied', 'screening', 'interviewing', 'offer'] as const;
+// 'clicked' / 'in_progress' deliberately lead the board: they are the user's
+// unfinished work, and surfacing them as a first column turns the weaker
+// tracking signals into a "finish these" prompt instead of hiding them.
+export const KANBAN_COLUMNS = ['clicked', 'in_progress', 'applied', 'screening', 'interviewing', 'offer'] as const;
 
 export const ARCHIVE_STATUSES = ['rejected', 'withdrawn', 'no_response'] as const;
 
