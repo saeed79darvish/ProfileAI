@@ -68,6 +68,15 @@ const ExternalJob = sequelize.define('ExternalJob', {
     type: DataTypes.JSONB,
     defaultValue: []
   },
+  // When skill extraction was last ATTEMPTED — not when skills were found.
+  // An empty `skills` array alone can't distinguish "never tried" from "tried,
+  // nothing extractable", so without this the backfill sweep would either
+  // re-attempt unextractable jobs on every pass (paying for each) or abandon
+  // jobs that hit a transient failure. Stamped on every attempt, success or not.
+  skillsExtractedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   salaryMin: {
     type: DataTypes.INTEGER,
     allowNull: true

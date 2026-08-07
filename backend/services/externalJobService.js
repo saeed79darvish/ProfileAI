@@ -1650,34 +1650,25 @@ async function syncBoard(atsBoard) {
       }
     }
 
-    // Extract skills via Claude Haiku for any new job whose source didn't
-    // give us an explicit skills array (Greenhouse / Adzuna / Amazon / HN
-    // typically don't). Bounded concurrency keeps us polite to the API.
-    // Fire-and-forget — we never block sync on this.
-    if (newJobs.length > 0 && process.env.ANTHROPIC_API_KEY) {
-      const { extractAndPersist } = require('./jobSkillExtractor');
-      const SKILL_CONCURRENCY = 5;
-      const queue = newJobs.filter(j => !Array.isArray(j.skills) || j.skills.length === 0);
-      if (queue.length > 0) {
-        let inFlight = 0, idx = 0, ok = 0, fail = 0;
-        const next = () => {
-          if (idx >= queue.length) return;
-          const job = queue[idx++];
-          inFlight++;
-          extractAndPersist(job)
-            .then(out => { if (out && out.length) ok++; else fail++; })
-            .catch(() => fail++)
-            .finally(() => {
-              inFlight--;
-              if (idx < queue.length) next();
-              else if (inFlight === 0) {
-                console.log(`[ExternalJobs] Extracted skills for ${ok}/${queue.length} new jobs (${atsBoard.name})`);
-              }
-            });
-        };
-        for (let i = 0; i < Math.min(SKILL_CONCURRENCY, queue.length); i++) next();
-      }
-    }
+    // NOTE: skill extraction is NOT done here any more.
+    //
+    // This used to fire an unbounded fan-out of Claude Haiku calls for every
+    // new job in the board, fire-and-forget, with failures swallowed by a bare
+    // `.catch(() => fail++)` and no retry path. During a discovery sweep — when
+    // hundreds of boards each land their whole back-catalogue at once — that
+    // meant thousands of simultaneous calls, most of which were rate-limited or
+    // dropped, and nothing ever revisited the job. Measured in production:
+    // ~10% of jobs posted in the last week had skills, 0% of older ones, and
+    // `react` appeared on 60 of 71,815 jobs. That silently broke the ?skills=
+    // filter and the skill typeahead, both of which read a column that is
+    // almost always empty.
+    //
+    // Extraction now runs from a single bounded, resumable sweep
+    // (jobSkillExtractor.backfillMissingJobSkills, scheduled in server.js),
+    // which picks up new jobs on its next tick — newest first, rate-limited,
+    // and retried across restarts. That also keeps sync off the Anthropic API
+    // entirely, so a slow or throttled extraction can no longer stretch a board
+    // sync or compete with live queries.
 
     // Mark jobs that were NOT in the fetch as inactive (removed from ATS)
     const deactivated = await ExternalJob.update(

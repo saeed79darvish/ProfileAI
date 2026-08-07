@@ -1078,12 +1078,31 @@ router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => 
       ? +(counters.semanticSuccesses / semanticTotal * 100).toFixed(1)
       : null;
 
+    // How much of the corpus still has no skills extracted. This is the signal
+    // that tells you whether the ?skills= filter and the skill typeahead are
+    // actually usable — they read a column that was ~90% empty, which looked
+    // like "no jobs match" rather than "we never extracted this".
+    let skillExtraction = null;
+    try {
+      const { countPendingSkillExtraction } = require('../services/jobSkillExtractor');
+      const pending = await countPendingSkillExtraction();
+      skillExtraction = {
+        pending,
+        coveragePct: totalActive > 0
+          ? +(((totalActive - pending) / totalActive) * 100).toFixed(1)
+          : null,
+      };
+    } catch (e) {
+      skillExtraction = { error: e.message };
+    }
+
     res.json({
       generatedAt: new Date().toISOString(),
       corpus: {
         totalActive,
         bySource: bySource.map(r => ({ source: r.source, count: parseInt(r.count, 10) })),
         freshness,
+        skillExtraction,
       },
       boards: {
         total: boards.length,

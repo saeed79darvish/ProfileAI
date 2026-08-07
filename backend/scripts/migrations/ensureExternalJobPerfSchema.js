@@ -177,6 +177,28 @@ async function up() {
     ON "ExternalJobs" USING gin ("skills" jsonb_path_ops);
   `);
 
+  // Marks that we have RUN skill extraction on a job, as distinct from the job
+  // HAVING skills. Without it, an empty `skills` array is ambiguous — it could
+  // mean "not attempted yet", "the model returned nothing useful", or "the call
+  // failed" — so a backfill sweep either re-attempts the same unextractable
+  // jobs forever (burning API spend on every pass) or gives up on jobs that
+  // merely hit a transient error. Stamping the attempt makes the sweep
+  // resumable and finite.
+  await runStep('skillsExtractedAt column', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ExternalJobs"
+    ADD COLUMN IF NOT EXISTS "skillsExtractedAt" TIMESTAMP WITH TIME ZONE;
+  `);
+  // Partial index over exactly what the sweep selects: active jobs never
+  // attempted. It shrinks to nothing as the backfill completes, so the
+  // steady-state "is there work left?" probe stays cheap on a 70k corpus
+  // instead of seq-scanning it every tick.
+  await runStep('pending-skill-extraction index', `
+    CREATE INDEX IF NOT EXISTS external_jobs_skills_pending_idx
+    ON "ExternalJobs" (COALESCE("postedAt", "createdAt") DESC)
+    WHERE "isActive" = TRUE AND "skillsExtractedAt" IS NULL;
+  `);
+
   // Normalize legacy/polluted employmentType values to the 5 canonical chip
   // values (matches normalizeEmploymentType in externalJobService.js). Older
   // ingests let raw ATS metadata through ("Regular", "Standard", "Remote",

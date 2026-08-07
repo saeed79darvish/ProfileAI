@@ -792,6 +792,40 @@ const startServer = async () => {
         console.log('[EmbedBackfill] disabled');
       }
 
+      // Self-healing job-SKILL backfill. ExternalJob.skills powers the ?skills=
+      // filter, the skill typeahead and the matched-skills badges, but it was
+      // only ever populated by a fire-and-forget fan-out during sync whose
+      // failures were swallowed and never retried — leaving ~90% of the corpus
+      // with no skills at all and those features quietly non-functional.
+      // Extraction now lives here instead: a small bounded batch, newest jobs
+      // first, single-flight, resumable across restarts, with a circuit breaker
+      // so an Anthropic outage backs off instead of hammering.
+      //
+      // Sizing note: this walks the whole corpus once, so the defaults are
+      // deliberately gentle (25 jobs / 3 min ≈ 12k/day at roughly $0.0001 a job,
+      // so a ~70k backlog clears in under a week for a few dollars). Raise
+      // SKILL_BACKFILL_BATCH to drain faster. Disable with
+      // ENABLE_SKILL_BACKFILL=false.
+      if (process.env.ANTHROPIC_API_KEY && process.env.ENABLE_SKILL_BACKFILL !== 'false') {
+        const { backfillMissingJobSkills } = require('./services/jobSkillExtractor');
+        const skillBatch = parseInt(process.env.SKILL_BACKFILL_BATCH || '25', 10);
+        const skillIntervalMs = parseInt(process.env.SKILL_BACKFILL_INTERVAL_MS || '180000', 10);
+        const skillTick = () => backfillMissingJobSkills({ limit: skillBatch })
+          .then(r => {
+            if (r.attempted) {
+              console.log(`[SkillBackfill] extracted ${r.extracted}/${r.attempted}`);
+            }
+          })
+          .catch(err => console.warn('[SkillBackfill] error:', err.message));
+        // Offset from the embedding sweep so the two don't tick together and
+        // stack API + DB load on the same second.
+        setTimeout(skillTick, 75000);
+        setInterval(skillTick, skillIntervalMs);
+        console.log(`[SkillBackfill] ✓ enabled (batch=${skillBatch}, every ${Math.round(skillIntervalMs / 1000)}s)`);
+      } else {
+        console.log('[SkillBackfill] disabled');
+      }
+
       // Disk-reclaim: prune long-inactive ExternalJobs. Deactivated jobs (no
       // longer in any board's fetch) are never shown again but keep a row +
       // 1536-dim embedding + index entries forever, steadily bloating the DB
