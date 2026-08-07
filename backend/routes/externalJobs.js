@@ -64,6 +64,7 @@ function buildJobsListCacheKey(userId, q) {
     p: String(q.page || 1),
     l: String(q.limit || 20),
     s: q.search ? String(q.search).trim().toLowerCase() : '',
+    rh: q.roleHint ? String(q.roleHint).trim().toLowerCase() : '',
     so: normalizeSortMode(q.sort),
     lt: q.locationType || '',
     lo: q.location ? String(q.location).trim().toLowerCase() : '',
@@ -274,6 +275,22 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const {
       search: rawSearch,
+      // Role the CLIENT inferred from the candidate's profile, as opposed to
+      // something they typed. It is used to RANK, never to filter.
+      //
+      // Seeding it into `search` (the old behaviour) made it a hard AND filter
+      // on title/company/department, which is catastrophically narrow: of 743
+      // San Francisco jobs posted in one week, 311 had "engineer" in the title
+      // but only 4 had "frontend", and exactly 1 had both. A candidate whose
+      // profile says "Frontend Engineer" therefore saw a single fresh job and
+      // reasonably concluded the feed was broken — when in fact the corpus was
+      // healthy and the query was excluding almost all of it.
+      //
+      // As a ranking signal instead, the whole fresh pool stays eligible and
+      // frontend-ish roles rise to the top, including the ones titled plain
+      // "Software Engineer". A term the user actually TYPED keeps its strict
+      // filter semantics — that is them asking a precise question.
+      roleHint: rawRoleHint,
       location,
       locationType,
       employmentType,
@@ -301,14 +318,19 @@ router.get('/', optionalAuth, async (req, res) => {
     //     responses.
     // Strip HTML-ish brackets and ASCII control bytes, normalize whitespace,
     // and cap at 200 chars before doing anything else with the value.
-    const search = typeof rawSearch === 'string'
-      ? rawSearch
-          .replace(/<[^>]*>/g, ' ')            // strip HTML tags
+    const sanitizeQueryText = (v, maxLen) => (typeof v === 'string'
+      ? v
+          .replace(/<[^>]*>/g, ' ')               // strip HTML tags
           .replace(/[\u0000-\u001F\u007F]/g, ' ') // strip ASCII control chars
-          .replace(/\s+/g, ' ')                // collapse whitespace
+          .replace(/\s+/g, ' ')                   // collapse whitespace
           .trim()
-          .slice(0, 200)
-      : '';
+          .slice(0, maxLen)
+      : '');
+
+    const search = sanitizeQueryText(rawSearch, 200);
+    // Ignored entirely when the user typed a real query — an explicit search
+    // must never be diluted by our guess about their role.
+    const roleHint = search ? '' : sanitizeQueryText(rawRoleHint, 80);
 
     const where = { isActive: true };
     // Replacements bag for any literal() clauses below — Sequelize escapes
@@ -573,10 +595,14 @@ router.get('/', optionalAuth, async (req, res) => {
         // Semantic search: pgvector cosine distance, paginated in SQL
         // When a search query is present, generate an embedding for it too
         // so we can blend search relevance with profile match.
+        // Embed whichever query text we have. A typed `search` ALSO applies its
+        // hard tsquery filter (below); a `roleHint` does not — it only shifts
+        // the ordering, so the full fresh pool stays eligible.
         let searchEmbedding = null;
-        if (search) {
+        const rankingText = search || roleHint;
+        if (rankingText) {
           try {
-            searchEmbedding = await generateSearchQueryEmbedding(search);
+            searchEmbedding = await generateSearchQueryEmbedding(rankingText);
           } catch (e) {
             console.warn('[ExternalJobs] Could not generate search embedding:', e.message);
           }

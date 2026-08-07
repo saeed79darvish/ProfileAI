@@ -520,6 +520,12 @@ const CandidateJobs = () => {
   // Used to seed the search box on first visit so users see jobs in their
   // own category by default, sorted most-recent-first.
   const [detectedRole, setDetectedRole] = useState('');
+  // The candidate's role, sent to the API as a RANKING signal (`roleHint`)
+  // rather than typed into the search box as a filter. Kept separate from
+  // `searchQuery` precisely so the two can never be confused: anything in the
+  // search box is a hard title filter the user asked for, while this only
+  // reorders results. Cleared by the "show everything" affordance on the chip.
+  const [roleHint, setRoleHint] = useState('');
   // Tracks whether we've already auto-applied the detected role to the
   // search input. Prevents us from re-filling after the user clears it.
   const roleAutoAppliedRef = useRef(false);
@@ -610,12 +616,17 @@ const CandidateJobs = () => {
       //      preserving the candidate's specialty.
       const role = deriveRoleQuery(res.data?.title || res.data?.headline);
       if (role) {
+        // NOTE: the role is NOT typed into the search box. It goes to the API
+        // as `roleHint`, which ranks rather than filters. Putting it in the
+        // search box made it a hard AND filter on job titles, and most jobs a
+        // frontend candidate wants are titled plain "Software Engineer" — in
+        // one measured week, 743 San Francisco jobs were posted, 311 had
+        // "engineer" in the title, only 4 had "frontend", and 1 had both. The
+        // page looked empty and stale even though the corpus was healthy.
         setDetectedRole(role);
-        // Apply the role to the search box synchronously HERE (rather than
-        // deferring to the detectedRole effect below) so the very first jobs
-        // fetch already carries it. Combined with the seedSettled gate, this
-        // collapses the old "unfiltered recommended fetch → re-fetch with
-        // seeds" waterfall into a single, faster filtered request.
+        // Set the hint synchronously HERE (rather than deferring to an effect)
+        // so the very first jobs fetch already carries it. Combined with the
+        // seedSettled gate, this keeps the initial load to a single request.
         if (
           !roleAutoAppliedRef.current &&
           !autoSeedDismissedRef.current &&
@@ -623,8 +634,7 @@ const CandidateJobs = () => {
           !searchQuery
         ) {
           roleAutoAppliedRef.current = true;
-          setSearchQuery(role);
-          setDebouncedSearch(role);
+          setRoleHint(role);
           setAutoSeeded(prev => ({ ...prev, role }));
         }
       }
@@ -940,6 +950,9 @@ const CandidateJobs = () => {
       else setExternalJobsLoading(true);
       const params = { page, limit: 20 };
       if (debouncedSearch) params.search = debouncedSearch;
+      // Ranking-only signal, and only when the user hasn't typed a query of
+      // their own — an explicit search must never be diluted by our guess.
+      else if (roleHint) params.roleHint = roleHint;
       if (debouncedFilters.locationType) params.locationType = debouncedFilters.locationType;
       if (debouncedFilters.location) params.location = debouncedFilters.location;
       if (debouncedFilters.datePosted) params.datePosted = debouncedFilters.datePosted;
@@ -1016,13 +1029,15 @@ const CandidateJobs = () => {
         setDebouncedFilters(prev => ({ ...prev, location: '' }));
         return;
       }
-      if (isEmptyFirstPage && seeded.role && debouncedSearch === seeded.role) {
+      // The role is a ranking hint, not a filter, so it can no longer empty
+      // the feed on its own — but drop it anyway if we somehow land on zero,
+      // so the user is never left staring at nothing we caused.
+      if (isEmptyFirstPage && seeded.role && roleHint === seeded.role) {
         // eslint-disable-next-line no-console
-        console.debug('[Jobs] Seeded role produced 0 results — widening:', seeded.role);
+        console.debug('[Jobs] Widening: dropping seeded role hint', seeded.role);
         setAutoSeeded(prev => ({ ...prev, role: null }));
         setSeedRelaxNotice({ kind: 'role', value: seeded.role });
-        setSearchQuery('');
-        setDebouncedSearch('');
+        setRoleHint('');
         return;
       }
 
@@ -1089,7 +1104,7 @@ const CandidateJobs = () => {
         else setExternalJobsLoading(false);
       }
     }
-  }, [debouncedSearch, debouncedFilters, isAuthenticated, sortMode]);
+  }, [debouncedSearch, roleHint, debouncedFilters, isAuthenticated, sortMode]);
 
   useEffect(() => {
     if (activeTab !== 'external') return;
@@ -2449,7 +2464,12 @@ const CandidateJobs = () => {
               {/* Auto-detected role hint — shown when we seeded the search
                   box from the user's profile. Compact one-line pill so the
                   list above the fold doesn't get pushed down. */}
-              {detectedRole && searchQuery && searchQuery.trim().toLowerCase() === detectedRole.trim().toLowerCase() && (
+              {/* Personalization chip. This is now the ONLY place the seeded
+                  role is visible: it is a ranking signal, not a filter, so
+                  showing it inside the search box would imply results are
+                  restricted to that title when they are not. Dismissing it
+                  drops the hint and returns the feed to pure recency. */}
+              {detectedRole && roleHint && !searchQuery && (
                 <div
                   role="status"
                   aria-live="polite"
@@ -2467,12 +2487,12 @@ const CandidateJobs = () => {
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     minWidth: 0, flex: 1,
                   }}>
-                    Recent jobs for <strong>{detectedRole}</strong>
+                    Ranked for <strong>{detectedRole}</strong>
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setSearchQuery(''); setDebouncedSearch(''); }}
-                    aria-label="Clear role filter"
+                    onClick={() => { setRoleHint(''); setAutoSeeded(prev => ({ ...prev, role: null })); }}
+                    aria-label="Stop ranking by my role"
                     style={{
                       background: 'none', border: 'none', padding: 0,
                       cursor: 'pointer', color: '#7C3AED', display: 'inline-flex',
