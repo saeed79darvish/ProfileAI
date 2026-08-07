@@ -212,6 +212,28 @@ function ensureCorpusFresh() {
  * Fetch jobs from Greenhouse Job Board API (public, no auth required)
  * API: GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true
  */
+/**
+ * Classify a failed fetch so syncBoard can react proportionally.
+ *
+ *   isRateLimit — the source is throttling us. Says nothing about the board's
+ *                 validity, so it must NOT count toward the failure streak that
+ *                 eventually deactivates a board's jobs. Left uncounted, ten
+ *                 TheirStack boards each hitting 429 every cycle would reach the
+ *                 5-failure ghost-expiry threshold and silently deactivate every
+ *                 TheirStack listing in the corpus.
+ *   isGone      — the board itself no longer exists (404 from a per-company ATS
+ *                 endpoint). Definitive, so there is no value in retrying it on
+ *                 a 15-minute cadence forever; retire the board instead.
+ */
+function tagFetchError(err, { status, source } = {}) {
+  if (status === 429) err.isRateLimit = true;
+  // 402 = out of API credits. Also a spend condition, not a broken board.
+  if (status === 402) err.isRateLimit = true;
+  // Only per-company ATS platforms can meaningfully 404 a whole board.
+  if (status === 404 && ['greenhouse', 'lever', 'ashby'].includes(source)) err.isGone = true;
+  return err;
+}
+
 async function fetchGreenhouseJobs(boardToken) {
   const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(boardToken)}/jobs?content=true`;
   const response = await fetch(url, {
@@ -220,7 +242,10 @@ async function fetchGreenhouseJobs(boardToken) {
   });
 
   if (!response.ok) {
-    throw new Error(`Greenhouse API error ${response.status}: ${response.statusText}`);
+    throw tagFetchError(
+      new Error(`Greenhouse API error ${response.status}: ${response.statusText}`),
+      { status: response.status, source: 'greenhouse' }
+    );
   }
 
   const data = await response.json();
@@ -662,10 +687,28 @@ function normalizeJSearchJob(job) {
  * Set THEIRSTACK_API_KEY in .env
  * Consumes 1 API credit per job returned.
  */
+// Shared across every TheirStack board. The account-level rate limit applies to
+// the WHOLE key, not per board, so once one board is throttled the other nine
+// are guaranteed to be throttled too. Without this each sweep produced ten
+// identical 429s (exactly the storm seen in production logs) — ten wasted round
+// trips, ten error rows, and ten increments toward the failure threshold that
+// deactivates jobs. One board discovers the limit; the rest skip instantly.
+let _theirStackCooldownUntil = 0;
+
 async function fetchTheirStackJobs(searchConfig = {}) {
   const apiKey = process.env.THEIRSTACK_API_KEY;
   if (!apiKey) {
     throw new Error('TheirStack API key not configured. Set THEIRSTACK_API_KEY in .env');
+  }
+
+  if (Date.now() < _theirStackCooldownUntil) {
+    const mins = Math.ceil((_theirStackCooldownUntil - Date.now()) / 60000);
+    // Must THROW rather than return []: syncBoard treats an empty fetch as
+    // "the board no longer lists these jobs" and deactivates every one of them.
+    throw tagFetchError(
+      new Error(`TheirStack rate-limited; cooling down ~${mins}m`),
+      { status: 429 }
+    );
   }
 
   const {
@@ -699,14 +742,34 @@ async function fetchTheirStackJobs(searchConfig = {}) {
 
     if (response.status === 402) {
       console.warn('[TheirStack] Out of API credits, stopping');
+      // Credits are account-wide, so hold off every board until the next window
+      // instead of letting the remaining nine each burn a request to learn it.
+      _theirStackCooldownUntil = Date.now() + 60 * 60 * 1000;
       break;
     }
     if (response.status === 401 || response.status === 403) {
       throw new Error('Invalid TheirStack API key. Check THEIRSTACK_API_KEY in .env');
     }
+    if (response.status === 429) {
+      // Honour the server's own guidance when present; TheirStack returns
+      // RateLimit-Reset (seconds) alongside the standard Retry-After.
+      const retryAfter = parseInt(response.headers.get('retry-after') || '', 10);
+      const reset = parseInt(response.headers.get('ratelimit-reset') || '', 10);
+      const waitSec = Number.isFinite(retryAfter) ? retryAfter
+        : Number.isFinite(reset) ? reset
+        : 15 * 60;
+      _theirStackCooldownUntil = Date.now() + Math.min(Math.max(waitSec, 60), 3600) * 1000;
+      throw tagFetchError(
+        new Error(`TheirStack rate limited; backing off ${Math.round(waitSec / 60)}m`),
+        { status: 429 }
+      );
+    }
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      throw new Error(`TheirStack API error ${response.status}: ${errText.substring(0, 200)}`);
+      throw tagFetchError(
+        new Error(`TheirStack API error ${response.status}: ${errText.substring(0, 200)}`),
+        { status: response.status }
+      );
     }
 
     const result = await response.json();
@@ -1312,7 +1375,13 @@ async function fetchHackerNewsHiringJobs(boardToken = 'monthly') {
  * stories authored by `whoishiring`.
  */
 async function findLatestHiringThreadId() {
-  const url = `https://hn.algolia.com/api/v1/search_by_date?author=${HN_HIRING_AUTHOR}&tags=story&hitsPerPage=10`;
+  // The author must be expressed as a TAG (`author_<name>`), not as its own
+  // query parameter. `?author=` is rejected outright with
+  // 400 {"code":400,"message":"Unknown parameter: author"}, which is why every
+  // sync logged "HN Algolia search error 400: Bad Request" and the
+  // "Who is hiring" source produced nothing at all.
+  const url = `https://hn.algolia.com/api/v1/search_by_date`
+    + `?tags=story,author_${HN_HIRING_AUTHOR}&hitsPerPage=10`;
   const res = await fetch(url, {
     headers: { 'Accept': 'application/json' },
     signal: AbortSignal.timeout(15000)
@@ -1732,6 +1801,20 @@ async function syncBoard(atsBoard) {
     // the board later recovers, its next successful sync upserts those jobs with
     // isActive=true again (isActive is not in NEVER_UPDATE), so a transient
     // outage that comes back simply re-lights the jobs.
+    // RATE LIMITS ARE NOT BOARD FAILURES. A 429 (or an out-of-credits 402) says
+    // the source is throttling our whole account; it says nothing about whether
+    // this board still exists or still lists these jobs. Counting them toward
+    // the failure streak meant ten TheirStack boards, each 429ing on every
+    // 15-minute sweep, would cross the 5-failure threshold within the hour and
+    // silently deactivate every TheirStack job in the corpus. So we record the
+    // error for visibility but leave the streak — and therefore the jobs —
+    // untouched.
+    if (error.isRateLimit) {
+      await atsBoard.update({ syncError: error.message, lastSyncAt: new Date() });
+      console.warn(`[ExternalJobs] ⏳ ${atsBoard.name}: rate limited — not counted as a failure`);
+      return { success: false, error: error.message, rateLimited: true, ghostsDeactivated: 0 };
+    }
+
     const failures = (atsBoard.consecutiveFailures || 0) + 1;
     const deactivateAfter = parseInt(process.env.EXTERNAL_BOARD_DEACTIVATE_AFTER_FAILURES || '5', 10);
     const deactivateAfterHours = parseInt(process.env.EXTERNAL_BOARD_DEACTIVATE_AFTER_HOURS || '24', 10);
@@ -1743,6 +1826,29 @@ async function syncBoard(atsBoard) {
       consecutiveFailures: failures,
       lastSyncAt: new Date(),
     });
+
+    // A 404 from a per-company ATS is DEFINITIVE: that board token no longer
+    // exists (company renamed its board, moved ATS, or shut down). Retrying it
+    // every 15 minutes forever — which is what the generic failure path did —
+    // buys nothing and costs a request per sweep for the rest of time. Retire
+    // the board after a couple of confirmations, so a one-off blip from a
+    // mis-served 404 doesn't retire a live board. Reversible: an admin can flip
+    // isActive back and the next sync re-lights its jobs.
+    const goneAfter = parseInt(process.env.EXTERNAL_BOARD_RETIRE_AFTER_404 || '3', 10);
+    if (error.isGone && failures >= goneAfter) {
+      await atsBoard.update({
+        isActive: false,
+        syncError: `Auto-retired: board returned 404 ${failures}x (${error.message})`,
+      });
+      const [deactivated] = await ExternalJob.update(
+        { isActive: false, lastFetchedAt: new Date() },
+        { where: { source: atsBoard.platform, boardToken: atsBoard.boardToken, isActive: true } }
+      );
+      console.warn(`[ExternalJobs] ⚰️  ${atsBoard.name}: board gone (404 x${failures}) — retired, ${deactivated || 0} job(s) deactivated`);
+      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
+      return { success: false, error: error.message, retired: true, ghostsDeactivated: deactivated || 0 };
+    }
 
     let ghostsDeactivated = 0;
     if (failures >= deactivateAfter && staleEnough) {

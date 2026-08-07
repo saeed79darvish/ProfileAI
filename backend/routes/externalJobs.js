@@ -5,7 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
 const requireVerifiedEmail = require('../middleware/requireVerifiedEmail');
 const { Op, literal } = require('sequelize');
-const { refreshIfStale, ensureCorpusFresh, startDateResync, getDateResyncStatus } = require('../services/externalJobService');
+const { startDateResync, getDateResyncStatus } = require('../services/externalJobService');
 const { startBoardDiscovery, getBoardDiscoveryStatus } = require('../services/startupBoardDiscovery');
 const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
@@ -661,12 +661,18 @@ router.get('/', optionalAuth, async (req, res) => {
             matchedSkills: intersectSkills(profileSkillSet, j.skills),
           }));
 
-          // Trigger background staleness checks — deferred to next tick so
-          // res.json() flushes first. Each refreshIfStale() does a DB lookup
-          // before deciding to no-op; running them inline steals DB pool
-          // slots from sibling /external-jobs requests in flight.
-          const boardTokens = [...new Set(semanticJobs.map(j => j.boardToken))];
-          setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
+      // NOTE: the request path no longer triggers crawling.
+      //
+      // Every listing response used to fan out refreshIfStale() per board in
+      // the result set plus a corpus-freshness probe. Each of those does a DB
+      // lookup before deciding to no-op, so user traffic was doing crawl
+      // bookkeeping on the same undersized Postgres that was serving the
+      // query — the documented cause of statement timeouts and
+      // crash-into-recovery, and why the corpus self-heal already had to be
+      // shipped behind a default-off kill switch.
+      //
+      // Freshness is owned by the 15-minute sync (ENABLE_EXTERNAL_JOBS_CRON /
+      // RUN_CRON_INLINE, see render.yaml), which is where crawling belongs.
 
           return res.json({
             jobs: semanticJobsWithMatched,
@@ -715,9 +721,18 @@ router.get('/', optionalAuth, async (req, res) => {
       const paginatedJobs = ranked.slice(offset, offset + limitNum);
       bumpCounter('keywordFallbacks');
 
-      // Trigger background staleness checks — deferred (see comment above).
-      const boardTokens = [...new Set(paginatedJobs.map(j => j.boardToken))];
-      setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
+      // NOTE: the request path no longer triggers crawling.
+      //
+      // Every listing response used to fan out refreshIfStale() per board in
+      // the result set plus a corpus-freshness probe. Each of those does a DB
+      // lookup before deciding to no-op, so user traffic was doing crawl
+      // bookkeeping on the same undersized Postgres that was serving the
+      // query — the documented cause of statement timeouts and
+      // crash-into-recovery, and why the corpus self-heal already had to be
+      // shipped behind a default-off kill switch.
+      //
+      // Freshness is owned by the 15-minute sync (ENABLE_EXTERNAL_JOBS_CRON /
+      // RUN_CRON_INLINE, see render.yaml), which is where crawling belongs.
 
       return res.json({
         jobs: paginatedJobs,
@@ -754,10 +769,18 @@ router.get('/', optionalAuth, async (req, res) => {
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
     });
 
-    // Trigger background staleness checks for boards in results —
-    // deferred so the response flushes before DB lookups fan out.
-    const boardTokens = [...new Set(jobs.map(j => j.boardToken))];
-    setImmediate(() => { boardTokens.forEach(token => refreshIfStale(token)); ensureCorpusFresh(); });
+      // NOTE: the request path no longer triggers crawling.
+      //
+      // Every listing response used to fan out refreshIfStale() per board in
+      // the result set plus a corpus-freshness probe. Each of those does a DB
+      // lookup before deciding to no-op, so user traffic was doing crawl
+      // bookkeeping on the same undersized Postgres that was serving the
+      // query — the documented cause of statement timeouts and
+      // crash-into-recovery, and why the corpus self-heal already had to be
+      // shipped behind a default-off kill switch.
+      //
+      // Freshness is owned by the 15-minute sync (ENABLE_EXTERNAL_JOBS_CRON /
+      // RUN_CRON_INLINE, see render.yaml), which is where crawling belongs.
 
     res.json({
       jobs,
@@ -1772,8 +1795,8 @@ router.get('/:id', optionalAuth, async (req, res) => {
       return res.status(404).json({ message: 'Job not found' });
     }
 
-    // Trigger staleness check for this board
-    refreshIfStale(job.boardToken);
+    // Detail views likewise do not trigger a crawl — see the note on the list
+    // handler above. The sync cron owns freshness.
 
     res.json(job);
   } catch (error) {
