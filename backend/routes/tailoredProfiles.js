@@ -80,7 +80,35 @@ router.post('/', auth, async (req, res) => {
       learningPlan: learningPlan || null,
       isActive: true
     });
-    
+
+    // Tailoring a resume FOR a specific posting is strong evidence the user is
+    // actually working on that application — much stronger than opening the ATS
+    // page. Record it as 'in_progress' and attach the tailored profile to the
+    // application row, so the two stop living in separate silos: the
+    // Applications view can show what was used to apply, and an unfinished
+    // application can be surfaced back to the user.
+    //
+    // Fire-and-forget: this is enrichment, and a failure here must never lose
+    // the user's tailored resume, which is the thing they actually asked for.
+    if (jobUrl || req.body.externalJobId) {
+      const { recordApplicationSignal } = require('../services/applicationTrackingService');
+      recordApplicationSignal({
+        userId: req.user.id,
+        externalJobId: req.body.externalJobId || null,
+        jobUrl: jobUrl || null,
+        stage: 'in_progress',
+        confirmedBy: 'tailored_resume',
+        fields: {
+          jobTitle,
+          company: companyName || 'Unknown company',
+          matchScore: matchScore || null,
+          tailoredProfileId: tailoredProfile.id,
+        },
+      }).catch((e) => {
+        console.warn('[TailoredProfiles] could not link application signal:', e.message);
+      });
+    }
+
     res.status(201).json(tailoredProfile);
   } catch (error) {
     console.error('Error saving tailored profile:', error);

@@ -401,6 +401,16 @@ const CandidateJobs = () => {
   // come from /external-jobs/check-applied (ApplyPilot submissions +
   // extension-tracked applications); internal ids from my-applications.
   const [appliedJobs, setAppliedJobs] = useState(new Set());
+  // Jobs the user OPENED or began but never confirmed applying to. Deliberately
+  // separate from appliedJobs: tapping "Apply" only opens the company's ATS in
+  // a new tab, so treating that as an application overstated what we know and
+  // badged jobs the user never applied to. These render as "Started" and get a
+  // one-tap confirmation prompt instead.
+  const [startedJobs, setStartedJobs] = useState(new Set());
+  // Per-session "not yet" dismissals for the confirmation prompt, so declining
+  // once doesn't nag on every re-render. Not persisted — a later visit may be
+  // exactly when they HAVE finished applying.
+  const [dismissedApplyPrompts, setDismissedApplyPrompts] = useState(new Set());
   const [savingJob, setSavingJob] = useState(null);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [selectedJobForAgent, setSelectedJobForAgent] = useState(null);
@@ -1053,6 +1063,12 @@ const CandidateJobs = () => {
           if (appliedIds.length > 0) {
             setAppliedJobs(prev => new Set([...prev, ...appliedIds]));
           }
+          // Jobs opened or begun but never confirmed. Kept apart from applied
+          // so the card can prompt "did you finish?" rather than assert it.
+          const startedIds = res.data.startedExternalJobIds || [];
+          if (startedIds.length > 0) {
+            setStartedJobs(prev => new Set([...prev, ...startedIds]));
+          }
         }).catch(() => {});
       }
     } catch (error) {
@@ -1385,23 +1401,55 @@ const CandidateJobs = () => {
     }
   };
 
-  // Record that the user applied to an external job when they tap "Apply Now".
-  // The real application happens off-site on the company ATS (we open it in a
-  // new tab), so this records intent. Optimistic: flag the job as applied
-  // immediately, fire-and-forget the API call, and revert only on a hard error
-  // (a 409 "already tracked" is a success — it means it's already recorded).
+  // Record that the user OPENED an external job's application page when they
+  // tap "Apply Now". The real application happens off-site on the company ATS
+  // (we open it in a new tab) and we never see whether they submitted, so this
+  // is intent only — the job moves into `startedJobs`, not `appliedJobs`.
+  // It becomes a real application when they confirm (see confirmExternalApplied)
+  // or when the extension / ApplyPilot observes an actual submission.
+  // Optimistic + fire-and-forget; a 409 means it's already recorded.
   const markExternalApplied = (jobId) => {
-    if (!jobId || !isAuthenticated || appliedJobs.has(jobId)) return;
-    setAppliedJobs(prev => new Set([...prev, jobId]));
+    if (!jobId || !isAuthenticated) return;
+    if (appliedJobs.has(jobId) || startedJobs.has(jobId)) return;
+    setStartedJobs(prev => new Set([...prev, jobId]));
     externalJobAPI.markApplied(jobId).catch(err => {
       if (err?.response?.status === 409) return; // already recorded — fine
       console.warn('Failed to record external application:', err?.response?.status, err?.message);
-      setAppliedJobs(prev => {
+      setStartedJobs(prev => {
         const s = new Set(prev);
         s.delete(jobId);
         return s;
       });
     });
+  };
+
+  // The user answering "yes, I finished applying". This is the only completion
+  // signal we get from candidates without the Chrome extension, so it's what
+  // turns a started job into a genuine application.
+  const confirmExternalApplied = (jobId) => {
+    if (!jobId || !isAuthenticated) return;
+    setAppliedJobs(prev => new Set([...prev, jobId]));
+    setStartedJobs(prev => {
+      const s = new Set(prev);
+      s.delete(jobId);
+      return s;
+    });
+    externalJobAPI.confirmApplied(jobId).catch(err => {
+      console.warn('Failed to confirm application:', err?.response?.status, err?.message);
+      // Roll back so the user can retry rather than silently believing it stuck.
+      setAppliedJobs(prev => {
+        const s = new Set(prev);
+        s.delete(jobId);
+        return s;
+      });
+      setStartedJobs(prev => new Set([...prev, jobId]));
+      toast?.error?.('Could not save that. Please try again.');
+    });
+  };
+
+  // "Not yet" — keep the row as started, just stop asking on this render pass.
+  const dismissApplyPrompt = (jobId) => {
+    setDismissedApplyPrompts(prev => new Set([...prev, jobId]));
   };
 
   const handleSendAgent = (e, job) => {
@@ -2018,6 +2066,54 @@ const CandidateJobs = () => {
                 whiteSpace: 'nowrap',
               }}>
                 <CheckIcon style={{ fontSize: 18 }} /> Applied
+              </span>
+            )}
+            {/* Completion prompt. The application itself happens on the
+                company's site, so this question is the only way to learn the
+                outcome for candidates without the Chrome extension — and
+                asking is far better than the old behaviour of assuming a click
+                meant they applied. Shown only for jobs they actually opened,
+                and only until they answer. */}
+            {!appliedJobs.has(selectedJob.id)
+              && startedJobs.has(selectedJob.id)
+              && !dismissedApplyPrompts.has(selectedJob.id) && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                borderRadius: 8,
+                background: '#FFFAEB',
+                border: '1px solid #FEDF89',
+                color: '#B54708',
+                fontSize: 13,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}>
+                Did you finish applying?
+                <button
+                  type="button"
+                  onClick={() => confirmExternalApplied(selectedJob.id)}
+                  style={{
+                    padding: '3px 10px', borderRadius: 6, border: 'none',
+                    background: '#067647', color: 'white',
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismissApplyPrompt(selectedJob.id)}
+                  style={{
+                    padding: '3px 10px', borderRadius: 6,
+                    border: '1px solid #FEDF89', background: 'white',
+                    color: '#B54708', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Not yet
+                </button>
               </span>
             )}
             <button type="button"
@@ -2836,8 +2932,9 @@ const CandidateJobs = () => {
                                 <CompanyName>{job.company}</CompanyName>
                                 {/* Desktop tags */}
                                 <JobTags>
-                                  {/* ✓ Applied pill — user already applied via
-                                      ApplyPilot or the Chrome extension. */}
+                                  {/* ✓ Applied — a CONFIRMED application:
+                                      ApplyPilot submitted, the extension saw a
+                                      real submit, or the user told us. */}
                                   {appliedJobs.has(job.id) && (
                                     <span style={{
                                       display: 'inline-flex',
@@ -2853,6 +2950,33 @@ const CandidateJobs = () => {
                                       textTransform: 'uppercase',
                                     }}>
                                       ✓ Applied
+                                    </span>
+                                  )}
+                                  {/* Started — the user opened this job's
+                                      application page but we never saw them
+                                      submit. Deliberately NOT "Applied": the
+                                      submission happens on the company's site
+                                      where we have no visibility, and claiming
+                                      otherwise is what made applied counts
+                                      untrustworthy. */}
+                                  {!appliedJobs.has(job.id) && startedJobs.has(job.id) && (
+                                    <span
+                                      title="You opened this application. Tell us if you finished so we can track it."
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        padding: '2px 8px',
+                                        borderRadius: 999,
+                                        background: '#F2F4F7',
+                                        color: '#475467',
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.04em',
+                                        textTransform: 'uppercase',
+                                      }}
+                                    >
+                                      Started
                                     </span>
                                   )}
                                   {/* ✨ NEW pill for jobs <24h old. Same fresh

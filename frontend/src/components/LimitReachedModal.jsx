@@ -3,6 +3,7 @@ import styled, { keyframes } from 'styled-components';
 import { Dialog, useMediaQuery } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { creditPackAPI } from '@/services/api';
 import { FEATURE_LABELS, readUsage, formatReset, daysUntil } from '@/utils/aiLimit';
 import {
   currentPlanFor,
@@ -360,6 +361,25 @@ const Cta = styled.button`
   transition: all 0.2s;
 
   &:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(91, 79, 224, 0.4); }
+
+  &:disabled {
+    opacity: 0.62;
+    cursor: default;
+    transform: none;
+    box-shadow: none;
+  }
+`;
+
+const ErrorLine = styled.div`
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  color: #b91c1c;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 11px;
 `;
 
 const FootRow = styled.div`
@@ -417,6 +437,8 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
 
   const [tab, setTab] = useState('plan');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [packLoading, setPackLoading] = useState(false);
+  const [packError, setPackError] = useState('');
   const [selected, setSelected] = useState(() => {
     const p = packsFor(feature);
     return (p.find((x) => x.popular) || p[0])?.id || null;
@@ -473,6 +495,39 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     price: { monthly: target.price, yearly: 0 },
   };
 
+  // Packs used to route to /pricing#credit-packs, where the user had to find
+  // and click the same pack a second time. Buy the one they selected here and
+  // hand straight to Stripe — packs have no method picker, the API returns a
+  // checkout URL directly.
+  const buyPack = async () => {
+    if (!pack || packLoading) return;
+    setPackError('');
+    setPackLoading(true);
+    try {
+      sessionStorage.setItem('upgradeReturnPath', location.pathname + location.search);
+    } catch (_) { /* private mode */ }
+
+    try {
+      const { data } = await creditPackAPI.purchase(pack.id);
+      if (data?.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+      if (data?.success) {
+        // Dev-mode instant grant: the credits exist now, so reload rather than
+        // leaving a paywall on screen for a limit that no longer applies.
+        window.location.reload();
+        return;
+      }
+      setPackError("We couldn't start checkout. Please try again.");
+      setPackLoading(false);
+    } catch (err) {
+      const raw = err?.response?.data?.error || '';
+      setPackError(raw && raw.length < 120 ? raw : "We couldn't start checkout. Please try again.");
+      setPackLoading(false);
+    }
+  };
+
   const headline = showPlan
     ? `Keep ${label.toLowerCase() === 'profile enhancement' ? 'enhancing your profile' : `using ${label}`}`
     : `You're out of ${label} credits`;
@@ -480,7 +535,10 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
   return (
     <>
     <Dialog
-      open={Boolean(limit)}
+      // Hidden, not unmounted, while the payment picker is up: one dialog on
+      // screen at a time, but the chosen tab and pack survive so closing the
+      // picker lands the user back exactly where they left.
+      open={Boolean(limit) && !checkoutOpen}
       onClose={onClose}
       maxWidth="sm"
       fullWidth
@@ -588,13 +646,19 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
             <Nudge>🕐 {target.label} gives you more credits for less each month</Nudge>
           )}
 
+          {/* Scoped to the credits tab: it's the only CTA that can fail in
+              place — plan errors surface inside the payment picker. */}
+          {packError && activeTab === 'credits' && <ErrorLine>{packError}</ErrorLine>}
+
           {activeTab === 'plan' && target ? (
             <Cta onClick={openCheckout}>
               ⚡ Upgrade to {target.label} for {money(payNow)}
             </Cta>
           ) : pack ? (
-            <Cta onClick={() => go(`/pricing?pack=${pack.id}&checkout=1#credit-packs`)}>
-              ⚡ Buy {pack.credits} credits for {money(pack.price)}
+            <Cta onClick={buyPack} disabled={packLoading}>
+              {packLoading
+                ? 'Starting checkout…'
+                : `⚡ Buy ${pack.credits} credits for ${money(pack.price)}`}
             </Cta>
           ) : (
             <Cta onClick={() => go('/pricing')}>⚡ See plan options</Cta>

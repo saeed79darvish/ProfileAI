@@ -1596,6 +1596,54 @@ router.post('/:id/applied', authMiddleware, requireVerifiedEmail, async (req, re
 });
 
 /**
+ * @route   POST /api/external-jobs/:id/confirm-applied
+ * @desc    The user tells us they finished applying. This is the ONLY signal
+ *          available for candidates without the Chrome extension: the actual
+ *          submission happens on the company's ATS, which we cannot observe,
+ *          so without asking we would either over-count every click as an
+ *          application or never record one at all.
+ *
+ *          Promotes the row to 'applied' with confirmedBy='user'. Creates the
+ *          row if the user confirms a job they never clicked through in-app.
+ *          Promotion is monotonic, so confirming something already further
+ *          along the pipeline (screening, offer) leaves it where it is.
+ * @access  Private (Candidate)
+ */
+router.post('/:id/confirm-applied', authMiddleware, requireVerifiedEmail, async (req, res) => {
+  try {
+    const job = await ExternalJob.findByPk(req.params.id, {
+      attributes: ['id', 'title', 'company', 'location', 'locationType',
+        'employmentType', 'source', 'applyUrl', 'sourceUrl'],
+    });
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+
+    const { recordApplicationSignal } = require('../services/applicationTrackingService');
+    const { application, promoted } = await recordApplicationSignal({
+      userId: req.user.id,
+      externalJobId: job.id,
+      jobUrl: job.applyUrl || job.sourceUrl || null,
+      stage: 'applied',
+      confirmedBy: 'user',
+      fields: {
+        jobTitle: job.title,
+        company: job.company,
+        location: job.location,
+        locationType: job.locationType,
+        jobType: job.employmentType,
+        platform: job.source,
+      },
+    });
+
+    res.json({ application, promoted });
+  } catch (error) {
+    console.error('Error confirming external application:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
  * @route   POST /api/external-jobs/:id/save
  * @desc    Save an external job for the current user
  * @access  Private (Candidate)

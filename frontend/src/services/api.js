@@ -1324,10 +1324,18 @@ export const externalJobAPI = {
   checkSaved: (externalJobIds) => api.post('/external-jobs/check-saved', { externalJobIds }),
   // Which of these external jobs the user already applied to (ApplyPilot
   // submissions + extension-tracked ExternalApplications, matched by URL).
+  // Returns { appliedExternalJobIds, startedExternalJobIds }. "Applied" means a
+  // CONFIRMED application (ApplyPilot submission, extension-detected submit, or
+  // the user saying so). "Started" means they opened the ATS or began the form
+  // but never confirmed — render those differently rather than claiming they
+  // applied. See backend services/applicationTrackingService.js.
   checkApplied: (externalJobIds) => api.post('/external-jobs/check-applied', { externalJobIds }),
-  // Record that the user applied to an external job (fired on "Apply Now" tap —
-  // the real application happens off-site, so this records intent). Idempotent.
+  // Fired on "Apply Now" tap. Records INTENT only (status 'clicked') — the real
+  // application happens off-site where we can't observe it. Idempotent.
   markApplied: (id) => api.post(`/external-jobs/${id}/applied`),
+  // The user confirming they finished applying. This is the only completion
+  // signal available to candidates without the Chrome extension.
+  confirmApplied: (id) => api.post(`/external-jobs/${id}/confirm-applied`),
   // "Recommended for you" rail — top N relevant + recent jobs with a per-job
   // reason string. Powers the strip at the top of the Discover tab.
   getRecommended: (limit = 8) => api.get('/external-jobs/recommended', { params: { limit } }),
