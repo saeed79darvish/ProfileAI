@@ -503,7 +503,37 @@ router.post('/enhancement-suggestions', authMiddleware, aiRateLimiter('career_su
 // @route   POST /api/profiles/analyze-gaps
 // @desc    Analyze skill gaps between profile/resume and job description
 // @access  Private
-router.post('/analyze-gaps', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
+// Cache lookup runs BEFORE aiRateLimiter deliberately. Re-opening a job used to
+// re-run the model and decrement the user's AI quota for a report that could
+// not have changed — a candidate comparing a handful of roles could burn their
+// allowance re-deriving analyses they had already read. Serving from cache is
+// only honest if it is also free, so the hit must short-circuit ahead of the
+// limiter rather than after it.
+//
+// The cache key hashes the PROFILE alongside the job text, so editing skills or
+// experience produces a different key and the next analysis is computed fresh.
+// Identical profile + identical job can only yield the same answer.
+async function analyzeGapsCacheHit(req, res, next) {
+  try {
+    const { profileData, jobDescription } = req.body || {};
+    if (!profileData || !jobDescription) return next();
+    const { getCachedAnalysis } = require('../services/aiAnalysisCacheService');
+    const cached = await getCachedAnalysis({
+      kind: 'analyze_gaps',
+      userId: req.user.id,
+      profileData,
+      jobDescription,
+    });
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+  } catch (e) {
+    console.warn('[analyze-gaps] cache probe failed, continuing:', e.message);
+  }
+  return next();
+}
+
+router.post('/analyze-gaps', authMiddleware, analyzeGapsCacheHit, aiRateLimiter('tailor_profile'), async (req, res) => {
   try {
     const { profileData, jobDescription } = req.body;
 
@@ -531,11 +561,23 @@ router.post('/analyze-gaps', authMiddleware, aiRateLimiter('tailor_profile'), as
     // Record AI usage
     await recordAIUsage(req.user.id, 'analyze_gaps');
 
-    res.json({
+    const payload = {
       success: true,
       gaps: result.gaps,
       satisfiedAlternatives: result.satisfiedAlternatives || []
+    };
+    // Store for next time. Awaited failures are swallowed inside the service —
+    // a cache write must never cost the user the answer they just paid for.
+    const { setCachedAnalysis } = require('../services/aiAnalysisCacheService');
+    await setCachedAnalysis({
+      kind: 'analyze_gaps',
+      userId: req.user.id,
+      profileData,
+      jobDescription,
+      result: payload,
     });
+
+    res.json(payload);
 
   } catch (error) {
     console.error('Error analyzing gaps:', error);

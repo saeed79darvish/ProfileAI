@@ -68,6 +68,7 @@ const UserBadge = require('./UserBadge')(sequelize);
 // Guest LinkedIn Profile Analyzer (unauthenticated teaser flow)
 const GuestAIUsage = require('./GuestAIUsage');
 const GuestAnalysisCache = require('./GuestAnalysisCache');
+const AiAnalysisCache = require('./AiAnalysisCache');
 const GuestLead = require('./GuestLead');
 
 // In-house analytics event log
@@ -1086,6 +1087,7 @@ module.exports = {
   // Guest LinkedIn Profile Analyzer
   GuestAIUsage,
   GuestAnalysisCache,
+  AiAnalysisCache,
   GuestLead,
   // In-house analytics
   AnalyticsEvent

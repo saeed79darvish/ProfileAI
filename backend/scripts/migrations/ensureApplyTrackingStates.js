@@ -148,6 +148,14 @@ async function _up({ verbose = true } = {}) {
   `);
   log('  ✓ (userId, normalizedJobUrl) index present');
 
+  // AI analysis cache table. Lives here rather than in the background schema
+  // guard because the analyze-gaps route reads it on the request path — if the
+  // table is missing the probe logs a warning on every call. Additive and
+  // idempotent; Sequelize owns the column definitions via the model.
+  const { AiAnalysisCache } = require('../../models');
+  await AiAnalysisCache.sync();
+  log('  ✓ AiAnalysisCaches table ready');
+
   log('✅ apply-tracking states ready.');
   return { legacyStamped: legacyMeta?.rowCount ?? 0, normalized };
 }
