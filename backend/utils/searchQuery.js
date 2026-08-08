@@ -149,10 +149,23 @@ function sanitizeTokens(search) {
 }
 
 // Render one concept group (list of token-array alternatives) into a tsquery
-// fragment: `(front:* & end:*) | frontend:*` etc.
+// fragment: `(front & end) | frontend` etc.
+//
+// Expansion tokens are matched EXACTLY, not as prefixes. They are canonical
+// names we chose ourselves, not partial input someone is still typing, so a
+// prefix here buys nothing and costs precision: `react:*` also matches
+// "reactor", "reaction" and "reactive". That is not hypothetical — a nuclear
+// "Reactor Engineering" department matched a Frontend Engineer search, scored a
+// full-strength lexical hit, and put an Instrumentation and Controls Engineer
+// at the top of a frontend candidate's feed at "65% · Strong match".
+//
+// Nothing real is lost: English stemming already collapses morphology, so exact
+// `engineer` matches "Engineering" (both stem to 'engin') and exact `frontend`
+// matches "Frontends". Prefix matching is still applied to tokens the USER
+// typed (below), where a partial word genuinely is likely.
 function renderGroup(alternatives) {
   const parts = alternatives.map((tokens) => {
-    const anded = tokens.map((t) => `${t}:*`).join(' & ');
+    const anded = tokens.join(' & ');
     return tokens.length > 1 ? `(${anded})` : anded;
   });
   return parts.length > 1 ? `(${parts.join(' | ')})` : parts[0];
