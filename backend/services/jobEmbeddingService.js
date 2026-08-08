@@ -888,6 +888,13 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // Defense-in-depth, unconditionally:
   //   - company name is NOT on the curated non-startup deny-list.
   //   - the linked Company's funding stage is NOT late/IPO/Series D+.
+  if (options.hideStale) {
+    // Mirror of the keyword path's hideStale filter — the two must agree or the
+    // same request would return different sets depending on whether the user
+    // happened to have a profile embedding.
+    conditions.push(`COALESCE(ej."ghostScore", 0) < ${parseInt(process.env.GHOST_THRESHOLD || '50', 10)}`);
+  }
+
   if (startup) {
     conditions.push(`(ej."source" = 'hn_hiring' OR ej."isStartup" = true)`);
     // Hard deny-list on company name. Bound as a text[] so PostgreSQL
@@ -1079,8 +1086,16 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     ) / 30.0)`;
   const REL_WEIGHT = parseFloat(process.env.JOBS_RANK_REL_WEIGHT || '0.8');
   const FRESH_WEIGHT = Math.max(0, 1 - REL_WEIGHT);
+  // Ghost-job demotion. A listing nobody is actually hiring for is worse than a
+  // merely mediocre match — it wastes an application. Subtracted rather than
+  // used as a filter: a slow-to-fill senior role scores like a ghost, and we
+  // cannot tell the difference from outside, so a suspected ghost sinks but
+  // stays reachable. At the maximum score this costs 0.35, enough to push a
+  // listing well down without ever erasing a strong match entirely.
+  const GHOST_PENALTY_WEIGHT = parseFloat(process.env.JOBS_GHOST_PENALTY || '0.35');
+  const ghostPenaltyExpr = `(${GHOST_PENALTY_WEIGHT} * (COALESCE(ej."ghostScore", 0) / 100.0))`;
   const recommendedRankExpr =
-    `(${REL_WEIGHT} * (${orderingRelevanceExpr}) + ${FRESH_WEIGHT} * (${freshnessNormExpr}))`;
+    `(${REL_WEIGHT} * (${orderingRelevanceExpr}) + ${FRESH_WEIGHT} * (${freshnessNormExpr}) - ${ghostPenaltyExpr})`;
 
   // Badge percentage. Deliberately the SAME normalised scale the ordering uses,
   // so the number a candidate reads agrees with the position they see it in.
@@ -1191,6 +1206,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       ej."salaryMin", ej."salaryMax", ej."salaryCurrency", ej."salaryPeriod",
       ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."effectivePostedAt", ej."isActive",
       ej."lastFetchedAt", ej."createdAt", ej."updatedAt",
+      ej."ghostScore", ej."ghostReasons",
       ${scoreExpr} as "relevanceScore",
       json_build_object(
         'id', c.id, 'name', c.name, 'slug', c.slug, 'domain', c.domain,
@@ -1212,6 +1228,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
       ej."salaryMin", ej."salaryMax", ej."salaryCurrency", ej."salaryPeriod",
       ej."applyUrl", ej."sourceUrl", ej."postedAt", ej."effectivePostedAt", ej."isActive",
       ej."lastFetchedAt", ej."createdAt", ej."updatedAt",
+      ej."ghostScore", ej."ghostReasons",
       ${scoreExpr} as "relevanceScore",
       json_build_object(
         'id', c.id, 'name', c.name, 'slug', c.slug, 'domain', c.domain,

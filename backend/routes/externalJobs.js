@@ -78,6 +78,7 @@ function buildJobsListCacheKey(userId, q) {
     sk: skills,
     src: q.source || '',
     st: String(q.startup || '').toLowerCase() === 'true' ? '1' : '',
+    hs: String(q.hideStale || '').toLowerCase() === 'true' ? '1' : '',
   };
   return `external_jobs:list:${Object.entries(norm).map(([k, v]) => `${k}=${v}`).join('|')}`;
 }
@@ -529,6 +530,19 @@ router.get('/', optionalAuth, async (req, res) => {
       where.source = source;
     }
 
+    // "Hide stale postings" — drops listings our ghost-job scoring says are
+    // probably not live vacancies (pipeline/talent-pool ads, listings alive for
+    // months, dates refreshed indefinitely). Opt-in rather than default: the
+    // score is a judgement call, and silently hiding a slow-to-fill role the
+    // candidate wanted is worse than showing it with a caveat.
+    if (String(req.query.hideStale || '').toLowerCase() === 'true') {
+      const { GHOST_THRESHOLD } = require('../services/ghostJobDetector');
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        literal(`COALESCE("ExternalJob"."ghostScore", 0) < ${GHOST_THRESHOLD}`),
+      ];
+    }
+
     if (department) {
       where.department = { [Op.iLike]: `%${department}%` };
     }
@@ -635,6 +649,7 @@ router.get('/', optionalAuth, async (req, res) => {
             // paths when the user hasn't chosen an explicit datePosted.
             defaultMaxAgeDays: !datePosted ? defaultMaxAgeDays : 0,
             startup: wantStartup,
+            hideStale: String(req.query.hideStale || '').toLowerCase() === 'true',
             // Strict salary policy — jobs without a listed salary are
             // excluded when a band is selected. Same policy as the
             // non-semantic path below; if you change one, change both.
@@ -1127,10 +1142,16 @@ router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => 
       skillExtraction = { error: e.message };
     }
 
+    let ghost = null;
+    try {
+      ghost = await require('../services/ghostJobDetector').getGhostStats();
+    } catch (e) { ghost = { error: e.message }; }
+
     res.json({
       generatedAt: new Date().toISOString(),
       corpus: {
         totalActive,
+        ghost,
         bySource: bySource.map(r => ({ source: r.source, count: parseInt(r.count, 10) })),
         freshness,
         skillExtraction,

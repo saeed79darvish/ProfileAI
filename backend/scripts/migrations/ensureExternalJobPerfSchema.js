@@ -221,6 +221,29 @@ async function up() {
       AND "employmentType" NOT IN ('full-time','part-time','contract','internship','temporary');
   `);
 
+  // Ghost-job scoring columns (services/ghostJobDetector.js). Additive and
+  // nullable-with-default, so catalog-only. Safe to add late: nothing errors
+  // without them, listings simply aren't scored yet.
+  await runStep('ghost-job columns', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ExternalJobs"
+      ADD COLUMN IF NOT EXISTS "ghostScore" INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS "ghostReasons" JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS "ghostCheckedAt" TIMESTAMP WITH TIME ZONE;
+  `);
+  // Supports both the "hide stale postings" filter and the sweep's own
+  // "what still needs scoring?" probe.
+  await runStep('ghost-score index', `
+    CREATE INDEX IF NOT EXISTS external_jobs_ghost_score_idx
+    ON "ExternalJobs" ("ghostScore")
+    WHERE "isActive" = TRUE;
+  `);
+  await runStep('ghost-recheck index', `
+    CREATE INDEX IF NOT EXISTS external_jobs_ghost_checked_idx
+    ON "ExternalJobs" ("ghostCheckedAt")
+    WHERE "isActive" = TRUE;
+  `);
+
   // Exact-equality chip filters.
   for (const col of ['locationType', 'employmentType', 'experienceLevel']) {
     await runStep(`b-tree ${col}`, `

@@ -826,6 +826,24 @@ const startServer = async () => {
         console.log('[SkillBackfill] disabled');
       }
 
+      // Ghost-job rescoring. Age is one of the inputs, so a listing's score
+      // decays into staleness on its own — this is a recurring sweep, not a
+      // one-shot backfill. Pure SQL (no model calls, no outbound HTTP), so it
+      // is cheap; the batch is bounded and single-flight regardless.
+      // Disable with ENABLE_GHOST_SCAN=false.
+      if (process.env.ENABLE_GHOST_SCAN !== 'false') {
+        const { scanGhostJobs } = require('./services/ghostJobDetector');
+        const ghostIntervalMs = parseInt(process.env.GHOST_SCAN_INTERVAL_MS || '3600000', 10);
+        const ghostTick = () => scanGhostJobs()
+          .then(r => { if (r.scanned) console.log(`[GhostScan] rescored ${r.scanned}, flagged ${r.flagged}/${r.total}`); })
+          .catch(err => console.warn('[GhostScan] error:', err.message));
+        setTimeout(ghostTick, 120000);
+        setInterval(ghostTick, ghostIntervalMs);
+        console.log(`[GhostScan] ✓ enabled (every ${Math.round(ghostIntervalMs / 60000)}m)`);
+      } else {
+        console.log('[GhostScan] disabled');
+      }
+
       // Disk-reclaim: prune long-inactive ExternalJobs. Deactivated jobs (no
       // longer in any board's fetch) are never shown again but keep a row +
       // 1536-dim embedding + index entries forever, steadily bloating the DB

@@ -77,6 +77,34 @@ const ExternalJob = sequelize.define('ExternalJob', {
     type: DataTypes.DATE,
     allowNull: true
   },
+  // ── Ghost-job signals (services/ghostJobDetector.js) ────────────────────
+  // A "ghost job" is a real company's real-looking posting that nobody is
+  // actually hiring for: evergreen pipeline ads, roles left up after they were
+  // filled, listings whose date is refreshed indefinitely. Distinct from the
+  // fraud detection in jobScamDetector.js, which reads the TEXT for scam
+  // patterns; these are behavioural signals that only emerge over time.
+  //
+  // 0-100. Scored, never used to delete: a slow-to-fill senior role can look
+  // identical to a ghost, and the candidate cannot tell us when we guess wrong.
+  // High scores demote in ranking and surface a hint instead.
+  ghostScore: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  },
+  // Human-readable reasons behind the score, so a flag can always be explained
+  // rather than being an unaccountable number.
+  ghostReasons: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: []
+  },
+  // Age is a component of the score, so the score DECAYS INTO STALENESS on its
+  // own — it has to be recomputed on a schedule, unlike a one-shot backfill.
+  ghostCheckedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   salaryMin: {
     type: DataTypes.INTEGER,
     allowNull: true

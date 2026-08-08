@@ -476,7 +476,8 @@ const CandidateJobs = () => {
     skills: searchParams.get('skills') || '',
     // Boolean toggle: limit list to startups (HN postings + small / early-
     // stage companies). Sent to the API as ?startup=true.
-    startup: searchParams.get('startup') === 'true'
+    startup: searchParams.get('startup') === 'true',
+    hideStale: searchParams.get('hideStale') === 'true'
   });
   // `filters` updates instantly so chips/dropdowns highlight on click.
   // `debouncedFilters` is what the network requests read — toggling several
@@ -902,6 +903,7 @@ const CandidateJobs = () => {
         salary: filters.salary,
         skills: filters.skills,
         startup: filters.startup ? 'true' : '',
+        hideStale: filters.hideStale ? 'true' : '',
         // Persist sort only when it deviates from the default so a clean URL
         // stays clean. The default is 'recommended', NOT 'recent' — this
         // previously tested against 'recent', which meant picking "Newest"
@@ -978,6 +980,7 @@ const CandidateJobs = () => {
       }
       if (debouncedFilters.skills) params.skills = debouncedFilters.skills;
       if (debouncedFilters.startup) params.startup = 'true';
+      if (debouncedFilters.hideStale) params.hideStale = 'true';
       // Always send sort to the backend so the user's choice (incl. the new
       // default 'recent') is honored. Backend defaults to 'recommended' if
       // the param is missing, so we'd otherwise silently fall back.
@@ -1504,7 +1507,7 @@ const CandidateJobs = () => {
     // the Discover tab so a reset from Saved/Applied lands them on a
     // populated surface rather than an empty user-scoped list. The URL
     // sync effect picks all of this up and strips every owned param.
-    const empty = { locationType: '', location: '', datePosted: '', experienceLevel: '', company: '', department: '', employmentType: '', salary: '', skills: '', startup: false };
+    const empty = { locationType: '', location: '', datePosted: '', experienceLevel: '', company: '', department: '', employmentType: '', salary: '', skills: '', startup: false, hideStale: false };
     setFilters(empty);
     setDebouncedFilters(empty);
     setLocationInput('');
@@ -2556,6 +2559,18 @@ const CandidateJobs = () => {
                   >
                     🚀 Startups {filters.startup && '✓'}
                   </FilterChip>
+                  {/* Hide listings our ghost-job scoring says are probably not
+                      live vacancies. Opt-in, never the default: the score is a
+                      judgement call, and hiding a slow-to-fill role the
+                      candidate actually wanted is worse than showing it with a
+                      caveat. See backend services/ghostJobDetector.js. */}
+                  <FilterChip
+                    $active={!!filters.hideStale}
+                    onClick={() => handleFilterChange('hideStale', !filters.hideStale)}
+                    title="Hide postings that look like they aren't actively hiring: talent-pool and pipeline ads, roles listed for months, and listings whose date keeps being refreshed"
+                  >
+                    👻 Hide ghost jobs {filters.hideStale && '✓'}
+                  </FilterChip>
                   {/* Location (city/country text search + list) */}
                   <div style={{ position: 'relative' }}>
                     <FilterChip
@@ -3003,6 +3018,25 @@ const CandidateJobs = () => {
                                       textTransform: 'uppercase',
                                     }}>
                                       ✓ Applied
+                                    </span>
+                                  )}
+                                  {/* Ghost-job caveat. Shown rather than the
+                                      job being hidden: we cannot distinguish a
+                                      genuine slow-to-fill role from a pipeline
+                                      ad with certainty, so the candidate gets
+                                      the reason and decides. */}
+                                  {job.ghostScore >= 50 && (
+                                    <span
+                                      title={(job.ghostReasons || []).join(' · ') || 'May not be actively hiring'}
+                                      style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 3,
+                                        padding: '2px 8px', borderRadius: 999,
+                                        background: '#FFFAEB', color: '#B54708',
+                                        fontSize: 10, fontWeight: 700,
+                                        letterSpacing: '0.04em', textTransform: 'uppercase',
+                                      }}
+                                    >
+                                      May not be hiring
                                     </span>
                                   )}
                                   {/* Started — the user opened this job's
