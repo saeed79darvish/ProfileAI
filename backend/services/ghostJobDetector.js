@@ -44,8 +44,15 @@
 const sequelize = require('../config/database');
 
 const WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
-const BATCH_SIZE = parseInt(process.env.GHOST_SCAN_BATCH || '5000', 10);
-const MAX_BATCHES = 200;
+// 400, not 5000. Each row evaluates the score plus a correlated subquery with
+// seven UNION ALL branches to build its reasons, so a 5000-row batch is ~35k
+// subquery evaluations in ONE statement. That completed in ~6s on a dev machine
+// but production runs 5x the rows on a 256MB instance with far less cache, and
+// a batch that overruns the statement timeout aborts the whole sweep — leaving
+// every row unscored, which is exactly what happened on first deploy. Smaller
+// batches cost a few more round trips and make a stall impossible.
+const BATCH_SIZE = parseInt(process.env.GHOST_SCAN_BATCH || '400', 10);
+const MAX_BATCHES = parseInt(process.env.GHOST_SCAN_MAX_BATCHES || '400', 10);
 // Age is part of the score, so a row's score goes stale on its own and must be
 // recomputed periodically — this is not a one-shot backfill.
 const RECHECK_AFTER_DAYS = parseInt(process.env.GHOST_RECHECK_DAYS || '3', 10);
@@ -130,6 +137,12 @@ const REASONS_SQL = `(
 )`;
 
 let _inFlight = false;
+// Last outcome, surfaced on the admin health endpoint. A sweep that fails only
+// into a log line is undiagnosable on a platform where you cannot tail logs —
+// the first production run failed exactly that way and looked identical to
+// "the corpus is young and nothing qualifies".
+let _lastRun = { at: null, scanned: 0, error: null };
+function getLastRun() { return { ..._lastRun }; }
 
 /**
  * Rescore a bounded batch of active listings whose score is missing or stale.
@@ -167,6 +180,7 @@ async function scanGhostJobs({ limit = BATCH_SIZE } = {}) {
       if (updated === 0) break;
       scanned += updated;
     }
+    _lastRun = { at: new Date().toISOString(), scanned, error: null };
 
     const [[agg]] = await sequelize.query(
       `SELECT COUNT(*) FILTER (WHERE "ghostScore" >= ${GHOST_THRESHOLD})::int flagged,
@@ -176,6 +190,16 @@ async function scanGhostJobs({ limit = BATCH_SIZE } = {}) {
     ).then((r) => [r]);
 
     return { scanned, flagged: agg.flagged, total: agg.total };
+  } catch (err) {
+    // Surface the real cause. `err.message` alone hides the useful part of a
+    // Postgres error, so keep the driver's detail too.
+    _lastRun = {
+      at: new Date().toISOString(),
+      scanned: 0,
+      error: `${err.message}${err.parent ? ` | ${err.parent.message}` : ''}`,
+    };
+    console.error('[GhostScan] failed:', _lastRun.error);
+    throw err;
   } finally {
     _inFlight = false;
   }
@@ -194,4 +218,4 @@ async function getGhostStats() {
   return row;
 }
 
-module.exports = { scanGhostJobs, getGhostStats, GHOST_THRESHOLD, SCORE_SQL };
+module.exports = { scanGhostJobs, getGhostStats, getLastRun, GHOST_THRESHOLD, SCORE_SQL };

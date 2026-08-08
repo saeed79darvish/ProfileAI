@@ -1144,7 +1144,8 @@ router.get('/health', authMiddleware, requireVerifiedEmail, async (req, res) => 
 
     let ghost = null;
     try {
-      ghost = await require('../services/ghostJobDetector').getGhostStats();
+      const gd = require('../services/ghostJobDetector');
+      ghost = { ...(await gd.getGhostStats()), lastRun: gd.getLastRun() };
     } catch (e) { ghost = { error: e.message }; }
 
     res.json({
