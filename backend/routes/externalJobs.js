@@ -8,7 +8,7 @@ const { Op, literal } = require('sequelize');
 const { startDateResync, getDateResyncStatus } = require('../services/externalJobService');
 const { startBoardDiscovery, getBoardDiscoveryStatus } = require('../services/startupBoardDiscovery');
 const { rankJobs } = require('../services/jobRelevanceService');
-const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, getCachedSearchEmbedding, warmSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
+const { searchSimilarJobs, generateProfileQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
@@ -609,13 +609,13 @@ router.get('/', optionalAuth, async (req, res) => {
         // filter regardless. So we use it when it is already cached, and
         // otherwise render immediately and warm the cache for subsequent
         // requests.
-        let searchEmbedding = null;
+        // No third-party call on the request path any more. The role/query text
+        // is ranked lexically against the title vector inside Postgres (see
+        // searchSimilarJobs), which measured far more discriminating than an
+        // embedding for this purpose AND costs nothing. The profile embedding
+        // still supplies the semantic signal, and it is already stored on the
+        // row rather than fetched per request.
         const rankingText = search || roleHint;
-        if (rankingText) {
-          searchEmbedding = getCachedSearchEmbedding(rankingText);
-          if (!searchEmbedding) warmSearchQueryEmbedding(rankingText);
-          stamp('searchEmb');
-        }
 
         try {
           const semanticResult = await searchSimilarJobs(profileEmbedding, {
@@ -624,7 +624,7 @@ router.get('/', optionalAuth, async (req, res) => {
             locationType: locationType || null,
             location: location || null,
             search: search || null,
-            searchEmbedding: searchEmbedding || null,
+            rankText: rankingText || null,
             datePosted: datePosted || null,
             company: company || null,
             experienceLevel: experienceLevel || null,

@@ -696,7 +696,7 @@ async function generateSearchQueryEmbedding(searchText) {
  * @returns {Object[]} - Jobs with relevanceScore (0-100)
  */
 async function searchSimilarJobs(profileEmbedding, options = {}) {
-  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, datePosted = null, defaultMaxAgeDays = 0, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
+  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, rankText = null, datePosted = null, defaultMaxAgeDays = 0, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
   const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
 
   const conditions = [
@@ -714,11 +714,30 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const binds = [JSON.stringify(profileEmbedding), limit, offset];
   let bindIndex = 4;
 
-  // If searchEmbedding is provided, it goes in as the next bind slot
-  let searchEmbBindIdx = null;
-  if (searchEmbedding) {
-    searchEmbBindIdx = bindIndex;
-    binds.push(JSON.stringify(searchEmbedding));
+  // Role/query text is scored LEXICALLY against the title vector rather than by
+  // embedding it. Measured on this corpus for "Frontend Engineer":
+  //
+  //                        cosine        ts_rank_cd on title
+  //     frontend roles      0.543          0.899  (22/22 matched)
+  //     generic software    0.465          0.012  ( 6/330)
+  //     solutions engineer  0.453          0.000  ( 0/57)
+  //     sales               0.464          0.000  ( 0/184)
+  //
+  // Cosine separates a frontend role from a SALES role by 0.08; the lexical
+  // rank separates them completely. It is also free, needs no third-party call
+  // on the request path, and is served by the existing searchTsvAB GIN index.
+  // buildJobSearchTsquery expands synonyms (frontend | react | angular | vue |
+  // ui) & (engineer | developer | programmer), so this is not naive substring
+  // matching.
+  //
+  // Crucially it is a RANKING term, not a filter — off-target roles score 0 and
+  // sink, but stay in the result set, which is what went wrong when the role
+  // was applied as a hard WHERE clause.
+  let rankTsqBindIdx = null;
+  const rankTsq = rankText ? buildJobSearchTsquery(rankText) : null;
+  if (rankTsq) {
+    rankTsqBindIdx = bindIndex;
+    binds.push(rankTsq);
     bindIndex++;
   }
 
@@ -918,7 +937,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // $2 (limit), $3 (offset), or the optional searchEmbedding bind. We must
   // re-index the filter-only params so PostgreSQL gets the right bind count.
   // filterBinds holds only the values for $4+ (filters); we remap $4→$1, $5→$2, etc.
-  const filterBindStartIndex = searchEmbedding ? 5 : 4; // $4 or $5 depending on searchEmbedding
+  const filterBindStartIndex = rankTsq ? 5 : 4; // $4, or $5 when a rank tsquery is bound
   const filterBinds = binds.slice(filterBindStartIndex - 1); // 0-based: slice(3) or slice(4)
 
   // Rebuild WHERE clause with re-indexed bind params for the count query
@@ -1026,10 +1045,12 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
   // Blended similarity: search/roleHint text dominates, profile provides the
   // background signal. NULL when the row has no embedding yet.
-  const blendedCosExpr = searchEmbBindIdx
-    ? `(0.7 * (1 - (ej.embedding <=> $${searchEmbBindIdx}::vector))
-        + 0.3 * (1 - (ej.embedding <=> $1::vector)))`
-    : `(1 - (ej.embedding <=> $1::vector))`;
+  const profileCosExpr = `(1 - (ej.embedding <=> $1::vector))`;
+  // Normalised lexical title match, 0..1. ts_rank_cd for a solid title hit sits
+  // around 0.9, so 0.5 is a generous saturation point.
+  const lexNormExpr = rankTsqBindIdx
+    ? `LEAST(1.0, ts_rank_cd(ej."searchTsvAB", to_tsquery('english', $${rankTsqBindIdx})) / 0.5)`
+    : null;
 
   // Un-embedded rows. New jobs are embedded asynchronously after ingest, and a
   // large share of the freshest listings have no vector yet, so this value
@@ -1038,7 +1059,15 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // outranked most real matches purely by being new. Low-but-nonzero keeps
   // them visible in the body of the list until the embedding sweep catches up.
   const NEUTRAL_REL_NORM = parseFloat(process.env.JOBS_REL_NEUTRAL || '0.15');
-  const orderingRelevanceExpr = `COALESCE(${normalizeRel(blendedCosExpr)}, ${NEUTRAL_REL_NORM})`;
+  // Profile fit still carries the semantic load — it recognises a relevant job
+  // whose title lacks the keyword — but the lexical term decides the top of the
+  // list, because it is the signal that actually discriminates. The profile
+  // embedding is read from the row we already store, so unlike the old query
+  // embedding it costs no API call at request time.
+  const vecRelExpr = `COALESCE(${normalizeRel(profileCosExpr)}, ${NEUTRAL_REL_NORM})`;
+  const orderingRelevanceExpr = lexNormExpr
+    ? `(0.6 * ${lexNormExpr} + 0.4 * ${vecRelExpr})`
+    : vecRelExpr;
 
   // Freshness, normalised to 0..1 over a 30-day horizon rather than used as a
   // multiplier. Weighted well below relevance so it breaks ties among
@@ -1060,7 +1089,9 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // both a "Good match". On the normalised scale those become ~15% and ~85%.
   // Rows with no embedding yet report 0 rather than the neutral ordering value,
   // because "we have not scored this" should not render as a confident number.
-  const scoreExpr = `ROUND(COALESCE(${normalizeRel(blendedCosExpr)}, 0) * 100)`;
+  const scoreExpr = lexNormExpr
+    ? `ROUND((0.6 * ${lexNormExpr} + 0.4 * COALESCE(${normalizeRel(profileCosExpr)}, 0)) * 100)`
+    : `ROUND(COALESCE(${normalizeRel(profileCosExpr)}, 0) * 100)`;
 
   // ORDER BY differs by sort mode:
   //   recommended → latest posted first, exact score tiebreak
