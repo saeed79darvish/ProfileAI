@@ -1323,6 +1323,19 @@ async function fetchHackerNewsHiringJobs(boardToken = 'monthly') {
       parsed = null;
     }
     if (!parsed) { skipped++; continue; }
+
+    // Drop postings we cannot actually send a candidate to. Some HN comments
+    // carry no link at all — "apply directly to the email address in my HN
+    // profile" — and the only apply target we could offer is the thread itself.
+    // On a job board that is a dead end: the card promises "Apply Now" and
+    // reopens the comment the user just came from. ~12% of HN postings are
+    // like this, while the other 88% do carry a real careers link, so the fix
+    // is this per-posting bar rather than dropping the source.
+    // Set HN_REQUIRE_APPLY_URL=false to keep them.
+    if (process.env.HN_REQUIRE_APPLY_URL !== 'false') {
+      const apply = parsed.applyUrl || '';
+      if (!apply || /news\.ycombinator\.com/i.test(apply)) { skipped++; continue; }
+    }
     if (parsed.method === 'llm') llmHits++; else regexHits++;
 
     const postedAt = comment.created_at_i ? new Date(comment.created_at_i * 1000)
