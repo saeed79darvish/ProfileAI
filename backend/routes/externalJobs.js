@@ -8,7 +8,7 @@ const { Op, literal } = require('sequelize');
 const { startDateResync, getDateResyncStatus } = require('../services/externalJobService');
 const { startBoardDiscovery, getBoardDiscoveryStatus } = require('../services/startupBoardDiscovery');
 const { rankJobs } = require('../services/jobRelevanceService');
-const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
+const { searchSimilarJobs, generateProfileQueryEmbedding, generateSearchQueryEmbedding, getCachedSearchEmbedding, warmSearchQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
@@ -598,14 +598,22 @@ router.get('/', optionalAuth, async (req, res) => {
         // Embed whichever query text we have. A typed `search` ALSO applies its
         // hard tsquery filter (below); a `roleHint` does not — it only shifts
         // the ordering, so the full fresh pool stays eligible.
+        // NEVER block the response on OpenAI. This used to await the embedding
+        // with a 2.5s timeout and a retry, so the first request for any term
+        // whose cache entry had expired paid up to ~5s before the query even
+        // started — and since the profile-derived roleHint flows through here,
+        // that hit ordinary jobs-page loads, not just searches.
+        //
+        // The embedding only sharpens the ORDER BY: the profile vector still
+        // ranks without it, and a typed search still applies its full-text
+        // filter regardless. So we use it when it is already cached, and
+        // otherwise render immediately and warm the cache for subsequent
+        // requests.
         let searchEmbedding = null;
         const rankingText = search || roleHint;
         if (rankingText) {
-          try {
-            searchEmbedding = await generateSearchQueryEmbedding(rankingText);
-          } catch (e) {
-            console.warn('[ExternalJobs] Could not generate search embedding:', e.message);
-          }
+          searchEmbedding = getCachedSearchEmbedding(rankingText);
+          if (!searchEmbedding) warmSearchQueryEmbedding(rankingText);
           stamp('searchEmb');
         }
 

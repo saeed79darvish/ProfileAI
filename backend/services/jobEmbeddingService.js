@@ -33,7 +33,13 @@ const PROFILE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 // for "frontend" returns instantly. Bounded to 500 entries (FIFO
 // eviction) to keep memory predictable.
 const searchEmbeddingCache = new Map();
-const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+// 6 hours, not 15 minutes. The mapping from query text to embedding is
+// deterministic and can never go stale — the only reason to expire it at all is
+// memory. A short TTL meant that every 15 minutes the first user to search a
+// given term (or the first to load the jobs page, since the profile-derived
+// roleHint goes through here too) paid a live OpenAI round trip before their
+// results could be ranked.
+const SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const SEARCH_CACHE_MAX_ENTRIES = 500;
 
 // In-memory cache for the COUNT(*) query in searchSimilarJobs.
@@ -599,6 +605,30 @@ async function regenerateProfileOpenAIEmbedding(profile) {
  * share an entry. Cache is server-wide (no userId) because the
  * embedding is purely a function of the query text.
  */
+/**
+ * Read-only cache probe. Lets a request decide whether the embedding is
+ * available RIGHT NOW without ever blocking on OpenAI — see warmSearchQueryEmbedding.
+ */
+function getCachedSearchEmbedding(searchText) {
+  if (!searchText || searchText.trim().length < 2) return null;
+  const entry = searchEmbeddingCache.get(`search:${searchText.trim().toLowerCase()}`);
+  return entry && entry.expiresAt > Date.now() ? entry.embedding : null;
+}
+
+/**
+ * Populate the cache in the background. Never awaited by a request.
+ *
+ * Ranking quality degrades gracefully without a query embedding — the profile
+ * vector still ranks, and a typed search still applies its full-text filter —
+ * so blocking a page render on a third-party API call to get a slightly better
+ * ORDER BY is a bad trade. The first request for an uncached term renders
+ * immediately with profile-only ranking and warms the cache for everyone after.
+ */
+function warmSearchQueryEmbedding(searchText) {
+  if (!searchText || getCachedSearchEmbedding(searchText)) return;
+  generateSearchQueryEmbedding(searchText).catch(() => { /* cache stays cold; retried next request */ });
+}
+
 async function generateSearchQueryEmbedding(searchText) {
   if (!searchText || searchText.trim().length < 2) return null;
   const normalized = searchText.trim().toLowerCase();
@@ -1218,6 +1248,8 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
 
 module.exports = {
   buildJobText,
+  getCachedSearchEmbedding,
+  warmSearchQueryEmbedding,
   generateJobEmbedding,
   generateBatchJobEmbeddings,
   backfillMissingJobEmbeddings,

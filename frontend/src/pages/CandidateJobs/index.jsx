@@ -447,12 +447,18 @@ const CandidateJobs = () => {
   // in DB" (sync misconfigured / cron disabled) from "no matches for these
   // filters" (user filtering too aggressively). Loaded once per session.
   const [corpusTotal, setCorpusTotal] = useState(null);
-  // Sort mode for the External tab list. The user-facing Sort chip was
-  // removed — jobs are always ordered by the profile-aware "Recommended"
-  // ranking (relevance band + latest-posted within the band). We still read
-  // ?sort=recent from the URL so deep links / shared recency views keep
-  // working, but there's no in-page toggle (hence no setter).
-  const [sortMode] = useState(() => {
+  // Sort mode for the External tab list.
+  //
+  //   recommended (default) — ordered by profile fit, with recency as a
+  //                           secondary term. Dates will NOT be monotonic.
+  //   recent                — strictly newest first.
+  //
+  // The in-page toggle is back. It was removed on the assumption that
+  // "recommended" was recency-ordered anyway, but the ranking is now dominated
+  // by relevance, so a user wanting date order had no way to ask for it and
+  // the out-of-order dates looked like a bug. Initial value still comes from
+  // ?sort= so deep links keep working.
+  const [sortMode, setSortMode] = useState(() => {
     const v = searchParams.get('sort');
     return (v === 'recent' || v === 'recommended') ? v : 'recommended';
   });
@@ -896,9 +902,12 @@ const CandidateJobs = () => {
         salary: filters.salary,
         skills: filters.skills,
         startup: filters.startup ? 'true' : '',
-        // Only persist sort when it deviates from the default ('recent') so a
-        // clean URL stays clean for the common case.
-        sort: sortMode && sortMode !== 'recent' ? sortMode : '',
+        // Persist sort only when it deviates from the default so a clean URL
+        // stays clean. The default is 'recommended', NOT 'recent' — this
+        // previously tested against 'recent', which meant picking "Newest"
+        // stripped ?sort= from the URL and the page reverted to recommended on
+        // the next load, i.e. the one choice a user could make did not stick.
+        sort: sortMode && sortMode !== 'recommended' ? sortMode : '',
       };
       for (const [k, v] of Object.entries(owned)) {
         if (v) next.set(k, String(v));
@@ -910,7 +919,9 @@ const CandidateJobs = () => {
     // setSearchParams is stable across renders but we depend on it for
     // exhaustive-deps; only `filters` and `debouncedSearch` actually
     // drive the URL write.
-  }, [filters, debouncedSearch, setSearchParams]);
+    // sortMode belongs here too: without it, toggling the sort never reached
+    // the address bar, so the choice was invisible to reloads and shared links.
+  }, [filters, debouncedSearch, sortMode, setSearchParams]);
 
   // Debounce filter changes — toggling several chips in quick succession
   // coalesces into a single fetch. 250ms is enough to catch a "click chip A,
@@ -2805,17 +2816,37 @@ const CandidateJobs = () => {
                         {externalJobsPagination.total.toLocaleString()}
                       </strong>{' '}jobs
                     </div>
-                    <div
-                      title="Freshest first — last hour, then last 24h, then this week, then older"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        fontSize: 11, color: '#667085', fontWeight: 500,
-                      }}
-                    >
-                      <AccessTimeIcon style={{ fontSize: 12 }} />
-                      {sortMode === 'recent'
-                        ? 'Newest first'
-                        : 'Freshest matches first'}
+                    {/* Real control, not a caption. This used to be static text
+                        reading "Freshest matches first", which was simply untrue:
+                        the default ranking is dominated by profile fit
+                        (0.8 relevance + 0.2 freshness), so the list is ordered by
+                        match and dates legitimately go 2d, 4d, 3d. Claiming date
+                        order made correct behaviour look broken, and gave no way
+                        to actually get date order — which is a reasonable thing
+                        to want. Both orderings are now one click apart. */}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      {[
+                        { key: 'recommended', label: 'Best match', title: 'Ordered by how well each job fits your profile, with newer roles favoured among similar matches' },
+                        { key: 'recent', label: 'Newest', title: 'Ordered strictly by posting date, newest first' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          title={opt.title}
+                          onClick={() => setSortMode(opt.key)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
+                            fontSize: 11, fontWeight: 600,
+                            border: '1px solid ' + (sortMode === opt.key ? '#7C3AED' : '#E4E7EC'),
+                            background: sortMode === opt.key ? '#F4EBFF' : 'white',
+                            color: sortMode === opt.key ? '#5B21B6' : '#667085',
+                          }}
+                        >
+                          {opt.key === 'recent' && <AccessTimeIcon style={{ fontSize: 12 }} />}
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
