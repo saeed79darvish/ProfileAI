@@ -225,7 +225,29 @@ router.get('/', optionalAuth, async (req, res) => {
   // only when the total goes over a threshold so they don't spam logs.
   const reqStartedAt = Date.now();
   const stages = [];
-  const stamp = (label) => stages.push(`${label}=${Date.now() - reqStartedAt}ms`);
+  // Cumulative-ms stamps, also emitted as a Server-Timing header.
+  //
+  // The existing stage log only fires above a latency threshold and only lands
+  // in the platform log, which is unreadable from a dev machine — so a
+  // production cold-path that measured 1.5-2.9s (against ~120ms warm) could not
+  // be attributed to a stage at all. Server-Timing is a standard response
+  // header, so the same breakdown is now measurable with curl from anywhere,
+  // and shows up natively in browser devtools for whoever is looking at a slow
+  // page. Timings only; no query values, so nothing sensitive is exposed.
+  const marks = [];
+  const stamp = (label) => {
+    stages.push(`${label}=${Date.now() - reqStartedAt}ms`);
+    marks.push([label, Date.now() - reqStartedAt]);
+  };
+  const emitServerTiming = () => {
+    try {
+      if (res.headersSent) return;
+      const total = Date.now() - reqStartedAt;
+      const parts = marks.map(([l, ms]) => `${l};dur=${ms}`);
+      parts.push(`total;dur=${total}`);
+      res.set('Server-Timing', parts.join(', '));
+    } catch { /* header emission must never break a response */ }
+  };
   try {
     bumpCounter('listRequests');
 
@@ -243,6 +265,7 @@ router.get('/', optionalAuth, async (req, res) => {
     // 90s is long enough to coalesce a "navigate away + back" flow,
     // short enough that fresh-paged users see new jobs quickly.
     const cacheKey = buildJobsListCacheKey(req.user?.id || 'anon', req.query);
+    stamp('cacheLookup');
     const cached = cache.get(cacheKey);
     if (cached) {
       bumpCounter('listCacheHits');
@@ -256,6 +279,7 @@ router.get('/', optionalAuth, async (req, res) => {
     // populates the cache without us having to touch each return statement.
     const originalJson = res.json.bind(res);
     res.json = (payload) => {
+      emitServerTiming();
       // Don't cache error envelopes — only well-formed list responses.
       if (payload && Array.isArray(payload.jobs)) {
         cache.set(cacheKey, payload, 90 * 1000);
@@ -791,6 +815,7 @@ router.get('/', optionalAuth, async (req, res) => {
       },
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
     });
+    stamp('listQuery');
 
       // NOTE: the request path no longer triggers crawling.
       //
