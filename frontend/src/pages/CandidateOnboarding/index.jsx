@@ -399,7 +399,7 @@ const CandidateOnboarding = () => {
                       Upload your resume or start from scratch, ProfilleAI helps you create a standout profile to use with the Extension and apply for jobs.
                     </Typography>
                     <ChoiceButton>
-                      Build AI Profile
+                      Build Your Profile
                       <ArrowIcon sx={{ fontSize: 18, ml: 0.5 }} />
                     </ChoiceButton>
                   </ChoiceCardBody>
