@@ -815,6 +815,12 @@ async function handleMessage(
           platform?: string;
           location?: string;
           matchScore?: number;
+          // Where this sits on the server's ladder. 'in_progress' means the user
+          // started the form; 'applied' means we actually observed a submission.
+          // Omitting it makes the server default to 'applied', which is what
+          // older builds did and why autofill alone counted as an application.
+          stage?: 'in_progress' | 'applied';
+          confirmedBy?: string;
         };
         const saveAppResult = await saveExternalApplication(appData);
         sendResponse(saveAppResult);
@@ -3263,6 +3269,11 @@ async function saveExternalApplication(data: {
   platform?: string;
   location?: string;
   matchScore?: number;
+  // Forwarded verbatim to POST /external-applications, which places the row on
+  // its stage ladder. Without them the server defaults to 'applied' — correct
+  // for a manual add, wrong for an autofill, which is the bug this closes.
+  stage?: 'in_progress' | 'applied';
+  confirmedBy?: string;
 }): Promise<{ success: boolean; error?: string }> {
   if (!authToken) {
     console.log('[ProfileAI] Not authenticated, skipping application save');
@@ -3283,6 +3294,8 @@ async function saveExternalApplication(data: {
         platform: data.platform,
         location: data.location,
         matchScore: data.matchScore,
+        stage: data.stage,
+        confirmedBy: data.confirmedBy,
       }),
     });
 

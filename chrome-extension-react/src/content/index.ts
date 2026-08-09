@@ -4564,32 +4564,114 @@ async function fillForm(container: Element, silent = false) {
   }
   console.log('[ProfileAI] Autofill completed:', filledCount, 'fields,', skippedFields.length, 'skipped');
 
-  // Track this application in ProfileAI dashboard (only once per URL)
+  // Autofilling a form is evidence the user STARTED an application, not that
+  // they submitted one — they may close the tab straight after. Reporting this
+  // as 'applied' (the old behaviour) inflated every applied count and badged
+  // jobs the user never actually applied to. Record it as in_progress and let
+  // real submission detection promote it.
   const currentUrl = window.location.href;
   if (filledCount > 0 && isAuthenticated && !savedApplicationUrls.has(currentUrl)) {
-    try {
-      const jobInfo = getJobInfo();
-      const hostname = new URL(currentUrl).hostname.replace('www.', '');
-      const jobTitle = jobInfo?.title || document.title;
-      // Only save if we have a valid job title
-      if (jobTitle && jobTitle.trim()) {
-        savedApplicationUrls.add(currentUrl);
-        chrome.runtime.sendMessage({
-          type: 'SAVE_EXTERNAL_APPLICATION',
-          data: {
-            jobTitle: jobTitle.trim(),
-            company: jobInfo?.company || hostname,
-            jobUrl: currentUrl,
-            platform: currentSiteName !== 'generic' ? currentSiteName : hostname,
-            location: '',
-          },
-        });
-        console.log('[ProfileAI] Application tracked');
-      }
-    } catch (e) {
-      console.error('[ProfileAI] Failed to track application:', e);
-    }
+    savedApplicationUrls.add(currentUrl);
+    reportApplicationStage('in_progress', 'extension_autofill');
   }
+  // Arm submission detection for this page regardless of whether we autofilled:
+  // a user may fill the form themselves and still deserve credit for applying.
+  armSubmissionDetection();
+}
+
+/**
+ * Send an application signal to the backend.
+ *
+ * `stage` maps onto the server-side ladder (clicked -> in_progress -> applied);
+ * promotion there is monotonic, so a later, weaker signal can never demote a
+ * confirmed application.
+ */
+function reportApplicationStage(stage: 'in_progress' | 'applied', confirmedBy: string) {
+  try {
+    const currentUrl = window.location.href;
+    const jobInfo = getJobInfo();
+    const hostname = new URL(currentUrl).hostname.replace('www.', '');
+    const jobTitle = jobInfo?.title || document.title;
+    if (!jobTitle || !jobTitle.trim()) return;
+    chrome.runtime.sendMessage({
+      type: 'SAVE_EXTERNAL_APPLICATION',
+      data: {
+        jobTitle: jobTitle.trim(),
+        company: jobInfo?.company || hostname,
+        jobUrl: currentUrl,
+        platform: currentSiteName !== 'generic' ? currentSiteName : hostname,
+        location: '',
+        stage,
+        confirmedBy,
+      },
+    });
+    console.log(`[ProfileAI] Application signal: ${stage} (${confirmedBy})`);
+  } catch (e) {
+    console.error('[ProfileAI] Failed to report application stage:', e);
+  }
+}
+
+// ─── Submission detection ────────────────────────────────────────────────────
+//
+// Until now nothing in the extension observed an actual submission — tracking
+// fired on autofill, so "applied" meant "we typed into a form". These are the
+// three signals that genuinely indicate the application went through:
+//
+//   1. A submit event on the application form.
+//   2. Navigation to a confirmation page (URL and/or on-page copy).
+//   3. The form disappearing and success copy appearing, which is how the
+//      SPA-style ATSes (Ashby, Workday) finish without a page load.
+//
+// Each is individually imperfect, so any one of them promotes to 'applied' and
+// the backend's monotonic ladder makes duplicate signals harmless.
+let _submissionArmed = false;
+const CONFIRMATION_URL_RE = /(confirm|thank[-_]?you|thanks|success|submitted|application[-_]?complete)/i;
+const CONFIRMATION_TEXT_RE = /(thank you for (your )?(interest|applying|your application)|application (has been )?(received|submitted|complete)|we('| ha)ve received your application|your application was submitted)/i;
+
+function looksLikeConfirmationPage(): boolean {
+  if (CONFIRMATION_URL_RE.test(window.location.href)) return true;
+  // Check a bounded slice of visible text: confirmation copy is short and near
+  // the top, and scanning the whole document on every mutation is wasteful.
+  const text = (document.body?.innerText || '').slice(0, 4000);
+  return CONFIRMATION_TEXT_RE.test(text);
+}
+
+function armSubmissionDetection() {
+  if (_submissionArmed) return;
+  _submissionArmed = true;
+
+  // 1. Real submit events, captured at the document so it fires even when the
+  //    site calls preventDefault and posts via fetch.
+  document.addEventListener(
+    'submit',
+    (e) => {
+      const form = e.target as HTMLElement | null;
+      if (!form || form.tagName !== 'FORM') return;
+      reportApplicationStage('applied', 'extension_submit');
+    },
+    true
+  );
+
+  // 2/3. Confirmation copy appearing, whether via navigation or an SPA swap.
+  //      Debounced and self-disarming: once we have reported a submission there
+  //      is nothing further to watch on this page.
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  const observer = new MutationObserver(() => {
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      if (looksLikeConfirmationPage()) {
+        reportApplicationStage('applied', 'extension_submit');
+        observer.disconnect();
+      }
+    }, 800);
+  });
+  try {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } catch { /* body not ready; the submit listener still covers the common case */ }
+
+  // Cover the plain-navigation case where the confirmation page is a fresh load
+  // and no mutation ever fires.
+  if (looksLikeConfirmationPage()) reportApplicationStage('applied', 'extension_submit');
 }
 
 // Handle tailor profile for current job
