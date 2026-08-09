@@ -44,6 +44,16 @@ const ATSBoard = sequelize.define('ATSBoard', {
     defaultValue: 0,
     comment: 'Number of consecutive failed syncs; reset to 0 on success. When it crosses EXTERNAL_BOARD_DEACTIVATE_AFTER_FAILURES the board is treated as dead and its still-"active" jobs are deactivated (ghost-job expiry). Column added by scripts/migrations/addBoardFailureTracking.js.'
   },
+  // Consecutive syncs that produced no change at all (nothing created, updated
+  // or deactivated). Drives the adaptive backoff in syncAllBoards: a dormant
+  // board is polled exponentially less often, freeing the sweep's budget for
+  // boards that actually move. Reset to 0 the moment a sync produces a change,
+  // so a board that wakes up is back on the base interval immediately.
+  consecutiveNoChangeSyncs: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+  },
   lastSuccessfulSyncAt: {
     type: DataTypes.DATE,
     allowNull: true,

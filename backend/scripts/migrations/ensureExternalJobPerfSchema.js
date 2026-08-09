@@ -244,6 +244,13 @@ async function up() {
     WHERE "isActive" = TRUE;
   `);
 
+  // Adaptive sync cadence needs a per-board quiet streak.
+  await runStep('board no-change streak column', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ATSBoards"
+    ADD COLUMN IF NOT EXISTS "consecutiveNoChangeSyncs" INTEGER NOT NULL DEFAULT 0;
+  `);
+
   // Exact-equality chip filters.
   for (const col of ['locationType', 'employmentType', 'experienceLevel']) {
     await runStep(`b-tree ${col}`, `

@@ -1768,10 +1768,18 @@ async function syncBoard(atsBoard) {
     // Update the ATSBoard record. A clean sync resets the failure streak and
     // stamps lastSuccessfulSyncAt so the ghost-job expiry (in the catch below)
     // can tell a genuinely-dead board from a transient blip.
+    // A sync that changed nothing means the board is dormant; the adaptive
+    // scheduler uses this streak to poll it exponentially less often. Any
+    // change at all resets it, so a board that wakes up is polled at the base
+    // interval again on the very next tick.
+    const changedNothing = created === 0 && updated === 0 && (deactivated[0] || 0) === 0;
     await atsBoard.update({
       lastSyncAt: new Date(),
       lastSuccessfulSyncAt: new Date(),
       consecutiveFailures: 0,
+      consecutiveNoChangeSyncs: changedNothing
+        ? (atsBoard.consecutiveNoChangeSyncs || 0) + 1
+        : 0,
       jobCount: normalizedJobs.length,
       syncError: null
     });
@@ -1896,41 +1904,114 @@ async function syncBoard(atsBoard) {
 /**
  * Sync all active ATS boards
  */
+// Adaptive per-board cadence.
+//
+// The old sweep walked every active board serially with a flat 1s sleep between
+// each. At ~750 boards that is 12.5 minutes of pure sleeping before any fetch
+// time, so a sweep could not finish inside its 15-minute interval and the
+// overlap guard then skipped the next tick. Boards were also visited in
+// arbitrary order, so whichever ones landed late in the list were starved
+// indefinitely — and every board was polled at the same rate whether it was
+// Stripe or a dormant board that had not changed in weeks.
+//
+// Three changes fix that:
+//   1. STALEST FIRST. Ordering by lastSuccessfulSyncAt means that even when a
+//      sweep runs out of time, it spent that time on the boards that needed it
+//      most. Starvation stops being possible.
+//   2. ADAPTIVE INTERVAL. A board that keeps reporting no changes backs off
+//      exponentially (15m -> 30m -> 1h -> 2h -> 4h, capped), and snaps straight
+//      back to the base interval the moment it produces a change. Most of the
+//      corpus is dormant on any given tick, so this is where the budget is won.
+//   3. BOUNDED CONCURRENCY instead of serial+sleep. These are network-bound
+//      fetches; running a few at once removes the dead time without adding DB
+//      pressure, since the writes are still chunked per board.
+//
+// A wall-clock budget caps each sweep so it cannot overrun its interval. Work
+// left over is simply the stalest set next tick, which is exactly what the
+// ordering already prioritises.
+const SYNC_BASE_INTERVAL_MIN = parseInt(process.env.SYNC_BASE_INTERVAL_MIN || '15', 10);
+const SYNC_MAX_INTERVAL_MIN = parseInt(process.env.SYNC_MAX_INTERVAL_MIN || '240', 10);
+const SYNC_CONCURRENCY = parseInt(process.env.SYNC_CONCURRENCY || '3', 10);
+const SYNC_BUDGET_MS = parseInt(process.env.SYNC_BUDGET_MS || '600000', 10); // 10 min
+
+/** Minutes a board may wait before it is due again, given its quiet streak. */
+function boardIntervalMinutes(board) {
+  const quiet = Math.min(board.consecutiveNoChangeSyncs || 0, 4);
+  return Math.min(SYNC_BASE_INTERVAL_MIN * 2 ** quiet, SYNC_MAX_INTERVAL_MIN);
+}
+
+function isBoardDue(board, now = Date.now()) {
+  if (!board.lastSyncAt) return true;
+  const age = (now - new Date(board.lastSyncAt).getTime()) / 60000;
+  return age >= boardIntervalMinutes(board);
+}
+
 async function syncAllBoards() {
-  // Overlap guard. A full sweep can run longer than the 15-min cron
-  // interval (HN "Who's hiring" LLM parsing, JSearch/Amazon pagination,
-  // per-board 30s fetch timeouts all add up). Without this lock the next
-  // `*/15` tick — or a manual trigger — would start a SECOND concurrent
-  // sweep that competes for the same DB pool and double-upserts every
-  // board, which both slows the live /jobs queries and can leave the
-  // later boards starved so they "never refresh". Skip if one is running.
+  // Overlap guard. A sweep can still exceed its interval under load, and a
+  // second concurrent sweep would compete for the same DB pool and double-upsert
+  // every board.
   if (_fullSyncInProgress) {
     console.warn('[ExternalJobs] Full sync already in progress — skipping this run.');
     return { boardsSynced: 0, skipped: true, results: [] };
   }
   _fullSyncInProgress = true;
+  const startedAt = Date.now();
   try {
-    console.log('[ExternalJobs] Starting full sync of all active boards...');
-    const boards = await ATSBoard.findAll({ where: { isActive: true } });
-
+    // Stalest first — see the note above. NULLS FIRST puts never-synced boards
+    // (freshly discovered ones) at the very front, which is where a brand-new
+    // company's jobs should be.
+    const boards = await ATSBoard.findAll({
+      where: { isActive: true },
+      order: [
+        [ATSBoard.sequelize.literal('"lastSuccessfulSyncAt" ASC NULLS FIRST')],
+      ],
+    });
     if (boards.length === 0) {
       console.log('[ExternalJobs] No active boards configured. Skipping sync.');
       return { boardsSynced: 0, results: [] };
     }
 
-    const results = [];
-    for (const board of boards) {
-      const result = await syncBoard(board);
-      results.push({ board: board.name, ...result });
-      // Small delay between boards to be nice to APIs
-      if (boards.indexOf(board) < boards.length - 1) {
-        await sleep(1000);
-      }
-    }
+    const now = Date.now();
+    const due = boards.filter((b) => isBoardDue(b, now));
+    console.log(
+      `[ExternalJobs] Sync sweep: ${due.length} of ${boards.length} boards due `
+      + `(concurrency ${SYNC_CONCURRENCY}, budget ${Math.round(SYNC_BUDGET_MS / 60000)}m)`
+    );
 
-    const totalJobs = results.filter(r => r.success).reduce((sum, r) => sum + r.total, 0);
-    console.log(`[ExternalJobs] Full sync complete: ${results.length} boards, ${totalJobs} total jobs`);
-    return { boardsSynced: results.length, totalJobs, results };
+    const results = [];
+    let idx = 0;
+    let outOfBudget = false;
+
+    const worker = async () => {
+      while (idx < due.length) {
+        if (Date.now() - startedAt > SYNC_BUDGET_MS) { outOfBudget = true; return; }
+        const board = due[idx++];
+        try {
+          const result = await syncBoard(board);
+          results.push({ board: board.name, ...result });
+        } catch (err) {
+          // syncBoard handles its own failures; this only catches programming
+          // errors, which must not abort the other workers.
+          console.error(`[ExternalJobs] unexpected sync error for ${board.name}:`, err.message);
+          results.push({ board: board.name, success: false, error: err.message });
+        }
+        // Politeness delay is per worker, not global, so it overlaps instead of
+        // serialising the whole sweep.
+        await sleep(250);
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(SYNC_CONCURRENCY, due.length) }, worker)
+    );
+
+    const totalJobs = results.filter((r) => r.success).reduce((sum, r) => sum + (r.total || 0), 0);
+    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(0);
+    console.log(
+      `[ExternalJobs] Sweep complete: ${results.length}/${due.length} boards, `
+      + `${totalJobs} jobs, ${elapsed}s${outOfBudget ? ' (budget reached; remainder is stalest next tick)' : ''}`
+    );
+    return { boardsSynced: results.length, dueCount: due.length, totalJobs, outOfBudget, results };
   } finally {
     _fullSyncInProgress = false;
   }
