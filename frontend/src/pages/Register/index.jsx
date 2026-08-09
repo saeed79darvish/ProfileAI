@@ -29,6 +29,7 @@ import { authAPI, referralAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { trackEvent } from '@/utils/analytics';
+import { loadGuestProfileDraft, clearGuestProfileDraft } from '@/utils/guestDraft';
 import {
   RoleToggleWrapper,
   RoleOption,
@@ -120,6 +121,21 @@ const Register = () => {
       : fallback
   );
 
+  // A visitor who built a profile pre-registration (see utils/guestDraft.js)
+  // has it waiting in localStorage. On a genuinely fresh registration —
+  // candidate role, no profile yet — claim it once and hand it to
+  // ProfileForm via location.state instead of sending them through
+  // onboarding empty-handed. hasProfile guards against ever clobbering an
+  // existing profile; this only fires for brand-new accounts.
+  const claimGuestDraftFor = (authUser) => {
+    if (authUser?.role !== 'candidate' || authUser?.hasProfile) return null;
+    const draft = loadGuestProfileDraft();
+    if (!draft) return null;
+    clearGuestProfileDraft();
+    trackEvent('guest_draft_claimed', { role: authUser.role });
+    return draft;
+  };
+
   // Redirect if already authenticated
   useEffect(() => {
     authDebug('auto-redirect check', {
@@ -194,10 +210,15 @@ const Register = () => {
       const dest = user?.role === 'recruiter'
         ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
         : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
-      authDebug('google register navigate', { dest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest);
+      const guestDraft = claimGuestDraftFor(user);
+      authDebug('google register navigate', { dest, hasGuestDraft: !!guestDraft });
+      if (fromExtension) {
+        await handleExtensionAuthSuccess(token, user, navigate, dest);
+      } else if (guestDraft) {
+        navigate('/profile/create-form', { state: { guestDraft } });
+      } else {
+        navigate(dest);
+      }
     } catch (err) {
       setError(err.response?.data?.error || TEXT.ERRORS.GOOGLE_FAILED);
     } finally {
@@ -240,10 +261,15 @@ const Register = () => {
       const dest = user?.role === 'recruiter'
         ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
         : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
-      authDebug('linkedin register navigate', { dest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest);
+      const guestDraft = claimGuestDraftFor(user);
+      authDebug('linkedin register navigate', { dest, hasGuestDraft: !!guestDraft });
+      if (fromExtension) {
+        await handleExtensionAuthSuccess(token, user, navigate, dest);
+      } else if (guestDraft) {
+        navigate('/profile/create-form', { state: { guestDraft } });
+      } else {
+        navigate(dest);
+      }
     } catch (err) {
       const status = err.response?.status;
       if (status === 503) {
@@ -299,10 +325,15 @@ const Register = () => {
       }
       trackEvent('register_completed', { role: formData.role, method: 'email', emailVerified: !!result.user?.emailVerified });
       const dest = formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
-      authDebug('email register navigate', { dest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(result.token, result.user, navigate, dest)
-        : navigate(dest);
+      const guestDraft = claimGuestDraftFor(result.user);
+      authDebug('email register navigate', { dest, hasGuestDraft: !!guestDraft });
+      if (fromExtension) {
+        await handleExtensionAuthSuccess(result.token, result.user, navigate, dest);
+      } else if (guestDraft) {
+        navigate('/profile/create-form', { state: { guestDraft } });
+      } else {
+        navigate(dest);
+      }
     } catch (err) {
       setError(err.response?.data?.error || TEXT.ERRORS.REGISTRATION_FAILED);
     } finally {

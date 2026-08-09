@@ -551,8 +551,17 @@ const ProfileForm = () => {
         setInitialFormLoaded(true);
       }
     };
-    // Check if we have resume data from upload
-    if (location.state && location.state.resumeData) {
+    // A profile built pre-registration (see utils/guestDraft.js), claimed by
+    // Register.jsx and handed off here. Already in the exact formData shape
+    // (categorized skills object, not a flat array) — set directly instead
+    // of going through the resume-shape mapping below.
+    if (location.state && location.state.guestDraft) {
+      setFormData(prev => ({ ...prev, ...location.state.guestDraft }));
+      setInitialLoading(false);
+      setInitialFormLoaded(true);
+      setHasResumeData(false);
+      setSuccess('Welcome back! We saved the profile you built — review it and click Save to publish.');
+    } else if (location.state && location.state.resumeData) {
       const data = location.state.resumeData;
       console.log('Loading resume data:', data);
       
