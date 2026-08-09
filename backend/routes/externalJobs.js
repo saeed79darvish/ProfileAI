@@ -54,6 +54,36 @@ function formatJsonbStringArrayLiteral(tokens) {
  * (rankings differ per profile), pagination, search, sort, and every
  * filter that affects the SQL WHERE clause.
  */
+/**
+ * Cache key for the COUNT that backs pagination.
+ *
+ * Deliberately excludes page, limit, sort AND user: the number of jobs matching
+ * a filter set is identical for every user and on every page, so a single entry
+ * serves all of them. That is what makes it worth separating from the page
+ * fetch — the count is the slow half, and it is also the half that is shared.
+ */
+function buildJobsCountCacheKey(q) {
+  const skills = parseSkillCsv(q.skills).slice().sort().join(',');
+  const norm = {
+    s: q.search ? String(q.search).trim().toLowerCase() : '',
+    rh: q.roleHint ? String(q.roleHint).trim().toLowerCase() : '',
+    lt: q.locationType || '',
+    lo: q.location ? String(q.location).trim().toLowerCase() : '',
+    et: q.employmentType || '',
+    el: q.experienceLevel || '',
+    sm: q.salaryMin || '',
+    sx: q.salaryMax || '',
+    co: q.company ? String(q.company).trim().toLowerCase() : '',
+    de: q.department ? String(q.department).trim().toLowerCase() : '',
+    dp: q.datePosted || '',
+    sk: skills,
+    src: q.source || '',
+    st: String(q.startup || '').toLowerCase() === 'true' ? '1' : '',
+    hs: String(q.hideStale || '').toLowerCase() === 'true' ? '1' : '',
+  };
+  return `external_jobs:count:${Object.entries(norm).map(([k, v]) => `${k}=${v}`).join('|')}`;
+}
+
 function buildJobsListCacheKey(userId, q) {
   // Normalize keys + values so trivial differences (case, spacing) hit the
   // same cache entry. Skills are sorted so "react,node" and "node,react"
@@ -804,18 +834,36 @@ router.get('/', optionalAuth, async (req, res) => {
     // sort by when we first saw them, mixed with other sources by real
     // postedAt. Without this, all Greenhouse jobs would be banished to
     // the bottom.
-    const { count, rows: jobs } = await ExternalJob.findAndCountAll({
-      where,
-      replacements: whereReplacements,
-      order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
-      limit: limitNum,
-      offset,
-      attributes: {
-        exclude: ['descriptionHtml', 'metadata', 'embedding']
-      },
-      include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
-    });
-    stamp('listQuery');
+    // findAndCountAll issues BOTH a COUNT over every matching row and the page
+    // SELECT. The COUNT is the expensive half — measured in production, a
+    // location-filtered request spent 2,168ms in this stage while a text search
+    // (which narrows the set, making the count cheap) spent 265ms; locally the
+    // same COUNT costs 5x the page fetch beside it. It also does not vary by
+    // page or by user, so it is cached separately and the two run concurrently,
+    // making a miss cost max(count, page) rather than their sum. Invalidated
+    // with the rest of the external_jobs: namespace on every sync.
+    const countKey = buildJobsCountCacheKey(req.query);
+    const cachedCount = cache.get(countKey);
+    const countWasCached = cachedCount !== undefined && cachedCount !== null;
+
+    const [jobs, count] = await Promise.all([
+      ExternalJob.findAll({
+        where,
+        replacements: whereReplacements,
+        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
+        limit: limitNum,
+        offset,
+        attributes: {
+          exclude: ['descriptionHtml', 'metadata', 'embedding']
+        },
+        include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
+      }),
+      countWasCached
+        ? Promise.resolve(cachedCount)
+        : ExternalJob.count({ where, replacements: whereReplacements }),
+    ]);
+    if (!countWasCached) cache.set(countKey, count, 60 * 1000);
+    stamp(countWasCached ? 'listQueryCountCached' : 'listQuery');
 
       // NOTE: the request path no longer triggers crawling.
       //
