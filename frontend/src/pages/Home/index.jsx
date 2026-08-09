@@ -204,7 +204,7 @@ const Home = () => {
                 {!isAuthenticated ? (
                   <>
                     <Button variant="contained" size="large"
-                      onClick={() => navigate('/register')} sx={S.heroPrimaryBtnSx}>
+                      onClick={() => navigate('/profile/create')} sx={S.heroPrimaryBtnSx}>
                       {HERO_BUTTONS.GET_STARTED}
                     </Button>
                     <Button variant="outlined" size="large"
