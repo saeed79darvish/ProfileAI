@@ -94,9 +94,19 @@ function startCron({ inline = false } = {}) {
 module.exports = { startCron };
 
 // Entry point when run directly (`node workers/cronWorker.js` / `npm run cron`).
+// Also starts the interval-based corpus-hygiene sweeps (ghost scan, embed/skill
+// backfill, prune, compaction, dedupe, board cap) — see sweepWorker.js. They
+// used to run inline on the API web dyno regardless of RUN_CRON_INLINE, where
+// they collided with each other and with request traffic for DB locks and
+// heap, producing deadlocks and "JavaScript heap out of memory" crashes.
+// Bundled into this same standalone process so one dedicated worker instance
+// covers both, instead of paying for a second Render service.
 if (require.main === module) {
   console.log('[Cron:worker] Starting standalone cron worker...');
   startCron({ inline: false });
+
+  const { startSweeps } = require('./sweepWorker');
+  startSweeps();
 
   const shutdown = (sig) => {
     console.log(`[Cron:worker] Received ${sig}, exiting.`);
