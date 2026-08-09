@@ -214,7 +214,7 @@ function AppContent() {
               <Route path="/check-email" element={<CheckEmail />} />
               <Route path="/verify-email/:token" element={<VerifyEmail />} />
               <Route path="/onboarding" element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
                   <CandidateOnboarding />
                 </PrivateRoute>
               } />

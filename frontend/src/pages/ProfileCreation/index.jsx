@@ -81,11 +81,8 @@ const ProfileCreation = () => {
   });
 
   useEffect(() => {
-    // Authenticated endpoint — a guest never opens the LinkedIn modal (see
-    // handleLinkedInOpen), so there's nothing to check yet, and calling it
-    // anyway risks the axios interceptor treating the 401 as a dead session
-    // and bouncing the guest to /login.
-    if (!isAuthenticated) return;
+    // Public endpoint (server config flags only, nothing user-specific) —
+    // guests open the LinkedIn modal too now, so this needs to load for them.
     let cancelled = false;
     profileAPI.getLinkedInImportStatus()
       .then(({ data }) => {
@@ -190,10 +187,6 @@ const ProfileCreation = () => {
   // reuse the exact same magic-overlay → /profile/create-form flow.
   const handleLinkedInOpen = () => {
     if (uploading) return;
-    if (!isAuthenticated) {
-      setSignupPromptFor('linkedin');
-      return;
-    }
     setError('');
     setLinkedinModalOpen(true);
   };
@@ -228,6 +221,8 @@ const ProfileCreation = () => {
         onImported={handleLinkedInImported}
         urlImportAvailable={linkedinStatus.urlImportAvailable}
         oauthAvailable={linkedinStatus.oauthAvailable}
+        isAuthenticated={isAuthenticated}
+        onRequireAuth={() => setSignupPromptFor('linkedin')}
       />
       <ConfirmModal
         show={!!signupPromptFor}
@@ -235,7 +230,7 @@ const ProfileCreation = () => {
         onConfirm={() => navigate('/register?role=candidate')}
         variant="info"
         title="Create a free account first"
-        message="LinkedIn import needs a signed-in account to run. It only takes a few seconds — or upload your resume instead and sign up when you're ready to save."
+        message="Importing directly from LinkedIn needs a signed-in account. It only takes a few seconds — or use the “Save to PDF” option above to import for free without signing up."
         confirmText="Sign Up"
         cancelText="Never mind"
       />

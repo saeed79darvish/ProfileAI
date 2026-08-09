@@ -232,9 +232,11 @@ function normalizeLinkedInDataToResumeShape(enrichedData, linkedinUrl) {
 // @route   GET /api/profiles/import-linkedin/status
 // @desc    Report which LinkedIn import options are enabled on the server so
 //          the frontend can gracefully hide / disable the buttons instead of
-//          letting the user click into a dead-end flow.
-// @access  Private
-router.get('/import-linkedin/status', authMiddleware, (req, res) => {
+//          letting the user click into a dead-end flow. Pure server config,
+//          nothing user-specific — public so the guest builder's LinkedIn
+//          modal can read it before the visitor has an account.
+// @access  Public
+router.get('/import-linkedin/status', (req, res) => {
   res.json({
     urlImportAvailable: !!process.env.ENRICHLAYER_API_KEY,
     oauthAvailable: !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET)

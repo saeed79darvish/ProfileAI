@@ -57,6 +57,8 @@ const LinkedInImportModal = ({
   onImported,
   urlImportAvailable,
   oauthAvailable,
+  isAuthenticated = true,
+  onRequireAuth,
 }) => {
   const [url, setUrl] = useState('');
   const [urlError, setUrlError] = useState('');
@@ -133,7 +135,11 @@ const LinkedInImportModal = ({
     try {
       const formData = new FormData();
       formData.append('resume', file);
-      const response = await profileAPI.uploadResume(formData);
+      // Pattern-matching parse only — no AI, no cost — so it works for a
+      // guest the same as the main resume-upload card does.
+      const response = isAuthenticated
+        ? await profileAPI.uploadResume(formData)
+        : await profileAPI.guestUploadResume(formData);
       if (response.data?.success && response.data?.data) {
         onImported?.(response.data.data);
       } else {
@@ -165,6 +171,14 @@ const LinkedInImportModal = ({
 
     if (!urlImportAvailable) {
       setApiError(TEXT.LINKEDIN_MODAL_UNAVAILABLE);
+      return;
+    }
+
+    // URL import runs a paid external lookup (EnrichLayer) — unlike the PDF
+    // path above, there's no free version of this to offer a guest. Ask for
+    // an account right at the point they try to use it, not before.
+    if (!isAuthenticated) {
+      onRequireAuth?.();
       return;
     }
 
@@ -206,6 +220,13 @@ const LinkedInImportModal = ({
 
     if (!oauthAvailable) {
       setApiError(TEXT.LINKEDIN_MODAL_OAUTH_UNAVAILABLE);
+      return;
+    }
+
+    // The OAuth prefill endpoint explicitly requires an existing session —
+    // it fills in an authenticated user's basics, it doesn't create one.
+    if (!isAuthenticated) {
+      onRequireAuth?.();
       return;
     }
 
