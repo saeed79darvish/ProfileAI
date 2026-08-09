@@ -5,6 +5,7 @@ import MarkEmailReadOutlinedIcon from '@mui/icons-material/MarkEmailReadOutlined
 import AuthLayout from '@/components/AuthLayout';
 import { authAPI } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { trackEvent } from '@/utils/analytics';
 
 const CheckEmail = () => {
   const navigate = useNavigate();
@@ -23,10 +24,19 @@ const CheckEmail = () => {
   // If already verified, redirect immediately
   useEffect(() => {
     if (user?.emailVerified) {
+      trackEvent('email_verified', { role: user.role, blocked: !!blockedReason });
       const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding';
       navigate(dest, { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, navigate]);
+
+  // Page-view event, once per mount — not re-fired by unrelated re-renders
+  // (resend status, verify-code typing, etc).
+  useEffect(() => {
+    trackEvent('check_email_viewed', { blocked: !!blockedReason });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleResend = async () => {
     setResendStatus('sending');
@@ -180,6 +190,23 @@ const CheckEmail = () => {
         >
           {resendStatus === 'sending' ? 'Sending…' : 'Resend verification email'}
         </Button>
+
+        {blockedReason && (
+          <Button
+            variant="text"
+            fullWidth
+            size="large"
+            onClick={() => {
+              const dest = user?.role === 'recruiter'
+                ? '/recruiter/onboarding'
+                : (user?.hasProfile ? '/profile' : '/onboarding');
+              navigate(dest, { replace: true });
+            }}
+            sx={{ mb: 1.5, textTransform: 'none' }}
+          >
+            Back to my profile
+          </Button>
+        )}
 
         <Typography
           variant="body2"

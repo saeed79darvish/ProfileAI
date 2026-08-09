@@ -72,6 +72,35 @@ export function onboardingBlockMessageFor(pathname) {
   return 'Please finish creating your profile before navigating to other pages.';
 }
 
+// Paths a signed-up-but-unverified user may still reach. Deferred-verification
+// design: registration alone is enough to start building a profile; only
+// outward-facing actions (job applications, personalized recommendations —
+// endpoints already gated server-side by requireVerifiedEmail) require a
+// verified email. Deliberately narrower than ALLOWED_PREFIXES above: general
+// job browsing is left out here because the /externalJobs endpoints those
+// pages call (e.g. /recommended) still 403 unverified users, so exempting
+// the page but not its data would just move the wall one click deeper.
+const VERIFICATION_EXEMPT_PREFIXES = [
+  '/profile/create',
+  '/profile/create-form',
+  '/profile/preferences',
+  '/onboarding',
+  '/recruiter/onboarding',
+  '/recruiter/profile',
+  '/check-email',
+  '/verify-email',
+  '/terms',
+  '/privacy',
+  '/logout',
+];
+const VERIFICATION_EXEMPT_EXACT = ['/profile', '/profile/edit'];
+
+export function isVerificationExemptPath(pathname) {
+  if (!pathname) return false;
+  if (VERIFICATION_EXEMPT_EXACT.includes(pathname)) return true;
+  return VERIFICATION_EXEMPT_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+}
+
 export function shouldBlockNavigation(user, targetPath) {
   if (!user) return false;
   if (user.role !== 'candidate') return false;

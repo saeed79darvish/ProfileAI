@@ -275,6 +275,11 @@ export const profileAPI = {
   },
   // Delete profile image
   deleteImage: (imageUrl) => api.delete('/profiles/delete-image', { data: { imageUrl } }),
+  // In-house analytics event log (see backend/models/AnalyticsEvent.js).
+  // Works anonymous or authenticated — the backend reads the Authorization
+  // header itself if present, so no auth is required to fire an event.
+  trackAnalyticsEvent: (name, properties = {}, sessionId = null) =>
+    api.post('/profiles/analytics-event', { name, properties, sessionId }),
   enhanceResumeData: (profileData, customPrompt, config) => api.post('/profiles/enhance-resume', { profileData, customPrompt }, config),
   getEnhancementSuggestions: (profileData, config) => api.post('/profiles/enhancement-suggestions', { profileData }, config),
   enhanceText: (text, type, context, config) => api.post('/profiles/enhance-text', { text, type, context }, config),

@@ -28,6 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { authAPI, referralAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
+import { trackEvent } from '@/utils/analytics';
 import {
   RoleToggleWrapper,
   RoleOption,
@@ -131,24 +132,18 @@ const Register = () => {
     });
     if (user && token && fromExtension) {
       const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const extensionDest = user?.emailVerified === false
-        ? '/check-email'
-        : roleDest;
-      authDebug('extension auto-redirect', { extensionDest, roleDest });
+      authDebug('extension auto-redirect', { roleDest });
       handleExtensionAuthSuccess(
         token, user, navigate,
-        extensionDest,
+        roleDest,
         false
       );
       return;
     }
     if (user && !fromExtension) {
       const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const dest = user?.emailVerified === false
-        ? '/check-email'
-        : roleDest;
-      authDebug('web auto-redirect', { dest, roleDest });
-      navigate(dest, { replace: true });
+      authDebug('web auto-redirect', { roleDest });
+      navigate(roleDest, { replace: true });
     }
   }, [user, token, navigate, fromExtension]);
 
@@ -195,11 +190,10 @@ const Register = () => {
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
-      const dest = user?.emailVerified === false
-        ? '/check-email'
-        : user?.role === 'recruiter'
-          ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-          : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
+      trackEvent('register_completed', { role: user?.role, method: 'google', emailVerified: !!user?.emailVerified });
+      const dest = user?.role === 'recruiter'
+        ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
+        : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
       authDebug('google register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -242,11 +236,10 @@ const Register = () => {
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
-      const dest = user?.emailVerified === false
-        ? '/check-email'
-        : user?.role === 'recruiter'
-          ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-          : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
+      trackEvent('register_completed', { role: user?.role, method: 'linkedin', emailVerified: !!user?.emailVerified });
+      const dest = user?.role === 'recruiter'
+        ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
+        : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
       authDebug('linkedin register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -304,9 +297,8 @@ const Register = () => {
       if (referrerId) {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
-      const dest = result.user?.emailVerified !== true
-        ? '/check-email'
-        : formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      trackEvent('register_completed', { role: formData.role, method: 'email', emailVerified: !!result.user?.emailVerified });
+      const dest = formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
       authDebug('email register navigate', { dest });
       fromExtension
         ? await handleExtensionAuthSuccess(result.token, result.user, navigate, dest)

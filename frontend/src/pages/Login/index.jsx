@@ -95,9 +95,7 @@ const Login = () => {
     }
     if (user && !fromExtension) {
       const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const dest = user?.emailVerified === false
-        ? ROUTES.CHECK_EMAIL
-        : (redirectTarget || roleDest);
+      const dest = redirectTarget || roleDest;
       authDebug('web auto-redirect', { dest, roleDest });
       navigate(dest, { replace: true });
     }
@@ -126,7 +124,7 @@ const Login = () => {
       setToken(token);
       setUser(user);
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      const dest = redirectTarget || roleDest;
       authDebug('google sign-in navigate', { dest, roleDest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -176,7 +174,7 @@ const Login = () => {
       setToken(token);
       setUser(user);
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      const dest = redirectTarget || roleDest;
       authDebug('linkedin sign-in navigate', { dest, roleDest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -216,7 +214,7 @@ const Login = () => {
         redirectTarget
       });
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+      const dest = redirectTarget || roleDest;
       authDebug('password login navigate', { dest, roleDest });
       fromExtension
         ? await handleExtensionAuthSuccess(token, user, navigate, dest)
@@ -231,7 +229,7 @@ const Login = () => {
   // Confirm signing into the extension as the already-logged-in account.
   const continueAsExisting = () => {
     const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-    const dest = user?.emailVerified === false ? ROUTES.CHECK_EMAIL : (redirectTarget || roleDest);
+    const dest = redirectTarget || roleDest;
     handleExtensionAuthSuccess(existingToken, user, navigate, dest, false);
   };
 

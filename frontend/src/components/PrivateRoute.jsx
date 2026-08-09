@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { CircularProgress, Box, Paper, Typography, Button } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
-import { notifyOnboardingBlocked, isOnboardingAllowedPath } from '../utils/onboardingGate';
+import { notifyOnboardingBlocked, isOnboardingAllowedPath, isVerificationExemptPath } from '../utils/onboardingGate';
 import { diag } from '../utils/diagLogger';
 
 const PrivateRoute = ({ children, allowedRoles = null }) => {
@@ -36,10 +36,13 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }
 
-  // Redirect unverified email users to /check-email (skip for check-email and verify-email routes)
+  // Deferred verification: unverified users may still build/save their
+  // profile (see isVerificationExemptPath). Only routes outside that
+  // allowlist bounce to /check-email — mainly job application/recommendation
+  // screens, whose underlying endpoints already 403 unverified users via
+  // requireVerifiedEmail on the backend.
   if (isAuthenticated && user?.emailVerified === false &&
-    !location.pathname.startsWith('/check-email') &&
-    !location.pathname.startsWith('/verify-email')) {
+    !isVerificationExemptPath(location.pathname)) {
     diag('privateRoute.decision', { branch: 'redirect-check-email', path: location.pathname });
     return <Navigate to="/check-email" replace />;
   }

@@ -113,6 +113,7 @@ import LimitReachedModal from '@/components/LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
 import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
+import { trackEvent } from '@/utils/analytics';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 import { extractApiError } from '@/utils/apiError';
 
@@ -1349,6 +1350,7 @@ const ProfileForm = () => {
       setSaveToast({ open: true, message: `Profile saved${droppedMsg}` });
       // First-time creators get a celebration + share moment; edits go straight back.
       if (!isExistingProfile) {
+        trackEvent('profile_created', { emailVerified: !!user?.emailVerified });
         setShowCelebration(true);
       } else {
         setTimeout(() => navigate('/profile'), 1500);
