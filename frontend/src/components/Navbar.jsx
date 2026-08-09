@@ -1029,7 +1029,7 @@ const Navbar = () => {
       </NavItem>
       <NavItem
         type="button"
-        onClick={() => go('/register')}
+        onClick={() => go('/onboarding')}
         aria-label="Get Started"
         style={{
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -1092,7 +1092,7 @@ const Navbar = () => {
           </MobileNavPill>
           <MobileNavPill
             type="button"
-            onClick={() => go('/register')}
+            onClick={() => go('/onboarding')}
             style={{
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               color: '#fff',
