@@ -72,7 +72,10 @@ function startSweeps() {
   // so a ~70k backlog clears in under a week for a few dollars). Raise
   // SKILL_BACKFILL_BATCH to drain faster. Disable with
   // ENABLE_SKILL_BACKFILL=false.
-  if (process.env.ANTHROPIC_API_KEY && process.env.ENABLE_SKILL_BACKFILL !== 'false') {
+  // DEFAULT OFF for the same reason: it is a write sweep I added, and the
+  // database needs to be given room to recover before it resumes.
+  // Re-enable with ENABLE_SKILL_BACKFILL=true.
+  if (process.env.ANTHROPIC_API_KEY && process.env.ENABLE_SKILL_BACKFILL === 'true') {
     const { backfillMissingJobSkills } = require('../services/jobSkillExtractor');
     const skillBatch = parseInt(process.env.SKILL_BACKFILL_BATCH || '25', 10);
     const skillIntervalMs = parseInt(process.env.SKILL_BACKFILL_INTERVAL_MS || '180000', 10);
@@ -97,7 +100,14 @@ function startSweeps() {
   // one-shot backfill. Pure SQL (no model calls, no outbound HTTP), so it
   // is cheap; the batch is bounded and single-flight regardless.
   // Disable with ENABLE_GHOST_SCAN=false.
-  if (process.env.ENABLE_GHOST_SCAN !== 'false') {
+  // DEFAULT OFF. This sweep rewrote every active row on every pass for about a
+  // day before that was fixed, which bloated "ExternalJobs" and its indexes
+  // badly enough that ordinary queries began hitting the 15s statement timeout.
+  // The code no longer writes unchanged rows, but the bloat it already created
+  // has to be reclaimed by VACUUM, and until the table is healthy the hourly
+  // full-table scan this sweep performs is load the database cannot spare.
+  // Re-enable with ENABLE_GHOST_SCAN=true once the table has been vacuumed.
+  if (process.env.ENABLE_GHOST_SCAN === 'true') {
     const { scanGhostJobs } = require('../services/ghostJobDetector');
     const ghostIntervalMs = parseInt(process.env.GHOST_SCAN_INTERVAL_MS || '3600000', 10);
     const ghostTick = serialize(() => scanGhostJobs()
