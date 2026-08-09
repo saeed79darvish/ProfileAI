@@ -2710,7 +2710,7 @@ const ProfileForm = () => {
                   value={formData.linkedinUrl}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  type="url"
+                  type="text"
                   inputMode="url"
                   inputProps={{ 'aria-invalid': !!fieldErrors.linkedinUrl, 'aria-describedby': fieldErrors.linkedinUrl ? 'linkedinUrl-error' : undefined }}
                   error={!!fieldErrors.linkedinUrl}
@@ -2735,7 +2735,7 @@ const ProfileForm = () => {
                   value={formData.githubUrl}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  type="url"
+                  type="text"
                   inputMode="url"
                   inputProps={{ 'aria-invalid': !!fieldErrors.githubUrl, 'aria-describedby': fieldErrors.githubUrl ? 'githubUrl-error' : undefined }}
                   error={!!fieldErrors.githubUrl}
@@ -3533,7 +3533,7 @@ const ProfileForm = () => {
                       value={project.url || ''}
                       onChange={(e) => handleProjectChange(index, 'url', e.target.value)}
                       onBlur={(e) => handleProjectUrlBlur(index, 'url', e.target.value)}
-                      type="url"
+                      type="text"
                       inputMode="url"
                       placeholder="https://myproject.com"
                       inputProps={{
@@ -3557,7 +3557,7 @@ const ProfileForm = () => {
                       value={project.githubUrl || ''}
                       onChange={(e) => handleProjectChange(index, 'githubUrl', e.target.value)}
                       onBlur={(e) => handleProjectUrlBlur(index, 'githubUrl', e.target.value)}
-                      type="url"
+                      type="text"
                       inputMode="url"
                       placeholder="https://github.com/user/project"
                       inputProps={{
@@ -3581,7 +3581,7 @@ const ProfileForm = () => {
                       value={project.imageUrl || ''}
                       onChange={(e) => handleProjectChange(index, 'imageUrl', e.target.value)}
                       onBlur={(e) => handleProjectUrlBlur(index, 'imageUrl', e.target.value)}
-                      type="url"
+                      type="text"
                       inputMode="url"
                       placeholder="https://example.com/project-screenshot.png"
                       inputProps={{

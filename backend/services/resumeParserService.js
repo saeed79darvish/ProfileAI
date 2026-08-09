@@ -169,6 +169,16 @@ async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, re
   throw lastError;
 }
 
+// Resumes routinely list LinkedIn/GitHub/website links without a scheme
+// ("www.linkedin.com/in/..."), which the regexes above deliberately still
+// match. The frontend's URL fields are native <input type="url">, which the
+// browser rejects as invalid without a scheme — so every extracted link
+// needs one before it reaches the form.
+function withUrlScheme(url) {
+  if (!url) return url;
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
 class ResumeParserService {
   /**
    * Extract text from PDF file buffer
@@ -396,16 +406,16 @@ Important guidelines:
     
     // Extract LinkedIn URL
     const linkedinMatch = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_-]+\/?/i);
-    const linkedinUrl = linkedinMatch ? linkedinMatch[0] : null;
-    
+    const linkedinUrl = linkedinMatch ? withUrlScheme(linkedinMatch[0]) : null;
+
     // Extract GitHub URL
     const githubMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[a-zA-Z0-9_-]+\/?/i);
-    const githubUrl = githubMatch ? githubMatch[0] : null;
-    
+    const githubUrl = githubMatch ? withUrlScheme(githubMatch[0]) : null;
+
     // Extract website
     const websiteMatch = text.match(/(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}(?:\/[^\s]*)?/);
-    const website = websiteMatch && !websiteMatch[0].includes('linkedin') && !websiteMatch[0].includes('github') 
-      ? websiteMatch[0] : null;
+    const website = websiteMatch && !websiteMatch[0].includes('linkedin') && !websiteMatch[0].includes('github')
+      ? withUrlScheme(websiteMatch[0]) : null;
     
     // Try to extract name from first few lines (usually at the top)
     let firstName = null;
