@@ -492,7 +492,7 @@ function AppContent() {
             <Route
               path="/profile/preferences"
               element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
                   <JobPreferencesWizard />
                 </PrivateRoute>
               }

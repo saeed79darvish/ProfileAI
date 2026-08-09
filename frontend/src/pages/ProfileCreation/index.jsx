@@ -62,10 +62,10 @@ const ProfileCreation = () => {
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
 
-  // LinkedIn import and the from-scratch wizard both need an account (OAuth
-  // session / AI enhancement calls) — a guest who clicks either sees a
-  // sign-up prompt instead of hitting an auth wall on the next page.
-  const [signupPromptFor, setSignupPromptFor] = useState(null); // 'linkedin' | 'manual' | null
+  // LinkedIn import needs a real account (it's a paid external API lookup,
+  // not free like resume parsing) — a guest who clicks it sees a sign-up
+  // prompt instead of hitting an auth wall on the next page.
+  const [signupPromptFor, setSignupPromptFor] = useState(null); // 'linkedin' | null
 
   // Drives the full-screen "AI is building your profile" experience.
   const [parsing, setParsing] = useState(false);
@@ -179,10 +179,9 @@ const ProfileCreation = () => {
   };
 
   const handleManualCreate = () => {
-    if (!isAuthenticated) {
-      setSignupPromptFor('manual');
-      return;
-    }
+    // The wizard itself is pure form-filling + localStorage autosave; its
+    // one AI-powered action (the optional "AI Draft" button on experience/
+    // project rows) is gated inline where it's used, not here at the door.
     navigate(ROUTES.PREFERENCES);
   };
 
@@ -236,11 +235,7 @@ const ProfileCreation = () => {
         onConfirm={() => navigate('/register?role=candidate')}
         variant="info"
         title="Create a free account first"
-        message={
-          signupPromptFor === 'linkedin'
-            ? "LinkedIn import needs a signed-in account to run. It only takes a few seconds — or upload your resume instead and sign up when you're ready to save."
-            : "Building from scratch uses our AI preference wizard, which needs a signed-in account. Upload a resume instead to try it without signing up."
-        }
+        message="LinkedIn import needs a signed-in account to run. It only takes a few seconds — or upload your resume instead and sign up when you're ready to save."
         confirmText="Sign Up"
         cancelText="Never mind"
       />

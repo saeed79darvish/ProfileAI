@@ -684,12 +684,16 @@ const ProfileForm = () => {
 
   // Cancel handler, confirm before discarding edits
   const handleCancel = useCallback(() => {
-    if (isFormDirty()) {
+    // Same reasoning as the Save/Back-to-Profile bottom bar below: a
+    // brand-new profile with real loaded data (resume parse, wizard or
+    // guest-draft handoff) that hasn't been hand-edited yet still has
+    // something worth confirming before it's discarded.
+    if (!isExistingProfile || isFormDirty()) {
       setDiscardDialogOpen(true);
     } else {
       navigate('/profile');
     }
-  }, [isFormDirty, navigate]);
+  }, [isExistingProfile, isFormDirty, navigate]);
 
   const confirmDiscard = useCallback(() => {
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
@@ -3660,9 +3664,16 @@ const ProfileForm = () => {
 
           {(() => {
             // Bottom bar is context-aware:
-            //   \u2022 No unsaved changes \u2192 single \"Back to Profile\" link (Save is hidden, Cancel is meaningless).
+            //   \u2022 No unsaved changes \u2192 single "Back to Profile" link (Save is hidden, Cancel is meaningless).
             //   \u2022 Unsaved changes      \u2192 Cancel + Save Changes pair.
-            const dirty = isFormDirty();
+            // A brand-new (never-saved) profile has no "back to" baseline to
+            // speak of \u2014 the dirty check only makes sense once a profile
+            // actually exists server-side. Without this, freshly-loaded
+            // first-time data (resume parse, wizard handoff, guest draft
+            // handoff) reads as "clean" the instant it loads, since nothing
+            // has been hand-edited yet, and the primary action silently
+            // becomes "Back to Profile" for a profile that was never saved.
+            const dirty = !isExistingProfile || isFormDirty();
             return (
           <Box sx={{ 
             display: 'flex', 

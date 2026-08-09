@@ -71,6 +71,8 @@ import { validateHttpUrl } from '@/utils/urlValidation';
 import { validateYear, validateYearRange } from './yearValidation';
 import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
 import useAICredits from '@/hooks/useAICredits';
+import { useAuth } from '@/contexts/AuthContext';
+import ConfirmModal from '@/components/ConfirmModal';
 import BrandWordmark from '@/components/BrandWordmark';
 import AICreditsBadge from '@/components/AICreditsBadge';
 
@@ -222,6 +224,11 @@ const normalizeData = (raw) => {
 
 const JobPreferencesWizard = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  // Everything in this wizard is client-side form-filling except the
+  // optional "AI Draft" button below — a guest who clicks it sees a
+  // sign-up prompt instead of hitting an auth wall.
+  const [showGuestSignupPrompt, setShowGuestSignupPrompt] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [animDir, setAnimDir] = useState('right');
   const [skillSearch, setSkillSearch] = useState('');
@@ -585,6 +592,10 @@ const JobPreferencesWizard = () => {
    * @param {object} ctx                     — title / company / role context
    */
   const draftWithAI = useCallback(async (type, field, index, ctx = {}) => {
+    if (!isAuthenticated) {
+      setShowGuestSignupPrompt(true);
+      return;
+    }
     const row = data[field]?.[index];
     const text = (row?.description || '').trim();
     if (!text || text.length < 10) {
@@ -608,7 +619,7 @@ const JobPreferencesWizard = () => {
     } finally {
       setAiDraftKey(null);
     }
-  }, [data, updateRow]);
+  }, [data, updateRow, isAuthenticated]);
 
   /**
    * One-click skills baseline — picks the top N skills from the currently
@@ -1892,6 +1903,16 @@ const JobPreferencesWizard = () => {
           setData(prev => ({ ...prev, projects: [...(prev.projects || []), project] }));
           setIdeasOpen(false);
         }}
+      />
+      <ConfirmModal
+        show={showGuestSignupPrompt}
+        onClose={() => setShowGuestSignupPrompt(false)}
+        onConfirm={() => navigate('/register?role=candidate')}
+        variant="info"
+        title="Create a free account first"
+        message="AI Draft needs a signed-in account. Your progress here stays right where it is — sign up and pick up where you left off."
+        confirmText="Sign Up"
+        cancelText="Maybe later"
       />
     </PageContainer>
   );

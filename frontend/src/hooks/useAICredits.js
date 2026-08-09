@@ -46,6 +46,16 @@ const useAICredits = (featureType = 'profile_enhance') => {
   });
 
   const refresh = useCallback(async () => {
+    // No token — this hook is mounted unconditionally by a few guest-
+    // reachable surfaces (e.g. JobPreferencesWizard's AI Draft button).
+    // Calling getUsage() anyway would 401, and the axios interceptor in
+    // services/api.js force-redirects unauthenticated 401s from protected
+    // endpoints to /login outside its boot-grace window — silently
+    // ejecting the guest from whatever page they were on.
+    if (!localStorage.getItem('token')) {
+      setState((p) => ({ ...p, loading: false, error: 'unauthenticated' }));
+      return;
+    }
     try {
       const res = await subscriptionAPI.getUsage();
       const feature = res?.data?.usage?.[featureType];
