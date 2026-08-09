@@ -49,6 +49,38 @@ const WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000',
 // first sighting is the whole point — see the model comment on the field.
 const EFFECTIVE_EXPR = `LEAST(COALESCE("postedAt", "createdAt"), "createdAt")`;
 
+
+/**
+ * Does this column already exist? A catalog READ, which takes no lock.
+ *
+ * This check is why the migration can no longer wedge a deploy. `ALTER TABLE
+ * ... ADD COLUMN IF NOT EXISTS` still needs an ACCESS EXCLUSIVE lock to decide
+ * that it has nothing to do, so on a busy table it waits, hits lock_timeout and
+ * throws — even though the column has existed for days. Because this migration
+ * is awaited and fatal by design, that turned a transient lock conflict into a
+ * permanently failing deploy: observed in production as
+ * "Exited with status 1" with ProcessInterrupts on exactly this statement,
+ * which blocked EVERY deploy, mine and unrelated work alike.
+ *
+ * Reading the catalog first means the steady-state path takes no lock at all.
+ */
+async function columnExists(table, column) {
+  const [rows] = await sequelize.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_name = $1 AND column_name = $2 LIMIT 1`,
+    { bind: [table, column] }
+  );
+  return rows.length > 0;
+}
+
+async function triggerExists(name) {
+  const [rows] = await sequelize.query(
+    `SELECT 1 FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal LIMIT 1`,
+    { bind: [name] }
+  );
+  return rows.length > 0;
+}
+
 async function up(opts = {}) {
   // Serialised across processes: concurrent boots running this same DDL fail
   // with "tuple concurrently updated". See _migrationLock.js.
@@ -62,12 +94,16 @@ async function _up({ verbose = true } = {}) {
   // 1. The column. Nullable with no default, so this is catalog-only in
   //    PostgreSQL 11+ (no table rewrite). lock_timeout keeps us from queueing
   //    behind a long sync transaction and blocking every reader behind us.
-  await sequelize.query(`
-    SET lock_timeout = '10s';
-    ALTER TABLE "ExternalJobs"
-    ADD COLUMN IF NOT EXISTS "effectivePostedAt" TIMESTAMP WITH TIME ZONE;
-  `);
-  log('  ✓ column present');
+  if (await columnExists('ExternalJobs', 'effectivePostedAt')) {
+    log('  ✓ column present (no lock taken)');
+  } else {
+    await sequelize.query(`
+      SET lock_timeout = '10s';
+      ALTER TABLE "ExternalJobs"
+      ADD COLUMN IF NOT EXISTS "effectivePostedAt" TIMESTAMP WITH TIME ZONE;
+    `);
+    log('  ✓ column added');
+  }
 
   // 2. The trigger that keeps it correct for every future write.
   //    Deliberately NOT column-scoped (no `UPDATE OF ...`): syncBoard's
@@ -75,6 +111,9 @@ async function _up({ verbose = true } = {}) {
   //    trigger would not fire on an upsert and the derived column would drift.
   //    A column list also creates a pg_depend entry that makes ALTER COLUMN on
   //    postedAt fail, which breaks sequelize.sync({alter:true}) on dev boot.
+  if (await triggerExists('external_jobs_effective_posted_at_trg')) {
+    log('  ✓ trigger present (no lock taken)');
+  } else {
   await sequelize.query(`
     SET lock_timeout = '10s';
     CREATE OR REPLACE FUNCTION external_jobs_set_effective_posted_at()
@@ -96,6 +135,7 @@ async function _up({ verbose = true } = {}) {
       EXECUTE FUNCTION external_jobs_set_effective_posted_at();
   `);
   log('  ✓ trigger installed');
+  }
 
   // 3. Backfill existing rows, committing per batch.
   let totalUpdated = 0;

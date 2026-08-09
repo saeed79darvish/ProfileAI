@@ -56,6 +56,21 @@ const BATCH_SIZE = 2000;
 const MAX_BATCHES = 200;
 const WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
 
+
+// Catalog reads take no lock. See the equivalent note in
+// ensureEffectivePostedAt.js: ADD COLUMN IF NOT EXISTS still needs an ACCESS
+// EXCLUSIVE lock to conclude it has nothing to do, so on a busy table it hits
+// lock_timeout and — because this migration is awaited and fatal — fails the
+// whole deploy over a column that already exists.
+async function columnExists(table, column) {
+  const [rows] = await sequelize.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_name = $1 AND column_name = $2 LIMIT 1`,
+    { bind: [table, column] }
+  );
+  return rows.length > 0;
+}
+
 async function up(opts = {}) {
   // Serialised across processes — concurrent ALTER TYPE / column adds against
   // the same catalog rows fail with "tuple concurrently updated".
@@ -76,14 +91,19 @@ async function _up({ verbose = true } = {}) {
   log('  ✓ status enum has clicked + in_progress');
 
   // 2. Provenance columns. Nullable, no default → catalog-only, no rewrite.
-  await sequelize.query(`
-    SET lock_timeout = '10s';
-    ALTER TABLE "ExternalApplications"
-      ADD COLUMN IF NOT EXISTS "confirmedBy" VARCHAR(40),
-      ADD COLUMN IF NOT EXISTS "confirmedAt" TIMESTAMP WITH TIME ZONE,
-      ADD COLUMN IF NOT EXISTS "normalizedJobUrl" TEXT;
-  `);
-  log('  ✓ confirmedBy / confirmedAt / normalizedJobUrl present');
+  if (await columnExists('ExternalApplications', 'normalizedJobUrl')
+      && await columnExists('ExternalApplications', 'confirmedBy')) {
+    log('  ✓ provenance columns present (no lock taken)');
+  } else {
+    await sequelize.query(`
+      SET lock_timeout = '10s';
+      ALTER TABLE "ExternalApplications"
+        ADD COLUMN IF NOT EXISTS "confirmedBy" VARCHAR(40),
+        ADD COLUMN IF NOT EXISTS "confirmedAt" TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS "normalizedJobUrl" TEXT;
+    `);
+    log('  ✓ provenance columns added');
+  }
 
   // 3. Stamp pre-existing rows. We genuinely do not know which of these were
   //    real applications, so they keep status='applied' (never demote data a
