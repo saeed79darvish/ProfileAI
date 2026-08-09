@@ -39,7 +39,7 @@ export const TEXT = {
   CHOICE_SUBTITLE: "Don't worry \u2014 you can always do the other one later!",
   BUILD_TITLE: 'Build Your AI Profile',
   BUILD_DESCRIPTION: 'Create a professional profile enhanced by AI. Upload your resume for instant parsing or build from scratch.',
-  BUILD_BUTTON: 'Build AI Profile',
+  BUILD_BUTTON: 'Build Your Profile',
   BROWSE_TITLE: 'Browse & Apply to Jobs',
   BROWSE_COMING_SOON: 'Coming Soon',
   BROWSE_DESCRIPTION: 'Explore curated job listings matched to your skills. Apply directly with your AI-enhanced profile.',
