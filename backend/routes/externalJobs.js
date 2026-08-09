@@ -81,7 +81,16 @@ function buildJobsCountCacheKey(q) {
     st: String(q.startup || '').toLowerCase() === 'true' ? '1' : '',
     hs: String(q.hideStale || '').toLowerCase() === 'true' ? '1' : '',
   };
-  return `external_jobs:count:${Object.entries(norm).map(([k, v]) => `${k}=${v}`).join('|')}`;
+  // NOT under the `external_jobs:` prefix, deliberately.
+  //
+  // Every board sync that changes anything calls
+  // cache.invalidatePrefix('external_jobs:'), and with hundreds of boards a
+  // sync is almost always in flight — so a count stored under that prefix was
+  // wiped before it could ever be reused, and the cache never once hit in
+  // production. The 60s TTL is the right bound here anyway: a total that is up
+  // to a minute stale is invisible in a "N jobs" label, whereas recomputing a
+  // COUNT over the whole corpus on every request is not.
+  return `jobscount:${Object.entries(norm).map(([k, v]) => `${k}=${v}`).join('|')}`;
 }
 
 function buildJobsListCacheKey(userId, q) {

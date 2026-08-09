@@ -65,8 +65,20 @@ const jobsCountCache = new Map();
 const JOBS_COUNT_CACHE_TTL_MS = 60 * 1000; // 60s
 const JOBS_COUNT_CACHE_MAX_ENTRIES = 200;
 
-function invalidateJobsCountCache() {
-  jobsCountCache.clear();
+// Deliberately a no-op now.
+//
+// This was called from every sync that changed anything. With hundreds of
+// boards a sync is almost always in flight, so the count cache was cleared
+// continuously and effectively never served a request — the COUNT it exists to
+// avoid was being recomputed on every cache miss, which on the production
+// corpus is the dominant cost of a filtered listing.
+//
+// The 60s TTL already bounds staleness, and a total that is up to a minute out
+// of date is invisible in a "N jobs" label. Kept as an exported function so the
+// sync call sites do not need to change and can still force a clear if a future
+// caller genuinely needs one.
+function invalidateJobsCountCache({ force = false } = {}) {
+  if (force) jobsCountCache.clear();
 }
 
 // Per-user cache for the data /external-jobs needs out of Profile.
