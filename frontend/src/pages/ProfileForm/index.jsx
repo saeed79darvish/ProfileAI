@@ -114,6 +114,8 @@ import { parseLimitError } from '@/utils/aiLimit';
 import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
 import { trackEvent } from '@/utils/analytics';
+import { saveGuestProfileDraft } from '@/utils/guestDraft';
+import ConfirmModal from '@/components/ConfirmModal';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 import { extractApiError } from '@/utils/apiError';
 
@@ -258,7 +260,7 @@ const InlineAIEnhanceButton = ({ loading, disabled, onClick, helperText, label =
 const ProfileForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -312,6 +314,19 @@ const ProfileForm = () => {
   const [profileId, setProfileId] = useState(null);
   // Celebration screen shown after a candidate's FIRST profile creation.
   const [showCelebration, setShowCelebration] = useState(false);
+  // Guest (pre-registration) builder: AI features and the actual server-side
+  // save both require an account, so any of those actions surface this
+  // prompt instead of failing with a 401. `guestPromptReason` only changes
+  // the copy — 'save' after they've finished building, 'feature' when they
+  // reach for something AI-powered mid-edit.
+  const [showGuestSignupPrompt, setShowGuestSignupPrompt] = useState(false);
+  const [guestPromptReason, setGuestPromptReason] = useState('feature');
+  const requireAuthForAction = (reason = 'feature') => {
+    if (isAuthenticated) return true;
+    setGuestPromptReason(reason);
+    setShowGuestSignupPrompt(true);
+    return false;
+  };
   
   // Job tailoring states
   const [showJobTailor, setShowJobTailor] = useState(false);
@@ -428,6 +443,15 @@ const ProfileForm = () => {
   useEffect(() => {
     const loadExistingProfile = async () => {
       try {
+        // Guest builder: there's no account yet, so skip straight to the
+        // "no profile found" branch below (which already falls back to a
+        // localStorage draft). Actually calling getMyProfile would 401,
+        // and the axios interceptor force-redirects unauthenticated 401s
+        // from protected endpoints to /login outside the boot-grace window
+        // — that would boot the guest out of the builder entirely.
+        if (!isAuthenticated) {
+          throw { guestSkip: true };
+        }
         const response = await profileAPI.getMyProfile();
         if (response.data) {
           const profile = response.data;
@@ -1173,6 +1197,7 @@ const ProfileForm = () => {
   // Pending diff preview: { fieldId, original, enhanced, applyFn, label }
   const [enhancePreview, setEnhancePreview] = useState(null);
   const handleEnhanceField = async (fieldId, type, text, context, applyFn, label = 'this section') => {
+    if (!requireAuthForAction()) return;
     if (!text || text.trim().length < 10) {
       setError('Text must be at least 10 characters to enhance');
       return;
@@ -1208,6 +1233,7 @@ const ProfileForm = () => {
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!requireAuthForAction()) return;
     if (!validTypes.includes(file.type)) {
       setError('Please upload a valid image file (jpg, png, gif, or webp)');
       return;
@@ -1326,6 +1352,22 @@ const ProfileForm = () => {
     };
     const droppedTotal = dropped.experience + dropped.education + dropped.projects;
 
+    if (!isAuthenticated) {
+      // Guest builder: no account to save to yet. Keep the completed draft
+      // client-side (never sent to the server pre-registration — see
+      // utils/guestDraft.js) and prompt sign-up. Registering picks this
+      // draft back up and submits it as the visitor's first real save.
+      saveGuestProfileDraft(cleanedFormData);
+      if (droppedTotal > 0) {
+        setFormData(cleanedFormData);
+      }
+      trackEvent('guest_profile_draft_saved');
+      setLoading(false);
+      setGuestPromptReason('save');
+      setShowGuestSignupPrompt(true);
+      return;
+    }
+
     try {
       await profileAPI.createOrUpdateProfile(cleanedFormData);
       // Reflect the cleaned data in local state so the UI stays in sync.
@@ -1364,6 +1406,7 @@ const ProfileForm = () => {
 
   const handleEnhanceWithAI = async (customPrompt = '') => {
     setShowEnhancePrompt(false);
+    if (!requireAuthForAction()) return;
     setError('');
     setSuccess('');
     setEnhancing(true);
@@ -1397,6 +1440,7 @@ const ProfileForm = () => {
   };
 
   const handleGetSuggestions = async () => {
+    if (!requireAuthForAction()) return;
     setError('');
     setGettingSuggestions(true);
     const controller = new AbortController();
@@ -1493,6 +1537,7 @@ const ProfileForm = () => {
 
   // Tailor profile for specific job, Step 0: Check for existing tailored profile
   const handleTailorForJob = async () => {
+    if (!requireAuthForAction()) return;
     if (!jobDescription.trim()) {
       setError('Please paste a job description first');
       return;
@@ -1525,6 +1570,7 @@ const ProfileForm = () => {
 
   // Step 1: Analyze gaps
   const proceedWithTailor = async () => {
+    if (!requireAuthForAction()) return;
     setShowRetailorConfirm(false);
     setExistingTailorJob(null);
     setAnalyzingGaps(true);
@@ -1718,7 +1764,11 @@ const ProfileForm = () => {
       const formDataUpload = new FormData();
       formDataUpload.append('resume', file);
 
-      const response = await profileAPI.uploadResume(formDataUpload);
+      // Parsing itself is AI-free pattern matching, so it's safe to let
+      // guests use it too — same as the entry-point upload in ProfileCreation.
+      const response = isAuthenticated
+        ? await profileAPI.uploadResume(formDataUpload)
+        : await profileAPI.guestUploadResume(formDataUpload);
 
       if (response.data.success) {
         const data = response.data.data;
@@ -1886,6 +1936,20 @@ const ProfileForm = () => {
           onContinue={() => navigate('/profile')}
         />
       )}
+      <ConfirmModal
+        show={showGuestSignupPrompt}
+        onClose={() => setShowGuestSignupPrompt(false)}
+        onConfirm={() => navigate('/register?role=candidate')}
+        variant="info"
+        title={guestPromptReason === 'save' ? 'Your profile is ready to save' : 'Create a free account first'}
+        message={
+          guestPromptReason === 'save'
+            ? "Nice work — that's a solid profile. Create a free account to save it; nothing you've entered is lost while you decide."
+            : 'AI tools (enhancement, tailoring, suggestions) need a signed-in account. Your progress stays right here — sign up and pick up where you left off.'
+        }
+        confirmText="Sign Up"
+        cancelText={guestPromptReason === 'save' ? 'Keep editing' : 'Maybe later'}
+      />
       {/* AI Tools Bar - matches Dashboard */}
       <AIToolsBar>
         <AIToolsLeft>
@@ -1900,7 +1964,7 @@ const ProfileForm = () => {
           </Breadcrumbs>
         </AIToolsLeft>
         <AIToolsButtons>
-          <AICreditsBadge style={{ marginRight: 8, alignSelf: 'center' }} />
+          {isAuthenticated && <AICreditsBadge style={{ marginRight: 8, alignSelf: 'center' }} />}
           <Tooltip title="Show the AI features tour again">
             <AIButton
               onClick={() => setShowWelcome(true)}

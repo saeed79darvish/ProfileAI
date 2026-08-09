@@ -242,6 +242,20 @@ export const profileAPI = {
     }
     return { data: await response.json() };
   },
+  // Same parser as uploadResume, reachable before login — no Authorization
+  // header, so no token is sent even if a stale one is sitting in storage.
+  guestUploadResume: async (formData) => {
+    const response = await fetch(`${API_URL}/profiles/guest/upload-resume`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+      const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
+      throw new Error(message);
+    }
+    return { data: await response.json() };
+  },
   // LinkedIn import — check which options the server has enabled
   // ({ urlImportAvailable, oauthAvailable }) so the UI can hide dead-end cards.
   getLinkedInImportStatus: () => api.get('/profiles/import-linkedin/status'),

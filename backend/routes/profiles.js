@@ -132,6 +132,59 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
   }
 });
 
+// @route   POST /api/profiles/guest/upload-resume
+// @desc    Same pattern-matching parse as /upload-resume, reachable before
+//          registration so a visitor can see their profile built before
+//          being asked to sign up. Deliberately does NOT touch the database —
+//          no Profile row exists yet for an anonymous visitor, and per the
+//          deferred-registration design we never persist guest PII
+//          server-side. The parsed data lives only in the response; the
+//          frontend keeps it in a client-side draft until the visitor
+//          registers. Rate-limited per IP since there's no user to key on.
+// @access  Public (rate-limited)
+router.post('/guest/upload-resume', guestAnalysisLimiter({ perIpPerDay: 20 }), upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const result = await resumeParserService.parseResume(req.file);
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: result.error || 'Failed to parse resume'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Resume parsed successfully',
+      data: result.data
+    });
+  } catch (error) {
+    console.error('Error uploading guest resume:', {
+      message: error?.message,
+      code: error?.code,
+      filename: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+    });
+
+    if (error.message === 'Only PDF and DOCX files are allowed') {
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+    }
+
+    res.status(500).json({
+      error: 'Error processing resume',
+      detail: error?.message || 'unknown'
+    });
+  }
+});
+
 // ═════════════════════════════════════════════════════════════════
 // LinkedIn / professional profile import (NinjaPear + OAuth prefill)
 // ═════════════════════════════════════════════════════════════════

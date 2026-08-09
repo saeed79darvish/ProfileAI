@@ -25,6 +25,7 @@ import {
   RocketLaunch as RocketIcon,
 } from '@mui/icons-material';
 import { profileAPI } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * First-time candidate welcome on /profile/edit.
@@ -201,6 +202,7 @@ const StepDots = ({ count, active }) => (
 // ─── Main modal ─────────────────────────────────────────────────────────
 const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName, manualTrigger = false }) => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -239,7 +241,11 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
     try {
       const form = new FormData();
       form.append('resume', file);
-      const res = await profileAPI.uploadResume(form);
+      // Pattern-matching parse only — no AI — so it's safe to let a
+      // pre-registration guest use it via the unauthenticated endpoint.
+      const res = isAuthenticated
+        ? await profileAPI.uploadResume(form)
+        : await profileAPI.guestUploadResume(form);
       if (res.data?.success && res.data?.data) {
         onResumeParsed?.(res.data.data);
         handleClose();
@@ -433,7 +439,10 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
               description="Answer a few questions about the role you want. AI drafts a starter profile you can refine."
               onClick={() => {
                 handleClose();
-                navigate('/profile/preferences');
+                // The AI preferences wizard needs an account (it calls
+                // AI endpoints along the way) — a guest goes to registration
+                // instead of hitting an auth wall on the next page.
+                navigate(isAuthenticated ? '/profile/preferences' : '/register?role=candidate');
               }}
             />
           </Box>

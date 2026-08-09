@@ -6,13 +6,14 @@ import { Lock as LockIcon } from '@mui/icons-material';
 import { notifyOnboardingBlocked, isOnboardingAllowedPath, isVerificationExemptPath } from '../utils/onboardingGate';
 import { diag } from '../utils/diagLogger';
 
-const PrivateRoute = ({ children, allowedRoles = null }) => {
+const PrivateRoute = ({ children, allowedRoles = null, allowGuest = false }) => {
   const { isAuthenticated, loading, isValidating, user } = useAuth();
   const location = useLocation();
 
   diag('privateRoute.eval', {
     path: location.pathname,
     allowedRoles,
+    allowGuest,
     isAuthenticated,
     loading,
     isValidating,
@@ -32,6 +33,14 @@ const PrivateRoute = ({ children, allowedRoles = null }) => {
 
   // Check if user is authenticated
   if (!isAuthenticated) {
+    // A handful of routes (the guest profile builder) are explicitly allowed
+    // to render for anonymous visitors — everything below this point is
+    // authenticated-only logic (verification, onboarding, role checks) that
+    // simply doesn't apply yet.
+    if (allowGuest) {
+      diag('privateRoute.decision', { branch: 'allow-guest', path: location.pathname });
+      return children;
+    }
     diag('privateRoute.decision', { branch: 'redirect-login', path: location.pathname });
     return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   }

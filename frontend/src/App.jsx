@@ -484,7 +484,7 @@ function AppContent() {
             <Route
               path="/profile/create"
               element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
                   <ProfileCreation />
                 </PrivateRoute>
               }
@@ -500,7 +500,7 @@ function AppContent() {
             <Route
               path="/profile/create-form"
               element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
                   <ProfileForm />
                 </PrivateRoute>
               }
