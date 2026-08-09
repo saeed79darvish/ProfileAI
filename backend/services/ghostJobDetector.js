@@ -159,11 +159,24 @@ async function scanGhostJobs({ limit = BATCH_SIZE } = {}) {
       const updated = await sequelize.transaction(async (t) => {
         await sequelize.query(`SET LOCAL statement_timeout = ${WRITE_TIMEOUT_MS}`, { transaction: t });
         const [rows] = await sequelize.query(
+          // Select by WHAT WOULD CHANGE, not by when we last looked.
+          //
+          // Selecting on ghostCheckedAt meant every pass rewrote every row —
+          // ~72k in production — and each of those UPDATEs fires the
+          // effectivePostedAt trigger and touches every index on the table,
+          // for a score that is identical to the one already stored. That is
+          // pure write amplification on a small instance: bloat, autovacuum
+          // pressure and evicted cache, which is what made even trivial
+          // aggregate queries take seconds.
+          //
+          // Comparing the computed score to the stored one is a read. Rows
+          // whose score has not moved cost nothing beyond that read, so after
+          // the first pass a sweep writes only the handful of rows that
+          // actually crossed an age boundary.
           `WITH batch AS (
-             SELECT id FROM "ExternalJobs"
-              WHERE "isActive" = true
-                AND ("ghostCheckedAt" IS NULL
-                     OR "ghostCheckedAt" < NOW() - INTERVAL '${RECHECK_AFTER_DAYS} days')
+             SELECT ej.id FROM "ExternalJobs" ej
+              WHERE ej."isActive" = true
+                AND ej."ghostScore" IS DISTINCT FROM ${SCORE_SQL}
               LIMIT ${limit}
            )
            UPDATE "ExternalJobs" ej
