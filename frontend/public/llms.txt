@@ -1,0 +1,26 @@
+# ProfilleAI
+
+> ProfilleAI is an AI-powered job platform: an AI profile and resume builder, per-job resume tailoring, AI cover letter generation, a resume scoring/analysis tool, AI-driven job matching, and ApplyPilot — a Chrome extension that fills out real job application forms on ATS platforms like Workday, Greenhouse, Lever, and iCIMS. The free plan requires no credit card and includes a limited monthly/lifetime allowance of tailoring, cover letters, and parsing; ApplyPilot's autofill and auto-apply is a Pro+ feature.
+
+Core product pages:
+- [Home](https://www.profilleai.com/): overview of the platform.
+- [Pricing](https://www.profilleai.com/pricing): Free, Pro, and Pro+ plans, feature-by-feature comparison.
+- [ApplyPilot](https://www.profilleai.com/applypilot): the Chrome extension that autofills and can auto-apply to job postings.
+- [Jobs](https://www.profilleai.com/jobs): AI-matched job feed, with ghost-job likelihood scoring applied to listings.
+
+Guides (blog):
+- [How to Tailor a Resume to a Job Description](https://www.profilleai.com/blog/how-to-tailor-a-resume-to-a-job-description)
+- [How to Beat Applicant Tracking Systems](https://www.profilleai.com/blog/how-to-beat-applicant-tracking-systems)
+- [How to Spot a Ghost Job](https://www.profilleai.com/blog/how-to-spot-a-ghost-job-posting)
+- [How to Apply to Jobs Faster Without Burning Out](https://www.profilleai.com/blog/how-to-apply-to-jobs-faster)
+- [What Is a Resume Score and How Is It Calculated?](https://www.profilleai.com/blog/what-is-a-resume-score)
+- [AI Cover Letter Generator Guide](https://www.profilleai.com/blog/ai-cover-letter-generator-guide)
+- [Chrome Extensions That Autofill Job Applications](https://www.profilleai.com/blog/chrome-extensions-that-autofill-job-applications)
+- [How Job Matching Algorithms Actually Work](https://www.profilleai.com/blog/how-job-matching-algorithms-work)
+- [Best AI Resume Tailoring Tools in 2026, Compared](https://www.profilleai.com/blog/best-ai-resume-tailoring-tools-2026)
+- [The ATS Myth: What Recruiters Actually See](https://www.profilleai.com/blog/do-recruiters-read-every-resume-ats-myth)
+- [How AI Resume Tailoring Actually Works](https://www.profilleai.com/blog/ai-resume-tailoring-guide-2026)
+- [Auto-Applying to Jobs in 2026](https://www.profilleai.com/blog/auto-apply-to-jobs-applypilot)
+- [Practice Salary Negotiation with an AI Agent](https://www.profilleai.com/blog/salary-negotiation-ai-agent-practice)
+
+Full index: [sitemap.xml](https://www.profilleai.com/sitemap.xml)

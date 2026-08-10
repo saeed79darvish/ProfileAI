@@ -11,7 +11,7 @@
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://www.profilleai.com/apply-pilot</loc>
+    <loc>https://www.profilleai.com/applypilot</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
@@ -21,7 +21,7 @@
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://www.profilleai.com/browse-profiles</loc>
+    <loc>https://www.profilleai.com/browse</loc>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
@@ -47,6 +47,56 @@
   </url>
   <url>
     <loc>https://www.profilleai.com/blog/salary-negotiation-ai-agent-practice</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/how-to-tailor-a-resume-to-a-job-description</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/how-to-beat-applicant-tracking-systems</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/how-to-spot-a-ghost-job-posting</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/how-to-apply-to-jobs-faster</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/what-is-a-resume-score</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/ai-cover-letter-generator-guide</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/chrome-extensions-that-autofill-job-applications</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/how-job-matching-algorithms-work</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/best-ai-resume-tailoring-tools-2026</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.profilleai.com/blog/do-recruiters-read-every-resume-ats-myth</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>

@@ -12,6 +12,41 @@ const BlogPost = () => {
 
   const related = POSTS.filter((p) => p.slug !== slug).slice(0, 2);
 
+  const jsonLd = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BlogPosting',
+      headline: post.title,
+      description: post.description,
+      datePublished: post.date,
+      dateModified: post.date,
+      author: { '@type': 'Organization', name: post.author, url: 'https://www.profilleai.com' },
+      publisher: {
+        '@type': 'Organization',
+        name: 'ProfilleAI',
+        logo: { '@type': 'ImageObject', url: 'https://www.profilleai.com/og-image.png' },
+      },
+      mainEntityOfPage: {
+        '@type': 'WebPage',
+        '@id': `https://www.profilleai.com/blog/${post.slug}`,
+      },
+      image: 'https://www.profilleai.com/og-image.png',
+      keywords: post.tags.join(', '),
+    },
+  ];
+
+  if (post.faq?.length) {
+    jsonLd.push({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: post.faq.map((f) => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    });
+  }
+
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#ffffff', py: { xs: 5, md: 8 } }}>
       <SEO
@@ -20,26 +55,7 @@ const BlogPost = () => {
         path={`/blog/${post.slug}`}
         type="article"
         keywords={post.tags.join(', ')}
-        jsonLd={{
-          '@context': 'https://schema.org',
-          '@type': 'BlogPosting',
-          headline: post.title,
-          description: post.description,
-          datePublished: post.date,
-          dateModified: post.date,
-          author: { '@type': 'Organization', name: post.author, url: 'https://www.profilleai.com' },
-          publisher: {
-            '@type': 'Organization',
-            name: 'ProfilleAI',
-            logo: { '@type': 'ImageObject', url: 'https://www.profilleai.com/og-image.png' },
-          },
-          mainEntityOfPage: {
-            '@type': 'WebPage',
-            '@id': `https://www.profilleai.com/blog/${post.slug}`,
-          },
-          image: 'https://www.profilleai.com/og-image.png',
-          keywords: post.tags.join(', '),
-        }}
+        jsonLd={jsonLd}
       />
       <Container maxWidth="md">
         <Button
@@ -47,7 +63,7 @@ const BlogPost = () => {
           to="/blog"
           sx={{ mb: 3, color: '#7c3aed', textTransform: 'none' }}
         >
-          ← Back to blog
+          Back to blog
         </Button>
 
         <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
@@ -82,9 +98,32 @@ const BlogPost = () => {
             '& li': { mb: 1 },
             '& a': { color: '#7c3aed', textDecoration: 'underline' },
             '& strong': { color: '#0b0f19' },
+            '& table': { width: '100%', borderCollapse: 'collapse', mb: 3, fontSize: '0.95rem' },
+            '& th, & td': { border: '1px solid #e5e7eb', p: 1.25, textAlign: 'left', verticalAlign: 'top' },
+            '& th': { bgcolor: '#faf5ff', fontWeight: 700, color: '#0b0f19' },
           }}
           dangerouslySetInnerHTML={{ __html: post.body }}
         />
+
+        {post.faq?.length ? (
+          <Box sx={{ mt: 6 }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, mb: 3 }}>
+              FAQ
+            </Typography>
+            <Stack spacing={3}>
+              {post.faq.map((f) => (
+                <Box key={f.q}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0b0f19', mb: 0.5 }}>
+                    {f.q}
+                  </Typography>
+                  <Typography variant="body1" sx={{ color: 'text.secondary' }}>
+                    {f.a}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
 
         <Divider sx={{ my: 6 }} />
 
