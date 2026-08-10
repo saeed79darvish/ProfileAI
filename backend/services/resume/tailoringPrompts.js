@@ -76,8 +76,10 @@ BULLETS
 - If a JD keyword has no match in the resume, flag it as a gap (see Step 4)
 
 KEYWORD INJECTION INTO BULLETS
-- The top 5 JD keywords must appear at least once in a bullet point, not only in the skills section.
-- If a keyword exists only in skills but not in any bullet, rewrite the most relevant bullet to naturally include it.
+- Where a top JD keyword genuinely describes work the candidate already did, weave it into the bullet using plain, natural language — never bolt the literal term onto a sentence where it doesn't fit.
+- Prefer surfacing a keyword through an accurate, specific description of real work over dropping the exact JD phrase in verbatim.
+- If a top keyword has no honest home in any bullet, either leave it in the skills section (only if the candidate has genuine exposure) or list it in the gap report. Do not force it into a sentence just to hit a quota — an unnatural sentence is worse than a missed keyword.
+- A keyword mentioned once, in the place it actually belongs, reads as a real skill. The same keyword crammed into two or three bullets reads as manipulation to a recruiter — never repeat a keyword artificially for density.
 
 WEAK BULLET FLAGGING
 - If a bullet cannot be connected to the JD in any meaningful way and has no metrics or scale, either:
@@ -114,10 +116,26 @@ SECTION ORDER
 
 VOICE & TONE
 - Never use: "results-driven," "detail-oriented," "passionate," "dynamic,"
-  "synergy," "leverage," "spearheaded," "utilized," or "proven track record"
+  "synergy," "leverage," "spearheaded," "utilized," "proven track record,"
+  "team player," "go-getter," "proactively," "in order to," "cutting-edge,"
+  "world-class," "seamlessly," "robust," or "best-in-class"
 - Every bullet: [Action verb] + [what/how] + [measurable outcome]
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
+- Vary sentence length and rhythm across bullets. Real resumes mix short,
+  punchy lines with longer ones — bullets that are all the same length and
+  shape is a tell that the text was machine-generated, not written by the
+  candidate.
+- Do not force a metric or JD keyword into every single bullet. Some real
+  accomplishments are plain, unquantified statements. A resume where
+  literally every line has a number or buzzword reads as padded, not credible.
+- Never stack multiple JD buzzwords into one sentence
+  ("led cross-functional, data-driven, agile initiatives to drive synergy").
+  That pattern reads as assembled from a job posting, not lived experience.
+- Write each bullet the way this specific candidate would describe their own
+  work to a peer — not the way a keyword scanner wants it phrased. If a
+  rewritten line would sound strange coming out of the candidate's mouth in
+  an interview, rewrite it again.
 
 ═══════════════════════════════════════
 STEP 4: GAP REPORT
@@ -147,8 +165,31 @@ STEP 5: NEVER DO THESE
 - Never add a tool or skill not present in the original resume
 - Never remove the candidate's actual company names or dates
 - Never make the resume longer than 2 pages
+- Never add a skill or keyword anywhere in the resume — including the skills
+  section — that has no real support elsewhere in the candidate's background.
+  A skills section padded with unsupported JD terms is the single fastest way
+  a "tailored" resume gets flagged as fake by a recruiter or a hiring
+  manager's own screening pass.
 - If the candidate is clearly unqualified for the role (less than 50% match),
-  flag this honestly in the gap report instead of over-inflating the resume`;
+  flag this honestly in the gap report instead of over-inflating the resume
+
+═══════════════════════════════════════
+STEP 6: FINAL HUMAN-READ CHECK
+═══════════════════════════════════════
+Before returning the result, reread the whole tailored resume once as a
+skeptical recruiter would — not as an ATS parser:
+
+- Does every bullet describe something this specific candidate plausibly
+  did, in their own voice? If a line reads like it was assembled from JD
+  keywords rather than lived experience, rewrite it in plainer language.
+- Is there any skill or term in the resume the candidate could not defend if
+  asked about it in an interview? If so, remove it — an unsupported term is
+  a liability, not a win, even if it improves keyword match.
+- Does the resume still read as ONE person's consistent career story, or
+  does it feel stitched together from the JD? Smooth out any place where
+  tone or vocabulary shifts abruptly between sections.
+- The candidate must be able to defend every line of this resume, unprompted,
+  in a live interview. If they couldn't, it doesn't belong in the output.`;
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -435,6 +476,8 @@ ${keywordsBlock}${gapContext}${settingsContext}
 - Reorder bullets within each role so the most JD-relevant appears first.
 - Keep all original metrics and numbers — never change them.
 - For skills the candidate doesn't have direct experience with but are in accepted gaps, use honest framing: "familiar with", "exposure to".
+- Do not add any skill or keyword to the skills list unless it already appears, or is honestly implied, somewhere in the candidate's actual resume/profile content. When in doubt, leave it out and note it in the gap report instead.
+- Read the final result once as a human recruiter, not a keyword scanner. Every sentence must sound like this candidate wrote it about their own work.
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object with this exact structure:
@@ -475,7 +518,7 @@ Return a JSON object with this exact structure:
 Return ONLY valid JSON.`;
 
   return {
-    system: 'You are an expert resume tailoring engine. You tailor resumes to maximize ATS match and recruiter relevance for specific job descriptions — without fabricating experience. You reorder, reframe, and surface buried relevance. You never invent skills, metrics, or experience. Return valid JSON only.',
+    system: 'You are an expert resume tailoring engine. You tailor resumes to maximize ATS keyword match while making the result read exactly like the candidate wrote it themselves — natural, varied, human phrasing with no keyword-stuffing or robotic patterns a recruiter would flag as fake. You reorder, reframe, and surface buried relevance. You never invent skills, metrics, or experience, and you never add a term the candidate could not defend in an interview. Return valid JSON only.',
     prompt,
     temperature: 0.5,
     max_tokens: 6000

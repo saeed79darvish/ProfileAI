@@ -1500,8 +1500,14 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // STEP 3: POST-PROCESSING — keyword verification & injection into skills only
+      // STEP 3: POST-PROCESSING — keyword coverage verification (report only)
       // ═══════════════════════════════════════════════════════════════
+      // NOTE: this used to force-inject any JD keyword missing from the AI's
+      // output straight into the skills section ("Other" bucket), regardless
+      // of whether the candidate actually has that skill. That fabricates
+      // experience and produces a skills list a recruiter can spot as
+      // padded/fake. We no longer add anything the model didn't already
+      // justify — missing keywords are surfaced as gaps instead.
 
       // Normalize skills: support both grouped object and flat array formats
       const flattenSkills = (skills) => {
@@ -1511,11 +1517,72 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         return [];
       };
 
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 3a: POST-PROCESSING — strip fabricated JD keywords from skills
+      // ═══════════════════════════════════════════════════════════════
+      // Belt-and-suspenders: the prompt tells the model never to add a skill
+      // without real support, but in testing it still occasionally slipped a
+      // required/preferred JD keyword (e.g. "AWS") into the skills list with
+      // zero backing anywhere in the candidate's resume — and even wrote a
+      // changelog line claiming it hadn't. Prompt wording alone isn't
+      // reliable here, so we verify in code. This only REMOVES unsupported
+      // JD keywords the model added; it never adds anything (unlike the old
+      // injection code this replaced), so it can't introduce new fabrication.
+      {
+        const sourceText = [originalResumeText || '', JSON.stringify(profileData || {})]
+          .join(' ')
+          .toLowerCase();
+        const acceptedGapsLower = new Set(
+          ((gapSelections && gapSelections.acceptedGaps) || []).map(g => String(g).toLowerCase())
+        );
+        const jdKeywordsLower = new Set(allRequiredKeywords.map(k => k.toLowerCase()));
+        const isFabricatedJdKeyword = (skill) => {
+          const skillLower = String(skill).toLowerCase().trim();
+          if (!jdKeywordsLower.has(skillLower)) return false; // only police JD-extracted terms
+          if (acceptedGapsLower.has(skillLower)) return false; // user explicitly accepted this gap
+          return !sourceText.includes(skillLower); // no support anywhere in resume/profile
+        };
+
+        const removedSkills = [];
+        if (Array.isArray(tailoredData.skills)) {
+          tailoredData.skills = tailoredData.skills.filter(s => {
+            if (isFabricatedJdKeyword(s)) { removedSkills.push(s); return false; }
+            return true;
+          });
+        } else if (tailoredData.skills && typeof tailoredData.skills === 'object') {
+          for (const group of Object.keys(tailoredData.skills)) {
+            tailoredData.skills[group] = (tailoredData.skills[group] || []).filter(s => {
+              if (isFabricatedJdKeyword(s)) { removedSkills.push(s); return false; }
+              return true;
+            });
+          }
+        }
+
+        if (removedSkills.length > 0) {
+          console.log('[ProfilleAI] ⚠️ Stripped unsupported skills the model added without evidence:', removedSkills);
+          if (!tailoredData.matchAnalysis || typeof tailoredData.matchAnalysis !== 'object') {
+            tailoredData.matchAnalysis = {};
+          }
+          if (!Array.isArray(tailoredData.matchAnalysis.gaps)) {
+            tailoredData.matchAnalysis.gaps = [];
+          }
+          const existingGapsLower = new Set(tailoredData.matchAnalysis.gaps.map(g => String(g).toLowerCase()));
+          for (const s of removedSkills) {
+            const alreadyListed = [...existingGapsLower].some(g => g.includes(s.toLowerCase()));
+            if (!alreadyListed) tailoredData.matchAnalysis.gaps.push(s);
+          }
+          tailoredData.changelog.push({
+            section: 'skills',
+            action: 'removed_unsupported',
+            detail: `Removed ${removedSkills.join(', ')} from skills — not supported anywhere in the candidate's resume/profile`
+          });
+        }
+      }
+
       if (allRequiredKeywords.length > 0) {
         console.log('[ProfilleAI] Step 3: Verifying keyword coverage...');
         console.log('[ProfilleAI] Checking for these keywords:', allRequiredKeywords);
 
-        // Build full resume text for checking
         const buildResumeText = () => [
           tailoredData.summary || '',
           ...flattenSkills(tailoredData.skills),
@@ -1523,7 +1590,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           ...(tailoredData.projects || []).map(p => p.description || '')
         ].join(' ').toLowerCase();
 
-        let resumeText = buildResumeText();
+        const resumeText = buildResumeText();
 
         const missingKeywords = allRequiredKeywords.filter(kw => {
           const kwLower = kw.toLowerCase();
@@ -1531,53 +1598,27 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         });
 
         if (missingKeywords.length > 0) {
-          console.log('[ProfilleAI] ⚠️ Missing keywords detected:', missingKeywords);
+          console.log('[ProfilleAI] ⚠️ Missing keywords (surfaced as gaps, not injected):', missingKeywords);
 
-          // INJECTION: Add missing keywords to skills
-          const allSkillsFlat = flattenSkills(tailoredData.skills);
-          const currentSkillsLower = new Set(allSkillsFlat.map(s => s.toLowerCase()));
-          const injectedSkills = [];
-          for (const kw of missingKeywords) {
-            if (!currentSkillsLower.has(kw.toLowerCase())) {
-              // If skills is a grouped object, add to a "Other" category
-              if (tailoredData.skills && !Array.isArray(tailoredData.skills) && typeof tailoredData.skills === 'object') {
-                if (!tailoredData.skills['Other']) tailoredData.skills['Other'] = [];
-                tailoredData.skills['Other'].push(kw);
-              } else {
-                // Flat array
-                if (!Array.isArray(tailoredData.skills)) tailoredData.skills = [];
-                tailoredData.skills.push(kw);
-              }
-              currentSkillsLower.add(kw.toLowerCase());
-              injectedSkills.push(kw);
-              console.log(`[ProfilleAI]   → Injected "${kw}" into skills`);
-            }
+          // Fold anything the model didn't already flag into matchAnalysis.gaps
+          // so the user sees it as an honest gap, not a fabricated skill.
+          if (!tailoredData.matchAnalysis || typeof tailoredData.matchAnalysis !== 'object') {
+            tailoredData.matchAnalysis = {};
           }
-
-          // Add changelog entry for post-processing injections
-          if (injectedSkills.length > 0) {
-            tailoredData.changelog.push({
-              section: 'skills',
-              action: 'auto_injected',
-              detail: `Post-processing: Added ${injectedSkills.join(', ')} to skills (missing from AI output)`
-            });
+          if (!Array.isArray(tailoredData.matchAnalysis.gaps)) {
+            tailoredData.matchAnalysis.gaps = [];
+          }
+          const existingGapsLower = new Set(tailoredData.matchAnalysis.gaps.map(g => String(g).toLowerCase()));
+          for (const kw of missingKeywords) {
+            const alreadyListed = [...existingGapsLower].some(g => g.includes(kw.toLowerCase()));
+            if (!alreadyListed) {
+              tailoredData.matchAnalysis.gaps.push(kw);
+            }
           }
         } else {
           console.log('[ProfilleAI] ✅ All required keywords present in tailored resume.');
         }
-
-        // Final verification log
-        const finalText = buildResumeText();
-        const finalMissing = allRequiredKeywords.filter(kw => !finalText.includes(kw.toLowerCase()));
-        if (finalMissing.length > 0) {
-          console.log('[ProfilleAI] ⚠️ FINAL CHECK - still missing after injection:', finalMissing);
-        } else {
-          console.log('[ProfilleAI] ✅ FINAL CHECK - all keywords confirmed present.');
-        }
-        console.log('[ProfilleAI] Final skills list:', tailoredData.skills);
       }
-
-      console.log('[ProfilleAI] Final skills list:', tailoredData.skills);
 
       // Normalize skills: keep grouped format as skillsGrouped, flatten skills to array
       if (tailoredData.skills && !Array.isArray(tailoredData.skills) && typeof tailoredData.skills === 'object') {
