@@ -303,7 +303,21 @@ const Dashboard = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const TAB_MAP = { overview: 0, experience: 1, skills: 2, education: 3, tailored: 4, settings: 5 };
+  // Indices must track the <Tab> order rendered below: Overview, Experience,
+  // Education, Projects, Tailored Profiles, and Posts when the feed flag is on.
+  // They had drifted one place apart, so ?tab=education opened Projects.
+  // `skills` has no tab of its own — skills render inside Overview.
+  const TAB_MAP = {
+    overview: 0,
+    skills: 0,
+    experience: 1,
+    education: 2,
+    projects: 3,
+    tailored: 4,
+    // Only mapped when the Posts tab actually renders; otherwise an unknown
+    // key falls back to Overview rather than a blank panel.
+    ...(featureFlags.feed ? { posts: 5 } : {}),
+  };
   const [activeTab, setActiveTab] = useState(() => TAB_MAP[searchParams.get('tab')] ?? 0);
   const requestedTab = searchParams.get('tab');
   const requestedResumeId = searchParams.get('resumeId') || searchParams.get('appId');

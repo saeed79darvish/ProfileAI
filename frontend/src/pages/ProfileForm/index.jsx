@@ -103,6 +103,9 @@ import {
 import { ROUTES, SOFTWARE_KEYWORDS, TECHNICAL_KEYWORDS, SOFT_SKILL_KEYWORDS, VALID_IMAGE_TYPES, ALLOWED_RESUME_TYPES, TIMINGS, LIMITS } from './constants';
 import { stripMarkdown } from './utils';
 import ProfileCelebration from './ProfileCelebration';
+// Same full-screen parse experience the create-profile flow plays, so an
+// in-place re-upload from the editor doesn't drop to a bare 16px spinner.
+import ResumeMagicOverlay from '../ProfileCreation/ResumeMagicOverlay';
 import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
@@ -115,6 +118,7 @@ import AICreditsBadge from '@/components/AICreditsBadge';
 import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
 import { trackEvent } from '@/utils/analytics';
 import { saveGuestProfileDraft } from '@/utils/guestDraft';
+import { normalizeEducationRows } from '@/utils/education';
 import ConfirmModal from '@/components/ConfirmModal';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 import { extractApiError } from '@/utils/apiError';
@@ -142,6 +146,8 @@ const migrateEducationDates = (rows) =>
     if (!parsed) return row;
     return { ...row, startDate: parsed.startDate, endDate: parsed.endDate };
   });
+
+const prepareEducationRows = (rows) => normalizeEducationRows(migrateEducationDates(rows));
 
 // Light theme TextField styling
   const darkTextFieldSx = {
@@ -351,6 +357,10 @@ const ProfileForm = () => {
   
   // Resume upload state
   const [uploadingResume, setUploadingResume] = useState(false);
+  // Drives the full-screen parse overlay: null when idle, otherwise
+  // { ready, data } — `ready` flips once the parse API resolves so the overlay
+  // can snap to 100% and show what it extracted.
+  const [resumeMagic, setResumeMagic] = useState(null);
 
   // Mobile AI tools overflow menu (collapses Upload Resume / Enhance / Tailor / Tips on small screens)
   const [aiMenuAnchor, setAiMenuAnchor] = useState(null);
@@ -486,7 +496,7 @@ const ProfileForm = () => {
             coverImage: profile.coverImage || '',
             skills: categorizedSkills,
             experience: migrateExperienceDates(profile.experience || []),
-            education: migrateEducationDates(profile.education || []),
+            education: prepareEducationRows(profile.education || []),
             projects: profile.projects || [],
             isPublic: profile.isPublic !== false
           };
@@ -510,6 +520,11 @@ const ProfileForm = () => {
                 // server would still surface the banner on reload.
                 const { _draftTimestamp, ...draftPayload } = draft;
                 const merged = { ...serverFormData, ...draftPayload };
+                // Drafts written before education keys were canonicalised (or
+                // handed over from the create flow) can still carry
+                // school/field/current — normalise so restoring one doesn't
+                // reintroduce rows the save filter would drop.
+                merged.education = normalizeEducationRows(merged.education);
                 const isMeaningfullyDifferent = JSON.stringify(merged) !== JSON.stringify(serverFormData);
                 if (isMeaningfullyDifferent) {
                   setFormData(merged);
@@ -538,7 +553,7 @@ const ProfileForm = () => {
             const draft = JSON.parse(savedDraft);
             // Only restore if the draft has meaningful data
             if (draft && (draft.title || draft.summary || (draft.experience && draft.experience.length > 0))) {
-              setFormData(prev => ({ ...prev, ...draft }));
+              setFormData(prev => ({ ...prev, ...draft, education: normalizeEducationRows(draft.education ?? prev.education) }));
               setDraftRestored(true);
               // Surfaced via the slim DraftRestoredBanner, no loud success alert.
             }
@@ -574,7 +589,7 @@ const ProfileForm = () => {
         summary: data.summary || '',
         skills: categorizeSkillsHelper(data.skills || []),
         experience: data.experience || [],
-        education: data.education || [],
+        education: normalizeEducationRows(data.education || []),
         projects: data.projects || [],
         isPublic: true
       });
@@ -774,7 +789,7 @@ const ProfileForm = () => {
       summary: data.summary || '',
       skills: categorizeSkillsHelper(data.skills || []),
       experience: data.experience || [],
-      education: data.education || [],
+      education: normalizeEducationRows(data.education || []),
       projects: data.projects || [],
       isPublic: true,
     });
@@ -848,7 +863,7 @@ const ProfileForm = () => {
         summary: data.summary || '',
         skills: categorizeSkillsHelper(data.skills || []),
         experience: data.experience || [],
-        education: data.education || [],
+        education: normalizeEducationRows(data.education || []),
         projects: data.projects || [],
         isPublic: true
       });
@@ -1192,9 +1207,15 @@ const ProfileForm = () => {
   const handleEducationChange = (index, field, value) => {
     setFormData(prev => ({
       ...prev,
-      education: prev.education.map((row, i) =>
-        i === index ? { ...row, [field]: value } : row
-      ),
+      education: prev.education.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row, [field]: value };
+        // The resume generator and PDF renderer read `field`, the editor writes
+        // `fieldOfStudy`. Write both so an edited row keeps its field of study
+        // in generated resumes instead of silently reverting to the parsed one.
+        if (field === 'fieldOfStudy') next.field = value;
+        return next;
+      }),
     }));
   };
 
@@ -1332,7 +1353,7 @@ const ProfileForm = () => {
 
     // Strip blank/placeholder entries silently. Required-field minimums per type:
     //   Experience → company + title + period (start or end date)
-    //   Education  → institution + degree + year/date
+    //   Education  → institution OR degree (either one identifies a real entry)
     //   Project    → title + description
     const PLACEHOLDER_RE = /^(field|degree|period|company\s*name|institution\s*name|role|title|n\/?a|none|null|undefined|tbd)$/i;
     const isReal = (v) => {
@@ -1346,9 +1367,13 @@ const ProfileForm = () => {
       if (!ok) dropped.experience++;
       return ok;
     });
+    // Resume parsing legitimately leaves degree/dates null when a resume
+    // doesn't state them cleanly (bootcamps, certificates, in-progress
+    // programs). Requiring degree AND a date on top of institution silently
+    // dropped real parsed entries — only discard a row with nothing
+    // identifying it at all.
     const cleanEducation = (formData.education || []).filter((edu) => {
-      const ok = isReal(edu.institution) && isReal(edu.degree) &&
-        (isReal(edu.year) || isReal(edu.startDate) || isReal(edu.endDate));
+      const ok = isReal(edu.institution) || isReal(edu.degree);
       if (!ok) dropped.education++;
       return ok;
     });
@@ -1771,7 +1796,9 @@ const ProfileForm = () => {
     }
 
     setUploadingResume(true);
+    setResumeMagic({ ready: false, data: null });
     setError('');
+    setSuccess('');
 
     try {
       const formDataUpload = new FormData();
@@ -1810,22 +1837,33 @@ const ProfileForm = () => {
           summary: data.summary || prev.summary,
           skills: categorizedSkills || prev.skills,
           experience: data.experience && data.experience.length > 0 ? data.experience : prev.experience,
-          education: data.education && data.education.length > 0 ? data.education : prev.education,
+          education: data.education && data.education.length > 0 ? normalizeEducationRows(data.education) : prev.education,
           projects: data.projects && data.projects.length > 0 ? data.projects : prev.projects,
         }));
         setHasResumeData(true);
         setSuccess('Resume parsed successfully! Review and edit the information below before saving.');
+        // Let the overlay play out its "here's what I found" summary; it calls
+        // handleResumeMagicFinish to dismiss itself.
+        setResumeMagic({ ready: true, data });
       } else {
+        setResumeMagic(null);
         setError('Failed to parse resume. Please try again.');
       }
     } catch (err) {
       console.error('Error uploading resume:', err);
+      setResumeMagic(null);
       setError(err.response?.data?.error || err.message || 'Failed to upload resume.');
     } finally {
       setUploadingResume(false);
       event.target.value = '';
     }
   };
+
+  // Dismiss the parse overlay and drop the user at the freshly filled form.
+  const handleResumeMagicFinish = useCallback(() => {
+    setResumeMagic(null);
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { /* ignore */ }
+  }, []);
 
   // Clear resume data and reset form
   const handleClearResumeData = () => {
@@ -3325,7 +3363,7 @@ const ProfileForm = () => {
                       fullWidth
                       size="small"
                       label="Degree/Program"
-                      value={edu.degree}
+                      value={edu.degree || ''}
                       onChange={(e) => handleEducationChange(index, 'degree', e.target.value)}
                       sx={darkTextFieldSx}
                     />
@@ -3335,7 +3373,7 @@ const ProfileForm = () => {
                       fullWidth
                       size="small"
                       label="Institution"
-                      value={edu.institution}
+                      value={edu.institution || ''}
                       onChange={(e) => handleEducationChange(index, 'institution', e.target.value)}
                       sx={darkTextFieldSx}
                     />
@@ -4207,8 +4245,17 @@ const ProfileForm = () => {
       </MainContent>
       </FormContainer>
       
+      {/* Resume parse experience — identical to the create-profile flow. */}
+      {resumeMagic && (
+        <ResumeMagicOverlay
+          ready={resumeMagic.ready}
+          data={resumeMagic.data}
+          onFinish={handleResumeMagicFinish}
+        />
+      )}
+
       {/* AI Processing Modals */}
-      <AIProcessingModal 
+      <AIProcessingModal
         open={enhancing}
         onCancel={() => { enhanceAbortRef.current?.abort(); }}
         title="AI Enhancing Profile"
