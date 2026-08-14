@@ -89,35 +89,35 @@ const STEPS: Step[] = [
     id: 'pin', mode: 'intro', panelState: 'default', pos: 'center',
     greeting: 'Welcome to ProfilleAI!',
     headline: 'Pin the extension for quick access.',
-    body: "Click the puzzle icon in your toolbar, then pin ProfileAI so it's always one click away.",
+    body: "Click the puzzle icon in your toolbar, then pin ProfilleAI so it's always one click away.",
     btnText: 'Got it!',
   },
   {
     id: 'how-it-works', mode: 'intro', panelState: 'default', pos: 'center',
     greeting: 'How does it work?',
-    headline: 'ProfileAI automatically fills your job applications.',
+    headline: 'ProfilleAI automatically fills your job applications.',
     body: '__JSX_HOWIT__',
     btnText: 'Start Tutorial',
   },
   {
     id: 'click-autofill', mode: 'tooltip', panelState: 'autofill-ready', pos: 'near-panel',
     headline: '__JSX_AUTOFILL__',
-    body: 'Your profile data is pulled from ProfileAI. The extension detects form fields on Greenhouse, Lever, Workday, LinkedIn and more — and fills them instantly. This feature is free for all users!',
+    body: 'Your profile data is pulled from ProfilleAI. The extension detects form fields on Greenhouse, Lever, Workday, LinkedIn and more, then fills them instantly. This feature is free for all users!',
     btnText: '',
     interactive: 'autofill',
     scrollTo: 'top',
   },
   {
     id: 'autofill-done', mode: 'tooltip', panelState: 'autofilled', pos: 'near-form',
-    headline: 'Every field filled — plus AI-generated answers to custom questions.',
-    body: 'ProfileAI saves your answers so identical questions in future applications are filled automatically. No retyping.',
+    headline: 'Every field filled, plus AI-generated answers to custom questions.',
+    body: 'ProfilleAI saves your answers so identical questions in future applications are filled automatically. No retyping.',
     btnText: 'Next',
     scrollTo: 'form',
   },
   {
     id: 'keyword-match', mode: 'tooltip', panelState: 'keywords', pos: 'near-panel',
     headline: '__JSX_KEYWORDS__',
-    body: 'Click "Analyze job to see match" — ProfilleAI scans the job description and shows which keywords are in your profile and which are missing. Free for everyone!',
+    body: 'Click "Analyze job to see match" and ProfilleAI scans the job description, showing which keywords are in your profile and which are missing. Free for everyone!',
     btnText: 'Next',
     scrollTo: 'top',
   },
@@ -144,15 +144,15 @@ const STEPS: Step[] = [
   },
   {
     id: 'profile', mode: 'tooltip', panelState: 'profile-focus', pos: 'near-panel',
-    headline: 'Your profile — click any field to copy it instantly.',
-    body: 'Email, phone, location, skills — each has a one-click copy button for quick paste into any application.',
+    headline: 'Your profile. Click any field to copy it instantly.',
+    body: 'Email, phone, location and skills each have a one-click copy button for quick paste into any application.',
     btnText: 'Next',
     scrollTo: 'top',
   },
   {
     id: 'submit', mode: 'tooltip', panelState: 'hidden', pos: 'near-submit',
     headline: '__JSX_SUBMIT__',
-    body: 'ProfileAI tracks all your submitted applications so you never lose track.',
+    body: 'ProfilleAI tracks all your submitted applications so you never lose track.',
     btnText: '',
     interactive: 'submit',
     scrollTo: 'bottom',
@@ -160,13 +160,13 @@ const STEPS: Step[] = [
   {
     id: 'done', mode: 'success', panelState: 'hidden', pos: 'center',
     headline: 'Application Submitted!',
-    body: "That's how easy it is. ProfileAI handles the heavy lifting so you can focus on landing interviews.",
+    body: "That's how easy it is. ProfilleAI handles the heavy lifting so you can focus on landing interviews.",
     btnText: 'Get Started',
   },
   {
     id: 'get-started', mode: 'auth', panelState: 'hidden', pos: 'center',
     headline: 'Ready to apply smarter?',
-    body: 'Sign in or create a free account to unlock ProfileAI.',
+    body: 'Sign in or create a free account to unlock ProfilleAI.',
     btnText: '',
   },
 ];
@@ -240,7 +240,7 @@ export const Onboarding: React.FC = () => {
         const pd = pr?.profile || pr?.data;
         if (pd) setProfile({ ...pd, firstName: d.user.firstName, lastName: d.user.lastName, email: d.user.email });
       }
-    } catch (e) { console.error('[ProfileAI]', e); }
+    } catch (e) { console.error('[ProfilleAI]', e); }
     finally { setLoading(false); }
   };
 
@@ -314,7 +314,7 @@ export const Onboarding: React.FC = () => {
     switch (text) {
       case '__JSX_AUTOFILL__': return <>Click <span className="accent">Autofill Form</span> to see the extension in action.</>;
       case '__JSX_KEYWORDS__': return <>See your <span className="accent">keyword match</span> score for every job.</>;
-      case '__JSX_TAILOR__': return <><span className="pro-badge">PRO</span> <span className="accent">Tailor</span> your resume for every job — with full control.</>;
+      case '__JSX_TAILOR__': return <><span className="pro-badge">PRO</span> <span className="accent">Tailor</span> your resume for every job, with full control.</>;
       case '__JSX_COVER__': return <><span className="pro-badge">PRO</span> Generate a <span className="accent">tailored cover letter</span> in one click.</>;
       case '__JSX_PLATFORMS__': return <>Works with <span className="accent">LinkedIn</span>, <span className="accent">Greenhouse</span>, <span className="accent">Lever</span>, <span className="accent">Workday</span>, and more.</>;
       case '__JSX_SUBMIT__': return <>Click <span className="accent">Submit</span> to finish this job application.</>;
@@ -327,10 +327,10 @@ export const Onboarding: React.FC = () => {
       <>We'll show you how it works by filling out this <strong>fictional</strong> job application as if you were <span className="accent">Alex Rivera</span>.</>
     );
     if (text === '__JSX_TAILOR_BODY__') return (
-      <>Choose your resume tone, section lengths, and emphasis areas. AI rewrites your resume, shows a match score, strong matches, skill gaps, and every change made. Download as PDF or Word.<br/><br/><span className="pro-note">✦ This is a <strong>Pro</strong> feature — upgrade anytime to unlock unlimited resume tailoring.</span></>
+      <>Choose your resume tone, section lengths, and emphasis areas. AI rewrites your resume, shows a match score, strong matches, skill gaps, and every change made. Download as PDF or Word.<br/><br/><span className="pro-note">✦ This is a <strong>Pro</strong> feature. Upgrade anytime to unlock unlimited resume tailoring.</span></>
     );
     if (text === '__JSX_COVER_BODY__') return (
-      <>Pick your tone (Professional, Conversational, Enthusiastic) and length (Short, Medium, Long). Copy, download, or regenerate instantly.<br/><br/><span className="pro-note">✦ This is a <strong>Pro</strong> feature — upgrade to generate unlimited cover letters for every application.</span></>
+      <>Pick your tone (Professional, Conversational, Enthusiastic) and length (Short, Medium, Long). Copy, download, or regenerate instantly.<br/><br/><span className="pro-note">✦ This is a <strong>Pro</strong> feature. Upgrade to generate unlimited cover letters for every application.</span></>
     );
     return text;
   };
@@ -417,7 +417,7 @@ export const Onboarding: React.FC = () => {
             <div className="bg-job-desc">
               <h2 className="bg-job-title">Not a Real Job Application</h2>
               <p className="bg-job-loc">📍 San Francisco, CA</p>
-              <p className="bg-demo-note">This is a demo job application to show you how ProfileAI works!</p>
+              <p className="bg-demo-note">This is a demo job application to show you how ProfilleAI works!</p>
               <div className="bg-desc-block">
                 <h3>What We're Looking For:</h3>
                 <ul>
@@ -469,8 +469,20 @@ export const Onboarding: React.FC = () => {
           {ps !== 'hidden' && (
             <div className="bg-panel">
               <div className="panel-header">
-                <svg className="panel-logo" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5Z" stroke="#8b5cf6" strokeWidth="2"/><path d="M2 17l10 5 10-5" stroke="#8b5cf6" strokeWidth="2"/><path d="M2 12l10 5 10-5" stroke="#8b5cf6" strokeWidth="2"/></svg>
-                <span className="panel-name">ProfilleAI</span>
+                {/* Mock of the real panel header — keep in sync with
+                    components/BrandLogo.tsx or the tour stops matching the
+                    thing it's touring. */}
+                <svg className="panel-logo" viewBox="0 0 40 40" fill="none">
+                  <defs>
+                    <linearGradient id="obPanelMark" x1="14" y1="14" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="#5A4BB4" />
+                      <stop offset="1" stopColor="#241C61" />
+                    </linearGradient>
+                  </defs>
+                  <rect x="0" y="0" width="26" height="26" rx="6" fill="rgba(255,255,255,0.38)" />
+                  <rect x="14" y="14" width="26" height="26" rx="6" fill="url(#obPanelMark)" />
+                </svg>
+                <span className="panel-name">profille<span style={{ color: '#c4b5fd' }}>ai</span></span>
                 <span className="panel-refresh">↻</span>
               </div>
 
@@ -698,7 +710,7 @@ export const Onboarding: React.FC = () => {
             <div className="success-check">✓</div>
             <h2 className="modal-headline">{cur.headline}</h2>
             <p className="modal-body">{cur.body}</p>
-            <button className="btn btn-primary btn-lg" onClick={next}>{cur.btnText} →</button>
+            <button className="btn btn-primary btn-lg" onClick={next}>{cur.btnText}</button>
           </div>
         </div>
       )}
@@ -711,7 +723,7 @@ export const Onboarding: React.FC = () => {
               <>
                 <div className="modal-emoji">👋</div>
                 <h2 className="modal-headline">Do you already have a ProfilleAI account?</h2>
-                <p className="modal-body">If you've already created your profile on <span className="accent">profilleai.com</span>, just sign in below — your profile data will sync to the extension automatically.</p>
+                <p className="modal-body">If you've already created your profile on <span className="accent">profilleai.com</span>, just sign in below and your profile data will sync to the extension automatically.</p>
                 <div className="auth-choice-btns">
                   <button className="btn btn-primary btn-lg" onClick={() => setAuthPhase('form')}>Yes, let me sign in</button>
                   <button className="btn btn-outline btn-lg" onClick={() => setAuthPhase('no-profile')}>No, I'm new here</button>
@@ -720,14 +732,14 @@ export const Onboarding: React.FC = () => {
             ) : !auth.isAuthenticated && authPhase === 'no-profile' ? (
               <>
                 <div className="modal-emoji">🚀</div>
-                <h2 className="modal-headline">Create your profile first — it powers everything</h2>
+                <h2 className="modal-headline">Create your profile first. It powers everything</h2>
                 <p className="modal-body">ProfilleAI uses your profile to <span className="accent">auto-fill applications</span>, <span className="accent">tailor your resume</span>, and <span className="accent">generate cover letters</span>. The more complete your profile, the better results you'll get.</p>
                 <div className="no-profile-benefits">
                   <div className="benefit-item"><span className="benefit-icon">✦</span><span>Add your experience, skills &amp; education once</span></div>
                   <div className="benefit-item"><span className="benefit-icon">🔄</span><span>Data syncs instantly to this extension</span></div>
                   <div className="benefit-item"><span className="benefit-icon">⚡</span><span>Apply to jobs in seconds, not minutes</span></div>
                 </div>
-                <button className="btn btn-primary btn-lg" onClick={() => window.open(`${CONFIG.WEB_BASE}/register?from=extension`, '_blank')}>Create Profile on ProfileAI →</button>
+                <button className="btn btn-primary btn-lg" onClick={() => window.open(`${CONFIG.WEB_BASE}/onboarding?from=extension`, '_blank')}>Create Profile on ProfilleAI</button>
                 <div className="auth-or"><span>or</span></div>
                 <button className="btn btn-ghost" onClick={() => setAuthPhase('form')}>Sign up directly here instead</button>
               </>
@@ -737,7 +749,7 @@ export const Onboarding: React.FC = () => {
                 <p className="modal-body">{cur.body}</p>
                 <p className="auth-sync-note">Already signed in on <span className="accent">profilleai.com</span>? Your profile will sync here automatically once you sign in.</p>
                 <InlineAuthForm onAuthSuccess={onAuth} />
-                <button className="btn btn-ghost auth-back-link" onClick={() => setAuthPhase('ask')}>← Back</button>
+                <button className="btn btn-ghost auth-back-link" onClick={() => setAuthPhase('ask')}>Back</button>
               </>
             ) : checking ? (
               <div className="modal-checking"><div className="spinner"/>Checking your profile…</div>
@@ -745,20 +757,20 @@ export const Onboarding: React.FC = () => {
               <>
                 <div className="modal-emoji">🚀</div>
                 <h2 className="modal-headline">One Last Step</h2>
-                <p className="modal-body">Welcome, {auth.user?.firstName}! Set up your profile so ProfileAI can auto-fill applications for you.</p>
-                <button className="btn btn-primary btn-lg" onClick={() => window.open(`${CONFIG.WEB_BASE}/profile/edit?from=extension&setup=true`, '_blank')}>Complete Your Profile →</button>
+                <p className="modal-body">Welcome, {auth.user?.firstName}! Set up your profile so ProfilleAI can auto-fill applications for you.</p>
+                <button className="btn btn-primary btn-lg" onClick={() => window.open(`${CONFIG.WEB_BASE}/profile/edit?from=extension&setup=true`, '_blank')}>Complete Your Profile</button>
                 <button className="btn btn-ghost" onClick={finish}>I'll do this later</button>
               </>
             ) : (
               <>
                 <div className="modal-emoji">🎉</div>
                 <h2 className="modal-headline">You're All Set!</h2>
-                <p className="modal-body">Head to any job posting and click the ProfileAI icon to start applying smarter.</p>
-                <button className="btn btn-primary btn-lg" onClick={finish}>Start Applying →</button>
+                <p className="modal-body">Head to any job posting and click the ProfilleAI icon to start applying smarter.</p>
+                <button className="btn btn-primary btn-lg" onClick={finish}>Start Applying</button>
               </>
             )}
             <div className="modal-nav">
-              <button className="btn btn-ghost" onClick={prev}>← Back</button>
+              <button className="btn btn-ghost" onClick={prev}>Back</button>
               <div className="dots">{STEPS.map((_, i) => <span key={i} className={`dot ${i === step ? 'active' : i < step ? 'done' : ''}`}/>)}</div>
               {!auth.isAuthenticated && <button className="btn btn-ghost" onClick={skip}>Skip</button>}
             </div>

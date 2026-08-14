@@ -40,10 +40,17 @@ const ProgressRing: React.FC<{ percent: number }> = ({ percent }) => {
  * Shown when the user is signed in but hasn't built a profile yet. Replaces the
  * empty profile/match UI with a guided, progress-driven setup flow.
  */
-export const ProfileSetupGuide: React.FC<ProfileSetupGuideProps> = ({ currentJob, progress }) => {
+export const ProfileSetupGuide: React.FC<ProfileSetupGuideProps> = ({ profile, currentJob, progress }) => {
   const roleLabel = currentJob?.title?.trim() || 'this role';
+
+  // A saved profile row exists (/profiles/me 404s otherwise, and the panel
+  // stores null for that). Sending those users to the creation flow would ask
+  // them to start over on work they've already saved — they want to edit.
+  // Only genuinely profile-less accounts get the onboarding walkthrough.
+  const hasSavedProfile = !!profile;
   const openProfile = () => {
-    chrome.tabs.create({ url: `${CONFIG.WEB_BASE}/profile/create` });
+    const path = hasSavedProfile ? '/profile/edit' : '/onboarding';
+    chrome.tabs.create({ url: `${CONFIG.WEB_BASE}${path}?from=extension` });
   };
 
   return (

@@ -50,7 +50,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
       disabled={loading}
       title={
         guest
-          ? 'Free instant analysis. No account needed.'
+          ? offProfile
+            ? 'Open a LinkedIn profile (linkedin.com/in/…), then tap to grade it. Free, no account needed.'
+            : 'Free instant analysis. No account needed.'
           : requiresSignIn
             ? 'Sign in free to run the recruiter-POV analysis on this profile'
             : offProfile && !hasResult
@@ -95,7 +97,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
                 ? 'Opening sign-in…'
                 : 'Analyzing this profile…'
             : guest
-              ? 'Analyze my profile'
+              ? offProfile
+                ? 'Analyze a LinkedIn profile'
+                : 'Analyze my profile'
               : hasResult
                 ? 'View LinkedIn analysis'
                 : offProfile
@@ -104,7 +108,9 @@ export const AnalyzeLinkedInPill: React.FC<AnalyzeLinkedInPillProps> = ({
         </span>
         <span className="pal-sub">
           {guest
-            ? 'Free instant analysis. No account needed.'
+            ? offProfile
+              ? 'Open a profile, then tap to grade it. Free, no account.'
+              : 'Free instant analysis. No account needed.'
             : requiresSignIn
               ? 'See how recruiters grade you. Free, sign in to run.'
               : loading

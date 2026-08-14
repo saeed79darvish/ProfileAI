@@ -18,7 +18,6 @@ import { SmartAnswersModal } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
-import { GuestAnalyzerCTA } from './components/GuestAnalyzerCTA';
 import { AnalyzerGoalPicker } from './components/AnalyzerGoalPicker';
 import { useWebSignIn } from './components/useWebSignIn';
 import { emitAnalyticsEvent } from './analytics';
@@ -27,6 +26,7 @@ import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis } from '../types';
+import { BrandIcon, BrandLogo } from '../components/BrandLogo';
 
 // --- LinkedIn analysis cache helpers (shared by detector + analyzer) --------
 const LI_CACHE_KEY = 'linkedInAnalysisCache';
@@ -124,6 +124,8 @@ export const SidePanel: React.FC = () => {
   });
   const [profile, setProfile] = useState<FullProfile | null>(null);
   const [lastProfile, setLastProfile] = useState<ProfileSummary | null>(null);
+  /** This browser has had a signed-in session at some point (i.e. has an account). */
+  const [hasAccount, setHasAccount] = useState(false);
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [answersCount, setAnswersCount] = useState(0);
@@ -232,9 +234,17 @@ export const SidePanel: React.FC = () => {
     }).catch(() => {});
 
     // Restore the returning-user summary so the reconnect screen can show
-    // before/without a fresh login.
-    chrome.storage.local.get('lastProfileSummary').then(({ lastProfileSummary }) => {
+    // before/without a fresh login. `hasSignedInBefore` (set on every sign-in,
+    // never cleared on sign-out) and `extSignedOut` tell the signed-out screen
+    // whether this person already has an account — if they do we ask them to
+    // sign in, otherwise we send them to build a profile first.
+    chrome.storage.local.get([
+      'lastProfileSummary',
+      'hasSignedInBefore',
+      'extSignedOut',
+    ]).then(({ lastProfileSummary, hasSignedInBefore, extSignedOut }) => {
       if (lastProfileSummary) setLastProfile(lastProfileSummary as ProfileSummary);
+      if (hasSignedInBefore || extSignedOut) setHasAccount(true);
     }).catch(() => {});
 
     // Recover tailoring state if the panel was closed mid-tailor.
@@ -759,6 +769,25 @@ export const SidePanel: React.FC = () => {
     setShowGoalPicker(true);
   }, [profile, isOnLinkedInProfile]);
 
+  /**
+   * The analyzer hook is pinned to the top of the signed-out surface on every
+   * page, so its click has two jobs: analyze the LinkedIn profile in the active
+   * tab, or — when there isn't one — open LinkedIn so the user can. /in/me
+   * resolves to the signed-in member's own profile; the tab listener flips the
+   * card back to "Analyze my profile" as soon as it lands.
+   */
+  const handleAnalyzerHookClick = useCallback(() => {
+    if (isOnLinkedInProfile) {
+      void openAnalyzeGoalPicker('guest');
+      return;
+    }
+    chrome.runtime.sendMessage({
+      type: 'OPEN_TAB',
+      data: { url: 'https://www.linkedin.com/in/me/' },
+    });
+    showNotification('Opened LinkedIn. Tap Analyze once your profile loads.', 'info');
+  }, [isOnLinkedInProfile, openAnalyzeGoalPicker]);
+
   const closeGoalPicker = useCallback(() => {
     setShowGoalPicker(false);
     setPendingAnalyzeFlow(null);
@@ -1085,26 +1114,11 @@ export const SidePanel: React.FC = () => {
     return (
       <div className="app loading-state">
         <div className="loading-spinner">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 17L12 22L22 17" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 12L12 17L22 12" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style={{ stopColor: '#7c3aed' }}/>
-                <stop offset="100%" style={{ stopColor: '#8b5cf6' }}/>
-              </linearGradient>
-            </defs>
-          </svg>
+          <BrandIcon size={48} />
           <div className="spinner" />
         </div>
         <div className="loading-logo">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 17L12 22L22 17" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 12L12 17L22 12" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span>ProfilleAI</span>
+          <BrandLogo iconSize={28} fontSize={18} />
         </div>
       </div>
     );
@@ -1119,21 +1133,24 @@ export const SidePanel: React.FC = () => {
       {!authState.isAuthenticated ? (
         <>
           {/* Signed-out surface: the LinkedIn Profile Analyzer is our
-              acquisition hook, so it must run WITHOUT sign-in. On any
-              linkedin.com/in/* tab, show the guest CTA card ABOVE the pill
-              , both trigger the same free guest analysis. The CTA card
-              is the single entry point, no compact-pill duplicate below it. */}
-          {isOnLinkedInProfile && (
-            <div className="panel-section li-preprofile-section">
-              <GuestAnalyzerCTA
-                onClick={() => void openAnalyzeGoalPicker('guest')}
-                loading={linkedInLoading && linkedInMode === 'guest'}
-              />
-            </div>
-          )}
+              acquisition hook, so it must run WITHOUT sign-in OR a profile, and
+              it stays pinned to the top on EVERY page — not just
+              linkedin.com/in/* tabs — so a first-time user always has one free
+              thing to try. Off a profile tab the pill opens LinkedIn instead of
+              analyzing nothing. Same pill the signed-in surfaces use, so the
+              hook looks identical before and after sign-in. */}
+          <div className="panel-section li-preprofile-section">
+            <AnalyzeLinkedInPill
+              onClick={handleAnalyzerHookClick}
+              loading={linkedInLoading && linkedInMode === 'guest'}
+              guest
+              offProfile={!isOnLinkedInProfile}
+            />
+          </div>
           <SignedOut
             currentJob={currentJob}
             lastProfile={lastProfile}
+            hasAccount={hasAccount}
             onAuthSync={loadAuthAndProfile}
           />
         </>
@@ -1144,9 +1161,10 @@ export const SidePanel: React.FC = () => {
               both flows from the same panel. */}
           {debugForceGuestAnalyzer && isOnLinkedInProfile && (
             <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-              <GuestAnalyzerCTA
+              <AnalyzeLinkedInPill
                 onClick={() => void openAnalyzeGoalPicker('guest')}
                 loading={linkedInLoading && linkedInMode === 'guest'}
+                guest
               />
             </div>
           )}
@@ -1173,9 +1191,10 @@ export const SidePanel: React.FC = () => {
         <>
           {debugForceGuestAnalyzer && isOnLinkedInProfile && (
             <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-              <GuestAnalyzerCTA
+              <AnalyzeLinkedInPill
                 onClick={() => void openAnalyzeGoalPicker('guest')}
                 loading={linkedInLoading && linkedInMode === 'guest'}
+                guest
               />
             </div>
           )}

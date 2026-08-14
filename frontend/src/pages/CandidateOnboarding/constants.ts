@@ -2,6 +2,7 @@ export const ROUTES = {
   PROFILE_CREATE: '/profile/create',
   JOBS: '/jobs',
   HOME: '/',
+  LOGIN: '/login',
 } as const;
 
 export const SLIDES = [
@@ -30,6 +31,7 @@ export const SLIDES = [
 
 export const TEXT = {
   LOGO: 'ProfilleAI',
+  LOGIN: 'Log in',
   WELCOME: 'Welcome to ProfilleAI!',
   HEADING_PREFIX: 'ProfilleAI can help you...',
   GET_STARTED: 'Get Started',

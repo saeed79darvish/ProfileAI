@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CONFIG } from '../../config';
+import { BrandIcon } from '../../components/BrandLogo';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { LinkedInSignInButton } from './LinkedInSignInButton';
 
@@ -16,13 +17,28 @@ type AuthTab = 'signin' | 'create';
 // Registration + profile creation still happen on the web app (it owns the full
 // sign-up form, password rules, terms, and the profile builder). Everything
 // ELSE — sign-in via email, Google, or LinkedIn — now stays inside the panel.
-export function openRegisterOnWeb() {
-  const url = `${CONFIG.WEB_BASE}/register?from=extension`;
+function openOnWeb(path: string) {
+  const url = `${CONFIG.WEB_BASE}${path}`;
   try {
     chrome.runtime.sendMessage({ type: 'OPEN_TAB', data: { url } });
   } catch {
     window.open(url, '_blank');
   }
+}
+
+export function openRegisterOnWeb() {
+  openOnWeb('/register?from=extension');
+}
+
+/**
+ * Where a brand-new user goes: the onboarding walkthrough, which introduces the
+ * product and then hands off to the profile builder. Both routes are
+ * guest-allowed on the web app, so they build the profile first and only
+ * register at the end — asking for an account before they've seen any value is
+ * what loses them.
+ */
+export function openProfileBuilderOnWeb() {
+  openOnWeb('/onboarding?from=extension');
 }
 
 export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialTab = 'signin', onBack }) => {
@@ -68,17 +84,7 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
       )}
       {/* Logo */}
       <div className="auth-logo-mark">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#authGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="url(#authGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="url(#authGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          <defs>
-            <linearGradient id="authGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style={{ stopColor: '#7c3aed' }}/>
-              <stop offset="100%" style={{ stopColor: '#8b5cf6' }}/>
-            </linearGradient>
-          </defs>
-        </svg>
+        <BrandIcon size={48} />
       </div>
 
       {activeTab === 'signin' ? (
@@ -144,14 +150,14 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
         </>
       ) : (
         <>
-          <h2 className="auth-title">Create Your Account</h2>
+          <h2 className="auth-title">Build Your Profile</h2>
           <p className="signed-out-sub">
-            To use ProfilleAI in the extension you need to complete your profile —
-            it powers auto-fill, tailoring, and cover letters. Set it up on
-            ProfilleAI, then come back and sign in here.
+            Your profile is what powers auto-fill, tailoring, and cover letters.
+            Build it on ProfilleAI — no account needed to start — then come back
+            and sign in here.
           </p>
-          <button type="button" className="btn primary auth-submit" onClick={openRegisterOnWeb}>
-            Create profile on ProfilleAI
+          <button type="button" className="btn primary auth-submit" onClick={openProfileBuilderOnWeb}>
+            Build my profile on ProfilleAI
           </button>
           <p className="auth-password-hint">
             Already have an account?{' '}

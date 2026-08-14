@@ -1352,10 +1352,12 @@ function createFloatingButton() {
   fab.id = 'profileai-fab';
   fab.innerHTML = `
     <button class="profileai-fab-btn" title="Open ProfileAI Panel">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- Canonical brand mark (see chrome-extension-react/src/components/BrandLogo.tsx
+           and frontend/src/components/BrandIcon.jsx). This FAB is the product's
+           most visible presence on a job page, so it must be the logo. -->
+      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="26" height="26" rx="6" fill="rgba(255,255,255,0.45)"/>
+        <rect x="14" y="14" width="26" height="26" rx="6" fill="#ffffff"/>
       </svg>
     </button>
   `;

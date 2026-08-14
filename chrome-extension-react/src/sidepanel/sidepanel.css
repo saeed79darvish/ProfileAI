@@ -84,11 +84,8 @@ html, body, #root {
   font-size: 16px;
 }
 
-.header-logo svg {
-  width: 24px;
-  height: 24px;
-  color: var(--accent-primary);
-}
+/* The brand mark sizes itself (BrandLogo sets width/height on the svg), so no
+   size or colour override here — it would fight the two-tone artwork. */
 
 /* Main Content */
 .main-content {
@@ -4910,6 +4907,13 @@ html, body, #root {
 }
 .value-spark svg { width: 28px; height: 28px; }
 .value-card .full-width-btn { margin-top: 2px; }
+.value-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+  margin: -8px 0 0;
+}
 
 .preview-locked {
   display: flex;
@@ -5869,80 +5873,10 @@ html, body, #root {
    LinkedIn Profile Analyzer — GUEST (signed-out) teaser mode
    ============================================================= */
 
-/* Guest CTA card that sits above the pill on signed-out linkedin.com/in/*
-   tabs. This is the acquisition surface — loud headline + free CTA.
-   Purple gradient echoes the extension's AI accent so it reads as "AI
-   feature", distinct from LinkedIn's own blue-outlined controls. */
-.guest-analyzer-cta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.14) 0%, rgba(99, 102, 241, 0.10) 100%);
-  border: 1px solid rgba(124, 58, 237, 0.35);
-  border-radius: 14px;
-  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.10);
-}
-.guest-analyzer-cta .gac-icon {
-  flex: 0 0 40px;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
-  color: #ffffff;
-}
-.guest-analyzer-cta .gac-icon svg { width: 20px; height: 20px; }
-.guest-analyzer-cta .gac-copy { flex: 1 1 auto; min-width: 0; }
-.guest-analyzer-cta .gac-title {
-  font-size: 13.5px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--text-primary, #f5f5f5);
-  margin-bottom: 2px;
-}
-.guest-analyzer-cta .gac-sub {
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--text-secondary, #a1a1aa);
-}
-.guest-analyzer-cta .gac-cta {
-  flex: 0 0 auto;
-  padding: 8px 14px;
-  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
-  color: #ffffff;
-  border: none;
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: transform 100ms ease, box-shadow 100ms ease, filter 100ms ease;
-}
-.guest-analyzer-cta .gac-cta:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.45);
-  filter: brightness(1.06);
-}
-.guest-analyzer-cta .gac-cta:disabled { opacity: 0.7; cursor: progress; }
-
-/* Guest pill variant of AnalyzeLinkedInPill — same shape as the authed
-   pill but with the extension's purple accent instead of LinkedIn blue,
-   so guests can tell the two states apart at a glance. */
-.profile-analyze-linkedin.guest {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
-  border-color: rgba(124, 58, 237, 0.35);
-}
-.profile-analyze-linkedin.guest .pal-icon {
-  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
-  color: #ffffff;
-}
-.profile-analyze-linkedin.guest:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.20) 0%, rgba(99, 102, 241, 0.14) 100%);
-  border-color: rgba(124, 58, 237, 0.55);
-}
+/* `.guest` intentionally carries NO style overrides: the signed-out hook is the
+   same offer as the signed-in one, so it renders as the same LinkedIn-blue
+   pill. The class stays as a hook for analytics/QA and only the copy differs
+   ("free, no account"). */
 
 /* --- Teaser body inside the LinkedInAnalyzerModal --------------------- */
 

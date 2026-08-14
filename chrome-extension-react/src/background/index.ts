@@ -1166,8 +1166,11 @@ async function handleLogin(token: string, user: User) {
   // for the newly signed-in user while the fresh profile loads.
   cachedProfile = null;
   await chrome.storage.local.remove(['profile', 'extSignedOut']);
-  await chrome.storage.local.set({ authToken: token, user });
-  
+  // `hasSignedInBefore` is deliberately never cleared on logout: it's how the
+  // signed-out panel knows to lead with "sign in" instead of pushing this
+  // person through profile creation they've already done.
+  await chrome.storage.local.set({ authToken: token, user, hasSignedInBefore: true });
+
   // Fetch and cache profile
   await fetchProfile();
 }
@@ -2277,7 +2280,7 @@ async function adoptFresherTokenFromWebApp(deadToken: string | null): Promise<bo
           currentUser = r.user;
           cachedProfile = null;
           await chrome.storage.local.remove(['profile', 'extSignedOut']);
-          await chrome.storage.local.set({ authToken: r.token, user: r.user });
+          await chrome.storage.local.set({ authToken: r.token, user: r.user, hasSignedInBefore: true });
           console.log('[ProfileAI] Adopted a fresher token from web app tab after 401');
           return true;
         }

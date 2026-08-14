@@ -43,9 +43,12 @@ import {
   SkipLink,
   MobileActionBar,
   MobilePrimaryBtn,
-  MobileSkip
+  MobileSkip,
+  LoginLink
 } from './styled';
 import { ROUTES, SLIDES, TEXT, TIMINGS } from './constants';
+import BrandLogo from '../../components/BrandLogo';
+import { useAuth } from '../../contexts/AuthContext';
 
 /* ═══════════════════════════════════════════════
    WELCOME BUBBLE (like Simplify's founder bubble)
@@ -188,6 +191,7 @@ const MOCKUPS = {
 
 const CandidateOnboarding = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [step, setStep] = useState(0); // 0,1,2 = feature slides, 3 = choice screen
   const [animating, setAnimating] = useState(false);
   const totalSteps = SLIDES.length + 1; // slides + choice page
@@ -214,6 +218,7 @@ const CandidateOnboarding = () => {
     try { localStorage.setItem('profileai_seen_onboarding', '1'); } catch { /* ignore */ }
     navigate('/profile/create');
   };
+  const goToLogin = () => navigate(ROUTES.LOGIN);
   const goToJobs = () => {
     try { localStorage.setItem('profileai_seen_onboarding', '1'); } catch { /* ignore */ }
     navigate('/jobs');
@@ -225,12 +230,15 @@ const CandidateOnboarding = () => {
     <PageContainer>
       {/* Top bar */}
       <TopBar>
-        <Logo onClick={() => navigate('/')}>
-          <AIIcon />
-          <Typography sx={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.3px', color: '#1a1a2e' }}>
-            ProfilleAI
-          </Typography>
+        <Logo onClick={() => navigate('/')} aria-label={TEXT.LOGO}>
+          <BrandLogo iconSize={30} fontSize="1.3rem" accentColor="#6366f1" />
         </Logo>
+        {/* Login stays reachable from every step: this page is guest-allowed
+            and reached straight from the extension, so someone who already has
+            an account must never be forced through the intro to find it. */}
+        {!isAuthenticated && (
+          <LoginLink onClick={goToLogin}>{TEXT.LOGIN}</LoginLink>
+        )}
       </TopBar>
 
       <MainContent>

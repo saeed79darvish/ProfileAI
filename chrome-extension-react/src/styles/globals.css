@@ -214,3 +214,21 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-color);
 }
+
+/* ---- Brand lockup (BrandLogo.tsx) -----------------------------------
+   Shared by the side panel header, popup, and auth screens so the product
+   signs its name the same way everywhere — and the same way the web app
+   does. Lowercase wordmark, accent "ai". */
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand-logo svg { flex: 0 0 auto; }
+.brand-wordmark {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.brand-wordmark-accent { color: #c4b5fd; }
