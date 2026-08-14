@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const helmet = require('helmet');
 const pinoHttp = require('pino-http');
 const path = require('path');
@@ -164,6 +165,30 @@ app.use(cors({
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true
+}));
+
+// gzip every response big enough to be worth it.
+//
+// Why this matters beyond latency: Render meters bandwidth on what leaves
+// THIS process, not what the browser finally receives. All inbound Render
+// traffic passes through Cloudflare, and Cloudflare was already gzipping at
+// the edge — so users downloaded ~46KB of a jobs page while Render billed us
+// for the full ~160KB the origin emitted. That 3.4x gap is pure waste and is
+// what pushed the workspace past 70% of its bandwidth allowance.
+//
+// The `filter` opt-out exists because the Claude connector's MCP endpoint
+// (mounted at /mcp when ENABLE_CLAUDE_CONNECTOR=true) speaks over
+// StreamableHTTPServerTransport, which holds a response open to push
+// server-to-client messages. Compression buffers writes to build a bigger
+// deflate window, which would stall those messages until the buffer flushed.
+// Everything else falls through to compression's own default filter, which
+// already skips non-compressible content types and honours a `no-transform`
+// Cache-Control.
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path === '/mcp' || req.path.startsWith('/mcp/')) return false;
+    return compression.filter(req, res);
+  },
 }));
 
 // Stripe webhook — MUST be mounted BEFORE express.json() so the raw body

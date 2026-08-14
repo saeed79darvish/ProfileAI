@@ -1351,8 +1351,39 @@ const CandidateJobs = () => {
   }, [selectedJob, jobs, externalJobs, activeTab, externalJobsLoading, loading]);
 
 
+  // List payloads carry only a ~300-char preview of `description` (the API
+  // truncates it — see truncateListDescriptions in
+  // backend/routes/externalJobs.js) and never carry `descriptionHtml` at all,
+  // so an external job taken straight from the list has to be hydrated from
+  // GET /external-jobs/:id before the detail panel shows its full text.
+  //
+  // Every other external-job selection path already does this. The Saved tab
+  // was the exception: it mixes external jobs into `filteredJobs` and routes
+  // them through handleJobClick, which used to set the list copy and stop —
+  // leaving a saved job's description clipped at the preview.
+  //
+  // Race-guarded: if the user clicks a different job before this resolves,
+  // the stale response is dropped rather than overwriting the new selection.
+  const hydrateSelectedExternalJob = (job) => {
+    if (!job?.id) return;
+    externalJobAPI.getById(job.id).then((response) => {
+      setSelectedJob((prev) => (
+        prev?.id === job.id
+          ? {
+              ...response.data,
+              // The by-id endpoint doesn't compute relevanceScore, so carry
+              // the ranked value over or the match badge resets on click.
+              relevanceScore: response.data.relevanceScore ?? job.relevanceScore,
+              _isExternal: true,
+            }
+          : prev
+      ));
+    }).catch(() => {});
+  };
+
   const handleJobClick = (job) => {
     setSelectedJob(job);
+    if (job?._isExternal) hydrateSelectedExternalJob(job);
     if (window.innerWidth <= 1024) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -1830,8 +1861,24 @@ const CandidateJobs = () => {
         candidateSkills = Object.values(rawSkills).flat().map(s => (typeof s === 'string' ? s : '').toLowerCase()).filter(Boolean);
       }
 
+      // This breakdown counts skill mentions across the WHOLE posting, but
+      // cards come from the list payload, which carries only a description
+      // preview. Scoring the preview would silently under-report matched
+      // skills and make the match look worse than it is, so pull the full
+      // record first whenever the API told us we only have a snippet.
+      let fullJob = job;
+      if (job?.descriptionTruncated && job?.id) {
+        try {
+          const { data } = await externalJobAPI.getById(job.id);
+          fullJob = { ...job, ...data };
+        } catch {
+          // Fall back to the preview rather than failing the whole dialog —
+          // an approximate breakdown beats an error state.
+        }
+      }
+
       // Build job text for matching
-      const jobText = [job.title || '', job.description || '', job.requirements || '', ...(Array.isArray(job.skills) ? job.skills : [])].join(' ').toLowerCase();
+      const jobText = [fullJob.title || '', fullJob.description || '', fullJob.requirements || '', ...(Array.isArray(fullJob.skills) ? fullJob.skills : [])].join(' ').toLowerCase();
 
       // Match skills
       const matched = [];

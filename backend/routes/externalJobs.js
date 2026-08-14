@@ -13,6 +13,7 @@ const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const { normalizeJobUrl } = require('../utils/jobUrl');
+const { truncateListDescriptions } = require('../utils/jobListPayload');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -317,8 +318,13 @@ router.get('/', optionalAuth, async (req, res) => {
     // Wrap res.json once so every successful exit path through this handler
     // populates the cache without us having to touch each return statement.
     const originalJson = res.json.bind(res);
-    res.json = (payload) => {
+    res.json = (rawPayload) => {
       emitServerTiming();
+      // Trim descriptions to a preview BEFORE caching, so every exit path
+      // through this handler (semantic, keyword, plain) is covered by one
+      // interception point and the server-side cache holds the small shape
+      // rather than ~160KB of full job text per entry.
+      const payload = truncateListDescriptions(rawPayload);
       // Don't cache error envelopes — only well-formed list responses.
       if (payload && Array.isArray(payload.jobs)) {
         cache.set(cacheKey, payload, 90 * 1000);
@@ -1900,6 +1906,11 @@ router.get('/:id', optionalAuth, async (req, res) => {
     }
 
     const job = await ExternalJob.findByPk(req.params.id, {
+      // `embedding` is a 512-dim pgvector serialized as a long text array.
+      // It exists purely for server-side similarity search and no client
+      // reads it, so shipping it here was several KB of pure waste on every
+      // detail fetch. `metadata` IS still returned — the jobs page reads it.
+      attributes: { exclude: ['embedding'] },
       include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
     });
 
