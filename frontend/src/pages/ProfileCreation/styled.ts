@@ -30,9 +30,38 @@ export const TopBar = styled.header`
 export const Logo = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
   cursor: pointer;
-  svg { font-size: 26px; color: #667eea; }
+  /* No svg overrides: the mark is BrandLogo, which sizes and colours itself. */
+`;
+
+/* Persistent "Log in" affordance. This page is guest-allowed and linked
+   straight from the extension, so a returning user must be able to reach
+   sign-in without first building a profile they already have. */
+export const LoginLink = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border: 1px solid #e2e4f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #4b4b63;
+  font-size: 0.92rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+
+  &:hover {
+    border-color: #667eea;
+    color: #4c51bf;
+    box-shadow: 0 2px 10px rgba(102, 126, 234, 0.18);
+  }
+
+  @media (max-width: 480px) {
+    padding: 8px 14px;
+    font-size: 0.86rem;
+  }
 `;
 
 export const MainContent = styled.main`

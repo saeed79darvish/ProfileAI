@@ -1,5 +1,6 @@
 export const ROUTES = {
   HOME: '/',
+  LOGIN: '/login',
   CREATE_FORM: '/profile/create-form',
   PREFERENCES: '/profile/preferences',
   LINKEDIN_OAUTH_CALLBACK: '/auth/linkedin/callback',
@@ -7,6 +8,7 @@ export const ROUTES = {
 
 export const TEXT = {
   LOGO: 'ProfilleAI',
+  LOGIN: 'Log in',
   PAGE_TITLE: 'Create Your Profile',
   WELCOME_MESSAGE: "Choose how you'd like to build your profile",
   PARSING_TITLE: 'Parsing your resume...',

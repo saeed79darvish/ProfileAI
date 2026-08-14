@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Alert, Avatar, Box, CircularProgress, Typography } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import BrandLogo from '../../components/BrandLogo';
 import {
   AutoAwesome as AIIcon,
   ArrowForward as ArrowIcon,
@@ -24,7 +25,8 @@ import {
   IconCircle,
   CardButton,
   FeatureTag,
-  UploadOverlay
+  UploadOverlay,
+  LoginLink
 } from './styled';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, VALIDATION } from './constants';
 import { profileAPI } from '../../services/api';
@@ -235,19 +237,12 @@ const ProfileCreation = () => {
         cancelText="Never mind"
       />
       <TopBar>
-        <Logo onClick={() => navigate(ROUTES.HOME)}>
-          <AIIcon />
-          <Typography
-            sx={{
-              fontWeight: 700,
-              fontSize: '1.15rem',
-              letterSpacing: '-0.3px',
-              color: '#1a1a2e'
-            }}
-          >
-            ProfilleAI
-          </Typography>
+        <Logo onClick={() => navigate(ROUTES.HOME)} aria-label={TEXT.LOGO}>
+          <BrandLogo iconSize={30} fontSize="1.3rem" accentColor="#6366f1" />
         </Logo>
+        {!isAuthenticated && (
+          <LoginLink onClick={() => navigate(ROUTES.LOGIN)}>{TEXT.LOGIN}</LoginLink>
+        )}
       </TopBar>
 
       <MainContent>
