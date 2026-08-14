@@ -801,6 +801,24 @@ router.get('/', optionalAuth, async (req, res) => {
         // postedAt — produces a true chronological order across sources.
         order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
         limit: POOL_SIZE,
+        // raw+nest instead of Sequelize model instances. This is the keyword
+        // FALLBACK path, which is exactly the path that runs when Postgres is
+        // struggling and the semantic query trips its 15s statement_timeout —
+        // i.e. it runs hardest at the worst possible moment, and it was the
+        // dominant source of the "Ineffective mark-compacts near heap limit"
+        // crashes on the 512MB dyno.
+        //
+        // POOL_SIZE rows each carry a ~6.5KB description. As model instances
+        // Sequelize also retains a full second copy in _previousDataValues for
+        // change tracking we never use here, and rankJobs then calls toJSON()
+        // for a third. Plain rows collapse that to one copy plus the scored
+        // spread, roughly halving peak heap per fallback request.
+        //
+        // Safe because nothing downstream needs a model: rankJobs already
+        // handles plain objects (`job.toJSON ? job.toJSON() : job`) and the
+        // rows are read-only — no .save()/.reload() is called on them.
+        raw: true,
+        nest: true,
         attributes: {
           exclude: ['descriptionHtml', 'metadata', 'embedding']
         },

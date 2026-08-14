@@ -96,10 +96,29 @@ const commonOptions = {
   //                              enough that a stuck statement releases
   //                              its slot before the rest of the API
   //                              starts queuing.
+  //
+  // Both are env-overridable so they can be retuned from the Render dashboard
+  // without a deploy. That matters during an incident: when the semantic query
+  // starts tripping statement_timeout, every timed-out request falls back to
+  // the keyword path, which is far heavier on API heap — so being able to trade
+  // a little ANN recall for a faster probe is the fastest way out of that loop.
+  // Defaults are unchanged from the values the comments above describe.
   hooks: {
     afterConnect: async (connection) => {
       try {
-        await connection.query(`SET hnsw.ef_search = 200; SET statement_timeout = 15000;`);
+        // These interpolate into SQL, so a fat-fingered dashboard value must
+        // not be able to emit `SET hnsw.ef_search = NaN` and knock out the
+        // whole afterConnect (which would silently drop statement_timeout too,
+        // the one setting stopping a stuck query from holding a pool slot).
+        // Anything non-numeric or out of range falls back to the default.
+        const intEnv = (name, fallback, min, max) => {
+          const n = parseInt(process.env[name], 10);
+          if (!Number.isFinite(n) || n < min || n > max) return fallback;
+          return n;
+        };
+        const efSearch = intEnv('PG_HNSW_EF_SEARCH', 200, 1, 1000);
+        const stmtTimeout = intEnv('PG_STATEMENT_TIMEOUT_MS', 15000, 1000, 120000);
+        await connection.query(`SET hnsw.ef_search = ${efSearch}; SET statement_timeout = ${stmtTimeout};`);
       } catch (err) {
         // Older PG / pgvector builds without HNSW just ignore the unknown
         // setting (PG raises a NOTICE, not an ERROR). If it does throw,

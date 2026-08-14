@@ -1,4 +1,5 @@
 const express = require('express');
+const v8 = require('v8');
 const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
@@ -769,6 +770,33 @@ const startServer = async () => {
         + ` recruiterAgentArena=${featureFlags.recruiterAgentArena}`
         + ` claudeConnector=${featureFlags.claudeConnector}`);
       console.log(`✓ DB SSL: ${process.env.DB_SSL === 'true' || (isProduction && process.env.DB_SSL !== 'false') ? 'enabled' : 'disabled'}${process.env.DATABASE_URL ? ' (via DATABASE_URL)' : ''}`);
+
+      // Heap ceiling + pressure trail.
+      //
+      // This process has been dying with "FATAL ERROR: Ineffective
+      // mark-compacts near heap limit" (SIGABRT, surfaced by Render as
+      // "Exited with status 134"). That line tells us we hit the ceiling but
+      // nothing about what the ceiling IS on this container, or how close
+      // ordinary traffic runs to it — so every diagnosis was inference.
+      //
+      // Log the limit once at boot, then warn when sustained usage crosses
+      // 75%. The next crash then arrives with a trail leading up to it, which
+      // is the difference between "the heap grew" and knowing which traffic
+      // pattern grew it. Cheap: one getHeapStatistics() per 30s, and it stays
+      // silent until there's genuinely something to report.
+      const heapLimitMb = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
+      console.log(`✓ V8 heap limit: ${heapLimitMb}MB`);
+      const heapWatch = setInterval(() => {
+        const { used_heap_size: used, heap_size_limit: limit } = v8.getHeapStatistics();
+        if (used / limit < 0.75) return;
+        const mb = (bytes) => Math.round(bytes / 1024 / 1024);
+        console.warn(
+          `[heap] ${mb(used)}MB / ${mb(limit)}MB (${Math.round((used / limit) * 100)}%) `
+          + `rss=${mb(process.memoryUsage().rss)}MB`
+        );
+      }, 30_000);
+      // Never let this keep the event loop alive during shutdown.
+      heapWatch.unref();
 
       // Initialize phone screening scheduler only when explicitly enabled.
       // This avoids noisy DB errors in environments where screening tables

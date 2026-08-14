@@ -25,6 +25,27 @@
 const LIST_DESCRIPTION_SNIPPET_CHARS = 300;
 
 /**
+ * Collapse an all-null `companyInfo` to null.
+ *
+ * Two of the three list paths build companyInfo from a LEFT JOIN that misses
+ * for jobs not yet linked to a Companies row: the semantic path's
+ * json_build_object returns {id: null, name: null, ...}, and Sequelize's
+ * `nest: true` does the same for a raw include. Both are OBJECTS, so they are
+ * truthy — and the client does `if (job.companyInfo)` before deciding whether
+ * to fall back to company details mined into job.metadata. A truthy husk of
+ * nulls therefore suppressed that fallback and rendered a blank company block.
+ *
+ * Normalizing here means every path emits either a populated object or null.
+ */
+function normalizeCompanyInfo(job) {
+  const ci = job.companyInfo;
+  if (!ci || typeof ci !== 'object') return job;
+  const hasAnyValue = Object.values(ci).some((v) => v !== null && v !== undefined);
+  if (hasAnyValue) return job;
+  return { ...job, companyInfo: null };
+}
+
+/**
  * Trim `description` on every job in a list payload.
  *
  * MUST run at serialization time, never as a SQL-level LEFT(): relevance
@@ -48,7 +69,9 @@ function truncateListDescriptions(payload) {
   return {
     ...payload,
     jobs: payload.jobs.map((job) => {
-      const plain = typeof job?.toJSON === 'function' ? job.toJSON() : { ...job };
+      const plain = normalizeCompanyInfo(
+        typeof job?.toJSON === 'function' ? job.toJSON() : { ...job },
+      );
       const desc = plain.description;
       if (typeof desc !== 'string' || desc.length <= LIST_DESCRIPTION_SNIPPET_CHARS) {
         return plain;
