@@ -179,7 +179,17 @@ services:
   # worker is deployed — running both would double-run every job against one
   # small Postgres instance (the same failure mode described at line ~38).
   - type: worker
-    name: profilleai-cron-worker
+    # NOTE: name MUST match the existing production worker exactly
+    # (profileai-cron-worker — SINGLE "l"). This is the opposite spelling
+    # from the API service above, which is genuinely double-"l". Do not
+    # "correct" this to match the API: the live worker was created with the
+    # single-l name, and a Blueprint using any other spelling would not
+    # match it, so a Sync would spawn a SECOND cron worker. Two workers
+    # would double-run the external-jobs sync and every corpus-hygiene
+    # sweep against one small Postgres — the exact deadlock/OOM failure
+    # described at line ~38 and in the block above. Verify against the
+    # Render dashboard before ever changing this string.
+    name: profileai-cron-worker
     runtime: node
     plan: starter            # 512MB, $7/mo — dedicated to background jobs
     region: oregon           # match the API service's region
