@@ -1,316 +1,263 @@
-# ProfileAI - AI-Enhanced Professional Profile Platform
+# ProfilleAI - AI-Enhanced Career Platform
 
-A modern, full-stack web application that helps professionals create stunning profiles enhanced with AI-powered insights. Built with React, Material-UI, Node.js, Express, PostgreSQL, and OpenAI.
+An AI-powered platform that helps candidates build a professional profile, get matched against a continuously-synced external job corpus, and tailor their resume per application.
+
+> **Naming:** the repo and local package names are still `ProfileAI`, but the public brand and domain are **ProfilleAI** (`profilleai.com`, double "l"). Both spellings are load-bearing in different places — see [Deployment](#-deployment) before renaming anything.
+
+**Current launch scope is candidate-only.** The recruiter surface, social feed, Agent Arena, and the Claude connector all ship in the codebase but are gated off by default. See [Feature Flags](#-feature-flags).
 
 ## 🌟 Features
 
-- **User Registration & Authentication** - Secure JWT-based authentication
-- **Profile Management** - Create and edit comprehensive professional profiles
-- **AI Enhancement** - Leverage OpenAI to:
-  - Generate compelling professional summaries
-  - Identify key strengths and competencies
-  - Provide recruiter insights
-  - Extract relevant keywords for SEO
-- **Beautiful UI** - Modern, responsive design with Material-UI
-- **Real-time Updates** - Instant profile updates and AI enhancements
+### Live for candidates
+- **Auth** - JWT sessions plus Google, GitHub, and LinkedIn OAuth
+- **Profile builder** - Skills, experience, projects, education, with resume upload and parsing (PDF and DOCX)
+- **AI enhancement** - Generated summaries, key strengths, recruiter insights, and SEO keywords
+- **Job matching** - Semantic search over a synced external-jobs corpus using pgvector embeddings, with ghost-job scoring to demote stale postings
+- **Resume tailoring** - Per-job resume and cover-letter generation, exported as PDF or DOCX
+- **Daily digest** - Opt-in job-match email
+
+### Built but flagged off
+- **Recruiter surface** - Candidate search, smart match, harvest, phone screening
+- **ApplyPilot** - Scouts matching jobs and prepares application materials. Runs in hybrid mode (prepares only; the candidate submits manually). Full auto-submit drives ATS forms through Puppeteer and is a separate flag.
+- **Social feed**, **Agent Arena**, **Claude connector** (Remote MCP server at `/mcp`)
 
 ## 🛠️ Tech Stack
 
 ### Frontend
-- React 18
-- Material-UI (MUI)
-- React Router
-- Axios
-- Context API for state management
+- React 18 + TypeScript, built with **Vite**
+- Material-UI (MUI) v5, Framer Motion, Chart.js
+- Context API for state, Axios for transport
+- Sentry for error reporting
 
 ### Backend
-- Node.js
-- Express.js
-- PostgreSQL
+- Node.js 22 + Express
+- PostgreSQL 16 with **pgvector** for embedding search
 - Sequelize ORM
-- JWT Authentication
-- OpenAI API
-- bcryptjs for password hashing
+- pg-boss for the ApplyPilot job queue, node-cron for schedules
+- OpenAI (`gpt-4o-mini`, `text-embedding-3-small`), Anthropic, and Voyage
+- Puppeteer for ATS automation, Resend for email, Stripe for billing
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have installed:
-- Node.js (v16 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
-- OpenAI API key
+- Node.js 22.x (backend) and Node 20+ (frontend)
+- PostgreSQL 14+ with the `vector` extension available
+- OpenAI API key (required); Anthropic, Voyage, Cloudinary, Resend, and Stripe keys are optional per feature
 
 ## 🚀 Installation & Setup
 
-### 1. Clone the Repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/saeed79darvish/ProfileAI.git
 cd ProfileAI
 ```
 
-### 2. Backend Setup
+### 2. Backend
 
 ```bash
 cd backend
-
-# Install dependencies
 npm install
-
-# Create .env file
 cp .env.example .env
 ```
 
-Edit the `.env` file with your configuration:
+Minimum working `.env`:
 
 ```env
-PORT=5000
+PORT=5001
 NODE_ENV=development
 
-# Database Configuration
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=profileai
 DB_USER=postgres
 DB_PASSWORD=your_password
 
-# JWT Configuration
 JWT_SECRET=your_jwt_secret_key_here_change_in_production
 JWT_EXPIRE=7d
 
-# OpenAI Configuration
 OPENAI_API_KEY=your_openai_api_key_here
+VOYAGE_API_KEY=            # optional, used for some embedding paths
 
-# CORS
 CORS_ORIGIN=http://localhost:3000
+FRONTEND_URL=http://localhost:3000
 ```
 
-### 🚩 Feature Flags
-
-All flags are env-var booleans (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`) and default to **off**. They're defined in [backend/config/featureFlags.js](backend/config/featureFlags.js) and [frontend/src/config/featureFlags.ts](frontend/src/config/featureFlags.ts).
-
-#### Backend (`backend/.env`)
-
-| Env var | Code key | Default | What it does |
-|---|---|---|---|
-| `ENABLE_RECRUITER_AGENT_ARENA` | `recruiterAgentArena` | `false` | Enables the recruiter Agent Arena feature (AI-driven candidate screening flow). |
-| `APPLYPILOT_AUTOSUBMIT` | `applyPilotAutoSubmit` | `false` | Turns ApplyPilot from hybrid mode (prepare materials, user submits manually) into full auto-submit. Mounts the submit worker, scout enqueue, and approve/submit routes. |
-| `ENABLE_FEED` | `feed` | `false` | Mounts the social-feed API (`/api/posts` and its nested comment/like/save routes). Off for launch. |
-| `ENABLE_CLAUDE_CONNECTOR` | `claudeConnector` | `false` | Mounts the `/mcp` endpoint (Remote MCP server) so ProfileAI can be added as a Custom Connector in Claude.ai. |
-
-#### Frontend (`frontend/.env`)
-
-| Env var | Code key | Default | What it does |
-|---|---|---|---|
-| `VITE_ENABLE_RECRUITER_AGENT_ARENA` | `recruiterAgentArena` | `false` | Shows Agent Arena UI in the AI Screening config modal and Browse Profiles page. Pair with the backend flag. |
-| `VITE_ENABLE_FEED` | `feed` | `false` | Mounts the `/feed` route, the Feed nav link, and the Community-Feed footer link. Pair with `ENABLE_FEED` on the backend. |
-| `VITE_ENABLE_CLAUDE_CONNECTOR` | `claudeConnector` | `false` | Shows "Use ProfileAI in Claude" promo/onboarding UI. Backend exposure is gated separately by `ENABLE_CLAUDE_CONNECTOR`. |
-
-**Usage:** flip a flag by setting the env var before starting the corresponding server. Backend and frontend flags are independent — turn both on for any user-facing feature that has API + UI.
-
-### 3. Database Setup
-
-Create a PostgreSQL database:
+### 3. Database
 
 ```bash
-# Login to PostgreSQL
-psql -U postgres
+psql -U postgres -c "CREATE DATABASE profileai;"
+psql -U postgres -d profileai -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Create database
-CREATE DATABASE profileai;
-
-# Exit
-\q
+cd backend
+npm run init-db          # creates tables
+npm run enable-pgvector  # verifies the extension + vector columns
 ```
 
-Initialize the database:
+Seeding helpers: `npm run add-mock-profiles`, `npm run add-50-candidates`, `npm run seed-aggregators`.
 
-```bash
-npm run init-db
-```
+> Seed local test users directly through Sequelize. Do not point `/api/auth/register` at real credentials from `.env`.
 
-### 4. Frontend Setup
+### 4. Frontend
 
 ```bash
 cd ../frontend
-
-# Install dependencies
 npm install
-
-# The .env file is already configured for local development
-# If needed, update the API URL in .env
 ```
 
-### 5. Running the Application
+`frontend/.env` leaves `VITE_API_URL` commented out by default so requests go through the Vite dev proxy (this is what makes testing from a phone on the LAN work). Set it only if you need to hit a backend on another host.
 
-**Terminal 1 - Backend:**
+### 5. Run
+
+**Terminal 1 - backend:**
 ```bash
-cd backend
-npm run dev
+cd backend && npm run dev
 ```
 
-**Terminal 2 - Frontend:**
+**Terminal 2 - frontend:**
 ```bash
-cd frontend
-npm start
+cd frontend && npm run dev
 ```
 
-The application will be available at:
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
+- Backend API: http://localhost:5001
 
-## 📝 Usage Guide
+**Optional - background jobs:**
+```bash
+cd backend && npm run cron    # external-jobs sync, digest, corpus-hygiene sweeps
+```
 
-### Creating Your Profile
+Instead of the separate process you can set `RUN_CRON_INLINE=true` and `RUN_SWEEPS_INLINE=true` to embed them in the API for convenience. **Local only** - see [Operational notes](#operational-notes).
 
-1. **Register**: Create an account at `/register`
-2. **Login**: Sign in at `/login`
-3. **Create Profile**: Fill in your professional information
-   - Basic info (title, location, contact)
-   - Skills (categorized by frontend, backend, etc.)
-   - Experience history
-   - Projects
-   - Education
-4. **Enhance with AI**: Click "Enhance with AI" to generate:
-   - AI-generated professional summary
-   - Key strengths identification
-   - Recruiter insights
-   - Relevant keywords
+## 🚩 Feature Flags
 
-### Profile Sections
+All flags are env-var booleans (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`) and default to **off**. Defined in [backend/config/featureFlags.js](backend/config/featureFlags.js) and [frontend/src/config/featureFlags.ts](frontend/src/config/featureFlags.ts).
 
-- **Basic Information**: Title, location, contact details, social links
-- **Professional Summary**: Your career overview
-- **Technical Skills**: Categorized by technology type
-- **Experience**: Work history with descriptions
-- **Projects**: Notable projects and achievements
-- **Education**: Academic background
-- **AI Enhancements**: AI-generated insights visible to recruiters
+### Backend (`backend/.env`)
 
-## 🔑 API Endpoints
+| Env var | Code key | Default | What it does |
+|---|---|---|---|
+| `ENABLE_RECRUITER_SURFACE` | `recruiterSurface` | `false` | Master gate for the recruiter side. Off means every recruiter-only route returns 404, which decommissions the expensive AI surfaces (smart match, recruiter job AI, phone screening, candidate search). |
+| `ENABLE_RECRUITER_AGENT_ARENA` | `recruiterAgentArena` | `false` | Recruiter Agent Arena (AI-driven candidate screening flow). |
+| `ENABLE_APPLYPILOT` | `applyPilotEnabled` | `false` | Master gate for ApplyPilot. When off, `/api/applypilot/*` returns 404 for everyone except admins and `APPLYPILOT_ALLOWED_USERS`. |
+| `APPLYPILOT_ALLOWED_USERS` | `applyPilotAllowedUsers` | empty | Comma-separated email allowlist for staged tester rollout while the master gate is still off. |
+| `APPLYPILOT_AUTOSUBMIT` | `applyPilotAutoSubmit` | `false` | Turns ApplyPilot from hybrid mode (prepare materials, user submits manually) into full auto-submit. Mounts the submit worker, scout enqueue, and approve/submit routes. |
+| `ENABLE_FEED` | `feed` | `false` | Mounts the social-feed API (`/api/posts` and nested comment/like/save routes). |
+| `ENABLE_CLAUDE_CONNECTOR` | `claudeConnector` | `false` | Mounts the `/mcp` endpoint (Remote MCP server) so ProfilleAI can be added as a Custom Connector in Claude.ai. |
+| `ENABLE_PHONE_SCREENING_SCHEDULER` | n/a | `false` | Starts the phone-screening scheduler. Keep off unless the screening tables are migrated. |
+
+### Frontend (`frontend/.env`)
+
+| Env var | Code key | Default | What it does |
+|---|---|---|---|
+| `VITE_ENABLE_RECRUITER_SURFACE` | `recruiterSurface` | `false` | Renders recruiter routes and nav links. Pair with the backend flag. |
+| `VITE_ENABLE_RECRUITER_AGENT_ARENA` | `recruiterAgentArena` | `false` | Agent Arena UI in the AI Screening config modal and Browse Profiles. |
+| `VITE_ENABLE_FEED` | `feed` | `false` | Mounts the `/feed` route, Feed nav link, and Community-Feed footer link. |
+| `VITE_ENABLE_CLAUDE_CONNECTOR` | `claudeConnector` | `false` | Shows the "Use ProfilleAI in Claude" promo and onboarding UI. |
+| `VITE_ENABLE_APPLYPILOT_COACH` | `applyPilotCoach` | `false` | ApplyPilot "Coach training" tab. Code ships regardless; the flag only reveals it. |
+
+**Usage:** backend and frontend flags are independent. Turn both on for any user-facing feature that has an API and a UI.
+
+## 🔑 API Surface
+
+Full route list lives in [backend/routes/](backend/routes/) and is mounted in [backend/server.js](backend/server.js). Highlights:
 
 ### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
+- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- OAuth token-exchange endpoints for Google, GitHub, and LinkedIn (`POST /api/auth/{google,github,linkedin}` plus matching `/register` variants)
 
 ### Profiles
-- `GET /api/profiles/me` - Get current user's profile
-- `POST /api/profiles` - Create/update profile
-- `POST /api/profiles/enhance` - Enhance profile with AI
-- `GET /api/profiles/:id` - Get public profile by ID
-- `GET /api/profiles` - Get all public profiles
+- `GET /api/profiles/me`, `POST /api/profiles`, `GET /api/profiles/:id`
+- `POST /api/profiles/enhance` - AI enhancement
+- Resume upload and parse (PDF and DOCX, 5MB cap, parsed in-process)
 
-## 🎨 AI Features
+### Jobs
+- `GET /api/external-jobs` - ranked feed, semantic plus keyword, with filters and pagination
+- Apply-click tracking and applied-badge lookups
 
-The platform uses OpenAI's GPT-4 to provide:
-
-1. **Enhanced Summary**: Professionally crafted summary highlighting your unique value
-2. **Key Strengths**: Identification of 5-7 core competencies
-3. **Recruiter Insights**: Career trajectory analysis and role recommendations
-4. **Keywords**: SEO-optimized keywords for better discoverability
+### Ops
+- `GET /health` - liveness probe used by Render's health check
 
 ## 📦 Project Structure
 
 ```
 ProfileAI/
-├── backend/
-│   ├── config/
-│   │   └── database.js
-│   ├── middleware/
-│   │   ├── auth.js
-│   │   └── errorHandler.js
-│   ├── models/
-│   │   ├── User.js
-│   │   ├── Profile.js
-│   │   └── index.js
-│   ├── routes/
-│   │   ├── auth.js
-│   │   └── profiles.js
-│   ├── services/
-│   │   └── aiService.js
-│   ├── scripts/
-│   │   └── initDatabase.js
-│   ├── server.js
-│   └── package.json
+├── backend/                  # Express API + workers (deployed to Render)
+│   ├── config/               # database, featureFlags
+│   ├── middleware/           # auth, recruiterSurface gate, errorHandler
+│   ├── models/               # Sequelize models
+│   ├── routes/               # ~34 route modules
+│   ├── services/             # ~55 services (AI, embeddings, ATS adapters, jobs)
+│   ├── workers/              # cronWorker, sweepWorker, prepWorker, submitWorker
+│   ├── scripts/              # init-db, migrations, backfills, smoke tests
+│   ├── mcp/                  # Remote MCP server (Claude connector)
+│   └── server.js
 │
-└── frontend/
-    ├── public/
-    │   └── index.html
-    ├── src/
-    │   ├── components/
-    │   │   ├── Navbar.js
-    │   │   └── PrivateRoute.js
-    │   ├── contexts/
-    │   │   └── AuthContext.js
-    │   ├── pages/
-    │   │   ├── Home.js
-    │   │   ├── Login.js
-    │   │   ├── Register.js
-    │   │   ├── Dashboard.js
-    │   │   └── ProfileForm.js
-    │   ├── services/
-    │   │   └── api.js
-    │   ├── App.js
-    │   └── index.js
-    └── package.json
+├── frontend/                 # React + Vite SPA (deployed to Cloudflare)
+│   └── src/{components,contexts,pages,services,config}
+│
+├── chrome-extension-react/   # Browser extension
+├── content/                  # Blog and SEO content
+├── docs/                     # Internal docs and QA briefs
+├── render.yaml               # Render Blueprint (API + cron worker + Postgres)
+├── wrangler.jsonc            # Cloudflare Workers config (frontend hosting)
+└── worker.js                 # Cloudflare edge worker (redirects, asset serving)
 ```
 
-## 🔒 Security Features
+## 🔒 Security
 
-- Password hashing with bcrypt
-- JWT token-based authentication
-- Protected API routes
-- CORS configuration
-- SQL injection prevention via Sequelize ORM
-- Input validation
+- bcrypt password hashing, JWT auth on protected routes
+- Helmet, CORS allowlist, and express-rate-limit
+- Sequelize parameterization against SQL injection
+- express-validator on inputs; disposable-email-domain blocking on signup
+- Upload size caps on every multipart route
 
-## 🌐 Environment Variables
+## 🚢 Deployment
 
-### Backend (.env)
-- `PORT` - Server port (default: 5000)
-- `NODE_ENV` - Environment (development/production)
-- `DB_HOST` - PostgreSQL host
-- `DB_PORT` - PostgreSQL port
-- `DB_NAME` - Database name
-- `DB_USER` - Database user
-- `DB_PASSWORD` - Database password
-- `JWT_SECRET` - Secret for JWT signing
-- `JWT_EXPIRE` - Token expiration time
-- `OPENAI_API_KEY` - OpenAI API key
-- `CORS_ORIGIN` - Allowed CORS origin
+Two hosting systems, deployed separately.
 
-### Frontend (.env)
-- `REACT_APP_API_URL` - Backend API URL
+### Backend - Render ([render.yaml](render.yaml))
+
+Blueprint provisions three things:
+
+| Service | Type | Plan | Purpose |
+|---|---|---|---|
+| `profilleai-api` | web | starter (512MB) | The API, bound to `api.profilleai.com`. **Double "l".** |
+| `profileai-cron-worker` | worker | starter (512MB) | External-jobs sync, digest, corpus-hygiene sweeps. **Single "l".** |
+| `profileai-db` | Postgres | basic-256mb | Shared database, pgvector enabled |
+
+The two spellings are not a typo and are not interchangeable. The API service is double-"l"; the worker and database are single-"l". A Blueprint name that does not exactly match a live service does not update it — it creates a second one.
+
+Deploys are triggered by pushing to `main` (`autoDeploy: true`).
+
+### Frontend - Cloudflare Workers Assets ([wrangler.jsonc](wrangler.jsonc))
+
+```bash
+npm run deploy        # builds frontend/build, then wrangler deploy
+npm run deploy:nobuild
+```
+
+**The frontend does not deploy on git push.** A Render static site for the frontend was removed precisely because Render kept rebuilding from `main` while DNS pointed at Cloudflare, so frontend fixes silently never reached users. Every frontend change needs an explicit `wrangler deploy`.
+
+### Operational notes
+
+These are the ones that have actually bitten:
+
+- **Service names must match the live services character for character.** The API is `profilleai-api` (double "l"); the worker is `profileai-cron-worker` and the database is `profileai-db` (single "l"). A mismatch does not rename anything — it spawns a duplicate service that deploys from `main` alongside the real one. This has already happened once to the API, and the duplicate ran boot migrations and queue workers against the shared Postgres until it was suspended.
+- **`RUN_CRON_INLINE` and `RUN_SWEEPS_INLINE` must both stay `false` in production.** The cron worker owns those jobs. Running them inline too meant up to 8 concurrent batch sweeps colliding on `ExternalJobs` locks and competing with request traffic for heap, which crashed the API with `JavaScript heap out of memory`.
+- **Confirm backend deploys landed.** `git push` is not reliably automatic here. Run `git fetch` and compare against the remote before assuming a backend change is live.
+- **There is no staging, and the production database is not reachable from a dev machine.** Test against local Postgres.
+- **`effectivePostedAt` is trigger-maintained.** It is the canonical feed sort date; never write it from application code.
 
 ## 🧪 Testing
 
 ```bash
-# Backend tests (if implemented)
-cd backend
-npm test
-
-# Frontend tests (if implemented)
-cd frontend
-npm test
+cd backend && npm run smoke     # smoke test against a running API
+cd frontend && npm run type-check && npm run lint
 ```
-
-## 🚢 Deployment
-
-### Backend Deployment
-1. Set `NODE_ENV=production`
-2. Update database credentials
-3. Set a strong `JWT_SECRET`
-4. Configure CORS for your frontend domain
-5. Use `npm start` instead of `npm run dev`
-
-### Frontend Deployment
-1. Update `REACT_APP_API_URL` to your backend URL
-2. Build the app: `npm run build`
-3. Deploy the `build` folder to your hosting service
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+MIT.
 
 ## 👤 Author
 
@@ -319,15 +266,9 @@ This project is licensed under the MIT License.
 - LinkedIn: [linkedin.com/in/saeed-darvish](https://linkedin.com/in/saeed-darvish)
 - Location: San Francisco, CA
 
-## 🙏 Acknowledgments
-
-- OpenAI for GPT-4 API
-- Material-UI for the component library
-- The React and Node.js communities
-
 ## 📞 Support
 
-For issues, questions, or contributions, please open an issue on GitHub or contact saeed79darvish@gmail.com.
+Open an issue on GitHub or contact saeed79darvish@gmail.com.
 
 ---
 
