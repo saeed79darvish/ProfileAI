@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ProfilleAI - Job Application Assistant",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "AI-powered job application assistant. Autofill forms, tailor resumes, and track applications.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr0epq/vM6itT/360pSv0eLoxl1xfhAsdPyGdUp+SMcAIMBTasNWsqDbPrnl1jsOcTjczHK1lGd2Wvg2vHzpmSi1BZ9YajGF6H/uIszkz+ayeNOg+DbKegou4xNbMkePDFWk/lq1Kc5aHw4fmwNbEwYMqUNrm5g4tUJs8smbtqUPTr25GLOvQ6+ezuNc9QSiDr14cCGuYJzhUqSW+k9qyTaHPOGiaJs5l6O5LUnj8rr44Wve+ssZY3rDIO2+q3EIjs/3Uu9/qqamtLO4BFAKs8h71fDQfMSUX7xKPVpGRkfM6bE9bQL6gYXgNZKREBKb0toWTijo5CVMl92rPx1d81QIDAQAB",
   "icons": {
