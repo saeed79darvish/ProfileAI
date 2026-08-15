@@ -3114,6 +3114,13 @@ html, body, #root {
   color: #34d399;
 }
 
+.jm-source-note {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: #64748b;
+}
+
 .cl-loading-hint {
   margin-top: -4px;
   font-size: 11px;

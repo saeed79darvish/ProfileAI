@@ -31,6 +31,7 @@ export type BgTaskKind =
   | 'coverLetter'
   | 'match'
   | 'keywords'
+  | 'keywordsAi'
   | 'smartAnswers'
   | 'singleAnswer'
   | 'linkedin'

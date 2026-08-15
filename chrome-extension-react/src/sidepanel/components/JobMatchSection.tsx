@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { JobInfo } from '../../types';
+import type { JobInfo, KeywordAnalysis } from '../../types';
 import {
   rankMissingKeywords,
   predictBoostedScore,
@@ -7,18 +7,13 @@ import {
   type Impact,
 } from '../keywordInsights';
 
-interface KeywordAnalysis {
-  matchScore: number;
-  present: string[];
-  missing: string[];
-  totalKeywords: number;
-}
-
 interface JobMatchSectionProps {
   currentJob: JobInfo | null;
   onAnalyze: () => void;
   keywordAnalysis?: KeywordAnalysis | null;
   isAnalyzing?: boolean;
+  /** The AI second pass is still running over the instant local result. */
+  isRefining?: boolean;
   onTailor?: () => void;
   isTailoring?: boolean;
   /** When a tailored result is showing, collapse to just the job row. */
@@ -61,6 +56,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   onAnalyze,
   keywordAnalysis,
   isAnalyzing,
+  isRefining,
   onTailor,
   isTailoring,
   hasTailored,
@@ -118,10 +114,10 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
     );
   }
 
-  const { matchScore, present, missing, totalKeywords } = keywordAnalysis;
+  const { matchScore, present, missing, totalKeywords, priorities, source } = keywordAnalysis;
   const verdict = scoreVerdict(matchScore);
   const matchedCount = present.length;
-  const ranked = rankMissingKeywords(missing);
+  const ranked = rankMissingKeywords(missing, priorities);
   const visibleMissing = showAllMissing ? ranked : ranked.slice(0, 3);
   const hiddenMissing = ranked.length - visibleMissing.length;
   const boosted = predictBoostedScore(matchScore, matchedCount, missing.length, totalKeywords);
@@ -155,6 +151,15 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             </div>
             <span className="jm-progress-pct">{matchScore}%</span>
           </div>
+          {/* Says which pass produced these numbers: the instant on-device
+              scan, or the deeper AI read that replaces it moments later. */}
+          <p className="jm-source-note">
+            {isRefining
+              ? 'Quick scan — checking against AI for a closer read…'
+              : source === 'ai'
+                ? 'Read by AI against your profile'
+                : 'Quick scan of this posting'}
+          </p>
           {missing.length > 0 && (
             <p className="jm-missing-summary">
               Missing <strong>{missing.length} keyword{missing.length === 1 ? '' : 's'}</strong>

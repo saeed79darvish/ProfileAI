@@ -25,7 +25,7 @@ import { TailorSettingsModal, TailorSettings } from './components/TailorSettings
 import { TailoringProgress } from './components/TailoringProgress';
 import { GapReviewModal } from './components/GapReviewModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
-import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis } from '../types';
+import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis, KeywordAnalysis } from '../types';
 import { BrandIcon, BrandLogo } from '../components/BrandLogo';
 import {
   BG_TASKS_KEY,
@@ -174,7 +174,9 @@ export const SidePanel: React.FC = () => {
   const [isTailoring, setIsTailoring] = useState(false);
   const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
   const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
-  const [keywordAnalysis, setKeywordAnalysis] = useState<{ matchScore: number; present: string[]; missing: string[]; totalKeywords: number } | null>(null);
+  const [keywordAnalysis, setKeywordAnalysis] = useState<KeywordAnalysis | null>(null);
+  /** The AI second pass is running over the instant local result. */
+  const [keywordsRefining, setKeywordsRefining] = useState(false);
   // Snapshot of the keyword analysis captured when tailoring starts, so the
   // tailored result can show an honest before → after comparison.
   const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
@@ -1076,8 +1078,14 @@ export const SidePanel: React.FC = () => {
     setIsAnalyzing(true);
     beginOp('keywords');
     try {
-      // Use ANALYZE_JOB_PAGE: background extracts fresh job info via scripting API + analyzes in one step
-      const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+      // Use ANALYZE_JOB_PAGE: background extracts fresh job info via scripting API + analyzes in one step.
+      // refineWithAi asks the worker to follow up with the model-backed pass —
+      // only set here, on a deliberate click, never on the internal
+      // "I just need the job info" calls in the tailor/cover-letter flows.
+      const response = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_JOB_PAGE',
+        data: { refineWithAi: true },
+      });
 
       // Update the job card with fresh info (accept if it has description, title, or company)
       if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
@@ -1216,6 +1224,16 @@ export const SidePanel: React.FC = () => {
         if (res?.jobInfo && (res.jobInfo.title || res.jobInfo.company || res.jobInfo.description)) {
           setCurrentJob(res.jobInfo);
         }
+        if (res?.keywords) setKeywordAnalysis(res.keywords);
+        return;
+      }
+
+      case 'keywordsAi': {
+        // Upgrade-only. The local numbers are already on screen, so a failure
+        // here (no credits, offline, unusable response) stays silent rather
+        // than replacing a usable result with an error.
+        setKeywordsRefining(running);
+        if (running || failure) return;
         if (res?.keywords) setKeywordAnalysis(res.keywords);
         return;
       }
@@ -1504,6 +1522,7 @@ export const SidePanel: React.FC = () => {
               onAnalyze={handleAnalyzeKeywords}
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
+              isRefining={keywordsRefining}
               onTailor={handleTailor}
               isTailoring={isTailoring || isAnalyzingGaps}
               hasTailored={!!tailoredProfile}

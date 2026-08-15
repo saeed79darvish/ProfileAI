@@ -72,10 +72,17 @@ export interface SavedAnswer {
 }
 
 export interface KeywordAnalysis {
-  score: number;
+  /** Share of the job's keywords the profile already covers, 0-100. */
+  matchScore: number;
   present: string[];
   missing: string[];
-  suggestions: string[];
+  totalKeywords: number;
+  /** Which pass produced this: the instant on-device scan, or the AI
+   *  refinement that replaces it a few seconds later. */
+  source?: 'local' | 'ai';
+  /** Importance per keyword (lowercased key) from the AI pass. The local pass
+   *  has no notion of importance and leaves this undefined. */
+  priorities?: Record<string, 'high' | 'medium' | 'low'>;
 }
 
 // Message types for chrome.runtime messaging

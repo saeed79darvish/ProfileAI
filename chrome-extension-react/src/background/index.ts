@@ -531,8 +531,27 @@ async function handleMessage(
       case 'ANALYZE_JOB_PAGE': {
         // Runs as a durable task so closing the side panel mid-analysis
         // does not kill the extraction + keyword run.
-        const jobPageResult = await runBackgroundTask('keywords', await activeTabJobKey(), undefined, analyzeActiveJobPage);
+        const pageKey = await activeTabJobKey();
+        const jobPageResult = await runBackgroundTask('keywords', pageKey, undefined, analyzeActiveJobPage);
         sendResponse(jobPageResult);
+
+        // An explicit "Analyze" click also earns a second, AI-quality pass.
+        // Deliberately not awaited: the panel already has the instant local
+        // numbers, and the task layer keeps the worker alive until the
+        // refinement lands even if the panel is closed in the meantime.
+        // Only user-initiated analysis sets this flag — the tailor and cover
+        // letter flows call ANALYZE_JOB_PAGE just to read the page, and must
+        // not quietly spend an AI credit doing it.
+        const wantsRefine = (message.data as any)?.refineWithAi === true;
+        const description = jobPageResult?.jobInfo?.description;
+        if (wantsRefine && jobPageResult?.success && description) {
+          void runBackgroundTask(
+            'keywordsAi',
+            pageKey,
+            { jobTitle: jobPageResult.jobInfo?.title || '', company: jobPageResult.jobInfo?.company || '' },
+            () => refineKeywordsWithAI({ jobDescription: description }),
+          );
+        }
         break;
       }
 
@@ -1672,6 +1691,142 @@ async function analyzeKeywords(jobDescription: string) {
   }
 }
 
+const KEYWORD_AI_CACHE_KEY = 'keywordAiCache';
+const KEYWORD_AI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const KEYWORD_AI_CACHE_MAX = 20;
+
+/** Shapes the /keyword-optimization response into the panel's analysis shape.
+ *  Returns null when the model gave us too little to be worth showing. */
+function shapeAiKeywords(parsed: any): {
+  matchScore: number;
+  present: string[];
+  missing: string[];
+  totalKeywords: number;
+  source: 'ai';
+  priorities: Record<string, 'high' | 'medium' | 'low'>;
+} | null {
+  const clean = (list: any): string[] => {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of list) {
+      const value = typeof raw === 'string' ? raw.trim() : '';
+      if (!value || value.length > 40) continue;
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+    return out;
+  };
+
+  const present = clean(parsed?.matchedKeywords).slice(0, 24);
+  const presentKeys = new Set(present.map((k) => k.toLowerCase()));
+  // The model occasionally lists a keyword as both matched and missing.
+  // Matched wins — claiming someone lacks a skill they have is the worse error.
+  const missing = clean(parsed?.missingKeywords)
+    .filter((k) => !presentKeys.has(k.toLowerCase()))
+    .slice(0, 16);
+
+  const totalKeywords = present.length + missing.length;
+  if (totalKeywords < 4) return null;
+
+  const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
+  if (Array.isArray(parsed?.suggestedAdditions)) {
+    for (const s of parsed.suggestedAdditions) {
+      const keyword = typeof s?.keyword === 'string' ? s.keyword.trim().toLowerCase() : '';
+      const priority = s?.priority;
+      if (!keyword) continue;
+      if (priority === 'high' || priority === 'medium' || priority === 'low') {
+        priorities[keyword] = priority;
+      }
+    }
+  }
+
+  // Score from the counts rather than the model's own overallKeywordScore, so
+  // the percentage and the "9 / 17" beside it can never disagree.
+  return {
+    matchScore: Math.round((present.length / totalKeywords) * 100),
+    present,
+    missing,
+    totalKeywords,
+    source: 'ai',
+    priorities,
+  };
+}
+
+/**
+ * Second pass over the keywords, done by the model instead of a word list.
+ * The local scan has already painted, so this only ever upgrades what's on
+ * screen — every failure path (no auth, no credits, offline, unusable JSON)
+ * returns unsuccessfully and leaves the local result standing.
+ *
+ * Results are cached by job-description hash for a day, so re-opening the panel
+ * or hitting Re-analyze on an unchanged posting doesn't spend another credit.
+ */
+async function refineKeywordsWithAI(payload: { jobDescription: string }) {
+  if (!authToken) return { success: false, error: 'Not authenticated' };
+
+  const description = (payload.jobDescription || '').trim();
+  if (description.length < 120) {
+    return { success: false, error: 'Job description too short to refine' };
+  }
+
+  const cacheKey = hashStringBg(description.slice(0, 4000));
+  try {
+    const { [KEYWORD_AI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(KEYWORD_AI_CACHE_KEY);
+    const hit = cache?.[cacheKey];
+    if (hit?.keywords && Date.now() - (hit.cachedAt || 0) < KEYWORD_AI_CACHE_TTL_MS) {
+      console.log('[ProfileAI] Keyword refinement cache hit — no credit spent');
+      return { success: true, keywords: hit.keywords };
+    }
+  } catch (_) { /* cache is best-effort */ }
+
+  await fetchProfile();
+  if (!cachedProfile) return { success: false, error: 'No profile to compare against' };
+
+  try {
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/keyword-optimization`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ profileData: cachedProfile, jobDescription: description }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({} as any));
+      // 429 here means the user is out of AI runs. Not an error worth shouting
+      // about — they still have the local numbers.
+      return { success: false, error: err.error || `Server returned ${response.status}` };
+    }
+
+    const data = await response.json();
+    const keywords = shapeAiKeywords(data?.data);
+    if (!keywords) return { success: false, error: 'AI returned an unusable result' };
+
+    try {
+      const { [KEYWORD_AI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(KEYWORD_AI_CACHE_KEY);
+      const next: Record<string, any> = { ...cache, [cacheKey]: { keywords, cachedAt: Date.now() } };
+      const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
+      if (entries.length > KEYWORD_AI_CACHE_MAX) {
+        entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
+        const trimmed: Record<string, any> = {};
+        entries.slice(0, KEYWORD_AI_CACHE_MAX).forEach(([k, v]) => (trimmed[k] = v));
+        await chrome.storage.local.set({ [KEYWORD_AI_CACHE_KEY]: trimmed });
+      } else {
+        await chrome.storage.local.set({ [KEYWORD_AI_CACHE_KEY]: next });
+      }
+    } catch (_) { /* non-fatal */ }
+
+    return { success: true, keywords };
+  } catch (error) {
+    console.warn('[ProfileAI] Keyword refinement failed:', error);
+    return { success: false, error: (error as Error).message || 'Refinement failed' };
+  }
+}
+
 // Generic soft-skill / business terms that show up in nearly every JD as filler.
 // We require ≥2 occurrences for these to count, otherwise a single mention of
 // "communication" or "leadership" in a boilerplate sentence dominates the missing list.
@@ -1684,10 +1839,159 @@ const SOFT_SKILL_FLUFF = new Set<string>([
   'sales', 'marketing', 'salesforce', 'hubspot', 'sap', 'erp', 'crm',
 ]);
 
+// Word-boundary occurrence count. Multi-word keywords carrying symbols
+// (".net", "c++", "ci/cd") need looser edges than \b, which misbehaves next to
+// punctuation. Shared by the job-description scan and the profile scan so both
+// sides of the comparison use identical matching rules.
+const escapeRegexBg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function countKeywordMatches(text: string, keyword: string): number {
+  if (!text || !keyword) return 0;
+  const hasSymbol = /[^a-z0-9 ]/i.test(keyword);
+  const pattern = hasSymbol
+    ? `(?<![a-z0-9])${escapeRegexBg(keyword)}(?![a-z0-9])`
+    : `\\b${escapeRegexBg(keyword)}\\b`;
+  try {
+    return text.match(new RegExp(pattern, 'gi'))?.length || 0;
+  } catch {
+    // Defensive fallback if a runtime doesn't support lookbehind
+    return text.match(new RegExp(`\\b${escapeRegexBg(keyword)}\\b`, 'gi'))?.length || 0;
+  }
+}
+
+const containsKeyword = (text: string, keyword: string): boolean =>
+  countKeywordMatches(text, keyword) > 0;
+
+// Comprehensive keyword list covering tech, business, and soft skills.
+// ONE list, used to read the job description AND to read the candidate's
+// profile. They used to be two different lists, which meant 147 terms could be
+// detected in a posting but never in the user's experience — those always came
+// back "missing" no matter what the person had actually done.
+const KNOWN_KEYWORDS = [
+  // Programming languages
+  'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
+  'rust', 'swift', 'kotlin', 'scala', 'php', 'perl', 'r lang', 'matlab', 'dart',
+  'elixir', 'haskell', 'lua', 'objective-c', 'groovy', 'powershell', 'bash', 'shell scripting',
+  // Frontend
+  'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt', 'gatsby',
+  'html', 'css', 'sass', 'less', 'tailwind', 'bootstrap', 'material ui',
+  'webpack', 'vite', 'rollup', 'babel', 'storybook',
+  'redux', 'mobx', 'zustand', 'recoil',
+  'frontend', 'front-end', 'front end',
+  // Backend
+  'node.js', 'nodejs', 'express', 'fastify', 'nestjs', 'django', 'flask', 'fastapi',
+  'spring', 'spring boot', '.net', 'asp.net', 'rails', 'ruby on rails', 'laravel',
+  'backend', 'back-end', 'back end',
+  'microservices', 'serverless',
+  'rest', 'restful', 'graphql', 'grpc', 'websocket', 'api',
+  // Databases
+  'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
+  'cassandra', 'dynamodb', 'firebase', 'supabase', 'sqlite', 'oracle', 'mariadb', 'neo4j',
+  // Cloud & DevOps
+  'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
+  'terraform', 'ansible', 'puppet', 'cloudformation',
+  'jenkins', 'github actions', 'gitlab ci', 'circleci',
+  'ci/cd', 'cicd', 'devops', 'sre', 'infrastructure',
+  'nginx', 'apache', 'load balancing', 'cdn',
+  'linux', 'unix', 'windows server',
+  'cloud', 'cloud computing',
+  'prometheus', 'grafana', 'datadog', 'splunk', 'monitoring',
+  // Data & ML
+  'machine learning', 'deep learning', 'neural network', 'nlp',
+  'natural language processing', 'computer vision',
+  'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
+  'data science', 'data engineering', 'data analysis', 'analytics',
+  'etl', 'data pipeline', 'data warehouse', 'snowflake', 'databricks', 'airflow',
+  'tableau', 'power bi', 'looker',
+  'big data', 'hadoop', 'spark', 'kafka',
+  'ai', 'artificial intelligence', 'llm', 'generative ai',
+  'statistics', 'regression', 'classification',
+  // Mobile
+  'ios', 'android', 'react native', 'flutter', 'swiftui',
+  'mobile', 'mobile development',
+  // Design & UX
+  'figma', 'sketch', 'adobe xd', 'invision',
+  'ux', 'ui', 'ux design', 'ui design', 'user experience', 'user interface',
+  'wireframe', 'prototype', 'design system', 'accessibility',
+  'responsive design', 'interaction design',
+  // Testing & QA
+  'unit testing', 'integration testing', 'e2e testing', 'end-to-end',
+  'jest', 'mocha', 'cypress', 'selenium', 'playwright', 'puppeteer',
+  'tdd', 'bdd', 'qa', 'quality assurance', 'automation testing', 'test automation',
+  // Project & product
+  'agile', 'scrum', 'kanban', 'waterfall', 'lean', 'safe',
+  'sprint', 'backlog', 'product owner', 'scrum master',
+  'project management', 'product management', 'program management',
+  'jira', 'confluence', 'asana', 'trello',
+  'roadmap', 'stakeholder management',
+  // Security
+  'security', 'cybersecurity', 'infosec', 'penetration testing',
+  'encryption', 'authentication', 'authorization', 'oauth', 'jwt', 'sso',
+  'owasp', 'compliance', 'gdpr', 'soc 2',
+  // Version control
+  'git', 'github', 'gitlab', 'bitbucket', 'code review', 'pull request',
+  // Architecture
+  'system design', 'distributed systems', 'high availability', 'scalability',
+  'performance', 'caching', 'message queue', 'rabbitmq', 'event-driven',
+  'design patterns', 'clean architecture',
+  'full stack', 'fullstack', 'full-stack',
+  // General tech
+  'web development', 'software engineering', 'software development',
+  'open source', 'documentation', 'technical writing',
+  // Soft skills
+  'communication', 'leadership', 'teamwork', 'collaboration', 'problem solving',
+  'mentoring', 'coaching', 'presentation', 'critical thinking', 'analytical',
+  'attention to detail', 'time management', 'organizational skills',
+  // Business / non-tech
+  'marketing', 'digital marketing', 'content marketing', 'seo', 'sem',
+  'sales', 'business development', 'strategy',
+  'crm', 'salesforce', 'hubspot', 'sap', 'erp',
+  'excel', 'powerpoint', 'google analytics',
+  'financial analysis', 'budgeting', 'forecasting',
+  'supply chain', 'logistics', 'operations',
+  'customer service', 'customer success', 'account management',
+  'negotiation', 'procurement',
+  'human resources', 'recruiting', 'talent acquisition',
+  'risk management', 'audit',
+];
+
+// Alias collapse, so "node.js" and "nodejs" never appear as two keywords.
+const KEYWORD_ALIASES: Record<string, string> = {
+  'nodejs': 'node.js', 'nextjs': 'next.js', 'front-end': 'frontend',
+  'front end': 'frontend', 'back-end': 'backend', 'back end': 'backend',
+  'full-stack': 'full stack', 'fullstack': 'full stack', 'cicd': 'ci/cd',
+  'postgres': 'postgresql', 'k8s': 'kubernetes', 'golang': 'go',
+  'restful': 'rest',
+  // Plural / variant collapse — fixes "design system" + "design systems" duplication
+  'design systems': 'design system',
+  'testing frameworks': 'unit testing',
+  'test automation': 'automation testing',
+  'user interface': 'ui',
+  'user experience': 'ux',
+  'natural language processing': 'nlp',
+  'artificial intelligence': 'ai',
+  'machine-learning': 'machine learning',
+};
+
+/** Canonical form of a keyword ("nodejs" and "node.js" are the same thing). */
+const canonicalKeyword = (kw: string): string => KEYWORD_ALIASES[kw] || kw;
+
+/** Every spelling of a canonical keyword, so a profile written as "golang"
+ *  still satisfies a posting that says "Go". */
+const KEYWORD_VARIANTS: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
+    (out[canonical] = out[canonical] || []).push(alias);
+  }
+  return out;
+})();
+
+const keywordSpellings = (keyword: string): string[] => [keyword, ...(KEYWORD_VARIANTS[keyword] || [])];
+
 function extractKeywordsLocal(jobDescription: string, profile: any) {
   if (!jobDescription || typeof jobDescription !== 'string' || jobDescription.trim().length < 20) {
     console.warn('[ProfileAI] extractKeywordsLocal: description too short or missing', { length: jobDescription?.length });
-    return { totalKeywords: 0, matchScore: 0, present: [], missing: [] };
+    return { totalKeywords: 0, matchScore: 0, present: [], missing: [], source: 'local' as const };
   }
 
   // Stash the original (case-preserved) JD on globalThis so extractDynamicKeywords
@@ -1695,204 +1999,75 @@ function extractKeywordsLocal(jobDescription: string, profile: any) {
   // from "experience with the company"). Also keep a lowercased copy for matching.
   (globalThis as any).__profileai_lastJobDescription = jobDescription;
   const text = jobDescription.toLowerCase();
-  // Comprehensive keyword list covering tech, business, and soft skills
-  const knownKeywords = [
-    // Programming languages
-    'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
-    'rust', 'swift', 'kotlin', 'scala', 'php', 'perl', 'r lang', 'matlab', 'dart',
-    'elixir', 'haskell', 'lua', 'objective-c', 'groovy', 'powershell', 'bash', 'shell scripting',
-    // Frontend
-    'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt', 'gatsby',
-    'html', 'css', 'sass', 'less', 'tailwind', 'bootstrap', 'material ui',
-    'webpack', 'vite', 'rollup', 'babel', 'storybook',
-    'redux', 'mobx', 'zustand', 'recoil',
-    'frontend', 'front-end', 'front end',
-    // Backend
-    'node.js', 'nodejs', 'express', 'fastify', 'nestjs', 'django', 'flask', 'fastapi',
-    'spring', 'spring boot', '.net', 'asp.net', 'rails', 'ruby on rails', 'laravel',
-    'backend', 'back-end', 'back end',
-    'microservices', 'serverless',
-    'rest', 'restful', 'graphql', 'grpc', 'websocket', 'api',
-    // Databases
-    'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
-    'cassandra', 'dynamodb', 'firebase', 'supabase', 'sqlite', 'oracle', 'mariadb', 'neo4j',
-    // Cloud & DevOps
-    'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
-    'terraform', 'ansible', 'puppet', 'cloudformation',
-    'jenkins', 'github actions', 'gitlab ci', 'circleci',
-    'ci/cd', 'cicd', 'devops', 'sre', 'infrastructure',
-    'nginx', 'apache', 'load balancing', 'cdn',
-    'linux', 'unix', 'windows server',
-    'cloud', 'cloud computing',
-    'prometheus', 'grafana', 'datadog', 'splunk', 'monitoring',
-    // Data & ML
-    'machine learning', 'deep learning', 'neural network', 'nlp',
-    'natural language processing', 'computer vision',
-    'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
-    'data science', 'data engineering', 'data analysis', 'analytics',
-    'etl', 'data pipeline', 'data warehouse', 'snowflake', 'databricks', 'airflow',
-    'tableau', 'power bi', 'looker',
-    'big data', 'hadoop', 'spark', 'kafka',
-    'ai', 'artificial intelligence', 'llm', 'generative ai',
-    'statistics', 'regression', 'classification',
-    // Mobile
-    'ios', 'android', 'react native', 'flutter', 'swiftui',
-    'mobile', 'mobile development',
-    // Design & UX
-    'figma', 'sketch', 'adobe xd', 'invision',
-    'ux', 'ui', 'ux design', 'ui design', 'user experience', 'user interface',
-    'wireframe', 'prototype', 'design system', 'accessibility',
-    'responsive design', 'interaction design',
-    // Testing & QA
-    'unit testing', 'integration testing', 'e2e testing', 'end-to-end',
-    'jest', 'mocha', 'cypress', 'selenium', 'playwright', 'puppeteer',
-    'tdd', 'bdd', 'qa', 'quality assurance', 'automation testing', 'test automation',
-    // Project & product
-    'agile', 'scrum', 'kanban', 'waterfall', 'lean', 'safe',
-    'sprint', 'backlog', 'product owner', 'scrum master',
-    'project management', 'product management', 'program management',
-    'jira', 'confluence', 'asana', 'trello',
-    'roadmap', 'stakeholder management',
-    // Security
-    'security', 'cybersecurity', 'infosec', 'penetration testing',
-    'encryption', 'authentication', 'authorization', 'oauth', 'jwt', 'sso',
-    'owasp', 'compliance', 'gdpr', 'soc 2',
-    // Version control
-    'git', 'github', 'gitlab', 'bitbucket', 'code review', 'pull request',
-    // Architecture
-    'system design', 'distributed systems', 'high availability', 'scalability',
-    'performance', 'caching', 'message queue', 'rabbitmq', 'event-driven',
-    'design patterns', 'clean architecture',
-    'full stack', 'fullstack', 'full-stack',
-    // General tech
-    'web development', 'software engineering', 'software development',
-    'open source', 'documentation', 'technical writing',
-    // Soft skills
-    'communication', 'leadership', 'teamwork', 'collaboration', 'problem solving',
-    'mentoring', 'coaching', 'presentation', 'critical thinking', 'analytical',
-    'attention to detail', 'time management', 'organizational skills',
-    // Business / non-tech
-    'marketing', 'digital marketing', 'content marketing', 'seo', 'sem',
-    'sales', 'business development', 'strategy',
-    'crm', 'salesforce', 'hubspot', 'sap', 'erp',
-    'excel', 'powerpoint', 'google analytics',
-    'financial analysis', 'budgeting', 'forecasting',
-    'supply chain', 'logistics', 'operations',
-    'customer service', 'customer success', 'account management',
-    'negotiation', 'procurement',
-    'human resources', 'recruiting', 'talent acquisition',
-    'risk management', 'audit',
-  ];
 
   // --- Phase 1: Check known keywords against job description ---
-  // Use word-boundary matching for ALL keywords to avoid substring false positives
-  // (e.g. "less" matching "wireless", "lean" matching "clean", "rust" matching "trust",
-  //  "safe" matching "safety", "sales" matching "wholesales", etc.).
-  // We also count occurrences so we can drop "mentioned once in passing" noise like
-  // a competitor name or an example product appearing in the company description.
-  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const countMatches = (text: string, keyword: string): number => {
-    // Multi-word keywords with non-alphanum chars (e.g. ".net", "c++", "ci/cd") need a
-    // looser boundary — \b doesn't behave well around symbols. Fall back to a simple
-    // word-edge check using lookarounds against alphanumerics.
-    const hasSymbol = /[^a-z0-9 ]/i.test(keyword);
-    const pattern = hasSymbol
-      ? `(?<![a-z0-9])${escapeRegex(keyword)}(?![a-z0-9])`
-      : `\\b${escapeRegex(keyword)}\\b`;
-    try {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      return matches ? matches.length : 0;
-    } catch {
-      // Defensive fallback if a runtime doesn't support lookbehind
-      const re = new RegExp(`\\b${escapeRegex(keyword)}\\b`, 'gi');
-      const matches = text.match(re);
-      return matches ? matches.length : 0;
-    }
-  };
-
-  // Short keywords (≤3 chars: "ai", "go", "ux", "ui", "qa", "r lang", etc.) are
-  // particularly noisy — require ≥1 strong hit but treat them as low-confidence
-  // unless they appear inside a requirements-like context.
-  const foundSet = new Set<string>();
-  for (const keyword of knownKeywords) {
-    const count = countMatches(text, keyword);
+  // Word-boundary matching for ALL keywords avoids substring false positives
+  // ("less" in "wireless", "rust" in "trust", "safe" in "safety"). Occurrence
+  // counts do double duty: they drop mentioned-once-in-passing noise, and they
+  // order the results by how much the posting actually leans on each term.
+  const counts = new Map<string, number>();
+  for (const keyword of KNOWN_KEYWORDS) {
+    const count = countKeywordMatches(text, keyword);
     if (count === 0) continue;
-    // Generic fluff terms ("communication", "leadership", "teamwork") need to
-    // appear at least twice to be treated as a real requirement, not a throwaway
-    // line in the company blurb. Same for any short ≤3-char keyword.
+    // Generic fluff ("communication", "leadership") and very short terms
+    // ("ai", "go", "ux") need a second mention to count as a real requirement
+    // rather than a throwaway line in the company blurb.
     const isFluff = SOFT_SKILL_FLUFF.has(keyword) || keyword.length <= 3;
     if (isFluff && count < 2) continue;
-    foundSet.add(keyword);
+    const canonical = canonicalKeyword(keyword);
+    counts.set(canonical, (counts.get(canonical) || 0) + count);
   }
 
   // --- Phase 2: Extract skills dynamically from requirements/qualifications ---
-  // Strict mode: only accept phrases that look like proper proper nouns / tech terms,
+  // Strict mode: only accept phrases that look like proper nouns / tech terms,
   // OR are already in our known vocabulary. Generic categorical phrases like
   // "design systems", "testing frameworks", "user interface" get filtered out
   // because they collapse to known aliases or fail the quality filter.
-  const knownKeywordsLower = new Set(knownKeywords.map(k => k.toLowerCase()));
-  const dynamicSkills = extractDynamicKeywords(text, knownKeywordsLower);
-  for (const skill of dynamicSkills) {
-    foundSet.add(skill);
+  const knownKeywordsLower = new Set(KNOWN_KEYWORDS.map((k) => k.toLowerCase()));
+  for (const skill of extractDynamicKeywords(text, knownKeywordsLower)) {
+    const canonical = canonicalKeyword(skill);
+    if (!counts.has(canonical)) {
+      counts.set(canonical, countKeywordMatches(text, skill) || 1);
+    }
   }
 
-  // Deduplicate aliases (e.g., keep "node.js" not both "node.js" and "nodejs")
-  const aliases: Record<string, string> = {
-    'nodejs': 'node.js', 'nextjs': 'next.js', 'front-end': 'frontend',
-    'front end': 'frontend', 'back-end': 'backend', 'back end': 'backend',
-    'full-stack': 'full stack', 'fullstack': 'full stack', 'cicd': 'ci/cd',
-    'postgres': 'postgresql', 'k8s': 'kubernetes', 'golang': 'go',
-    'restful': 'rest',
-    // Plural / variant collapse — fixes "design system" + "design systems" duplication
-    'design systems': 'design system',
-    'testing frameworks': 'unit testing',
-    'test automation': 'automation testing',
-    'user interface': 'ui',
-    'user experience': 'ux',
-    'natural language processing': 'nlp',
-    'artificial intelligence': 'ai',
-    'machine-learning': 'machine learning',
-  };
-  const deduped = new Set<string>();
-  for (const kw of foundSet) {
-    deduped.add(aliases[kw] || kw);
-  }
-  const foundInJob = Array.from(deduped);
+  // Most-repeated first. The UI ranks impact by position, so this ordering is
+  // what makes "high impact" mean anything at all.
+  const foundInJob = Array.from(counts.keys()).sort(
+    (a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b),
+  );
 
   console.log('[ProfileAI] Keywords found in job description:', foundInJob.length, foundInJob.slice(0, 20));
 
   // --- Match against user profile ---
+  // A keyword counts as covered when it appears as a WHOLE WORD among the
+  // user's skills or in their experience text. The previous check was a
+  // bidirectional substring test, which matched "go" inside "mongodb", "ai"
+  // inside "tailwind" and "ui" inside "build tools" — every one of those
+  // inflated the score with skills the candidate never claimed.
   const profileSkills = flattenSkills(profile.skills);
-  const experienceSkills = extractSkillsFromExperience(profile.experience);
-  const allProfileSkills = [...new Set([...profileSkills, ...experienceSkills])];
+  const experienceKeywords = new Set(extractSkillsFromExperience(profile.experience));
+  const skillBlob = profileSkills.join(' | ');
 
   console.log('[ProfileAI] Extracted profile skills:', {
     fromSkillsField: profileSkills,
-    fromExperience: experienceSkills,
-    combined: allProfileSkills,
+    fromExperience: Array.from(experienceKeywords),
   });
 
   const present: string[] = [];
   const missing: string[] = [];
 
   for (const keyword of foundInJob) {
-    const hasSkill = allProfileSkills.some((skill) => {
-      if (skill === keyword) return true;
-      if (skill.includes(keyword) || keyword.includes(skill)) return true;
-      const normSkill = skill.replace(/[.\-\s]/g, '').toLowerCase();
-      const normKeyword = keyword.replace(/[.\-\s]/g, '').toLowerCase();
-      return normSkill === normKeyword || normSkill.includes(normKeyword) || normKeyword.includes(normSkill);
-    });
-    if (hasSkill) {
-      present.push(keyword);
-    } else {
-      missing.push(keyword);
-    }
+    const covered = keywordSpellings(keyword).some(
+      (spelling) => experienceKeywords.has(spelling) || containsKeyword(skillBlob, spelling),
+    );
+    if (covered) present.push(keyword);
+    else missing.push(keyword);
   }
 
   const matchScore = foundInJob.length > 0 ? Math.round((present.length / foundInJob.length) * 100) : 0;
 
-  return { totalKeywords: foundInJob.length, matchScore, present, missing };
+  return { totalKeywords: foundInJob.length, matchScore, present, missing, source: 'local' as const };
 }
 
 /**
@@ -2037,47 +2212,16 @@ function flattenSkills(skills: any): string[] {
   return [];
 }
 
-// Extract skills mentioned in experience descriptions and titles
+/**
+ * Canonical keywords the candidate demonstrably has, read out of their
+ * experience entries. Uses the SAME vocabulary as the job-description scan —
+ * a second, shorter list here used to make 147 terms permanently unmatchable.
+ */
 function extractSkillsFromExperience(experience: any[]): string[] {
   if (!experience || !Array.isArray(experience)) return [];
-  
-  const techKeywordsToFind = [
-    'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
-    'rust', 'swift', 'kotlin', 'scala', 'php', 'react', 'angular', 'vue', 'svelte',
-    'next.js', 'nextjs', 'nuxt', 'node.js', 'nodejs', 'express', 'nestjs',
-    'django', 'flask', 'fastapi', 'spring', 'spring boot', '.net', 'rails', 'laravel',
-    'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
-    'terraform', 'ansible', 'jenkins', 'github actions', 'gitlab ci', 'circleci',
-    'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
-    'dynamodb', 'firebase', 'supabase', 'cassandra', 'neo4j',
-    'graphql', 'rest', 'restful', 'grpc', 'api', 'websocket',
-    'git', 'github', 'gitlab', 'bitbucket',
-    'agile', 'scrum', 'kanban', 'ci/cd', 'devops', 'sre',
-    'machine learning', 'deep learning', 'nlp', 'computer vision',
-    'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
-    'data science', 'data engineering', 'data analysis', 'analytics',
-    'tableau', 'power bi', 'looker', 'snowflake', 'databricks', 'airflow',
-    'hadoop', 'spark', 'kafka',
-    'figma', 'sketch', 'adobe xd', 'ux', 'ui',
-    'jest', 'mocha', 'cypress', 'selenium', 'playwright',
-    'product management', 'project management',
-    'frontend', 'backend', 'full stack', 'fullstack',
-    'web', 'mobile', 'ios', 'android', 'react native', 'flutter',
-    'css', 'html', 'sass', 'tailwind', 'bootstrap',
-    'webpack', 'vite', 'rollup',
-    'redux', 'mobx', 'zustand',
-    'nginx', 'linux', 'unix',
-    'cloud', 'serverless', 'microservices',
-    'security', 'cybersecurity', 'encryption', 'oauth', 'jwt',
-    'monitoring', 'prometheus', 'grafana', 'datadog',
-    'communication', 'leadership', 'mentoring', 'collaboration',
-    'salesforce', 'hubspot', 'sap', 'erp', 'crm',
-    'excel', 'seo', 'google analytics',
-    'marketing', 'sales', 'strategy', 'operations',
-  ];
-  
-  const found: Set<string> = new Set();
-  
+
+  const found = new Set<string>();
+
   experience.forEach((exp: any) => {
     // Combine all text fields from experience (handle both title and position field names)
     const textToSearch = [
@@ -2085,19 +2229,18 @@ function extractSkillsFromExperience(experience: any[]): string[] {
       exp.description || '',
       exp.company || '',
       ...(exp.achievements || []),
-      ...(exp.skills || []).map((s: any) => typeof s === 'string' ? s : s?.name || ''),
+      ...(exp.skills || []).map((s: any) => (typeof s === 'string' ? s : s?.name || '')),
     ].join(' ').toLowerCase();
-    
-    // Find matching tech keywords
-    techKeywordsToFind.forEach(keyword => {
-      // Use word boundary matching for better accuracy
-      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (regex.test(textToSearch) || textToSearch.includes(keyword)) {
-        found.add(keyword);
-      }
-    });
+
+    for (const keyword of KNOWN_KEYWORDS) {
+      // Two-letter terms ("ai", "go", "ux") are too easy to hit inside prose
+      // like "go-to-market", so free-form experience text doesn't get to claim
+      // them — only an explicit entry in the skills list does.
+      if (keyword.length <= 2) continue;
+      if (containsKeyword(textToSearch, keyword)) found.add(canonicalKeyword(keyword));
+    }
   });
-  
+
   return Array.from(found);
 }
 
