@@ -27,6 +27,45 @@ const anthropic = new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
+// Review-note phrasing that is commentary ABOUT a resume, never content OF one.
+// Used on both ends: stripping annotations an uploaded document already carried,
+// and stripping any the tailoring model emits despite being told not to.
+const RESUME_ANNOTATION = /(?:^|\s)[•\-*]?\s*(?:LOW|HIGH|MEDIUM)\s+RELEVANCE\b[\s\S]*$|\bconsider (?:removing|expanding|adding|rewording|shortening)\b[\s\S]*$/i;
+
+// Bracketed asides the tailoring prompt bans from resume prose. The five
+// missing-fact placeholders ([add phone] etc.) are deliberately NOT matched —
+// they belong to structured contact/education/project fields, not descriptions.
+const INLINE_ANNOTATION = /\[(?!add\s)[^\]]*\]|\((?:note|consider|optional|if applicable|suggestion)[^)]*\)/gi;
+
+/**
+ * Last-pass scrub for text that will be printed on the resume itself.
+ * The prompt tells the model to APPLY its tailoring decisions rather than
+ * annotate them; this guarantees it, because `sanitizeATS` later strips the
+ * brackets off anything that slips through, turning "[LOW RELEVANCE — consider
+ * removing]" into a sentence the employer reads as the candidate's own words.
+ */
+function stripResumeAnnotations(value) {
+  if (typeof value !== 'string') return value;
+  // Line by line: RESUME_ANNOTATION is anchored to end-of-string, so running it
+  // over a multi-bullet description would delete every real bullet that follows
+  // the annotated one. Scoping it to a single line keeps the loss to the note.
+  return value
+    .split('\n')
+    .map(line => line
+      // Bracketed/parenthesised asides first: they are self-delimiting, so
+      // removing them whole avoids RESUME_ANNOTATION eating the closing
+      // bracket's line-tail and stranding "[LOW RELEVANCE —" in the bullet.
+      .replace(INLINE_ANNOTATION, '')
+      .replace(RESUME_ANNOTATION, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/[ \t]+([,.;:])/g, '$1')
+      .trimEnd())
+    .filter(line => !/^[ \t]*[•\-*]?[ \t]*$/.test(line) || line === '')
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // OpenAI fallback when Claude is unavailable
 const OpenAI = require('openai');
 const openai = process.env.OPENAI_API_KEY
@@ -353,8 +392,7 @@ Important guidelines:
   sanitizeParsedResume(data) {
     if (!data || typeof data !== 'object') return data;
 
-    // Review-note phrasing that is commentary ABOUT a resume, never content OF one.
-    const ANNOTATION = /(?:^|\s)[•\-*]?\s*(?:LOW|HIGH|MEDIUM)\s+RELEVANCE\b[\s\S]*$|\bconsider (?:removing|expanding|adding|rewording|shortening)\b[\s\S]*$/i;
+    const ANNOTATION = RESUME_ANNOTATION;
 
     const clean = (value) => {
       if (typeof value !== 'string') return value;
@@ -1624,6 +1662,48 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       if (tailoredData.skills && !Array.isArray(tailoredData.skills) && typeof tailoredData.skills === 'object') {
         tailoredData.skillsGrouped = tailoredData.skills;
         tailoredData.skills = Object.values(tailoredData.skills).flat();
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 3b: POST-PROCESSING — resolve and remove review annotations
+      // ═══════════════════════════════════════════════════════════════
+      // The prompt requires tailoring decisions to be APPLIED, with the
+      // reasoning confined to changelog/matchAnalysis. This enforces it: any
+      // "[LOW RELEVANCE — consider removing]" or "(consider adding a metric)"
+      // the model still emits is deleted from the resume-facing text. It has to
+      // run BEFORE sanitizeATS, which strips brackets and would otherwise
+      // promote an annotation into a sentence the employer reads as the
+      // candidate's own words — the exact failure already seen on the upload path.
+      {
+        const annotated = [];
+        const scrub = (label, str) => {
+          const cleaned = stripResumeAnnotations(str);
+          if (typeof str === 'string' && cleaned !== str.trim()) annotated.push(label);
+          return cleaned;
+        };
+
+        if (tailoredData.summary) tailoredData.summary = scrub('summary', tailoredData.summary);
+        if (Array.isArray(tailoredData.experience)) {
+          tailoredData.experience = tailoredData.experience.map((e, i) => ({
+            ...e,
+            description: scrub(`experience_${i + 1}`, e.description)
+          }));
+        }
+        if (Array.isArray(tailoredData.projects)) {
+          tailoredData.projects = tailoredData.projects.map((p, i) => ({
+            ...p,
+            description: scrub(`project_${i + 1}`, p.description)
+          }));
+        }
+
+        if (annotated.length > 0) {
+          console.log('[ProfilleAI] ⚠️ Stripped review annotations the model left in the resume text:', annotated);
+          tailoredData.changelog.push({
+            section: annotated.join(', '),
+            action: 'annotations_removed',
+            detail: 'Removed review notes the model left in resume text — the resume shows applied edits only'
+          });
+        }
       }
 
       // Sanitize text fields — strip characters that ATS platforms (Workday etc.) reject
