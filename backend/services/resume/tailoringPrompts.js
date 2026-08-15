@@ -63,17 +63,27 @@ CONTACT INFO PRESERVATION
 
 SUMMARY
 - Rewrite summary to speak directly to this role's priorities
-- Include 2–3 of the JD's most repeated keywords naturally in the summary
-- Maximum 3 sentences
+- Short and plain: 2–3 sentences, no more. Shorter is better than padded.
+- No metrics in the summary. Numbers belong in bullets, where the work that
+  produced them is visible.
+- Never copy phrasing from the job posting. If a sentence could be pasted back
+  into the JD without anyone noticing, rewrite it in the candidate's own words.
+- At most 1–2 JD terms, and only ones the candidate's actual history supports.
+  A summary stuffed with posting language is the first thing a recruiter reads
+  and the first thing that reads as generated.
+- No adjective stacking ("experienced, motivated, versatile engineer"). Say what
+  the person does and at what level, then stop.
 
 BULLETS
 - Rewrite bullets to use the same vocabulary as the JD where accurate
 - Surface buried relevant experience — if the candidate did something
   relevant but didn't emphasize it, bring it forward
 - Reorder bullets within each role: most JD-relevant bullet goes first
-- Keep all metrics and numbers from the original — never remove or change them
+- Never change a number that exists in the original (see METRIC DISCIPLINE for
+  which of the candidate's real metrics to keep and which to drop)
 - Never add experience the candidate does not have
-- If a JD keyword has no match in the resume, flag it as a gap (see Step 4)
+- If a JD keyword has no match in the resume, record it as a genuine gap
+  (see Step 4) — never write a bullet whose only support is the JD's wording
 
 KEYWORD INJECTION INTO BULLETS
 - Where a top JD keyword genuinely describes work the candidate already did, weave it into the bullet using plain, natural language — never bolt the literal term onto a sentence where it doesn't fit.
@@ -81,11 +91,21 @@ KEYWORD INJECTION INTO BULLETS
 - If a top keyword has no honest home in any bullet, either leave it in the skills section (only if the candidate has genuine exposure) or list it in the gap report. Do not force it into a sentence just to hit a quota — an unnatural sentence is worse than a missed keyword.
 - A keyword mentioned once, in the place it actually belongs, reads as a real skill. The same keyword crammed into two or three bullets reads as manipulation to a recruiter — never repeat a keyword artificially for density.
 
-WEAK BULLET FLAGGING
-- If a bullet cannot be connected to the JD in any meaningful way and has no metrics or scale, either:
-  1. Reframe it using JD vocabulary if possible
-  2. Flag it as: [LOW RELEVANCE — consider removing]
-- Never silently keep a weak bullet as-is.
+KEYWORD FREQUENCY LIMIT (hard rule)
+- Each JD keyword may appear AT MOST 1–2 times across the ENTIRE resume — summary, skills, and all bullets combined. Not per role. Not per section. Per resume.
+- ATS scoring matches on presence, not frequency. A third mention adds zero match score and costs credibility with the human who reads it next. There is no density target to hit.
+- Never repeat the same stock phrase across multiple roles ("cross-functional collaboration" in three jobs, "cloud-native architecture" in two). If two roles genuinely involved the same skill, describe each in the concrete terms of that job — different systems, different scope, different words.
+- Before returning, count occurrences of each top JD keyword. Anything above two: keep the single strongest, most specific placement and rewrite the others in the candidate's own plain description of that work.
+
+WEAK BULLET RESOLUTION (decide, don't annotate)
+- If a bullet cannot be connected to the JD in any meaningful way and has no metrics or scale, do exactly one of:
+  1. Reframe it in accurate language that connects to the role, or
+  2. Drop it from the output entirely, or
+  3. Keep it as-is because it carries real career context (tenure, scope, a
+     credential) even though it isn't JD-relevant.
+- Then record what you did in the changelog — never in the resume text.
+- Never silently keep a weak bullet you judged weak, and never leave the decision
+  to the reader. You make the call; the output contains only the result.
 
 SKILLS SECTION
 - Always group skills into labeled categories — never output a flat ungrouped list.
@@ -114,18 +134,50 @@ SECTION ORDER
 - If candidate has a certification the JD specifically mentions,
   ensure it is prominently placed
 
-VOICE & TONE
-- Never use: "results-driven," "detail-oriented," "passionate," "dynamic,"
-  "synergy," "leverage," "spearheaded," "utilized," "proven track record,"
-  "team player," "go-getter," "proactively," "in order to," "cutting-edge,"
-  "world-class," "seamlessly," "robust," or "best-in-class"
-- Every bullet: [Action verb] + [what/how] + [measurable outcome]
-- Never start consecutive bullets with the same verb
+BANNED VOCABULARY (all grammatical forms — verb, noun, adjective, adverb)
+- leverage / leveraged / leveraging
+- utilize / utilized / utilizing / utilization
+- spearhead / spearheaded / spearheading
+- seamless / seamlessly
+- robust / robustly
+- cutting-edge / bleeding-edge / state-of-the-art / best-in-class / world-class
+- proven track record / track record of
+- passionate / passion for
+- results-driven / results-oriented / data-driven (as a self-description)
+- detail-oriented, dynamic, synergy, team player, go-getter, proactively,
+  in order to, instrumental in, tasked with
+- Plain substitutes: used, ran, built, led, cut, moved, rewrote, set up, fixed.
+  Say the actual verb for the actual action.
+
+BANNED BULLET ENDINGS (abstract quality clauses)
+- No bullet may end in a trailing clause that asserts a virtue instead of an
+  outcome. Examples of what is banned:
+    "...with a focus on scalability and maintainability"
+    "...ensuring high availability and performance"
+    "...driving business value across the organization"
+    "...to improve overall efficiency"
+- These clauses are unfalsifiable and add no information. Either state the
+  concrete result (what changed, for whom, by how much) or end the bullet at
+  the last factual word.
+
+SENTENCE & STRUCTURE VARIATION
+- Most bullets: [Action verb] + [what/how] + [outcome]. But do NOT force every
+  bullet into that mold — a resume where all 14 lines share one grammatical
+  shape reads as generated. Some bullets should be a single short clause.
+- Vary bullet LENGTH deliberately across each role: mix short lines (8–12
+  words) with longer ones (20–30). Never let a role's bullets all land within
+  a few words of each other.
+- Never start consecutive bullets with the same verb, and don't cycle the same
+  four verbs down the whole resume.
+- Older roles get FEWER and SHORTER bullets than recent ones — 2–3 compact
+  lines for a job from eight years ago, more for the current one. A resume
+  that gives equal weight to every role reads as a template, not a career.
+- Roles do not all need the same bullet count. Match the count to how much
+  genuinely relevant material the role has: 4–6 for the most relevant recent
+  role, 1–3 for an old or off-target one.
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
-- Vary sentence length and rhythm across bullets. Real resumes mix short,
-  punchy lines with longer ones — bullets that are all the same length and
-  shape is a tell that the text was machine-generated, not written by the
-  candidate.
+
+VOICE
 - Do not force a metric or JD keyword into every single bullet. Some real
   accomplishments are plain, unquantified statements. A resume where
   literally every line has a number or buzzword reads as padded, not credible.
@@ -137,6 +189,63 @@ VOICE & TONE
   rewritten line would sound strange coming out of the candidate's mouth in
   an interview, rewrite it again.
 
+METRIC DISCIPLINE
+- 3–4 metrics TOTAL across the whole resume. Not per role — per resume. Beyond
+  four, each additional number weakens the ones that matter.
+- Use DIFFERENT KINDS of number: one duration (cut release time from 3 weeks to
+  4 days), one count (12 services, 40-person org), one dollar figure ($1.2M
+  budget), one percentage. Four percentages in a row reads as invented.
+- Never repeat the same percentage anywhere in the resume, and avoid two
+  percentages that are suspiciously close (30% and 35% in adjacent bullets).
+- Prefer specific over round. "Cut p95 latency from 840ms to 210ms" is credible;
+  "improved performance by 50%" is not. If the original resume has a round
+  number and no supporting detail, keep it verbatim but don't add more like it.
+- Choose which of the candidate's REAL metrics to keep — the strongest 3–4,
+  placed in the most JD-relevant bullets. Metrics you drop are simply not
+  written; the bullet is rephrased without them. Dropping is allowed; inventing,
+  changing, moving a number to a different accomplishment, or re-deriving one
+  ("30% faster" becoming "saved 200 hours") is never allowed.
+- If a metric in the source resume looks unverifiable or implausible for the
+  role, keep it exactly as written and list it in matchAnalysis.needsVerification
+  so the candidate can confirm it before submitting. Never silently reshuffle,
+  round, or replace it, and never invent a substitute.
+
+CONSISTENCY CHECKS
+- Job titles must match everywhere: the title in a role's header, any reference
+  to that role inside a bullet, and the summary must all use the same wording.
+- De-duplicate education: one entry per degree. If the same school or degree
+  appears twice (common when a resume was merged from two sources), merge into
+  the single most complete entry.
+- Fix hyphenation and capitalization consistently across the whole document:
+  pick one form of each compound (full-stack vs full stack, front-end vs
+  frontend) and use it everywhere. Product and technology names take their
+  official casing: JavaScript, TypeScript, PostgreSQL, GitHub, Node.js, Kubernetes.
+- Fix typos and grammatical errors carried over from the source resume.
+- Dates use ONE format throughout (e.g. "Jan 2021 – Mar 2023" everywhere, never
+  mixed with "01/2021-03/2023"). Use the same dash character in every range.
+
+ATS-SAFE FORMATTING
+- Single column only. No multi-column layouts, tables, text boxes, sidebars,
+  headers/footers, images, icons, emoji, or symbol characters as bullet markers.
+- Standard section headers only: Summary, Experience, Skills, Education,
+  Projects, Certifications. No invented or clever section names.
+- Plain text in every field. No markdown syntax (**, ##, backticks), no HTML.
+- Consistent date formatting per the rule above.
+
+NO ANNOTATIONS IN THE RESUME (hard rule)
+- The resume fields contain the FINAL tailored resume and nothing else. You
+  apply tailoring decisions; you never narrate them into the output.
+- Never emit into summary, experience descriptions, project descriptions, or
+  skills: "[LOW RELEVANCE — consider removing]", "(consider adding a metric)",
+  "NOTE:", "TODO", "optional", "if applicable", "you may want to…", or any
+  parenthetical addressed to the candidate or commenting on the JD.
+- Decisions and suggestions go in \`changelog\` and \`matchAnalysis\`, which the
+  product renders separately. Resume text is what the employer will read.
+- The only bracketed text permitted anywhere in the output is a missing-fact
+  placeholder in a STRUCTURED contact/education/project field — exactly
+  [add phone], [add LinkedIn], [add institution name], [add graduation year],
+  [add year]. These are never allowed inside summary or any description text.
+
 ═══════════════════════════════════════
 STEP 4: GAP REPORT
 ═══════════════════════════════════════
@@ -145,9 +254,19 @@ After tailoring, produce a match analysis:
 STRONG MATCHES
 - List 5–8 areas where the candidate's experience directly matches the JD
 
-GAPS TO ADDRESS
-- List any JD requirements the resume cannot honestly cover
-- For each gap suggest: "Consider adding X if you have experience with it"
+GENUINE GAPS
+- Every JD requirement the candidate's real background cannot honestly cover
+  goes here — as a list for the candidate, never as a bullet in the resume.
+- This is the ONLY correct destination for an uncovered requirement. Writing a
+  vague bullet that gestures at a skill the candidate doesn't have is
+  fabrication, even when the wording is hedged.
+- For each gap note whether it is a hard blocker (an explicit "required" in the
+  JD) or a nice-to-have, and what the candidate could say about it if asked.
+
+NEEDS VERIFICATION
+- Any metric or claim carried over from the source resume that you could not
+  corroborate from the rest of the resume, or that looks implausible for the
+  role. Listed for the candidate to confirm — never edited, never removed.
 
 ATS SCORE BREAKDOWN
 - KEYWORD MATCH: X of Y critical JD keywords found in the tailored resume
@@ -160,8 +279,12 @@ ATS SCORE BREAKDOWN
 ═══════════════════════════════════════
 STEP 5: NEVER DO THESE
 ═══════════════════════════════════════
-- Never invent a job, project, or responsibility
-- Never change a metric (if resume says 30%, keep 30%)
+- Never invent a job, project, responsibility, skill, or metric. If the
+  candidate did not do it, it does not appear anywhere in the resume — not in a
+  bullet, not in skills, not softened into a vaguer claim. An uncovered JD
+  requirement goes in GENUINE GAPS. That is the only option.
+- Never change a metric (if resume says 30%, keep 30%), and never attach an
+  existing metric to a different accomplishment than the one it came from
 - Never add a tool or skill not present in the original resume
 - Never remove the candidate's actual company names or dates
 - Never make the resume longer than 2 pages
@@ -189,7 +312,46 @@ skeptical recruiter would — not as an ATS parser:
   does it feel stitched together from the JD? Smooth out any place where
   tone or vocabulary shifts abruptly between sections.
 - The candidate must be able to defend every line of this resume, unprompted,
-  in a live interview. If they couldn't, it doesn't belong in the output.`;
+  in a live interview. If they couldn't, it doesn't belong in the output.
+
+═══════════════════════════════════════
+STEP 7: READ-ALOUD TEST (bullet by bullet)
+═══════════════════════════════════════
+Go through every bullet one at a time and read it as if saying it out loud to
+an interviewer. For each one ask:
+
+- Could this candidate tell a real 2-minute story behind this line — the
+  situation, what they personally did, what happened? If the honest answer is
+  no, the bullet is describing work that isn't theirs or isn't real. Rewrite it
+  down to what actually happened, or drop it.
+- Does it sound like a person talking, or like a posting? If you would never
+  say the sentence aloud, it doesn't belong in writing either.
+- Would the candidate have to explain a number in this bullet and not be able
+  to? Then that number goes to needsVerification, not into the resume as fact.
+
+═══════════════════════════════════════
+STEP 8: FINAL SWEEP BEFORE RETURNING
+═══════════════════════════════════════
+Run these six checks over the JSON you are about to return. Fix anything that
+fails and re-check; do not return until all six pass.
+
+1. ANNOTATIONS: scan every resume-facing string (summary, all experience
+   descriptions, all project descriptions, all skills). Zero review notes,
+   zero suggestions, zero commentary about the JD, zero "consider…" phrasing,
+   zero bracketed text other than the five permitted missing-fact
+   placeholders. Every tailoring decision has been APPLIED, and the reasoning
+   lives only in changelog / matchAnalysis.
+2. KEYWORD COUNT: no JD keyword appears more than twice in the whole resume,
+   and no stock phrase repeats across roles.
+3. BANNED VOCABULARY: none of the banned words appear in any form, and no
+   bullet ends in an abstract quality clause.
+4. METRICS: 3–4 total, of different kinds, no repeated percentage, every one
+   traceable to a number in the source resume.
+5. VARIATION: bullet lengths and shapes differ; older roles are shorter and
+   lighter than recent ones; roles do not all carry the same bullet count.
+6. CONSISTENCY: titles match across header/bullets/summary, education has no
+   duplicates, one date format throughout, hyphenation and product-name
+   capitalization uniform, no typos.`;
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -212,8 +374,11 @@ When scanning the JD, weight these higher than others:
 
 BULLET REWRITE FOCUS
 - Lead with engineering action: Built, Reduced, Migrated, Architected, Shipped, Automated
-- Always include the tech stack used in the bullet if JD emphasizes specific tools
-- Quantify with: latency (ms), uptime (%), users, requests/sec, deploy frequency, cost saved
+- Name the tech stack in the bullet where the JD emphasizes those tools and the
+  candidate actually used them — subject to the 1–2 keyword frequency limit
+- When choosing which 3–4 metrics survive, prefer these types and mix them:
+  latency (ms), uptime (%), users, requests/sec, deploy frequency, cost saved.
+  Only ever use numbers already present in the source resume.
 
 SKILLS REORDER RULE
 - Languages first, then frameworks, then infra/cloud, then tools
@@ -239,12 +404,16 @@ When scanning the JD, weight these higher than others:
 
 BULLET REWRITE FOCUS
 - Lead with revenue action: Closed, Exceeded, Generated, Grew, Landed, Negotiated
-- Always include quota attainment %, deal size, or revenue figure if present
+- Spend the resume's 3–4 metric slots on quota attainment %, deal size, and
+  revenue figures where the source resume contains them
 - If JD mentions a specific methodology, surface any resume evidence of it
 
 METRICS TO PROTECT
-- Never reframe or soften revenue numbers — keep them exact and prominent
-- If quota attainment exists in resume, it must appear in the first bullet of each role
+- Never reframe, soften, or round revenue numbers — keep them exact
+- Quota attainment is the highest-value metric for this function: if it exists
+  in the source resume, it earns one of the metric slots, in the first bullet of
+  the most relevant role. Repeating it in every role burns the budget and reads
+  as padding — one strong, exact figure beats four.
 
 SENIORITY SIGNALS TO MATCH
 - VP/Director: emphasize team quota, hiring, forecasting, market strategy
@@ -271,7 +440,7 @@ BULLET REWRITE FOCUS
 - Operations: Streamlined, Reduced, Implemented, Scaled, Managed, Cut, Improved
 - Always connect initiative to business outcome — not just activity
 
-METRICS TO SURFACE
+METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
 - Product: DAU/MAU, retention %, NPS, feature adoption, revenue impact, time to ship
 - Marketing: CAC, pipeline influenced, conversion rate, ROAS, traffic growth
 - Operations: cost savings, cycle time, error rate, SLA compliance, headcount supported
@@ -306,7 +475,7 @@ PORTFOLIO NOTE
 - If portfolio link exists in resume, ensure it appears prominently in tailored version
 - If missing, add a placeholder note: [Portfolio: add link before submitting]
 
-METRICS TO SURFACE
+METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
 - Task completion rate, satisfaction score, conversion lift,
   design system adoption, components built, research participants,
   screens shipped, accessibility compliance
@@ -340,7 +509,7 @@ BULLET REWRITE FOCUS
 - Compliance: Implemented, Ensured, Reduced, Audited, Designed, Remediated
 - Customer Success: Retained, Grew, Reduced, Onboarded, Drove, Expanded, Managed
 
-METRICS TO SURFACE
+METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
 - HR: headcount supported, time-to-hire, offer acceptance, retention %, eNPS
 - Legal: contracts negotiated, deal value advised, risk exposure reduced
 - Compliance: audits passed, frameworks implemented, findings remediated
@@ -369,7 +538,9 @@ When scanning the JD, weight these higher than others:
 BULLET REWRITE FOCUS
 - Lead with finance action: Managed, Reduced, Built, Forecasted, Improved,
   Identified, Streamlined, Automated, Reconciled, Advised, Led
-- Always include a dollar figure, percentage, or time metric
+- Finance bullets carry numbers well, but the 3–4 metric cap still applies:
+  pick the strongest dollar figure, percentage, and time metric rather than
+  putting a number on every line
 - If JD emphasizes modeling, surface any financial model or scenario
   analysis work from resume
 - If JD mentions a specific ERP or tool, check resume body —
@@ -377,8 +548,8 @@ BULLET REWRITE FOCUS
 
 METRICS TO PROTECT
 - Never soften or round financial figures — keep exact amounts
-- Budget managed, cost savings, forecast accuracy %,
-  close time reduced, audit outcomes must stay prominent
+- Budget managed, cost savings, forecast accuracy %, close time reduced and
+  audit outcomes are the first candidates for the resume's metric slots
 
 CERTIFICATIONS RULE
 - If JD requires CPA, CFA, or similar and candidate has it,
@@ -449,7 +620,11 @@ If the candidate already has a skill from an OR-group, do NOT replace it with an
 
   // Build keywords reference block
   const keywordsBlock = `
-═══ EXTRACTED KEYWORDS (from JD — use these exact terms) ═══
+═══ EXTRACTED KEYWORDS (from JD) ═══
+Use these terms only where they describe work the candidate genuinely did, at
+most 1–2 times each across the whole resume. This is a checklist of what to look
+for in the candidate's real history — not a quota to hit. A keyword with no
+honest home belongs in GENUINE GAPS.
 Required: ${(extractedKeywords.required || []).join(', ')}
 ${(extractedKeywords.preferred || []).length > 0 ? 'Preferred: ' + (extractedKeywords.preferred || []).join(', ') : ''}
 ${(extractedKeywords.domain || []).length > 0 ? 'Domain terms: ' + (extractedKeywords.domain || []).join(', ') : ''}
@@ -472,12 +647,13 @@ ${resumeSection}
 ${jobDescription}
 ${keywordsBlock}${gapContext}${settingsContext}
 ═══ ADDITIONAL RULES ═══
-- This resume has ${expCount} experience entries.
+- This resume has ${expCount} experience entries. They do not all get the same treatment: the most recent and most JD-relevant roles carry the most bullets and the most detail, older roles get 1–3 short lines.
 - Reorder bullets within each role so the most JD-relevant appears first.
-- Keep all original metrics and numbers — never change them.
+- Never change a number that appears in the source. You may drop a metric by rephrasing its bullet without it; you may never alter, round, re-derive, or relocate one.
 - For skills the candidate doesn't have direct experience with but are in accepted gaps, use honest framing: "familiar with", "exposure to".
 - Do not add any skill or keyword to the skills list unless it already appears, or is honestly implied, somewhere in the candidate's actual resume/profile content. When in doubt, leave it out and note it in the gap report instead.
 - Read the final result once as a human recruiter, not a keyword scanner. Every sentence must sound like this candidate wrote it about their own work.
+- The resume fields must contain zero review notes, suggestions, or commentary. Every decision is applied in the text; the explanation goes in changelog and matchAnalysis.
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object with this exact structure:
@@ -485,7 +661,7 @@ Return a JSON object with this exact structure:
   "jobTitle": "exact job title from the JD",
   "company": "company name from JD or empty string",
   "title": "candidate's title adjusted to mirror JD title",
-  "summary": "tailored 3-sentence summary per the rules above",
+  "summary": "2-3 short plain sentences, no metrics, no phrases copied from the JD",
   "skills": {
     "Languages": ["Python", "TypeScript", "SQL"],
     "Frameworks": ["React", "FastAPI"],
@@ -493,7 +669,7 @@ Return a JSON object with this exact structure:
     "Tools": ["Git", "Jira", "Datadog"]
   },
   "experience": [
-    {"company": "SAME", "title": "SAME", "period": "SAME", "description": "tailored description with reordered bullets, JD vocabulary, and weak bullets flagged"}
+    {"company": "SAME", "title": "SAME", "period": "SAME", "description": "final tailored bullets only — reordered, varied in length, decisions already applied. No review notes, no suggestions, no bracketed commentary."}
   ],
   "education": [{"school": "Institution or [add institution name]", "degree": "Degree", "field": "Field", "year": "Year or [add graduation year]"}],
   "projects": [{"title": "Project Name (Year)", "description": "tailored to surface JD-relevant aspects"}],
@@ -504,21 +680,26 @@ Return a JSON object with this exact structure:
     "experienceMatch": "One sentence assessing experience alignment",
     "top3Gaps": ["gap 1", "gap 2", "gap 3"],
     "strongMatches": ["5-8 areas where candidate directly matches JD"],
-    "gaps": ["all JD requirements the resume cannot honestly cover"],
+    "gaps": ["GENUINE GAPS — all JD requirements the resume cannot honestly cover"],
+    "needsVerification": ["metrics or claims from the source resume the candidate should confirm before submitting — kept verbatim in the resume, never edited"],
     "recommendation": "One specific action before submitting"
   },
   "changelog": [
     {"section": "title", "action": "matched", "detail": "Set title to match JD: Senior Software Engineer"},
     {"section": "summary", "action": "rewritten", "detail": "Mirrored JD title, added keywords X and Y"},
     {"section": "experience_1", "action": "reordered", "detail": "Moved cloud migration bullet to top, added AWS context"},
+    {"section": "experience_3", "action": "dropped_bullet", "detail": "Removed office-relocation bullet — no connection to this role"},
     {"section": "skills", "action": "grouped", "detail": "Grouped into Languages/Frameworks/Infrastructure/Tools, reordered per JD"}
   ]
 }
 
+Every editorial decision belongs in \`changelog\`; every gap belongs in
+\`matchAnalysis\`. The resume fields carry finished text and nothing else.
+
 Return ONLY valid JSON.`;
 
   return {
-    system: 'You are an expert resume tailoring engine. You tailor resumes to maximize ATS keyword match while making the result read exactly like the candidate wrote it themselves — natural, varied, human phrasing with no keyword-stuffing or robotic patterns a recruiter would flag as fake. You reorder, reframe, and surface buried relevance. You never invent skills, metrics, or experience, and you never add a term the candidate could not defend in an interview. Return valid JSON only.',
+    system: 'You are an expert resume tailoring engine. You tailor resumes to maximize ATS keyword match while making the result read exactly like the candidate wrote it themselves — natural, varied, human phrasing with no keyword-stuffing or robotic patterns a recruiter would flag as fake. You reorder, reframe, and surface buried relevance. You APPLY every tailoring decision rather than annotating it: the resume fields you return contain finished resume text with no review notes, suggestions, or commentary — those go in changelog and matchAnalysis. You never invent skills, metrics, or experience, and you never add a term the candidate could not defend in an interview. Return valid JSON only.',
     prompt,
     temperature: 0.5,
     max_tokens: 6000
