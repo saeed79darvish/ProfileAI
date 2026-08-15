@@ -3114,6 +3114,12 @@ html, body, #root {
   color: #34d399;
 }
 
+.cl-loading-hint {
+  margin-top: -4px;
+  font-size: 11px;
+  color: #64748b;
+}
+
 .cl-content-wrapper {
   margin-bottom: 14px;
 }

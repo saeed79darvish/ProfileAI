@@ -18,6 +18,12 @@ interface CoverLetterModalProps {
   jobUrl?: string;
   onGenerate: (tone: Tone, length: Length) => Promise<string | null>;
   onNotification: (message: string, type: 'success' | 'warning' | 'info' | 'error') => void;
+  /** A generation started before this modal mounted is still running in the
+   *  service worker — show the spinner even though we didn't start it. */
+  backgroundGenerating?: boolean;
+  /** A letter that finished in the background. The `ts` makes a re-run with
+   *  identical text still count as a new result. */
+  backgroundLetter?: { text: string; ts: number } | null;
 }
 
 export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
@@ -28,10 +34,13 @@ export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
   jobUrl,
   onGenerate,
   onNotification,
+  backgroundGenerating = false,
+  backgroundLetter = null,
 }) => {
   const [coverLetter, setCoverLetter] = useState('');
-  const [generating, setGenerating] = useState(false);
+  const [ownGenerating, setOwnGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const generating = ownGenerating || backgroundGenerating;
   const [tone] = useState<Tone>('conversational');
   const [length, setLength] = useState<Length>('short');
   const [copied, setCopied] = useState(false);
@@ -70,6 +79,15 @@ export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
     return () => { cancelled = true; };
   }, [open, jobUrl]);
 
+  // A letter that landed in the background (panel was closed, or reopened
+  // mid-run) wins over whatever the cache effect above restored.
+  useEffect(() => {
+    if (!backgroundLetter?.text) return;
+    setCoverLetter(backgroundLetter.text);
+    setGenerated(true);
+    setOwnGenerating(false);
+  }, [backgroundLetter?.ts, backgroundLetter?.text]);
+
   if (!open) return null;
 
   const persistLetter = async (letter: string) => {
@@ -89,7 +107,7 @@ export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
   };
 
   const handleGenerate = async () => {
-    setGenerating(true);
+    setOwnGenerating(true);
     setCoverLetter('');
     try {
       const result = await onGenerate(tone, length);
@@ -101,7 +119,7 @@ export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
     } catch {
       onNotification('Failed to generate cover letter', 'error');
     } finally {
-      setGenerating(false);
+      setOwnGenerating(false);
     }
   };
 
@@ -219,6 +237,7 @@ export const CoverLetterModal: React.FC<CoverLetterModalProps> = ({
               <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="32" />
             </svg>
             <span>Generating your cover letter...</span>
+            <span className="cl-loading-hint">This keeps running if you close the panel.</span>
           </div>
         )}
 

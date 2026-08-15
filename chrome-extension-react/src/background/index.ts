@@ -1,6 +1,13 @@
 // ProfileAI Background Service Worker
 import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
+import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
+
+// Any task that was still running when a previous worker generation was torn
+// down has no fetch behind it any more. Flag those immediately on boot so a
+// reopened side panel shows "run it again" instead of a spinner that never
+// resolves. Runs at module scope, before any message can start a new task.
+void sweepInterruptedTasks();
 
 // State
 let authToken: string | null = null;
@@ -91,6 +98,21 @@ const NON_JOB_URL_PATTERNS = [
 function isNonJobUrl(url: string | undefined | null): boolean {
   if (!url) return true;
   return NON_JOB_URL_PATTERNS.some((p) => p.test(url));
+}
+
+/** URL of the tab a panel-initiated operation is about. */
+async function activeTabUrl(): Promise<string> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tab?.url || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Task key for work scoped to whatever page is in front of the user. */
+async function activeTabJobKey(): Promise<string> {
+  return jobTaskKey({ jobUrl: await activeTabUrl() });
 }
 
 /** Clear any stale detected-job info so the SidePanel doesn't keep showing a
@@ -507,176 +529,13 @@ async function handleMessage(
       }
 
       case 'ANALYZE_JOB_PAGE': {
-        // Combined: extract job info via scripting API, then analyze keywords in one step
-        let pageJobInfo: any = null;
-        let resolvedTabId: number | null = null;
-        try {
-          const tabs2 = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          const tab = tabs2[0];
-          resolvedTabId = tab?.id ?? null;
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
-          // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
-          // titles/companies from social/profile/search pages.
-          if (isNonJobUrl(tab?.url)) {
-            console.log('[ProfileAI BG] Skipping analyze — non-job URL');
-            await clearStoredJobInfo();
-            sendResponse({ success: false, error: 'This page does not look like a job posting.' });
-            break;
-          }
-          if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-            // Method 1: executeScript (direct DOM access, no content script dependency)
-            try {
-              const results = await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () => {
-                  // Try multiple selectors, return first non-empty match
-                  const getText = (selectors: string[]) => {
-                    for (const sel of selectors) {
-                      try {
-                        const el = document.querySelector(sel);
-                        const text = el?.textContent?.trim();
-                        if (text && text.length > 0 && text.length < 500) return text;
-                      } catch (_) {}
-                    }
-                    return '';
-                  };
-                  let title = getText([
-                    '.job-details-jobs-unified-top-card__job-title a',
-                    '.job-details-jobs-unified-top-card__job-title h1',
-                    '.job-details-jobs-unified-top-card__job-title',
-                    '.jobs-unified-top-card__job-title a',
-                    '.jobs-unified-top-card__job-title h1',
-                    '.jobs-unified-top-card__job-title',
-                    '.jobs-details-top-card__job-title',
-                    '.top-card-layout__title',
-                    'h1.t-24', 'h1.t-18',
-                    'h1[class*="job"]', 'h2[class*="job-title"]',
-                    '.app-title',
-                    '.posting-headline h2',
-                    '[data-automation-id="jobPostingTitle"]',
-                    'h1',
-                  ]);
-                  let company = getText([
-                    '.job-details-jobs-unified-top-card__company-name a',
-                    '.job-details-jobs-unified-top-card__company-name',
-                    '.job-details-jobs-unified-top-card__primary-description-without-tagline a',
-                    '.jobs-unified-top-card__company-name a',
-                    '.jobs-unified-top-card__company-name',
-                    '.jobs-details-top-card__company-info a',
-                    '.topcard__org-name-link',
-                    'a[data-tracking-control-name*="company"]',
-                    '.job-details-jobs-unified-top-card__primary-description a[href*="/company/"]',
-                    'a[href*="/company/"]',
-                    '[class*="company-name"]',
-                    '[data-automation-id="jobPostingCompany"]',
-                  ]);
-                  // Fallback: extract from document.title (e.g. "Frontend Architect | Distyl | LinkedIn")
-                  if (!title || !company) {
-                    const docTitle = document.title || '';
-                    // LinkedIn pattern: "Job Title | Company | LinkedIn" or "(N) Job Title | Company | LinkedIn"
-                    const cleaned = docTitle.replace(/^\(\d+\)\s*/, '');
-                    const parts = cleaned.split(/\s*[|·–—]\s*/);
-                    if (parts.length >= 2) {
-                      if (!title && parts[0].length < 200) title = parts[0].trim();
-                      if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
-                    }
-                  }
-                  let description = '';
-                  for (const sel of [
-                    '#job-details', '.jobs-description-content', '.jobs-description__content',
-                    '.jobs-description-content__text', '.jobs-box__html-content',
-                    '.show-more-less-html__markup', 'div.jobs-description',
-                    'div[class*="jobs-description"]', 'section[class*="description"]',
-                    '.job-description', '#job_description',
-                    '[data-automation-id="jobPostingDescription"]',
-                    '.posting-page', '.section-wrapper',
-                    '[class*="job-description"]', '[class*="description"]',
-                    'article', 'main',
-                  ]) {
-                    try {
-                      const el = document.querySelector(sel);
-                      if (el) {
-                        const text = (el as HTMLElement).innerText || '';
-                        if (text.trim().length > description.length) description = text.trim();
-                      }
-                    } catch (_) {}
-                  }
-                  if (description.length < 100) description = document.body.innerText.slice(0, 8000);
-                  return { title, company, description };
-                },
-              });
-              if (results?.[0]?.result) {
-                pageJobInfo = results[0].result;
-                console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript result:', {
-                  title: pageJobInfo.title?.slice(0, 60),
-                  company: pageJobInfo.company?.slice(0, 40),
-                  descLength: pageJobInfo.description?.length || 0,
-                });
-              }
-            } catch (e) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript failed:', e);
-            }
-
-            // Method 2: Ask content script (has richer site-specific extraction)
-            try {
-              const csResponse = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
-              if (csResponse) {
-                // Use content script data if it's better (longer description, or has title/company we're missing)
-                const csDescLen = csResponse.description?.trim().length || 0;
-                const curDescLen = pageJobInfo?.description?.trim().length || 0;
-                const csBetter = csDescLen > curDescLen
-                  || (!pageJobInfo?.title && csResponse.title)
-                  || (!pageJobInfo?.company && csResponse.company);
-                if (csBetter) {
-                  console.log('[ProfileAI BG] ANALYZE_JOB_PAGE got better data from content script:', {
-                    title: csResponse.title?.slice(0, 60),
-                    company: csResponse.company?.slice(0, 40),
-                    descLength: csDescLen,
-                  });
-                  // Merge: prefer content script fields that are better
-                  pageJobInfo = {
-                    title: csResponse.title || pageJobInfo?.title || '',
-                    company: csResponse.company || pageJobInfo?.company || '',
-                    description: csDescLen > curDescLen ? csResponse.description : (pageJobInfo?.description || ''),
-                    location: csResponse.location || pageJobInfo?.location || '',
-                  };
-                }
-              }
-            } catch (e) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE content script message failed:', e);
-            }
-
-            // Store in storage for future use
-            if (pageJobInfo && (pageJobInfo.title || pageJobInfo.company || pageJobInfo.description)) {
-              chrome.storage.local.set({ currentJobInfo: pageJobInfo, currentJobUrl: tab.url });
-            }
-          }
-        } catch (e) {
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE tabs.query failed:', e);
-        }
-        // Storage fallback
-        if (!pageJobInfo || (!pageJobInfo.description || pageJobInfo.description.trim().length < 30)) {
-          try {
-            const stored = await chrome.storage.local.get(['currentJobInfo']);
-            if (stored.currentJobInfo && stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE using storage fallback, descLength:', stored.currentJobInfo.description?.length);
-              pageJobInfo = stored.currentJobInfo;
-            }
-          } catch (_) {}
-        }
-
-        if (!pageJobInfo?.description || pageJobInfo.description.trim().length < 30) {
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: no description found, pageJobInfo:', JSON.stringify(pageJobInfo)?.slice(0, 200));
-          sendResponse({ success: false, error: 'Could not extract job description from this page. Try scrolling down to load the full job description, then click Analyze again.', jobInfo: pageJobInfo });
-          break;
-        }
-
-        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
-        const analysisResult = await analyzeKeywords(pageJobInfo.description);
-        sendResponse({ ...analysisResult, jobInfo: pageJobInfo });
+        // Runs as a durable task so closing the side panel mid-analysis
+        // does not kill the extraction + keyword run.
+        const jobPageResult = await runBackgroundTask('keywords', await activeTabJobKey(), undefined, analyzeActiveJobPage);
+        sendResponse(jobPageResult);
         break;
       }
-        
+
       case 'SYNC_AUTH_FROM_WEB':
         // Try to get auth from the web app
         await syncAuthFromWebApp();
@@ -694,40 +553,33 @@ async function handleMessage(
         
       case 'TAILOR_PROFILE': {
         const tailorData = message.data as { jobDescription: string; jobTitle?: string; company?: string; jobUrl?: string; gapSelections?: { acceptedGaps: string[]; skippedGaps: string[]; acceptedGapObjects?: any[] }; tailorSettings?: any };
-        // Persist in-flight state so the side panel can restore progress UI
-        // when it's closed and reopened mid-tailor.
-        const tailoringInFlight = {
-          jobUrl: tailorData.jobUrl || '',
-          jobTitle: tailorData.jobTitle || '',
-          company: tailorData.company || '',
-          startedAt: Date.now(),
-        };
-        try {
-          await chrome.storage.local.set({ tailoringInFlight });
-          await chrome.storage.local.remove(['tailoringResult', 'tailoringError']);
-        } catch (_) {}
+        // The whole run — AI call, cache write, backend save — lives inside the
+        // task, so none of it depends on the side panel still being open.
+        const tailorResult = await runBackgroundTask(
+          'tailor',
+          tailorData.jobUrl ? jobTaskKey({ jobUrl: tailorData.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: tailorData.jobUrl || '', jobTitle: tailorData.jobTitle || '', company: tailorData.company || '' },
+          async () => {
+            const result = await tailorProfileForJob(tailorData.jobDescription, tailorData.jobTitle, tailorData.company, tailorData.gapSelections, tailorData.tailorSettings);
+            if (!result?.success || !result.tailoredProfile) return result;
 
-        const tailorResult = await tailorProfileForJob(tailorData.jobDescription, tailorData.jobTitle, tailorData.company, tailorData.gapSelections, tailorData.tailorSettings);
-
-        // Persist the outcome so a closed-and-reopened side panel can pick it up.
-        try {
-          if (tailorResult?.success && tailorResult.tailoredProfile) {
+            // Stamp the job context onto the profile here rather than in the
+            // panel, so the stored task result and the direct response are the
+            // same object either way.
             const tailored = {
-              ...tailorResult.tailoredProfile,
+              ...result.tailoredProfile,
               jobTitle: tailorData.jobTitle,
               company: tailorData.company,
               _skillGaps: tailorData.gapSelections?.acceptedGapObjects || [],
             };
-            const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-            if (tailorData.jobUrl) {
-              tailoredCache[tailorData.jobUrl] = tailored;
-            }
-            await chrome.storage.local.set({
-              tailoredCache,
-              tailoringResult: { jobUrl: tailorData.jobUrl || '', tailored, ts: Date.now() },
-            });
+            try {
+              if (tailorData.jobUrl) {
+                const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+                tailoredCache[tailorData.jobUrl] = tailored;
+                await chrome.storage.local.set({ tailoredCache });
+              }
+            } catch (_) {}
 
-            // Save to backend in the background as well, so it doesn't depend on the panel staying open.
             saveTailoredProfile({
               jobTitle: tailorData.jobTitle || '',
               jobUrl: tailorData.jobUrl,
@@ -741,13 +593,10 @@ async function handleMessage(
                 createdAt: new Date().toISOString(),
               } : null,
             }).catch(() => {});
-          } else {
-            await chrome.storage.local.set({
-              tailoringError: { jobUrl: tailorData.jobUrl || '', error: tailorResult?.error || 'Tailoring failed', ts: Date.now() },
-            });
-          }
-        } catch (_) {}
-        try { await chrome.storage.local.remove('tailoringInFlight'); } catch (_) {}
+
+            return { ...result, tailoredProfile: tailored };
+          },
+        );
 
         sendResponse(tailorResult);
         break;
@@ -755,7 +604,14 @@ async function handleMessage(
 
       case 'ANALYZE_GAPS': {
         const gapData = message.data as { jobDescription: string; jobTitle?: string; company?: string };
-        const gapResult = await analyzeGapsForJob(gapData.jobDescription);
+        // Keyed by page, like every other job-scoped task, so the panel can
+        // tell whether a restored record belongs to the tab in front of the user.
+        const gapResult = await runBackgroundTask(
+          'gaps',
+          await activeTabJobKey(),
+          { jobTitle: gapData.jobTitle || '', company: gapData.company || '' },
+          () => analyzeGapsForJob(gapData.jobDescription),
+        );
         sendResponse(gapResult);
         break;
       }
@@ -768,7 +624,12 @@ async function handleMessage(
 
       case 'GENERATE_AI_ANSWERS':
         const aiData = message.data as { questions: string[]; jobDescription: string; questionMeta?: Array<{ question: string; fieldType: string; options?: string[] | null }> };
-        const aiResult = await generateAIAnswers(aiData.questions, aiData.jobDescription, aiData.questionMeta);
+        const aiResult = await runBackgroundTask(
+          'singleAnswer',
+          `page-answers:${hashStringBg((aiData.questions || []).join('|'))}`,
+          undefined,
+          () => generateAIAnswers(aiData.questions, aiData.jobDescription, aiData.questionMeta),
+        );
         sendResponse(aiResult);
         break;
 
@@ -799,10 +660,33 @@ async function handleMessage(
           jobTitle?: string;
           company?: string;
           jobDescription: string;
+          jobUrl?: string;
           tone?: string;
           length?: string;
         };
-        const clResult = await generateCoverLetter(clData);
+        const clResult = await runBackgroundTask(
+          'coverLetter',
+          clData.jobUrl ? jobTaskKey({ jobUrl: clData.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: clData.jobUrl || '', jobTitle: clData.jobTitle || '', company: clData.company || '' },
+          async () => {
+            const result = await generateCoverLetter(clData);
+            // Cache here rather than in the modal — a letter that finishes
+            // after the panel closed must still be waiting when it reopens.
+            if (result?.success && result.coverLetter && clData.jobUrl) {
+              try {
+                const { coverLetterCache = {} } = await chrome.storage.local.get('coverLetterCache');
+                coverLetterCache[clData.jobUrl] = {
+                  coverLetter: result.coverLetter,
+                  jobTitle: clData.jobTitle,
+                  company: clData.company,
+                  savedAt: Date.now(),
+                };
+                await chrome.storage.local.set({ coverLetterCache });
+              } catch (_) {}
+            }
+            return result;
+          },
+        );
         sendResponse(clResult);
         break;
       }
@@ -833,7 +717,12 @@ async function handleMessage(
           jobInfo?: { title?: string; company?: string; description?: string } | null;
           jobUrl?: string;
         };
-        const result = await generateSmartAnswers(data);
+        const result = await runBackgroundTask(
+          'smartAnswers',
+          data.jobUrl ? jobTaskKey({ jobUrl: data.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: data.jobUrl || '', jobTitle: data.jobInfo?.title || '', company: data.jobInfo?.company || '', questions: data.questions },
+          () => generateSmartAnswers(data),
+        );
         sendResponse(result);
         break;
       }
@@ -845,7 +734,12 @@ async function handleMessage(
           jobUrl?: string;
           forceRegenerate?: boolean;
         };
-        const result = await generateSingleSmartAnswer(data);
+        const result = await runBackgroundTask(
+          'singleAnswer',
+          `${jobTaskKey({ jobUrl: data.jobUrl })}::${data.question?.id || 'q'}${data.forceRegenerate ? ':regen' : ''}`,
+          undefined,
+          () => generateSingleSmartAnswer(data),
+        );
         sendResponse(result);
         break;
       }
@@ -856,21 +750,36 @@ async function handleMessage(
           company?: string;
           jobDescription?: string;
         };
-        const result = await analyzeMatch(data);
+        const result = await runBackgroundTask(
+          'match',
+          await activeTabJobKey(),
+          { jobTitle: data.jobTitle || '', company: data.company || '' },
+          () => analyzeMatch(data),
+        );
         sendResponse(result);
         break;
       }
 
       case 'ANALYZE_LINKEDIN_PROFILE': {
         const data = (message.data || {}) as { targetTitle?: string };
-        const result = await analyzeLinkedInProfile(data.targetTitle);
+        const result = await runBackgroundTask(
+          'linkedin',
+          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
+          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
+          () => analyzeLinkedInProfile(data.targetTitle),
+        );
         sendResponse(result);
         break;
       }
 
       case 'ANALYZE_LINKEDIN_PROFILE_GUEST': {
         const data = (message.data || {}) as { targetTitle?: string };
-        const result = await analyzeLinkedInProfileGuest(data.targetTitle);
+        const result = await runBackgroundTask(
+          'linkedinGuest',
+          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
+          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
+          () => analyzeLinkedInProfileGuest(data.targetTitle),
+        );
         sendResponse(result);
         break;
       }
@@ -1557,6 +1466,179 @@ async function generateCoverLetter(data: {
 }
 
 // Keyword analysis — runs entirely client-side, no backend needed
+
+/**
+ * Extracts the job posting from the active tab (scripting API first, content
+ * script second, stored info as a fallback) and runs the keyword analysis on
+ * it. Returns the response shape the side panel expects.
+ */
+async function analyzeActiveJobPage(): Promise<any> {
+  let pageJobInfo: any = null;
+  let resolvedTabId: number | null = null;
+  try {
+    const tabs2 = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs2[0];
+    resolvedTabId = tab?.id ?? null;
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
+    // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
+    // titles/companies from social/profile/search pages.
+    if (isNonJobUrl(tab?.url)) {
+      console.log('[ProfileAI BG] Skipping analyze — non-job URL');
+      await clearStoredJobInfo();
+      return { success: false, error: 'This page does not look like a job posting.' };
+    }
+    if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+      // Method 1: executeScript (direct DOM access, no content script dependency)
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            // Try multiple selectors, return first non-empty match
+            const getText = (selectors: string[]) => {
+              for (const sel of selectors) {
+                try {
+                  const el = document.querySelector(sel);
+                  const text = el?.textContent?.trim();
+                  if (text && text.length > 0 && text.length < 500) return text;
+                } catch (_) {}
+              }
+              return '';
+            };
+            let title = getText([
+              '.job-details-jobs-unified-top-card__job-title a',
+              '.job-details-jobs-unified-top-card__job-title h1',
+              '.job-details-jobs-unified-top-card__job-title',
+              '.jobs-unified-top-card__job-title a',
+              '.jobs-unified-top-card__job-title h1',
+              '.jobs-unified-top-card__job-title',
+              '.jobs-details-top-card__job-title',
+              '.top-card-layout__title',
+              'h1.t-24', 'h1.t-18',
+              'h1[class*="job"]', 'h2[class*="job-title"]',
+              '.app-title',
+              '.posting-headline h2',
+              '[data-automation-id="jobPostingTitle"]',
+              'h1',
+            ]);
+            let company = getText([
+              '.job-details-jobs-unified-top-card__company-name a',
+              '.job-details-jobs-unified-top-card__company-name',
+              '.job-details-jobs-unified-top-card__primary-description-without-tagline a',
+              '.jobs-unified-top-card__company-name a',
+              '.jobs-unified-top-card__company-name',
+              '.jobs-details-top-card__company-info a',
+              '.topcard__org-name-link',
+              'a[data-tracking-control-name*="company"]',
+              '.job-details-jobs-unified-top-card__primary-description a[href*="/company/"]',
+              'a[href*="/company/"]',
+              '[class*="company-name"]',
+              '[data-automation-id="jobPostingCompany"]',
+            ]);
+            // Fallback: extract from document.title (e.g. "Frontend Architect | Distyl | LinkedIn")
+            if (!title || !company) {
+              const docTitle = document.title || '';
+              // LinkedIn pattern: "Job Title | Company | LinkedIn" or "(N) Job Title | Company | LinkedIn"
+              const cleaned = docTitle.replace(/^\(\d+\)\s*/, '');
+              const parts = cleaned.split(/\s*[|·–—]\s*/);
+              if (parts.length >= 2) {
+                if (!title && parts[0].length < 200) title = parts[0].trim();
+                if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
+              }
+            }
+            let description = '';
+            for (const sel of [
+              '#job-details', '.jobs-description-content', '.jobs-description__content',
+              '.jobs-description-content__text', '.jobs-box__html-content',
+              '.show-more-less-html__markup', 'div.jobs-description',
+              'div[class*="jobs-description"]', 'section[class*="description"]',
+              '.job-description', '#job_description',
+              '[data-automation-id="jobPostingDescription"]',
+              '.posting-page', '.section-wrapper',
+              '[class*="job-description"]', '[class*="description"]',
+              'article', 'main',
+            ]) {
+              try {
+                const el = document.querySelector(sel);
+                if (el) {
+                  const text = (el as HTMLElement).innerText || '';
+                  if (text.trim().length > description.length) description = text.trim();
+                }
+              } catch (_) {}
+            }
+            if (description.length < 100) description = document.body.innerText.slice(0, 8000);
+            return { title, company, description };
+          },
+        });
+        if (results?.[0]?.result) {
+          pageJobInfo = results[0].result;
+          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript result:', {
+            title: pageJobInfo.title?.slice(0, 60),
+            company: pageJobInfo.company?.slice(0, 40),
+            descLength: pageJobInfo.description?.length || 0,
+          });
+        }
+      } catch (e) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript failed:', e);
+      }
+
+      // Method 2: Ask content script (has richer site-specific extraction)
+      try {
+        const csResponse = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
+        if (csResponse) {
+          // Use content script data if it's better (longer description, or has title/company we're missing)
+          const csDescLen = csResponse.description?.trim().length || 0;
+          const curDescLen = pageJobInfo?.description?.trim().length || 0;
+          const csBetter = csDescLen > curDescLen
+            || (!pageJobInfo?.title && csResponse.title)
+            || (!pageJobInfo?.company && csResponse.company);
+          if (csBetter) {
+            console.log('[ProfileAI BG] ANALYZE_JOB_PAGE got better data from content script:', {
+              title: csResponse.title?.slice(0, 60),
+              company: csResponse.company?.slice(0, 40),
+              descLength: csDescLen,
+            });
+            // Merge: prefer content script fields that are better
+            pageJobInfo = {
+              title: csResponse.title || pageJobInfo?.title || '',
+              company: csResponse.company || pageJobInfo?.company || '',
+              description: csDescLen > curDescLen ? csResponse.description : (pageJobInfo?.description || ''),
+              location: csResponse.location || pageJobInfo?.location || '',
+            };
+          }
+        }
+      } catch (e) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE content script message failed:', e);
+      }
+
+      // Store in storage for future use
+      if (pageJobInfo && (pageJobInfo.title || pageJobInfo.company || pageJobInfo.description)) {
+        chrome.storage.local.set({ currentJobInfo: pageJobInfo, currentJobUrl: tab.url });
+      }
+    }
+  } catch (e) {
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE tabs.query failed:', e);
+  }
+  // Storage fallback
+  if (!pageJobInfo || (!pageJobInfo.description || pageJobInfo.description.trim().length < 30)) {
+    try {
+      const stored = await chrome.storage.local.get(['currentJobInfo']);
+      if (stored.currentJobInfo && stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE using storage fallback, descLength:', stored.currentJobInfo.description?.length);
+        pageJobInfo = stored.currentJobInfo;
+      }
+    } catch (_) {}
+  }
+
+  if (!pageJobInfo?.description || pageJobInfo.description.trim().length < 30) {
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: no description found, pageJobInfo:', JSON.stringify(pageJobInfo)?.slice(0, 200));
+    return { success: false, error: 'Could not extract job description from this page. Try scrolling down to load the full job description, then click Analyze again.', jobInfo: pageJobInfo };
+  }
+
+  console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
+  const analysisResult = await analyzeKeywords(pageJobInfo.description);
+  return { ...analysisResult, jobInfo: pageJobInfo };
+}
+
 async function analyzeKeywords(jobDescription: string) {
   try {
     // Always refresh profile to get latest skills

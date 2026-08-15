@@ -1,12 +1,28 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { DetectedQuestion, SmartAnswer, JobInfo } from '../../types';
 
+/** Snapshot of a generation that ran in the service worker — used to rebuild
+ *  the modal when the panel was closed while it was working. */
+export interface SmartAnswersRestore {
+  questions: DetectedQuestion[];
+  status: 'generating' | 'ready' | 'error';
+  results?: Array<{ questionId: string; question?: string; answer?: string; source?: string }>;
+  error?: string;
+}
+
 interface SmartAnswersModalProps {
   open: boolean;
   onClose: () => void;
   currentJob: JobInfo | null;
   onNotification: (message: string, type: 'success' | 'warning' | 'info' | 'error') => void;
   onAnswersGenerated?: (count?: number) => void;
+  /** Rehydration payload for a run this modal instance didn't start. When
+   *  present the modal shows it instead of re-detecting (and re-billing). */
+  restore?: SmartAnswersRestore | null;
+  /** Bracket the batch request so the panel knows this instance is awaiting
+   *  it and shouldn't also apply the mirrored result. */
+  onOpStart?: () => void;
+  onOpEnd?: () => void;
 }
 
 type Status = 'detecting' | 'empty' | 'generating' | 'ready' | 'error';
@@ -17,6 +33,9 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
   currentJob,
   onNotification,
   onAnswersGenerated,
+  restore = null,
+  onOpStart,
+  onOpEnd,
 }) => {
   const [status, setStatus] = useState<Status>('detecting');
   const [questions, setQuestions] = useState<DetectedQuestion[]>([]);
@@ -55,14 +74,20 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
       setAnswers(initial);
       setStatus('generating');
 
-      const resp = await chrome.runtime.sendMessage({
-        type: 'GENERATE_SMART_ANSWERS',
-        data: {
-          questions: detected,
-          jobInfo: currentJob,
-          jobUrl: tab.url || '',
-        },
-      });
+      onOpStart?.();
+      let resp: any;
+      try {
+        resp = await chrome.runtime.sendMessage({
+          type: 'GENERATE_SMART_ANSWERS',
+          data: {
+            questions: detected,
+            jobInfo: currentJob,
+            jobUrl: tab.url || '',
+          },
+        });
+      } finally {
+        onOpEnd?.();
+      }
 
       if (!resp?.success) {
         throw new Error(resp?.error || 'Failed to generate answers');
@@ -87,7 +112,47 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
       setErrorMsg((err as Error).message || 'Could not generate answers');
       setStatus('error');
     }
+    // onOpStart/onOpEnd are deliberately not dependencies — the panel passes
+    // fresh arrows on every render and they only touch a ref.
   }, [currentJob, onAnswersGenerated]);
+
+  // Rehydrate from a background run. Declared BEFORE the auto-run effect so
+  // `ranOnce` is already set by the time that one checks it — otherwise
+  // reopening onto a finished run would fire a second (billed) generation.
+  useEffect(() => {
+    if (!open || !restore) return;
+    ranOnce.current = true;
+    setQuestions(restore.questions || []);
+    if (restore.status === 'error') {
+      setErrorMsg(restore.error || 'Could not generate answers');
+      setStatus('error');
+      return;
+    }
+    const next: Record<string, SmartAnswer> = {};
+    (restore.questions || []).forEach((q) => {
+      next[q.id] = {
+        questionId: q.id,
+        question: q.question,
+        answer: '',
+        source: 'ai',
+        loading: restore.status === 'generating',
+      };
+    });
+    (restore.results || []).forEach((r) => {
+      next[r.questionId] = {
+        questionId: r.questionId,
+        question: next[r.questionId]?.question || r.question || '',
+        answer: r.answer || '',
+        source: (r.source as SmartAnswer['source']) || 'ai',
+        loading: false,
+      };
+    });
+    setAnswers(next);
+    setStatus(restore.status === 'generating' ? 'generating' : 'ready');
+    if (restore.status === 'ready') onAnswersGenerated?.((restore.questions || []).length);
+    // Only the payload itself may re-hydrate — depending on the callback would
+    // rebuild (and wipe) the answers on every parent render.
+  }, [open, restore]);
 
   useEffect(() => {
     if (open && !ranOnce.current) {

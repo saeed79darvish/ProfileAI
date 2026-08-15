@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { SignedOut } from './components/SignedOut';
 import { ProfileSetupGuide } from './components/ProfileSetupGuide';
@@ -14,7 +14,7 @@ import { AutofillSettings, getAutofillMode } from './components/AutofillSettings
 import { PromoCodeRedeem } from './components/PromoCodeRedeem';
 import { Notification, NotificationProps } from './components/Notification';
 import { CoverLetterModal } from './components/CoverLetterModal';
-import { SmartAnswersModal } from './components/SmartAnswersModal';
+import { SmartAnswersModal, type SmartAnswersRestore } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
 import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
@@ -27,6 +27,18 @@ import { GapReviewModal } from './components/GapReviewModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis } from '../types';
 import { BrandIcon, BrandLogo } from '../components/BrandLogo';
+import {
+  BG_TASKS_KEY,
+  TASK_AUTO_SURFACE_MS,
+  clearBgTask,
+  clearTaskBadge,
+  isTaskStale,
+  jobTaskKey,
+  markBgTaskSeen,
+  readBgTasks,
+  type BgTaskKind,
+  type BgTaskRecord,
+} from '../tasks';
 
 // --- LinkedIn analysis cache helpers (shared by detector + analyzer) --------
 const LI_CACHE_KEY = 'linkedInAnalysisCache';
@@ -93,6 +105,33 @@ const readLinkedInCache = async (
   return null;
 };
 
+/** Writes an analysis into the client cache, evicting the oldest entries past
+ *  the cap. Shared by the live analyze path and the background-task restore
+ *  path so both leave the "analyzed X ago" pill in the same state. */
+const writeLinkedInCache = async (
+  cacheKeyUrl: string,
+  analysis: LinkedInProfileAnalysis,
+  targetTitle: string | undefined,
+  cachedAt: number,
+): Promise<void> => {
+  try {
+    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
+    const next: Record<string, any> = { ...cache };
+    next[cacheKeyUrl] = { analysis, targetTitle, cachedAt };
+    const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
+    if (entries.length > LI_CACHE_MAX_ENTRIES) {
+      entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
+      const trimmed: Record<string, any> = {};
+      entries.slice(0, LI_CACHE_MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
+      await chrome.storage.local.set({ [LI_CACHE_KEY]: trimmed });
+    } else {
+      await chrome.storage.local.set({ [LI_CACHE_KEY]: next });
+    }
+  } catch {
+    /* non-fatal — the result is still shown, just not cached */
+  }
+};
+
 /** Returns the MOST RECENT cached entry for a profile URL, regardless of
  *  target. Used by the pill indicator ("analyzed X ago") which shouldn't
  *  care which target was used — any prior analysis of this profile counts. */
@@ -141,6 +180,12 @@ export const SidePanel: React.FC = () => {
   const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
+  // Cover-letter generation that belongs to a background task rather than to
+  // this panel instance — set when we reopen on top of a run that is still
+  // going, or that finished while the panel was closed.
+  const [coverLetterGenerating, setCoverLetterGenerating] = useState(false);
+  const [coverLetterInjected, setCoverLetterInjected] = useState<{ text: string; ts: number } | null>(null);
+  const [smartAnswersRestore, setSmartAnswersRestore] = useState<SmartAnswersRestore | null>(null);
   const [showTailorSettings, setShowTailorSettings] = useState(false);
   const [tailorSettings, setTailorSettings] = useState<TailorSettings | null>(null);
   const [showSmartAnswers, setShowSmartAnswers] = useState(false);
@@ -212,6 +257,42 @@ export const SidePanel: React.FC = () => {
     settings: TailorSettings | null;
   } | null>(null);
 
+  // --- background-task plumbing --------------------------------------------
+  // Long operations run in the service worker as durable tasks (see src/tasks.ts)
+  // so closing the panel no longer kills them. Two refs keep the storage mirror
+  // from fighting with the panel's own await:
+  //   activeOps  — kinds this panel instance started and is still awaiting, so
+  //                the mirrored outcome isn't applied (and notified) twice;
+  //   appliedTasks — the last record version we surfaced per task id.
+  const activeOpsRef = useRef<Map<BgTaskKind, number>>(new Map());
+  const appliedTasksRef = useRef<Map<string, number>>(new Map());
+  const beginOp = useCallback((kind: BgTaskKind) => {
+    activeOpsRef.current.set(kind, (activeOpsRef.current.get(kind) || 0) + 1);
+  }, []);
+  const endOp = useCallback((kind: BgTaskKind) => {
+    // Ownership is released on a delay: the storage mirror flipping to 'done'
+    // and the sendMessage response race each other, and whichever arrives
+    // second must not re-apply an outcome the first already handled.
+    window.setTimeout(() => {
+      const next = (activeOpsRef.current.get(kind) || 1) - 1;
+      if (next <= 0) activeOpsRef.current.delete(kind);
+      else activeOpsRef.current.set(kind, next);
+    }, 2000);
+  }, []);
+  const ownsOp = useCallback(
+    (kind: BgTaskKind) => (activeOpsRef.current.get(kind) || 0) > 0,
+    [],
+  );
+  /** Awaits a request this panel instance owns end-to-end. */
+  const runOwnedOp = useCallback(async <T,>(kind: BgTaskKind, run: () => Promise<T>): Promise<T> => {
+    beginOp(kind);
+    try {
+      return await run();
+    } finally {
+      endOp(kind);
+    }
+  }, [beginOp, endOp]);
+
   // Load auth and profile on mount
   useEffect(() => {
     loadAuthAndProfile();
@@ -247,35 +328,8 @@ export const SidePanel: React.FC = () => {
       if (hasSignedInBefore || extSignedOut) setHasAccount(true);
     }).catch(() => {});
 
-    // Recover tailoring state if the panel was closed mid-tailor.
-    (async () => {
-      try {
-        const { tailoringInFlight, tailoringResult, tailoringError } = await chrome.storage.local.get([
-          'tailoringInFlight',
-          'tailoringResult',
-          'tailoringError',
-        ]);
-        // Stale guard: 4 minutes. A typical tailor finishes in 30–60s; if the
-        // service worker was killed mid-fetch the flag may stick — clearing it
-        // here lets the user retry without staring at a stuck spinner.
-        const STALE_MS = 4 * 60 * 1000;
-        if (tailoringInFlight?.startedAt && (Date.now() - tailoringInFlight.startedAt) < STALE_MS) {
-          setIsTailoring(true);
-        } else if (tailoringInFlight) {
-          // Stale flag — clear it.
-          chrome.storage.local.remove('tailoringInFlight').catch(() => {});
-        }
-        // If a result landed while the panel was closed, surface it once.
-        if (tailoringResult?.tailored) {
-          setTailoredProfile(tailoringResult.tailored);
-          chrome.storage.local.remove('tailoringResult').catch(() => {});
-        }
-        if (tailoringError?.error) {
-          showNotification(tailoringError.error, 'error');
-          chrome.storage.local.remove('tailoringError').catch(() => {});
-        }
-      } catch (_) {}
-    })();
+    // Tailoring, cover letters, analyses and the rest are recovered generically
+    // from the background-task registry — see the effect further down.
 
     // Re-fetch job info when the active tab navigates (SPA support)
     const onTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
@@ -294,8 +348,7 @@ export const SidePanel: React.FC = () => {
     chrome.tabs.onUpdated.addListener(onTabUpdated);
     chrome.tabs.onActivated.addListener(onTabActivated);
 
-    // Listen for storage changes — content script writes job info reactively,
-    // and the background writes tailoring lifecycle state.
+    // Listen for storage changes — the content script writes job info reactively.
     const onStorageChanged = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if ('currentJobInfo' in changes) {
         const job = changes.currentJobInfo.newValue;
@@ -308,20 +361,6 @@ export const SidePanel: React.FC = () => {
           // phantom job card scraped from a previous tab.
           setCurrentJob(null);
         }
-      }
-      // Tailoring lifecycle (set/cleared by background)
-      if ('tailoringInFlight' in changes) {
-        const next = changes.tailoringInFlight.newValue;
-        setIsTailoring(!!next);
-      }
-      if (changes.tailoringResult?.newValue?.tailored) {
-        setTailoredProfile(changes.tailoringResult.newValue.tailored);
-        showNotification('Profile tailored! Download your resume below.', 'success');
-        chrome.storage.local.remove('tailoringResult').catch(() => {});
-      }
-      if (changes.tailoringError?.newValue?.error) {
-        showNotification(changes.tailoringError.newValue.error, 'error');
-        chrome.storage.local.remove('tailoringError').catch(() => {});
       }
     };
     chrome.storage.onChanged.addListener(onStorageChanged);
@@ -642,6 +681,7 @@ export const SidePanel: React.FC = () => {
     // Cache MISS or forced refresh — call the AI.
     setLinkedInLoading(true);
     setLinkedInCachedAt(null);
+    beginOp('linkedin');
     try {
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_LINKEDIN_PROFILE',
@@ -659,22 +699,7 @@ export const SidePanel: React.FC = () => {
 
         // Persist to cache (eviction: keep newest MAX_ENTRIES by cachedAt).
         if (cacheKeyUrl) {
-          try {
-            const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
-            const next: Record<string, any> = { ...cache };
-            next[cacheKeyUrl] = { analysis, targetTitle: resolvedTitle, cachedAt };
-            const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
-            if (entries.length > LI_CACHE_MAX_ENTRIES) {
-              entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
-              const trimmed: Record<string, any> = {};
-              entries.slice(0, LI_CACHE_MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
-              await chrome.storage.local.set({ [LI_CACHE_KEY]: trimmed });
-            } else {
-              await chrome.storage.local.set({ [LI_CACHE_KEY]: next });
-            }
-          } catch {
-            /* non-fatal — result is still shown, just not cached */
-          }
+          await writeLinkedInCache(cacheKeyUrl, analysis, resolvedTitle, cachedAt);
         }
       } else {
         setLinkedInAnalysis(null);
@@ -684,6 +709,7 @@ export const SidePanel: React.FC = () => {
       setLinkedInAnalysis(null);
       setLinkedInError((e as Error).message || 'Analysis failed');
     } finally {
+      endOp('linkedin');
       setLinkedInLoading(false);
     }
   }, [profile]);
@@ -712,6 +738,7 @@ export const SidePanel: React.FC = () => {
     setLinkedInLoading(true);
     const overrideTitle = (opts?.targetTitleOverride || '').trim();
     void emitAnalyticsEvent('guest_analysis_started', overrideTitle ? { targetTitle: overrideTitle } : {});
+    beginOp('linkedinGuest');
     try {
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_LINKEDIN_PROFILE_GUEST',
@@ -736,6 +763,7 @@ export const SidePanel: React.FC = () => {
       setLinkedInTeaser(null);
       setLinkedInError((e as Error).message || 'Analysis failed');
     } finally {
+      endOp('linkedinGuest');
       setLinkedInLoading(false);
     }
   }, []);
@@ -852,11 +880,12 @@ export const SidePanel: React.FC = () => {
   const handleAnalyzeMatch = useCallback(async () => {
     setShowMatchAnalysis(true);
     setMatchLoading(true);
+    beginOp('match');
     try {
       // Ensure we have a fresh job info + analysis.
       let job = currentJob;
       if (!job) {
-        const r = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        const r = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
         if (r?.jobInfo) {
           job = r.jobInfo;
           setCurrentJob(r.jobInfo);
@@ -879,6 +908,7 @@ export const SidePanel: React.FC = () => {
     } catch (e) {
       showNotification((e as Error).message || 'Match analysis failed', 'error');
     } finally {
+      endOp('match');
       setMatchLoading(false);
     }
   }, [currentJob]);
@@ -888,7 +918,7 @@ export const SidePanel: React.FC = () => {
     let freshJob = currentJob;
     if (!freshJob) {
       try {
-        const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        const response = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
         if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
           freshJob = response.jobInfo;
           setCurrentJob(response.jobInfo);
@@ -944,7 +974,15 @@ export const SidePanel: React.FC = () => {
     // Step 1: Analyze gaps first
     setIsAnalyzingGaps(true);
     showNotification('Analyzing skill gaps...', 'info');
-    
+
+    // The gap analysis runs in the worker, so the panel may be gone by the
+    // time it returns. Park the settings the user just picked where a
+    // reopened panel can find them and carry on into tailoring.
+    try {
+      await chrome.storage.local.set({ pendingTailorSettings: activeSettings || null });
+    } catch (_) {}
+
+    beginOp('gaps');
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'ANALYZE_GAPS',
@@ -954,7 +992,7 @@ export const SidePanel: React.FC = () => {
           company: currentJob.company,
         },
       });
-      
+
       if (response?.success && response?.gaps?.length > 0) {
         // Show in-page modal (rendered below) instead of opening a popup window.
         setGapReview({ gaps: response.gaps, settings: activeSettings || null });
@@ -966,6 +1004,7 @@ export const SidePanel: React.FC = () => {
       console.warn('[ProfileAI] Gap analysis failed, proceeding to tailor:', error);
       await doTailor(null, undefined, activeSettings);
     } finally {
+      endOp('gaps');
       setIsAnalyzingGaps(false);
     }
   }, [currentJob]);
@@ -998,6 +1037,7 @@ export const SidePanel: React.FC = () => {
       });
     }
 
+    beginOp('tailor');
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'TAILOR_PROFILE',
@@ -1015,32 +1055,30 @@ export const SidePanel: React.FC = () => {
       });
 
       if (response?.success && response?.tailoredProfile) {
-        const tailored = {
-          ...response.tailoredProfile,
-          jobTitle: currentJob.title,
-          company: currentJob.company,
-          _skillGaps: acceptedGapObjects || [],
-        };
-        setTailoredProfile(tailored);
+        // The background already stamped the job context onto the profile,
+        // persisted tailoredCache and saved to the backend — nothing to
+        // duplicate here.
+        setTailoredProfile(response.tailoredProfile);
         showNotification('Profile tailored! Download your resume below.', 'success');
-        // Note: background already persists tailoredCache and saves to backend, so we no
-        // longer need to duplicate that work here.
       } else {
         throw new Error(response?.error || 'Tailoring failed');
       }
     } catch (error) {
       showNotification((error as Error).message || 'Please refresh the page and try again', 'error');
     } finally {
+      endOp('tailor');
       setIsTailoring(false);
+      chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
     }
   }, [currentJob, keywordAnalysis]);
 
   const handleAnalyzeKeywords = useCallback(async () => {
     setIsAnalyzing(true);
+    beginOp('keywords');
     try {
       // Use ANALYZE_JOB_PAGE: background extracts fresh job info via scripting API + analyzes in one step
       const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
-      
+
       // Update the job card with fresh info (accept if it has description, title, or company)
       if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
         setCurrentJob(response.jobInfo);
@@ -1055,6 +1093,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       showNotification((error as Error).message || 'Keyword analysis failed', 'error');
     } finally {
+      endOp('keywords');
       setIsAnalyzing(false);
     }
   }, []);
@@ -1068,7 +1107,7 @@ export const SidePanel: React.FC = () => {
     // Fetch job info on-demand if not already detected
     if (!currentJob) {
       try {
-        const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+        const response = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
         if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
           setCurrentJob(response.jobInfo);
           if (response?.success && response?.keywords) {
@@ -1088,6 +1127,14 @@ export const SidePanel: React.FC = () => {
 
   const generateCoverLetter = useCallback(async (tone: string, length: string): Promise<string | null> => {
     if (!currentJob) return null;
+    // The background caches the finished letter under this URL, so a panel
+    // that reopens after the run finishes still finds it.
+    let jobUrl = '';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      jobUrl = tab?.url || '';
+    } catch (_) {}
+    beginOp('coverLetter');
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GENERATE_COVER_LETTER',
@@ -1095,6 +1142,7 @@ export const SidePanel: React.FC = () => {
           jobTitle: currentJob.title,
           company: currentJob.company,
           jobDescription: currentJob.description || '',
+          jobUrl,
           tone,
           length,
         },
@@ -1107,8 +1155,252 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       showNotification((error as Error).message || 'Failed to generate cover letter', 'error');
       return null;
+    } finally {
+      endOp('coverLetter');
     }
   }, [currentJob]);
+
+  // --- background-task restore ---------------------------------------------
+
+  /**
+   * Mirrors one task record into panel state. Runs both for records found at
+   * mount (the work happened while the panel was closed) and for later changes
+   * to the registry (the work finished with the panel open but nothing in this
+   * instance awaiting it).
+   */
+  const applyTaskRecord = useCallback(async (rec: BgTaskRecord) => {
+    const running = rec.status === 'running';
+    const res: any = rec.result;
+    // A runner that resolved with { success: false } is a finished task
+    // carrying a user-facing error, not a crash — both read the same here.
+    const failure = rec.status === 'error'
+      ? (rec.error || 'That run did not finish')
+      : (res && res.success === false ? (res.error || 'That run did not finish') : null);
+
+    switch (rec.kind) {
+      case 'tailor': {
+        setIsTailoring(running);
+        if (running) return;
+        setIsAnalyzingGaps(false);
+        chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
+        if (failure) {
+          showNotification(failure, 'error');
+          return;
+        }
+        if (res?.tailoredProfile) {
+          setTailoredProfile(res.tailoredProfile);
+          showNotification('Your tailored resume is ready.', 'success');
+        }
+        return;
+      }
+
+      case 'gaps': {
+        setIsAnalyzingGaps(running);
+        if (running || failure) return;
+        const gaps = res?.gaps;
+        if (!gaps?.length) return;
+        // Settings were parked when the run started, so a reopened panel can
+        // carry them into the tailor step the gap review leads to.
+        let parked: TailorSettings | null = null;
+        try {
+          const { pendingTailorSettings } = await chrome.storage.local.get('pendingTailorSettings');
+          parked = (pendingTailorSettings as TailorSettings) || null;
+        } catch (_) {}
+        setGapReview({ gaps, settings: parked });
+        return;
+      }
+
+      case 'keywords': {
+        setIsAnalyzing(running);
+        if (running || failure) return;
+        if (res?.jobInfo && (res.jobInfo.title || res.jobInfo.company || res.jobInfo.description)) {
+          setCurrentJob(res.jobInfo);
+        }
+        if (res?.keywords) setKeywordAnalysis(res.keywords);
+        return;
+      }
+
+      case 'match': {
+        setShowMatchAnalysis(true);
+        setMatchLoading(running);
+        if (running) return;
+        if (failure) {
+          showNotification(failure, 'error');
+          return;
+        }
+        if (res?.analysis) setMatchAnalysis(res.analysis);
+        return;
+      }
+
+      case 'coverLetter': {
+        setShowCoverLetterModal(true);
+        setCoverLetterGenerating(running);
+        if (running) return;
+        if (failure) {
+          showNotification(failure, 'error');
+          return;
+        }
+        if (res?.coverLetter) {
+          setCoverLetterInjected({ text: res.coverLetter, ts: rec.updatedAt });
+          showNotification('Your cover letter is ready.', 'success');
+        }
+        return;
+      }
+
+      case 'smartAnswers': {
+        const questions = (rec.meta?.questions as any[]) || [];
+        setShowSmartAnswers(true);
+        if (running) {
+          setSmartAnswersRestore({ questions, status: 'generating' });
+          return;
+        }
+        if (failure) {
+          setSmartAnswersRestore({ questions, status: 'error', error: failure });
+          return;
+        }
+        setSmartAnswersRestore({ questions, status: 'ready', results: res?.results || [] });
+        return;
+      }
+
+      case 'linkedin':
+      case 'linkedinGuest': {
+        const guest = rec.kind === 'linkedinGuest';
+        setLinkedInMode(guest ? 'guest' : 'authed');
+        setShowLinkedInAnalyzer(true);
+        setLinkedInLoading(running);
+        if (running) return;
+        if (failure) {
+          setLinkedInError(failure);
+          setLinkedInErrorCode(res?.errorCode || null);
+          return;
+        }
+        setLinkedInError(null);
+        setLinkedInErrorCode(null);
+        const resolvedTitle: string | undefined =
+          res?.targetTitle || (rec.meta?.targetTitle as string) || undefined;
+        setLinkedInTargetTitle(resolvedTitle);
+        setLinkedInAnalysisId(res?.analysisId || null);
+        setLinkedInTabAnalyzedAt(rec.updatedAt);
+        if (guest) {
+          setLinkedInTeaser(res?.teaser || null);
+          return;
+        }
+        if (!res?.analysis) return;
+        setLinkedInAnalysis(res.analysis);
+        setLinkedInCachedAt(rec.updatedAt);
+        const cacheKeyUrl = linkedInCacheKey(rec.meta?.profileUrl as string, resolvedTitle);
+        if (cacheKeyUrl) {
+          await writeLinkedInCache(cacheKeyUrl, res.analysis, resolvedTitle, rec.updatedAt);
+        }
+        return;
+      }
+
+      default:
+        // 'singleAnswer' and anything newer than this panel build: no UI to
+        // restore, the task still runs to completion in the worker.
+        return;
+    }
+  }, []);
+
+  /**
+   * Whether a record belongs to the page the user is looking at right now.
+   * Every job-scoped task is keyed by page, so a tailor started on job A never
+   * gets restored on top of job B — it waits until they navigate back.
+   */
+  const taskMatchesTab = useCallback((rec: BgTaskRecord, tabKey: string): boolean => {
+    if (!tabKey || !rec.key || rec.key === 'default') return true;
+    if (rec.kind === 'linkedin' || rec.kind === 'linkedinGuest') {
+      // These keys are `<pageKey>::<target>`.
+      return rec.key.startsWith(`${tabKey}::`);
+    }
+    return rec.key === tabKey;
+  }, []);
+
+  /** Whether this record still has something the user hasn't been shown. */
+  const shouldApplyTask = useCallback((rec: BgTaskRecord): boolean => {
+    if (!rec?.kind || !rec.id) return false;
+    if (rec.kind === 'singleAnswer') return false;
+    if (appliedTasksRef.current.get(rec.id) === rec.updatedAt) return false;
+    if (rec.status === 'running') return !isTaskStale(rec);
+    if (rec.seenAt) return false;
+    // Something that finished long ago shouldn't jump back into the user's
+    // face the next time they open the panel.
+    return Date.now() - (rec.updatedAt || 0) < TASK_AUTO_SURFACE_MS;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const currentTabKey = async (): Promise<string> => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        return jobTaskKey({ jobUrl: tab?.url || '' });
+      } catch {
+        return '';
+      }
+    };
+
+    const consider = async (tasks: Record<string, BgTaskRecord>) => {
+      const tabKey = await currentTabKey();
+      if (cancelled) return;
+      const records = Object.values(tasks || {})
+        .filter(Boolean)
+        .sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+      let applied = 0;
+      for (const rec of records) {
+        if (cancelled) return;
+        if (!shouldApplyTask(rec)) continue;
+        // Not this page's work. Left untouched rather than consumed, so it
+        // still surfaces if the user navigates back to it.
+        if (!taskMatchesTab(rec, tabKey)) continue;
+        // This panel started the operation and is awaiting the response
+        // itself — mark the outcome consumed so it isn't replayed on the next
+        // open, but let the awaiting handler do the UI work.
+        if (ownsOp(rec.kind)) {
+          appliedTasksRef.current.set(rec.id, rec.updatedAt);
+          if (rec.status !== 'running') void markBgTaskSeen(rec.id);
+          continue;
+        }
+        appliedTasksRef.current.set(rec.id, rec.updatedAt);
+        await applyTaskRecord(rec);
+        if (rec.status !== 'running') void markBgTaskSeen(rec.id);
+        applied += 1;
+      }
+      // The badge means "something finished that you haven't seen" — only
+      // drop it once we've actually put that something on screen.
+      if (applied > 0) void clearTaskBadge();
+    };
+
+    const refresh = () => {
+      readBgTasks().then((tasks) => { void consider(tasks); }).catch(() => {});
+    };
+
+    // Work that ran while the panel was closed.
+    refresh();
+
+    const onTasksChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string,
+    ) => {
+      if (area !== 'local' || !(BG_TASKS_KEY in changes)) return;
+      void consider((changes[BG_TASKS_KEY].newValue as Record<string, BgTaskRecord>) || {});
+    };
+    // Navigating back to the page a task belongs to is what makes its result
+    // relevant again, so re-check on tab switches and URL changes too.
+    const onTabActivated = () => refresh();
+    const onTabUpdated = (_id: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      if (changeInfo.url) refresh();
+    };
+    chrome.storage.onChanged.addListener(onTasksChanged);
+    chrome.tabs.onActivated.addListener(onTabActivated);
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+    return () => {
+      cancelled = true;
+      chrome.storage.onChanged.removeListener(onTasksChanged);
+      chrome.tabs.onActivated.removeListener(onTabActivated);
+      chrome.tabs.onUpdated.removeListener(onTabUpdated);
+    };
+  }, [applyTaskRecord, shouldApplyTask, taskMatchesTab, ownsOp]);
 
   if (loading) {
     return (
@@ -1233,10 +1525,19 @@ export const SidePanel: React.FC = () => {
                 jobTitle={currentJob?.title}
                 company={currentJob?.company}
                 onCancel={async () => {
+                  // Drops the progress UI. The run itself can't be aborted
+                  // mid-flight, so if it does land later the result still
+                  // shows up rather than being thrown away.
                   try {
-                    await chrome.storage.local.remove(['tailoringInFlight', 'tailoringResult', 'tailoringError']);
+                    const tasks = await readBgTasks();
+                    await Promise.all(
+                      Object.values(tasks)
+                        .filter((t) => t.kind === 'tailor' || t.kind === 'gaps')
+                        .map((t) => clearBgTask(t.id)),
+                    );
                   } catch (_) {}
                   setIsTailoring(false);
+                  setIsAnalyzingGaps(false);
                   showNotification('Tailoring canceled. You can try again.', 'info');
                 }}
               />
@@ -1349,11 +1650,17 @@ export const SidePanel: React.FC = () => {
       {showCoverLetterModal && (
         <CoverLetterModal
           open={showCoverLetterModal}
-          onClose={() => setShowCoverLetterModal(false)}
+          onClose={() => {
+            setShowCoverLetterModal(false);
+            setCoverLetterGenerating(false);
+            setCoverLetterInjected(null);
+          }}
           jobTitle={currentJob?.title}
           company={currentJob?.company}
           onGenerate={generateCoverLetter}
           onNotification={showNotification}
+          backgroundGenerating={coverLetterGenerating}
+          backgroundLetter={coverLetterInjected}
         />
       )}
 
@@ -1361,6 +1668,7 @@ export const SidePanel: React.FC = () => {
         open={showSmartAnswers}
         onClose={() => {
           setShowSmartAnswers(false);
+          setSmartAnswersRestore(null);
           loadAnswersCount();
         }}
         currentJob={currentJob}
@@ -1369,6 +1677,9 @@ export const SidePanel: React.FC = () => {
           if (typeof count === 'number') setDetectedCount(count);
           loadAnswersCount();
         }}
+        restore={smartAnswersRestore}
+        onOpStart={() => beginOp('smartAnswers')}
+        onOpEnd={() => endOp('smartAnswers')}
       />
 
       <MatchAnalysisModal
