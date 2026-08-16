@@ -91,8 +91,13 @@ const NON_JOB_URL_PATTERNS = [
   /(^|\.)slack\.com/i,
   /(^|\.)chat\.openai\.com/i,
   /(^|\.)claude\.ai/i,
-  /(^|\.)profilleai\.com/i,
-  /localhost:3000/i,
+  // Our own web app. The dashboard/profile screens would hand the extractor
+  // phantom job info, but /jobs and /jobs/:id are real postings — carve those
+  // out. The character class after "jobs" is what keeps /my-jobs blocked.
+  // (The old `(^|\.)` form required a dot before the host, so it only ever
+  // matched www. and left the apex host unguarded.)
+  /(^|\/\/)(www\.)?profilleai\.com(?!\/jobs(?:[/?#]|$))/i,
+  /localhost:3000(?!\/jobs(?:[/?#]|$))/i,
 ];
 
 function isNonJobUrl(url: string | undefined | null): boolean {
@@ -549,7 +554,10 @@ async function handleMessage(
             'keywordsAi',
             pageKey,
             { jobTitle: jobPageResult.jobInfo?.title || '', company: jobPageResult.jobInfo?.company || '' },
-            () => refineKeywordsWithAI({ jobDescription: description }),
+            () => refineKeywordsWithAI({
+              jobDescription: description,
+              jobTitle: jobPageResult.jobInfo?.title || '',
+            }),
           );
         }
         break;
@@ -1564,8 +1572,26 @@ async function analyzeActiveJobPage(): Promise<any> {
                 if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
               }
             }
-            let description = '';
-            for (const sel of [
+            // Two tiers. The generic containers (`article`, `main`) are almost
+            // always the longest match on a page, so mixing them in with the
+            // specific ones meant they won on any list+detail layout — e.g.
+            // our own /jobs, where `main` is the 200-row sidebar plus the
+            // posting. Only fall back to them when nothing specific found a
+            // real description.
+            const longestOf = (selectors: string[]) => {
+              let best = '';
+              for (const sel of selectors) {
+                try {
+                  const el = document.querySelector(sel);
+                  if (el) {
+                    const text = ((el as HTMLElement).innerText || '').trim();
+                    if (text.length > best.length) best = text;
+                  }
+                } catch (_) {}
+              }
+              return best;
+            };
+            let description = longestOf([
               '#job-details', '.jobs-description-content', '.jobs-description__content',
               '.jobs-description-content__text', '.jobs-box__html-content',
               '.show-more-less-html__markup', 'div.jobs-description',
@@ -1573,16 +1599,12 @@ async function analyzeActiveJobPage(): Promise<any> {
               '.job-description', '#job_description',
               '[data-automation-id="jobPostingDescription"]',
               '.posting-page', '.section-wrapper',
+              '.external-job-description',
               '[class*="job-description"]', '[class*="description"]',
-              'article', 'main',
-            ]) {
-              try {
-                const el = document.querySelector(sel);
-                if (el) {
-                  const text = (el as HTMLElement).innerText || '';
-                  if (text.trim().length > description.length) description = text.trim();
-                }
-              } catch (_) {}
+            ]);
+            if (description.length < 400) {
+              const generic = longestOf(['article', 'main']);
+              if (generic.length > description.length) description = generic;
             }
             if (description.length < 100) description = document.body.innerText.slice(0, 8000);
             return { title, company, description };
@@ -1695,76 +1717,77 @@ const KEYWORD_AI_CACHE_KEY = 'keywordAiCache';
 const KEYWORD_AI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const KEYWORD_AI_CACHE_MAX = 20;
 
-/** Shapes the /keyword-optimization response into the panel's analysis shape.
- *  Returns null when the model gave us too little to be worth showing. */
-function shapeAiKeywords(parsed: any): {
+/** Shapes the /job-match response into the panel's analysis shape.
+ *
+ *  `present` / `missing` are kept because the rest of the panel (tailor
+ *  snapshot, cover letter, match analysis) reads them, but they are now derived
+ *  from requirements-with-evidence rather than dictionary hits: `present` is
+ *  what the candidate can actually evidence, `missing` is what they can't,
+ *  hard requirements first. */
+function shapeJobMatch(data: any): {
   matchScore: number;
   present: string[];
   missing: string[];
   totalKeywords: number;
   source: 'ai';
   priorities: Record<string, 'high' | 'medium' | 'low'>;
+  blockers: Array<{ requirement: string; type: string; why: string }>;
+  components: any;
+  projectedScore: number;
+  verdict: string;
+  requirements: any[];
 } | null {
-  const clean = (list: any): string[] => {
-    if (!Array.isArray(list)) return [];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const raw of list) {
-      const value = typeof raw === 'string' ? raw.trim() : '';
-      if (!value || value.length > 40) continue;
-      const key = value.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(value);
-    }
-    return out;
-  };
+  const requirements = Array.isArray(data?.requirements) ? data.requirements : [];
+  if (requirements.length === 0 || typeof data?.score !== 'number') return null;
 
-  const present = clean(parsed?.matchedKeywords).slice(0, 24);
-  const presentKeys = new Set(present.map((k) => k.toLowerCase()));
-  // The model occasionally lists a keyword as both matched and missing.
-  // Matched wins — claiming someone lacks a skill they have is the worse error.
-  const missing = clean(parsed?.missingKeywords)
-    .filter((k) => !presentKeys.has(k.toLowerCase()))
-    .slice(0, 16);
+  const label = (r: any) => (typeof r?.requirement === 'string' ? r.requirement.trim() : '');
+  const covered = requirements.filter((r: any) => r?.coverage === 'strong' || r?.coverage === 'partial');
+  const uncovered = requirements.filter((r: any) => r?.coverage === 'none');
+  const byHardness = (list: any[]) => [
+    ...list.filter((r) => r?.hardness === 'must'),
+    ...list.filter((r) => r?.hardness !== 'must'),
+  ];
 
-  const totalKeywords = present.length + missing.length;
-  if (totalKeywords < 4) return null;
+  const present = byHardness(covered).map(label).filter(Boolean).slice(0, 24);
+  const missing = byHardness(uncovered).map(label).filter(Boolean).slice(0, 16);
 
+  // Impact now means what it says: a missing hard requirement a screen filters
+  // on is high, any other hard requirement is medium, preferred is low.
+  const blockerSet = new Set(
+    (Array.isArray(data.blockers) ? data.blockers : []).map((b: any) =>
+      String(b?.requirement || '').toLowerCase(),
+    ),
+  );
   const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
-  if (Array.isArray(parsed?.suggestedAdditions)) {
-    for (const s of parsed.suggestedAdditions) {
-      const keyword = typeof s?.keyword === 'string' ? s.keyword.trim().toLowerCase() : '';
-      const priority = s?.priority;
-      if (!keyword) continue;
-      if (priority === 'high' || priority === 'medium' || priority === 'low') {
-        priorities[keyword] = priority;
-      }
-    }
+  for (const r of uncovered) {
+    const name = label(r).toLowerCase();
+    if (!name) continue;
+    priorities[name] = blockerSet.has(name) ? 'high' : r?.hardness === 'must' ? 'medium' : 'low';
   }
 
-  // Score from the counts rather than the model's own overallKeywordScore, so
-  // the percentage and the "9 / 17" beside it can never disagree.
   return {
-    matchScore: Math.round((present.length / totalKeywords) * 100),
+    matchScore: Math.round(data.score),
     present,
     missing,
-    totalKeywords,
+    totalKeywords: requirements.length,
     source: 'ai',
     priorities,
+    blockers: Array.isArray(data.blockers) ? data.blockers : [],
+    components: data.components || null,
+    projectedScore: typeof data.projectedScore === 'number' ? data.projectedScore : Math.round(data.score),
+    verdict: typeof data.verdict === 'string' ? data.verdict : '',
+    requirements,
   };
 }
 
 /**
- * Second pass over the keywords, done by the model instead of a word list.
- * The local scan has already painted, so this only ever upgrades what's on
- * screen — every failure path (no auth, no credits, offline, unusable JSON)
- * returns unsuccessfully and leaves the local result standing.
- *
- * Results are cached by job-description hash for a day, so re-opening the panel
- * or hitting Re-analyze on an unchanged posting doesn't spend another credit.
+ * The authoritative pass: scores the candidate against the posting server-side
+ * (requirements, evidence, role and seniority fit) and replaces the on-device
+ * keyword scan. Results are cached per job description for a day, so re-opening
+ * the panel or hitting Re-analyze on an unchanged posting doesn't spend another
+ * credit.
  */
-async function refineKeywordsWithAI(payload: { jobDescription: string }) {
+async function refineKeywordsWithAI(payload: { jobDescription: string; jobTitle?: string }) {
   if (!authToken) return { success: false, error: 'Not authenticated' };
 
   const description = (payload.jobDescription || '').trim();
@@ -1772,7 +1795,9 @@ async function refineKeywordsWithAI(payload: { jobDescription: string }) {
     return { success: false, error: 'Job description too short to refine' };
   }
 
-  const cacheKey = hashStringBg(description.slice(0, 4000));
+  // v2 namespace: entries written before the job-match rewrite hold keyword
+  // ratios, not scores, and must not be served as if they were the new number.
+  const cacheKey = `v2:${hashStringBg(description.slice(0, 4000))}`;
   try {
     const { [KEYWORD_AI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(KEYWORD_AI_CACHE_KEY);
     const hit = cache?.[cacheKey];
@@ -1786,24 +1811,28 @@ async function refineKeywordsWithAI(payload: { jobDescription: string }) {
   if (!cachedProfile) return { success: false, error: 'No profile to compare against' };
 
   try {
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/keyword-optimization`, {
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/job-match`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${authToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ profileData: cachedProfile, jobDescription: description }),
+      body: JSON.stringify({
+        profileData: cachedProfile,
+        jobDescription: description,
+        jobTitle: payload.jobTitle || '',
+      }),
     });
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({} as any));
       // 429 here means the user is out of AI runs. Not an error worth shouting
-      // about — they still have the local numbers.
+      // about — they still have the local keyword scan.
       return { success: false, error: err.error || `Server returned ${response.status}` };
     }
 
     const data = await response.json();
-    const keywords = shapeAiKeywords(data?.data);
+    const keywords = shapeJobMatch(data?.data);
     if (!keywords) return { success: false, error: 'AI returned an unusable result' };
 
     try {
@@ -1991,7 +2020,7 @@ const keywordSpellings = (keyword: string): string[] => [keyword, ...(KEYWORD_VA
 function extractKeywordsLocal(jobDescription: string, profile: any) {
   if (!jobDescription || typeof jobDescription !== 'string' || jobDescription.trim().length < 20) {
     console.warn('[ProfileAI] extractKeywordsLocal: description too short or missing', { length: jobDescription?.length });
-    return { totalKeywords: 0, matchScore: 0, present: [], missing: [], source: 'local' as const };
+    return { totalKeywords: 0, matchScore: 0, present: [], missing: [], source: 'local' as const, provisional: true };
   }
 
   // Stash the original (case-preserved) JD on globalThis so extractDynamicKeywords
@@ -2067,7 +2096,19 @@ function extractKeywordsLocal(jobDescription: string, profile: any) {
 
   const matchScore = foundInJob.length > 0 ? Math.round((present.length / foundInJob.length) * 100) : 0;
 
-  return { totalKeywords: foundInJob.length, matchScore, present, missing, source: 'local' as const };
+  // `provisional` is the important field here. This ratio is vocabulary overlap
+  // — it knows nothing about the candidate's title, seniority, or whether a term
+  // was a hard requirement or a word in the company blurb. Presented as a match
+  // score it reads as authoritative and is not; the panel shows the keyword
+  // chips from this pass but waits for /job-match for a number.
+  return {
+    totalKeywords: foundInJob.length,
+    matchScore,
+    present,
+    missing,
+    source: 'local' as const,
+    provisional: true,
+  };
 }
 
 /**

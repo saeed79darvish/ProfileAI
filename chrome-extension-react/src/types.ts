@@ -83,6 +83,37 @@ export interface KeywordAnalysis {
   /** Importance per keyword (lowercased key) from the AI pass. The local pass
    *  has no notion of importance and leaves this undefined. */
   priorities?: Record<string, 'high' | 'medium' | 'low'>;
+  /** True while this is the on-device keyword scan. It compares vocabulary
+   *  only — no title, seniority or evidence — so its number is not shown as a
+   *  match score. The AI pass replaces it with a real one. */
+  provisional?: boolean;
+  /** Requirements that are stated as required, have no support in the profile,
+   *  and are of a kind a screen actually filters on. These are the ones that
+   *  fail an ATS; soft skills never appear here. */
+  blockers?: Array<{ requirement: string; type: string; why: string }>;
+  /** Sub-scores behind the number, so the UI can explain it. */
+  components?: {
+    roleFit: number;
+    mustCoverage: number;
+    niceCoverage: number;
+    seniorityFit: number;
+    recency: number;
+    mustCount: number;
+    niceCount: number;
+    cappedByBlockers: boolean;
+  };
+  /** Score if tailoring closes every gap it can close honestly. */
+  projectedScore?: number;
+  /** One sentence on what drove the score. */
+  verdict?: string;
+  /** Full requirement list with evidence, newest read only. */
+  requirements?: Array<{
+    requirement: string;
+    type: string;
+    hardness: 'must' | 'nice';
+    coverage: 'strong' | 'partial' | 'none';
+    evidence?: string;
+  }>;
 }
 
 // Message types for chrome.runtime messaging

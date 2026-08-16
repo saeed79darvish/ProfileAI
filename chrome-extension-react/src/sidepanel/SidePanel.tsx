@@ -1030,8 +1030,11 @@ export const SidePanel: React.FC = () => {
     setIsTailoring(true);
     showNotification('Tailoring your profile...', 'info');
 
-    // Remember the pre-tailor match so we can show before → after.
-    if (keywordAnalysis) {
+    // Remember the pre-tailor match so we can show the before/after.
+    // Skipped while the analysis is provisional: that number is the on-device
+    // keyword ratio, and comparing it against a real post-tailor score would
+    // manufacture a jump that never happened.
+    if (keywordAnalysis && !keywordAnalysis.provisional) {
       setPreTailorSnapshot({
         score: keywordAnalysis.matchScore,
         missing: keywordAnalysis.missing,

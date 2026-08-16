@@ -46,19 +46,25 @@ export function rankMissingKeywords(
   return ranked.sort((a, b) => weight[a.impact] - weight[b.impact]);
 }
 
-// Estimate where tailoring lands the score: tailoring reliably folds in most of
-// the missing keywords (additive edits), so we project ~80% coverage of the gap.
+/**
+ * Where tailoring actually lands the score.
+ *
+ * The server computes this by re-scoring with only the SURFACEABLE gaps closed
+ * — requirements the candidate can already evidence but hasn't worded to match.
+ * Requirements with no evidence stay missing, because the tailoring prompt
+ * routes those to GENUINE GAPS instead of writing a bullet for something the
+ * candidate never did.
+ *
+ * The old local estimate assumed 80% of missing keywords get folded in, which
+ * described the keyword-stuffing behaviour the tailoring engine no longer has.
+ * With no server projection available (the on-device scan), we promise nothing.
+ */
 export function predictBoostedScore(
   matchScore: number,
-  presentCount: number,
-  missingCount: number,
-  totalKeywords: number
+  projectedScore?: number,
 ): number {
-  if (!totalKeywords || missingCount === 0) return matchScore;
-  const projectedCovered = presentCount + Math.round(missingCount * 0.8);
-  const projected = Math.round((projectedCovered / totalKeywords) * 100);
-  // Never predict below the current score, cap at a believable 95%.
-  return Math.min(95, Math.max(matchScore + 5, projected));
+  if (typeof projectedScore !== 'number') return matchScore;
+  return Math.max(matchScore, Math.min(95, Math.round(projectedScore)));
 }
 
 export interface ScoreVerdict {

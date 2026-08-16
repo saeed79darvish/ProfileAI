@@ -114,14 +114,32 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
     );
   }
 
-  const { matchScore, present, missing, totalKeywords, priorities, source } = keywordAnalysis;
+  const {
+    matchScore,
+    present,
+    missing,
+    totalKeywords,
+    priorities,
+    source,
+    provisional,
+    blockers,
+    components,
+    projectedScore,
+    verdict: verdictLine,
+  } = keywordAnalysis;
   const verdict = scoreVerdict(matchScore);
   const matchedCount = present.length;
-  const ranked = rankMissingKeywords(missing, priorities);
+  // Blockers are already the highest-impact missing requirements and get their
+  // own section, so don't repeat them in the ranked list below.
+  const blockerNames = new Set((blockers || []).map((b) => b.requirement.toLowerCase()));
+  const ranked = rankMissingKeywords(
+    missing.filter((m) => !blockerNames.has(m.toLowerCase())),
+    priorities,
+  );
   const visibleMissing = showAllMissing ? ranked : ranked.slice(0, 3);
   const hiddenMissing = ranked.length - visibleMissing.length;
-  const boosted = predictBoostedScore(matchScore, matchedCount, missing.length, totalKeywords);
-  const showBoost = missing.length > 0 && boosted > matchScore;
+  const boosted = predictBoostedScore(matchScore, projectedScore);
+  const showBoost = !provisional && boosted > matchScore;
 
   const MATCHED_PREVIEW = 6;
   const visibleMatched = present.slice(0, MATCHED_PREVIEW);
@@ -133,42 +151,82 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
     <div className="panel-section job-match-section">
       <JobRow job={currentJob} onAnalyze={onAnalyze} isAnalyzing={isAnalyzing} analyzed />
 
-      {/* Big match card */}
-      <div className={`jm-match-card ${verdict.level}`}>
+      {/* Match card. The on-device pass compares vocabulary only — no title, no
+          seniority, no evidence — so it shows what it found and withholds the
+          number until the server has actually screened the candidate. */}
+      <div className={`jm-match-card ${provisional ? 'pending' : verdict.level}`}>
         <div className="jm-score-big">
-          <span className="jm-score-num">{matchScore}%</span>
+          <span className="jm-score-num">{provisional ? '—' : `${matchScore}%`}</span>
           <span className="jm-score-cap">Match</span>
         </div>
         <div className="jm-score-detail">
-          <span className={`jm-verdict ${verdict.level}`}>
-            <span className="jm-verdict-dot" />
-            {verdict.label}
-          </span>
-          <div className="jm-progress-row">
-            <span className="jm-progress-count">{matchedCount} / {totalKeywords}</span>
-            <div className="jm-progress-track">
-              <div className="jm-progress-fill" style={{ width: `${Math.min(100, matchScore)}%` }} />
+          {!provisional && (
+            <span className={`jm-verdict ${verdict.level}`}>
+              <span className="jm-verdict-dot" />
+              {verdict.label}
+            </span>
+          )}
+          {provisional ? (
+            <p className="jm-progress-count">{totalKeywords} terms found in this posting</p>
+          ) : (
+            <div className="jm-progress-row">
+              <span className="jm-progress-count">
+                {matchedCount} / {totalKeywords} requirements
+              </span>
+              <div className="jm-progress-track">
+                <div className="jm-progress-fill" style={{ width: `${Math.min(100, matchScore)}%` }} />
+              </div>
+              <span className="jm-progress-pct">{matchScore}%</span>
             </div>
-            <span className="jm-progress-pct">{matchScore}%</span>
-          </div>
+          )}
           {/* Says which pass produced these numbers: the instant on-device
               scan, or the deeper AI read that replaces it moments later. */}
           <p className="jm-source-note">
             {isRefining
-              ? 'Quick scan — checking against AI for a closer read…'
+              ? 'Keyword scan done — scoring against your experience…'
               : source === 'ai'
-                ? 'Read by AI against your profile'
-                : 'Quick scan of this posting'}
+                ? 'Scored against your title, experience and skills'
+                : 'Keyword scan only — no score yet'}
           </p>
-          {missing.length > 0 && (
+          {verdictLine && !provisional && <p className="jm-verdict-line">{verdictLine}</p>}
+          {components && !provisional && components.cappedByBlockers && (
             <p className="jm-missing-summary">
-              Missing <strong>{missing.length} keyword{missing.length === 1 ? '' : 's'}</strong>
+              Score capped — this application would be filtered out before a human reads it.
+            </p>
+          )}
+          {provisional && missing.length > 0 && (
+            <p className="jm-missing-summary">
+              {missing.length} term{missing.length === 1 ? '' : 's'} not in your profile
               {missingSummary && <> — {missingSummary}</>}
-              {missing.length > 3 && <> +{missing.length - 3} more</>}
             </p>
           )}
         </div>
       </div>
+
+      {/* ATS blockers — required, unevidenced, and of a kind a screen filters on */}
+      {!!blockers?.length && (
+        <div className="jm-kw-group">
+          <h5 className="jm-kw-title missing">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="13" />
+              <line x1="12" y1="16" x2="12" y2="16" />
+            </svg>
+            Will fail screening ({blockers.length})
+          </h5>
+          <div className="jm-missing-list">
+            {blockers.map((b) => (
+              <div key={b.requirement} className="jm-missing-item blocker">
+                <span className="jm-impact-dot high" />
+                <div className="jm-blocker-text">
+                  <span className="jm-missing-name">{b.requirement}</span>
+                  <span className="jm-blocker-why">{b.why}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* AI boost predictor */}
       {showBoost && (
@@ -177,8 +235,11 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             <path d="M12 0c.5 6 5.5 11 12 12-6.5 1-11.5 6-12 12-.5-6-5.5-11-12-12C6.5 11 11.5 6 12 0z" />
           </svg>
           <div className="jm-boost-text">
-            <p className="jm-boost-title">AI can boost this to <span className="jm-boost-pct">~{boosted}%</span></p>
-            <p className="jm-boost-sub">Tailor your profile to match this job's keywords in one click</p>
+            <p className="jm-boost-title">Tailoring can reach <span className="jm-boost-pct">~{boosted}%</span></p>
+            <p className="jm-boost-sub">
+              By surfacing experience you already have but haven't worded to match. Gaps you
+              can't evidence stay gaps.
+            </p>
           </div>
         </div>
       )}
@@ -190,7 +251,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 6L9 17l-5-5" />
             </svg>
-            Matched ({matchedCount})
+            {provisional ? `Found in your profile (${matchedCount})` : `Evidenced (${matchedCount})`}
           </h5>
           <div className="jm-chips">
             {visibleMatched.map((kw) => (
@@ -201,15 +262,15 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
         </div>
       )}
 
-      {/* Missing keywords ranked by impact */}
-      {missing.length > 0 && (
+      {/* Remaining gaps, ranked. Blockers are excluded — they're above. */}
+      {ranked.length > 0 && (
         <div className="jm-kw-group">
           <h5 className="jm-kw-title missing">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            Top missing — ranked by impact
+            {provisional ? 'Terms not in your profile' : 'Gaps — ranked by impact'}
           </h5>
           <div className="jm-missing-list">
             {visibleMissing.map(({ keyword, impact }) => (
