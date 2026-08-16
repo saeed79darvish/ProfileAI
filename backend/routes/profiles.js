@@ -2114,6 +2114,120 @@ Return ONLY valid JSON.`;
   }
 });
 
+// @route   POST /api/profiles/job-match
+// @desc    Score a candidate against a posting: requirements extracted from the
+//          JD, evidence located in the profile, role/seniority fit, and the
+//          subset of gaps that would actually fail an ATS screen.
+// @access  Private
+//
+// Replaces /keyword-optimization for the extension's match card. That endpoint
+// asked "which keywords are missing", which is a vocabulary question — it could
+// not see that a UI architect and a customer marketing role are different jobs,
+// so it returned respectable-looking scores for applications nobody would pass.
+router.post('/job-match', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+  try {
+    const { profileData, jobDescription, jobTitle } = req.body;
+
+    if (!profileData) {
+      return res.status(400).json({ error: 'Profile data is required' });
+    }
+    // A score computed from a fragment is worse than no score: it looks
+    // authoritative and is arbitrary. Demand enough text to hold requirements.
+    if (!jobDescription || jobDescription.trim().length < 200) {
+      return res.status(400).json({ error: 'Job description is too short to score against' });
+    }
+
+    const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
+    try {
+      const cached = await getCachedAnalysis({
+        kind: 'job_match',
+        userId: req.user.id,
+        profileData,
+        jobDescription,
+      });
+      if (cached) {
+        console.log(`[job-match] cache hit for user ${req.user.id} — no credit spent`);
+        return res.json(cached);
+      }
+    } catch (e) {
+      console.warn('[job-match] cache probe failed, continuing:', e.message);
+    }
+
+    const { buildJobMatchPrompt, JOB_MATCH_SYSTEM } = require('../services/resume/jobMatchPrompt');
+    const { scoreJobMatch } = require('../services/resume/jobMatchScore');
+
+    const { prompt } = buildJobMatchPrompt({
+      jobTitle,
+      jobDescription: jobDescription.trim(),
+      profile: profileData,
+    });
+
+    const raw = await aiService.generateText(`${JOB_MATCH_SYSTEM}\n\n${prompt}`, {
+      // Every requirement carries its evidence citation, so a JD with 15
+      // requirements needs real room. Truncation here loses the tail of the
+      // list, which is exactly where the blockers tend to sit.
+      maxTokens: 4000,
+      temperature: 0.2,
+    });
+
+    let read;
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      read = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    } catch (e) {
+      read = null;
+    }
+
+    if (!read || !Array.isArray(read.requirements) || read.requirements.length === 0) {
+      return res.status(502).json({ error: 'Could not read requirements from this posting' });
+    }
+
+    const scored = scoreJobMatch(read);
+
+    await recordAIUsage(req.user.id, 'profile_enhance');
+
+    console.log(
+      '[job-match] user=%s score=%d roleFit=%s must=%d/%s blockers=%d',
+      req.user.id,
+      scored.score,
+      scored.components.roleFit,
+      scored.components.mustCount,
+      scored.components.mustCoverage,
+      scored.blockers.length,
+    );
+
+    const payload = {
+      success: true,
+      data: {
+        score: scored.score,
+        projectedScore: scored.projectedScore,
+        verdict: typeof read.verdict === 'string' ? read.verdict : '',
+        jobTitle: read.jobTitle || jobTitle || '',
+        components: scored.components,
+        blockers: scored.blockers,
+        surfaceable: scored.surfaceable,
+        requirements: read.requirements,
+      },
+    };
+
+    await setCachedAnalysis({
+      kind: 'job_match',
+      userId: req.user.id,
+      profileData,
+      jobDescription,
+      result: payload,
+    });
+
+    res.json(payload);
+  } catch (error) {
+    console.error('Error in job match:', error);
+    if (error.status === 529 || error.status === 503 || error.error?.type === 'overloaded_error') {
+      return res.status(503).json({ error: 'AI service is temporarily overloaded. Please try again in a moment.' });
+    }
+    res.status(500).json({ error: 'Error scoring this job' });
+  }
+});
+
 // @route   POST /api/profiles/enhance
 // @desc    Enhance profile with AI
 // @access  Private
