@@ -93,9 +93,19 @@ const HEADINGS: Array<{ kind: SectionKind; re: RegExp }> = [
   },
   {
     kind: 'duty',
-    re: /\b(responsibilities|what you(?:'|’)?ll (?:do|be doing)|the role|day[-\s]to[-\s]day|your impact|in this role|about the (?:role|job|position)|the opportunity|scope)\b/i,
+    re: /\b(responsibilities|what you(?:'|’)?ll (?:do|be doing)|day[-\s]to[-\s]day|your impact|in this role|the opportunity|scope)\b/i,
   },
 ];
+
+/**
+ * "About the job" is LinkedIn's own label for the whole description, and
+ * "About the role" is how most postings open. Treating them as a duties
+ * heading put every line that followed into duty mode — which is to say, at
+ * zero weight — so a posting that never wrote a literal "Requirements:"
+ * heading had nothing left to score and came back unscorable. They name the
+ * document, not a section, so they set no section at all.
+ */
+const PREAMBLE_HEADING = /^\s*about\s+(?:the\s+)?(?:job|role|position|opportunity)\b/i;
 
 const BULLET = /^[\s]*(?:[•·▪‣◦*\-–—]|\(?\d{1,2}[.)])\s+/;
 
@@ -110,6 +120,9 @@ function headingKind(line: string): SectionKind | null {
   // A line ending in a colon, or a short line of few words, is heading-shaped.
   const looksLikeHeading = /:\s*$/.test(trimmed) || trimmed.split(/\s+/).length <= 7;
   if (!looksLikeHeading) return null;
+  // Checked before the section patterns: a preamble must not be mistaken for
+  // the duties section it usually sits above.
+  if (PREAMBLE_HEADING.test(trimmed)) return null;
   for (const { kind, re } of HEADINGS) {
     if (re.test(trimmed)) return kind;
   }
@@ -121,6 +134,16 @@ const NICE_CUE = /\b(preferred|nice to have|a plus|bonus|ideally|desirable|would
 const MUST_CUE = /\b(must have|required|require[sd]?|essential|minimum|at least|\d+\+?\s*years?)\b/i;
 const REQUIREMENT_CUE =
   /\b(experience|proficien\w+|expertise|knowledge|familiar\w*|background|degree|certif\w+|years?|ability to|skilled|strong|demonstrated|proven|track record|fluent)\b/i;
+
+/**
+ * Phrasing that asks something of the candidate rather than describing the
+ * work. Deliberately narrower than REQUIREMENT_CUE: that one matches bare
+ * "strong" and "ability to", which a duty line ("Drive strong collaboration")
+ * hits just as easily. These forms only appear when a posting is stating what
+ * it wants you to already have.
+ */
+const ASK_PHRASING =
+  /\b(?:experience\s+(?:with|in|of|building|working)|proficien\w+\s+(?:with|in)|expertise\s+in|(?:deep|solid|strong|working)\s+(?:knowledge|understanding|grasp)\s+of|knowledge\s+of|familiar\w*\s+with|background\s+in|comfortable\s+with|fluent\s+in|hands[-\s]on\s+with|must\s+have|required|you\s+(?:have|bring|know)|we(?:'|’)?re\s+looking\s+for)\b/i;
 
 /** Bare imperatives — how a duty reads when it isn't under a duties heading. */
 const DUTY_OPENER =
@@ -202,22 +225,42 @@ function classifyType(text: string, section: SectionKind): RequirementType {
   if (DEGREE_RE.test(text)) return 'education';
   if (CREDENTIAL_RE.test(text)) return 'credential';
   if (TITLE_RE.test(text)) return 'title';
-  // A duties heading is authoritative; outside one, a bare imperative is the
-  // tell ("Participate in on-call rotations" vs "Experience with on-call").
-  if (section === 'duty' || (section === 'unknown' && DUTY_OPENER.test(text))) return 'responsibility';
+  // A duties heading is authoritative for lines that read like duties; outside
+  // one, a bare imperative is the tell ("Participate in on-call rotations" vs
+  // "Experience with on-call"). But plenty of postings list what they want
+  // from you underneath a duties heading, and "Experience with Kubernetes" is
+  // a requirement wherever it appears — so explicit requirement phrasing
+  // outranks the section it sits in.
+  if (!ASK_PHRASING.test(text) && (section === 'duty' || (section === 'unknown' && DUTY_OPENER.test(text)))) {
+    return 'responsibility';
+  }
   if (DOMAIN_RE.test(text)) return 'domain';
   if (SOFT_RE.test(text)) return 'soft';
   return 'skill';
 }
 
-function classifyHardness(text: string, section: SectionKind): Hardness {
+/** Types that are a requirement by their nature, heading or no heading. */
+const HARD_BY_NATURE = new Set<RequirementType>([
+  'experience_years',
+  'education',
+  'credential',
+  'title',
+]);
+
+function classifyHardness(text: string, section: SectionKind, type: RequirementType): Hardness {
   if (NICE_CUE.test(text)) return 'nice';
   if (section === 'nice') return 'nice';
   if (section === 'must') return 'must';
   if (MUST_CUE.test(text)) return 'must';
   // Duties are excluded from the score anyway; bucket them as must so they
   // still appear in the read of the posting.
-  return section === 'duty' ? 'must' : 'nice';
+  if (section === 'duty') return 'must';
+  // No heading to go on. A line that asks for something outright, or that is a
+  // requirement by nature (years, a degree, a licence), is a requirement — the
+  // company simply didn't write "Requirements:" above it. Defaulting these to
+  // "nice" scored an unheaded posting 89% where the identical bullets under a
+  // heading scored 49%.
+  return ASK_PHRASING.test(text) || HARD_BY_NATURE.has(type) ? 'must' : 'nice';
 }
 
 // --- 3. the profile side ----------------------------------------------------
@@ -882,11 +925,16 @@ export function analyzeJobMatchLocally(
   const { jobDescription, jobTitle, profile, vocab } = input;
 
   const lines = collectLines(jobDescription || '');
-  const classified = lines.map((line) => ({
-    text: line.text,
-    type: classifyType(line.text, line.section),
-    hardness: classifyHardness(line.text, line.section),
-  }));
+  const classified = lines.map((line) => {
+    // Type first: whether a line is a hard requirement depends on what kind of
+    // requirement it is, not only on the heading it sits under.
+    const type = classifyType(line.text, line.section);
+    return {
+      text: line.text,
+      type,
+      hardness: classifyHardness(line.text, line.section, type),
+    };
+  });
 
   // Duties are read but carry no weight, so a posting that is all duties has
   // nothing to score against.
