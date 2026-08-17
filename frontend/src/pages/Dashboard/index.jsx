@@ -87,6 +87,7 @@ import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
 import GapReviewDialog from '@/components/GapReviewDialog';
+import LoadFailure from '@/components/common/LoadFailure';
 import { extensionConfig } from '@/config/extension';
 
 // Icon aliases used throughout the component
@@ -536,84 +537,89 @@ const Dashboard = () => {
     }
   }, [authLoading, isValidating, loading, user, profile, error, navigate]);
 
-  // Load profile data
-  useEffect(() => {
-    const loadProfile = async () => {
-      if (!user) {
-        authDebug('skip loadProfile: no user');
-        diag('dashboard.loadProfile.skip', { reason: 'no-user' });
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        setLoading(true);
-        authDebug('loadProfile request start', { userId: user?.id, role: user?.role });
-        diag('dashboard.loadProfile.start', { userId: user?.id, role: user?.role });
-        const response = await profileAPI.getMyProfile();
-        authDebug('loadProfile success', {
-          hasData: !!response?.data,
-          title: response?.data?.title || null
-        });
-        diag('dashboard.loadProfile.success', {
-          hasData: !!response?.data,
-          title: response?.data?.title || null,
-          profileId: response?.data?.id || null,
-        });
-        setProfile(response.data);
-      } catch (err) {
-        authDebug('loadProfile error', {
-          status: err?.response?.status,
-          message: err?.response?.data?.message || err?.message
-        });
-        diag('dashboard.loadProfile.error', {
-          status: err?.response?.status,
-          message: err?.response?.data?.message || err?.message,
-          code: err?.code,
-        });
-        if (err.response?.status === 404) {
-          // Check if user has an in-progress draft before redirecting to onboarding
-          try {
-            const draftKey = `profileai_draft_${user?.id || 'unknown'}`;
-            const savedDraft = localStorage.getItem(draftKey);
-            if (savedDraft) {
-              const draft = JSON.parse(savedDraft);
-              if (draft && (draft.title || draft.summary || draft.experience?.length > 0)) {
-                navigate('/profile/create-form');
-                return;
-              }
-            }
-          } catch (draftErr) {
-            // ignore draft check errors
-          }
-          // If the user has already seen the onboarding intro, send them
-          // straight to the create-profile screen instead of looping back
-          // through the intro slides on every visit.
-          try {
-            if (localStorage.getItem('profileai_seen_onboarding') === '1') {
-              navigate('/profile/create');
+  // Load profile data. Lifted out of the effect so the failure state can
+  // re-run it — before this, a backend hiccup on boot left the user with a
+  // dead page whose only escape was reloading the whole app.
+  const loadProfile = useCallback(async () => {
+    if (!user) {
+      authDebug('skip loadProfile: no user');
+      diag('dashboard.loadProfile.skip', { reason: 'no-user' });
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      authDebug('loadProfile request start', { userId: user?.id, role: user?.role });
+      diag('dashboard.loadProfile.start', { userId: user?.id, role: user?.role });
+      const response = await profileAPI.getMyProfile();
+      authDebug('loadProfile success', {
+        hasData: !!response?.data,
+        title: response?.data?.title || null
+      });
+      diag('dashboard.loadProfile.success', {
+        hasData: !!response?.data,
+        title: response?.data?.title || null,
+        profileId: response?.data?.id || null,
+      });
+      setProfile(response.data);
+    } catch (err) {
+      authDebug('loadProfile error', {
+        status: err?.response?.status,
+        message: err?.response?.data?.message || err?.message
+      });
+      diag('dashboard.loadProfile.error', {
+        status: err?.response?.status,
+        message: err?.response?.data?.message || err?.message,
+        code: err?.code,
+      });
+      if (err.response?.status === 404) {
+        // Check if user has an in-progress draft before redirecting to onboarding
+        try {
+          const draftKey = `profileai_draft_${user?.id || 'unknown'}`;
+          const savedDraft = localStorage.getItem(draftKey);
+          if (savedDraft) {
+            const draft = JSON.parse(savedDraft);
+            if (draft && (draft.title || draft.summary || draft.experience?.length > 0)) {
+              navigate('/profile/create-form');
               return;
             }
-          } catch (flagErr) {
-            // ignore localStorage read errors
           }
-          navigate('/onboarding');
-        } else {
-          setError(err.response?.data?.message || 'Failed to load profile');
+        } catch (draftErr) {
+          // ignore draft check errors
         }
-      } finally {
-        authDebug('loadProfile finished');
-        setLoading(false);
+        // If the user has already seen the onboarding intro, send them
+        // straight to the create-profile screen instead of looping back
+        // through the intro slides on every visit.
+        try {
+          if (localStorage.getItem('profileai_seen_onboarding') === '1') {
+            navigate('/profile/create');
+            return;
+          }
+        } catch (flagErr) {
+          // ignore localStorage read errors
+        }
+        navigate('/onboarding');
+      } else {
+        // Keep the error object, not just its message: LoadFailure reads the
+        // status/code off it to tell "you're offline" apart from "we broke".
+        setError(err);
       }
-    };
-    
+    } finally {
+      authDebug('loadProfile finished');
+      setLoading(false);
+    }
+  }, [user, navigate]);
+
+  useEffect(() => {
     if (user) {
       loadProfile();
       loadTailoredProfiles();
       loadUserPosts();
       loadAiUsage();
     }
-  }, [user, navigate]);
+  }, [user, loadProfile]);
 
   const loadAiUsage = async () => {
     try {
@@ -1112,9 +1118,11 @@ const Dashboard = () => {
   if (error) {
     return (
       <PageContainer>
-        <Box sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="error">{error}</Typography>
-        </Box>
+        <LoadFailure
+          error={error}
+          title="We couldn't load your profile"
+          onRetry={loadProfile}
+        />
       </PageContainer>
     );
   }

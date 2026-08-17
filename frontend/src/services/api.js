@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { diag } from '../utils/diagLogger';
+import { publishApiError } from './errorBus';
 
 // Use relative URL so requests go through the Vite proxy in development
 // and through the Cloudflare worker `/api/*` proxy in production. The
@@ -66,6 +67,13 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Announce systemic failures (offline / unreachable / 5xx) in the global
+    // banner. Ordinary 4xx responses are left alone — the screen that made the
+    // call already surfaces those. Opt a request out with
+    // `{ meta: { silent: true } }`, or force a banner with
+    // `{ meta: { announceError: true } }`.
+    publishApiError(error);
+
     // Network error - backend might be down, DON'T clear auth
     if (!error.response) {
       console.log('[API] Network error - backend may be down, keeping session');

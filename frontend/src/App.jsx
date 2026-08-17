@@ -10,6 +10,7 @@ import PrivateRoute from './components/PrivateRoute';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import CookieConsentBanner from './components/CookieConsent';
 import ErrorBoundary from './components/ErrorBoundary';
+import ApiErrorBanner from './components/ApiErrorBanner';
 import { setApiNavigate } from './services/api';
 import { featureFlags } from './config/featureFlags';
 import { lazyWithReload } from './utils/lazyWithReload';
@@ -202,7 +203,12 @@ function AppContent() {
       <ImpersonationBanner />
       {!hideNavbar && <Navbar />}
       {!isOverlayMode && <CookieConsentBanner />}
-      <ErrorBoundary>
+      {/* Global API failure banner. Outside the boundary on purpose: it has to
+          survive a route crash, and it's what tells the user *why* the page
+          below it is empty. */}
+      {!isOverlayMode && <ApiErrorBanner />}
+      {/* resetKey clears a crashed route as soon as the user navigates away. */}
+      <ErrorBoundary resetKey={location.pathname}>
       <Suspense fallback={LazyFallback}>
       <Routes>
               <Route path="/" element={<HomeOrAppRoot />} />
