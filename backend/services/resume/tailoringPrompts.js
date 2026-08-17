@@ -64,17 +64,17 @@ STEP 3: REWRITE RULES
 ═══════════════════════════════════════
 Apply all of the following when rewriting:
 
-TITLE PLACEMENT
-- Always output the job title as a standalone line directly under the candidate's name, before contact info.
-- Mirror the exact job title from the JD (e.g. if JD says "Senior Product Manager" use that, not "Product Lead").
-- Format:
-  [Full Name]
-  [JD-matched Job Title]
-  [email] [phone] [LinkedIn] [location]
+TITLE
+- Return the candidate's title mirrored to the JD's exact wording in the
+  \`title\` field (e.g. if the JD says "Senior Product Manager" use that, not
+  "Product Lead").
 
-CONTACT INFO PRESERVATION
-- Never remove or modify: name, email, phone, LinkedIn, location, portfolio.
-- If any are missing, add a placeholder: [add phone] [add LinkedIn]
+CONTACT INFO — NOT YOURS TO HANDLE
+- Name, email, phone, LinkedIn, location and portfolio are attached by the
+  renderer from the candidate's stored profile. There is no field for them in
+  your output and they are never at risk from your edits.
+- So never write contact details into any field, and never emit a placeholder
+  for a missing one. Both just end up as stray text in the middle of a resume.
 
 SUMMARY
 - Rewrite summary to speak directly to this role's priorities

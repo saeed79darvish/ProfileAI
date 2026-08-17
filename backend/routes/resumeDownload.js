@@ -4,6 +4,36 @@ const auth = require('../middleware/auth');
 const { Profile, User, TailoredProfile } = require('../models');
 const { generatePDF, generateWord, getTemplates } = require('../services/resumeGeneratorService');
 
+/**
+ * Attach the candidate's real contact details to whatever payload we're about
+ * to render.
+ *
+ * The renderer reads email off the User row but phone, location, LinkedIn,
+ * GitHub and portfolio off the profile object it's handed. Both branches that
+ * supply that object from somewhere other than the Profile row — a client
+ * payload, or a saved TailoredProfile — carry no contact fields at all: the
+ * tailoring output contract has no place for them, and the profile form sends
+ * the resume content it's editing. So the rendered header collapsed to name
+ * and email for every download started from the profile page, while a plain
+ * download with no payload came out complete.
+ *
+ * Contact details are identity, not resume content — they are never something
+ * the caller should have to remember to send. Filled in here rather than in the
+ * client so every caller (profile page, dashboard, extension) gets them.
+ */
+async function withRealContactDetails(profileData, userId) {
+  const profile = await Profile.findOne({ where: { userId } });
+  if (!profile) return profileData;
+
+  const source = profile.toJSON();
+  const merged = { ...profileData };
+  for (const field of ['phone', 'location', 'linkedinUrl', 'githubUrl', 'portfolioUrl']) {
+    // Only fill gaps: a caller that deliberately sent a value keeps it.
+    if (!merged[field] && source[field]) merged[field] = source[field];
+  }
+  return merged;
+}
+
 // Get available templates
 router.get('/templates', auth, async (req, res) => {
   try {
@@ -65,6 +95,8 @@ router.post('/generate', auth, async (req, res) => {
       }
       profileData = profile.toJSON();
     }
+
+    profileData = await withRealContactDetails(profileData, req.user.id);
 
     let buffer;
     let contentType;
@@ -136,6 +168,8 @@ router.post('/preview', auth, async (req, res) => {
       }
       profileData = profile.toJSON();
     }
+
+    profileData = await withRealContactDetails(profileData, req.user.id);
 
     const buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder);
     const base64 = buffer.toString('base64');
