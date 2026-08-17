@@ -8,6 +8,21 @@
  * Final prompt = MASTER + ROLE BLOCK + RESUME/PROFILE + JD + CONTEXT
  */
 
+const { writingRules, readAloudCheck } = require('./writingRules');
+
+// Quality rules shared with the enhancement prompts. Kept in one module so the
+// two paths can never disagree about what good resume writing is; see
+// writingRules.js for what is deliberately NOT shared.
+const SHARED_WRITING_RULES = writingRules({
+  mode: 'tailor',
+  explanationField: 'changelog / matchAnalysis',
+  unverifiableDestination: 'matchAnalysis.needsVerification',
+});
+
+const SHARED_READ_ALOUD = readAloudCheck({
+  unverifiableDestination: 'matchAnalysis.needsVerification',
+});
+
 // ═══════════════════════════════════════════════════════════════
 // MASTER TAILORING PROMPT (universal across all roles)
 // ═══════════════════════════════════════════════════════════════
@@ -134,117 +149,7 @@ SECTION ORDER
 - If candidate has a certification the JD specifically mentions,
   ensure it is prominently placed
 
-BANNED VOCABULARY (all grammatical forms — verb, noun, adjective, adverb)
-- leverage / leveraged / leveraging
-- utilize / utilized / utilizing / utilization
-- spearhead / spearheaded / spearheading
-- seamless / seamlessly
-- robust / robustly
-- cutting-edge / bleeding-edge / state-of-the-art / best-in-class / world-class
-- proven track record / track record of
-- passionate / passion for
-- results-driven / results-oriented / data-driven (as a self-description)
-- detail-oriented, dynamic, synergy, team player, go-getter, proactively,
-  in order to, instrumental in, tasked with
-- Plain substitutes: used, ran, built, led, cut, moved, rewrote, set up, fixed.
-  Say the actual verb for the actual action.
-
-BANNED BULLET ENDINGS (abstract quality clauses)
-- No bullet may end in a trailing clause that asserts a virtue instead of an
-  outcome. Examples of what is banned:
-    "...with a focus on scalability and maintainability"
-    "...ensuring high availability and performance"
-    "...driving business value across the organization"
-    "...to improve overall efficiency"
-- These clauses are unfalsifiable and add no information. Either state the
-  concrete result (what changed, for whom, by how much) or end the bullet at
-  the last factual word.
-
-SENTENCE & STRUCTURE VARIATION
-- Most bullets: [Action verb] + [what/how] + [outcome]. But do NOT force every
-  bullet into that mold — a resume where all 14 lines share one grammatical
-  shape reads as generated. Some bullets should be a single short clause.
-- Vary bullet LENGTH deliberately across each role: mix short lines (8–12
-  words) with longer ones (20–30). Never let a role's bullets all land within
-  a few words of each other.
-- Never start consecutive bullets with the same verb, and don't cycle the same
-  four verbs down the whole resume.
-- Older roles get FEWER and SHORTER bullets than recent ones — 2–3 compact
-  lines for a job from eight years ago, more for the current one. A resume
-  that gives equal weight to every role reads as a template, not a career.
-- Roles do not all need the same bullet count. Match the count to how much
-  genuinely relevant material the role has: 4–6 for the most relevant recent
-  role, 1–3 for an old or off-target one.
-- Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
-
-VOICE
-- Do not force a metric or JD keyword into every single bullet. Some real
-  accomplishments are plain, unquantified statements. A resume where
-  literally every line has a number or buzzword reads as padded, not credible.
-- Never stack multiple JD buzzwords into one sentence
-  ("led cross-functional, data-driven, agile initiatives to drive synergy").
-  That pattern reads as assembled from a job posting, not lived experience.
-- Write each bullet the way this specific candidate would describe their own
-  work to a peer — not the way a keyword scanner wants it phrased. If a
-  rewritten line would sound strange coming out of the candidate's mouth in
-  an interview, rewrite it again.
-
-METRIC DISCIPLINE
-- 3–4 metrics TOTAL across the whole resume. Not per role — per resume. Beyond
-  four, each additional number weakens the ones that matter.
-- Use DIFFERENT KINDS of number: one duration (cut release time from 3 weeks to
-  4 days), one count (12 services, 40-person org), one dollar figure ($1.2M
-  budget), one percentage. Four percentages in a row reads as invented.
-- Never repeat the same percentage anywhere in the resume, and avoid two
-  percentages that are suspiciously close (30% and 35% in adjacent bullets).
-- Prefer specific over round. "Cut p95 latency from 840ms to 210ms" is credible;
-  "improved performance by 50%" is not. If the original resume has a round
-  number and no supporting detail, keep it verbatim but don't add more like it.
-- Choose which of the candidate's REAL metrics to keep — the strongest 3–4,
-  placed in the most JD-relevant bullets. Metrics you drop are simply not
-  written; the bullet is rephrased without them. Dropping is allowed; inventing,
-  changing, moving a number to a different accomplishment, or re-deriving one
-  ("30% faster" becoming "saved 200 hours") is never allowed.
-- If a metric in the source resume looks unverifiable or implausible for the
-  role, keep it exactly as written and list it in matchAnalysis.needsVerification
-  so the candidate can confirm it before submitting. Never silently reshuffle,
-  round, or replace it, and never invent a substitute.
-
-CONSISTENCY CHECKS
-- Job titles must match everywhere: the title in a role's header, any reference
-  to that role inside a bullet, and the summary must all use the same wording.
-- De-duplicate education: one entry per degree. If the same school or degree
-  appears twice (common when a resume was merged from two sources), merge into
-  the single most complete entry.
-- Fix hyphenation and capitalization consistently across the whole document:
-  pick one form of each compound (full-stack vs full stack, front-end vs
-  frontend) and use it everywhere. Product and technology names take their
-  official casing: JavaScript, TypeScript, PostgreSQL, GitHub, Node.js, Kubernetes.
-- Fix typos and grammatical errors carried over from the source resume.
-- Dates use ONE format throughout (e.g. "Jan 2021 – Mar 2023" everywhere, never
-  mixed with "01/2021-03/2023"). Use the same dash character in every range.
-
-ATS-SAFE FORMATTING
-- Single column only. No multi-column layouts, tables, text boxes, sidebars,
-  headers/footers, images, icons, emoji, or symbol characters as bullet markers.
-- Standard section headers only: Summary, Experience, Skills, Education,
-  Projects, Certifications. No invented or clever section names.
-- Plain text in every field. No markdown syntax (**, ##, backticks), no HTML.
-- Consistent date formatting per the rule above.
-
-NO ANNOTATIONS IN THE RESUME (hard rule)
-- The resume fields contain the FINAL tailored resume and nothing else. You
-  apply tailoring decisions; you never narrate them into the output.
-- Never emit into summary, experience descriptions, project descriptions, or
-  skills: "[LOW RELEVANCE — consider removing]", "(consider adding a metric)",
-  "NOTE:", "TODO", "optional", "if applicable", "you may want to…", or any
-  parenthetical addressed to the candidate or commenting on the JD.
-- Decisions and suggestions go in \`changelog\` and \`matchAnalysis\`, which the
-  product renders separately. Resume text is what the employer will read.
-- The only bracketed text permitted anywhere in the output is a missing-fact
-  placeholder in a STRUCTURED contact/education/project field — exactly
-  [add phone], [add LinkedIn], [add institution name], [add graduation year],
-  [add year]. These are never allowed inside summary or any description text.
+${SHARED_WRITING_RULES}
 
 ═══════════════════════════════════════
 STEP 4: GAP REPORT
@@ -277,22 +182,12 @@ ATS SCORE BREAKDOWN
 - RECOMMENDATION: [one specific action before submitting]
 
 ═══════════════════════════════════════
-STEP 5: NEVER DO THESE
+STEP 5: TAILORING-SPECIFIC LIMITS
 ═══════════════════════════════════════
-- Never invent a job, project, responsibility, skill, or metric. If the
-  candidate did not do it, it does not appear anywhere in the resume — not in a
-  bullet, not in skills, not softened into a vaguer claim. An uncovered JD
-  requirement goes in GENUINE GAPS. That is the only option.
-- Never change a metric (if resume says 30%, keep 30%), and never attach an
-  existing metric to a different accomplishment than the one it came from
-- Never add a tool or skill not present in the original resume
-- Never remove the candidate's actual company names or dates
+(The universal never-fabricate rules are in the writing rules above; these are
+the ones that only apply when tailoring to a posting.)
 - Never make the resume longer than 2 pages
-- Never add a skill or keyword anywhere in the resume — including the skills
-  section — that has no real support elsewhere in the candidate's background.
-  A skills section padded with unsupported JD terms is the single fastest way
-  a "tailored" resume gets flagged as fake by a recruiter or a hiring
-  manager's own screening pass.
+- Never drop a role, or a company/date, to make room for JD-relevant content
 - If the candidate is clearly unqualified for the role (less than 50% match),
   flag this honestly in the gap report instead of over-inflating the resume
 
@@ -315,19 +210,7 @@ skeptical recruiter would — not as an ATS parser:
   in a live interview. If they couldn't, it doesn't belong in the output.
 
 ═══════════════════════════════════════
-STEP 7: READ-ALOUD TEST (bullet by bullet)
-═══════════════════════════════════════
-Go through every bullet one at a time and read it as if saying it out loud to
-an interviewer. For each one ask:
-
-- Could this candidate tell a real 2-minute story behind this line — the
-  situation, what they personally did, what happened? If the honest answer is
-  no, the bullet is describing work that isn't theirs or isn't real. Rewrite it
-  down to what actually happened, or drop it.
-- Does it sound like a person talking, or like a posting? If you would never
-  say the sentence aloud, it doesn't belong in writing either.
-- Would the candidate have to explain a number in this bullet and not be able
-  to? Then that number goes to needsVerification, not into the resume as fact.
+STEP 7: ${SHARED_READ_ALOUD}
 
 ═══════════════════════════════════════
 STEP 8: FINAL SWEEP BEFORE RETURNING

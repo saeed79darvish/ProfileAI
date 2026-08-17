@@ -6,17 +6,21 @@
  * Sub-modules:
  * - extractors: PDF/DOCX text extraction
  * - patterns: Regex patterns and utility functions for parsing
- * - prompts: AI prompts for all resume-related operations
+ *
+ * Prompts used to live here too (prompts.js). It held a second, older pair of
+ * tailoring prompts plus enhancement and gap-analysis variants, none of which
+ * were reachable — every export was referenced only by itself and this file.
+ * It read as live code and was a trap for anyone auditing "the tailoring
+ * prompt", so it was removed. The live prompts are tailoringPrompts.js,
+ * enhancementPrompts.js, and the rules they share in writingRules.js.
  */
 
 const extractors = require('./extractors');
 const patterns = require('./patterns');
-const prompts = require('./prompts');
 
 module.exports = {
   extractors,
   patterns,
-  prompts,
   
   // Convenience re-exports for common functions
   extractTextFromResume: extractors.extractTextFromResume,
@@ -29,10 +33,4 @@ module.exports = {
   extractSkills: patterns.extractSkills,
   PATTERNS: patterns.PATTERNS,
   SKILL_PATTERNS: patterns.SKILL_PATTERNS,
-  
-  parseResumePrompt: prompts.parseResumePrompt,
-  enhanceProfilePrompt: prompts.enhanceProfilePrompt,
-  gapAnalysisPrompt: prompts.gapAnalysisPrompt,
-  tailorWithResumePrompt: prompts.tailorWithResumePrompt,
-  interviewPrepPrompt: prompts.interviewPrepPrompt
 };
