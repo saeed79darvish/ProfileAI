@@ -1398,12 +1398,38 @@ export default function ResumePreviewModal({
     }
   }, [open]);
 
+  // Contact details are identity, not content. The tailoring model is never
+  // asked to return them, so a tailored payload carries none — and since
+  // tailoredProfileData wins over profileData below, the generated header
+  // would collapse to just name and email. Overlay the real profile's contact
+  // fields onto whatever payload we're about to send.
+  const withContact = useCallback((data) => {
+    if (!data) return data;
+    const merged = { ...data };
+    if (!merged.fullName && !merged.name) {
+      const fromUser = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+      if (fromUser) merged.fullName = fromUser;
+    }
+    const contact = {
+      email: profileData?.email || user?.email,
+      phone: profileData?.phone,
+      location: profileData?.location,
+      linkedinUrl: profileData?.linkedinUrl,
+      githubUrl: profileData?.githubUrl,
+      portfolioUrl: profileData?.portfolioUrl,
+    };
+    for (const [key, value] of Object.entries(contact)) {
+      if (!merged[key] && value) merged[key] = value;
+    }
+    return merged;
+  }, [profileData, user]);
+
   const [previewError, setPreviewError] = useState('');
   const loadPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     setLoadingPreview(true);
     setPreviewError('');
     try {
-      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
+      const res = await resumeAPI.preview(tmplId || templateId, null, withContact(data) || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
       if (res.data?.preview) {
         setPreviewUrl(res.data.preview);
       } else {
@@ -1427,7 +1453,7 @@ export default function ResumePreviewModal({
     } finally {
       setLoadingPreview(false);
     }
-  }, [templateId, accentColor, bulletStyle, sectionOrder]);
+  }, [templateId, accentColor, bulletStyle, sectionOrder, withContact]);
 
   // Convenience so the "Retry" button on the empty state re-runs whatever
   // profile data the modal was opened with.
@@ -1438,14 +1464,14 @@ export default function ResumePreviewModal({
 
   const loadOriginalPreview = useCallback(async (data, tmplId, color, bStyle, order) => {
     try {
-      const res = await resumeAPI.preview(tmplId || templateId, null, data || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
+      const res = await resumeAPI.preview(tmplId || templateId, null, withContact(data) || null, color ?? accentColor, bStyle ?? bulletStyle, order ?? sectionOrder);
       if (res.data?.preview) {
         setOriginalPreviewUrl(res.data.preview);
       }
     } catch (err) {
       console.error('Original preview error:', err);
     }
-  }, [templateId, accentColor, bulletStyle, sectionOrder]);
+  }, [templateId, accentColor, bulletStyle, sectionOrder, withContact]);
 
   const schedulePreviewUpdate = useCallback((data) => {
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
@@ -1482,7 +1508,7 @@ export default function ResumePreviewModal({
         format === 'pdf' ? 'pdf' : 'word',
         templateId,
         null,
-        editData || tailoredProfileData || profileData,
+        withContact(editData || tailoredProfileData || profileData),
         accentColor,
         bulletStyle,
         sectionOrder
