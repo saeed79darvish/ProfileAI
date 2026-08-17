@@ -37,6 +37,11 @@ function hashAnalysisInput(profileData = {}, jobDescription = '') {
       p: String(e.position || e.title || '').trim().toLowerCase(),
       c: String(e.company || '').trim().toLowerCase(),
       d: String(e.description || '').trim(),
+      // Dates are part of the answer, not decoration: job-match derives
+      // seniority fit from them, so a corrected start date has to miss the
+      // cache rather than return the score computed from the old one.
+      s: String(e.startDate || '').trim(),
+      e: e.current ? 'current' : String(e.endDate || '').trim(),
     })),
     job: String(jobDescription || '').replace(/\s+/g, ' ').trim(),
   });

@@ -70,6 +70,12 @@ For each, set:
     title             — the role/track itself ("has worked as a product manager")
     domain            — industry or business context (fintech, healthcare)
     soft              — communication, collaboration, ownership, and similar
+    responsibility    — a duty of the job rather than a bar to clear
+                        ("participate in on-call rotations", "mentor juniors",
+                        "attend design reviews"). If the posting is describing
+                        what the person WILL DO rather than what they must
+                        ALREADY HAVE, it is a responsibility. These are scored
+                        at zero, so classifying them correctly matters.
 - "hardness": "must" if the posting states it as required, uses "must have",
   gives a years minimum, or lists it under Requirements / Basic Qualifications.
   "nice" if it appears under Preferred / Nice to have / Bonus / "a plus".
@@ -108,7 +114,9 @@ Rules:
 - "seniorityFit" (0-1): candidate's years and level against what the posting
   asks. 1.0 = squarely in range. 0.5 = one level off in either direction.
   0.2 = two or more levels off. Over-qualification is a real mismatch, not a
-  bonus — score it down.
+  bonus — score it down. This is a FALLBACK: when the posting states a years
+  minimum and the profile carries dates, the scorer computes this from the
+  numbers and ignores what you put here.
 - "recency" (0-1): how current the matched skills are. 1.0 = the core matched
   skills are in the current role. 0.3 = the match rests on work from 6+ years ago.
 - "verdict": one sentence a person would actually say about this application,
