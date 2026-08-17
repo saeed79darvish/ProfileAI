@@ -173,6 +173,16 @@ export const SidePanel: React.FC = () => {
   const [tailoredProfile, setTailoredProfile] = useState<any | null>(null);
   const [isTailoring, setIsTailoring] = useState(false);
   const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
+  /**
+   * When the current tailor run began, in epoch ms. Kept separate from the
+   * progress component's own lifetime so reopening the panel mid-run resumes
+   * the steps instead of replaying them from the first one. Gap analysis and
+   * tailoring are one run to the user, so this holds the earlier of the two.
+   */
+  const [tailoringStartedAt, setTailoringStartedAt] = useState<number | null>(null);
+  const markTailorStart = useCallback((at: number) => {
+    setTailoringStartedAt((prev) => (prev !== null && prev < at ? prev : at));
+  }, []);
   const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
   const [keywordAnalysis, setKeywordAnalysis] = useState<KeywordAnalysis | null>(null);
   // Snapshot of the keyword analysis captured when tailoring starts, so the
@@ -973,6 +983,7 @@ export const SidePanel: React.FC = () => {
     
     // Step 1: Analyze gaps first
     setIsAnalyzingGaps(true);
+    markTailorStart(Date.now());
     showNotification('Analyzing skill gaps...', 'info');
 
     // The gap analysis runs in the worker, so the panel may be gone by the
@@ -995,6 +1006,10 @@ export const SidePanel: React.FC = () => {
 
       if (response?.success && response?.gaps?.length > 0) {
         // Show in-page modal (rendered below) instead of opening a popup window.
+        // The run is now waiting on the user, who may sit on the gap review
+        // for a while. Drop the progress anchor so the tailoring step that
+        // follows times itself from when it actually starts.
+        setTailoringStartedAt(null);
         setGapReview({ gaps: response.gaps, settings: activeSettings || null });
       } else {
         // No gaps — proceed directly to tailoring
@@ -1026,6 +1041,7 @@ export const SidePanel: React.FC = () => {
     } catch (_) {}
 
     setIsTailoring(true);
+    markTailorStart(Date.now());
     showNotification('Tailoring your profile...', 'info');
 
     // Remember the pre-tailor match so we can show the before/after.
@@ -1071,6 +1087,7 @@ export const SidePanel: React.FC = () => {
     } finally {
       endOp('tailor');
       setIsTailoring(false);
+      setTailoringStartedAt(null);
       chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
     }
   }, [currentJob, keywordAnalysis]);
@@ -1186,8 +1203,12 @@ export const SidePanel: React.FC = () => {
     switch (rec.kind) {
       case 'tailor': {
         setIsTailoring(running);
-        if (running) return;
+        if (running) {
+          markTailorStart(rec.startedAt);
+          return;
+        }
         setIsAnalyzingGaps(false);
+        setTailoringStartedAt(null);
         chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
         if (failure) {
           showNotification(failure, 'error');
@@ -1202,7 +1223,11 @@ export const SidePanel: React.FC = () => {
 
       case 'gaps': {
         setIsAnalyzingGaps(running);
-        if (running || failure) return;
+        if (running) {
+          markTailorStart(rec.startedAt);
+          return;
+        }
+        if (failure) return;
         const gaps = res?.gaps;
         if (!gaps?.length) return;
         // Settings were parked when the run started, so a reopened panel can
@@ -1212,6 +1237,7 @@ export const SidePanel: React.FC = () => {
           const { pendingTailorSettings } = await chrome.storage.local.get('pendingTailorSettings');
           parked = (pendingTailorSettings as TailorSettings) || null;
         } catch (_) {}
+        setTailoringStartedAt(null);
         setGapReview({ gaps, settings: parked });
         return;
       }
@@ -1306,7 +1332,7 @@ export const SidePanel: React.FC = () => {
         // restore, the task still runs to completion in the worker.
         return;
     }
-  }, []);
+  }, [markTailorStart]);
 
   /**
    * Whether a record belongs to the page the user is looking at right now.
@@ -1530,6 +1556,7 @@ export const SidePanel: React.FC = () => {
               <TailoringProgress
                 jobTitle={currentJob?.title}
                 company={currentJob?.company}
+                startedAt={tailoringStartedAt}
                 onCancel={async () => {
                   // Drops the progress UI. The run itself can't be aborted
                   // mid-flight, so if it does land later the result still
@@ -1544,6 +1571,7 @@ export const SidePanel: React.FC = () => {
                   } catch (_) {}
                   setIsTailoring(false);
                   setIsAnalyzingGaps(false);
+                  setTailoringStartedAt(null);
                   showNotification('Tailoring canceled. You can try again.', 'info');
                 }}
               />

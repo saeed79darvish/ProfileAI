@@ -3,6 +3,14 @@ import React, { useState, useEffect, useRef } from 'react';
 interface TailoringProgressProps {
   jobTitle?: string;
   company?: string;
+  /**
+   * When the run actually started, in epoch ms — normally the background
+   * task's own startedAt. Progress is derived from this rather than counted up
+   * from mount, so reopening the panel mid-run picks the steps up where they
+   * are instead of replaying them from the beginning. Falls back to mount time
+   * when the caller has no better answer.
+   */
+  startedAt?: number | null;
   onCancel?: () => void;
 }
 
@@ -13,22 +21,28 @@ const STEPS = [
   { label: 'Finalizing tailored profile…', icon: '✨' },
 ];
 
-export const TailoringProgress: React.FC<TailoringProgressProps> = ({ jobTitle, company, onCancel }) => {
-  const [stepIdx, setStepIdx] = useState(0);
-  const [elapsedSec, setElapsedSec] = useState(0);
+const STEP_MS = 3500;
+
+export const TailoringProgress: React.FC<TailoringProgressProps> = ({
+  jobTitle,
+  company,
+  startedAt,
+  onCancel,
+}) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const mountedAt = useRef(Date.now());
+  // One ticking clock; the step and the elapsed counter are both read off it.
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setStepIdx((prev) => (prev < STEPS.length - 1 ? prev + 1 : prev));
-    }, 3500);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  const anchor = startedAt || mountedAt.current;
+  const elapsedMs = Math.max(0, now - anchor);
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  const stepIdx = Math.min(STEPS.length - 1, Math.floor(elapsedMs / STEP_MS));
 
   // When the progress section appears, gently scroll it into view so the user
   // can actually watch the steps run instead of staring at the action buttons.
