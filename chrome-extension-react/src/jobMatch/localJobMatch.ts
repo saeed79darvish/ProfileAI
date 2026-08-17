@@ -88,8 +88,13 @@ const HEADINGS: Array<{ kind: SectionKind; re: RegExp }> = [
     re: /\b(preferred|nice[-\s]to[-\s]have|bonus|pluses|a plus|desirable|desired|good to have|extra credit|additional qualifications|even better|stand ?out)\b/i,
   },
   {
+    // The conditional "you might be a good fit if you:" family matters as much
+    // as the literal "Requirements:" one. Anthropic writes it, and because it
+    // was unrecognised the section stayed on the "What you'll do:" heading
+    // above it — duties, which carry zero weight — so a posting that listed its
+    // requirements plainly came back with nothing scoreable in it.
     kind: 'must',
-    re: /\b(requirements?|qualifications?|basic qualifications|minimum qualifications|must[-\s]haves?|what you(?:'|’)?ll need|what we(?:'|’)?re looking for|who you are|skills? (?:&|and) experience|your (?:background|experience)|you (?:have|bring))\b/i,
+    re: /\b(requirements?|qualifications?|basic qualifications|minimum qualifications|must[-\s]haves?|what you(?:'|’)?ll need|what we(?:'|’)?re looking for|who (?:you are|we(?:'|’)?re looking for)|skills? (?:&|and) experience|your (?:background|experience)|you (?:have|bring)|you (?:might|may|could|would) be a (?:good|great|strong) fit|(?:the )?ideal candidate|about you|you should have|what you bring)\b/i,
   },
   {
     kind: 'duty',

@@ -787,12 +787,64 @@ function detectSite() {
 }
 
 // Get job info from current page
+/**
+ * innerText, but with list markers kept.
+ *
+ * Chrome renders `<li>` without its `::marker`, so `innerText` hands back a
+ * bulleted requirements list as unmarked prose. The on-device matcher trusts a
+ * bulleted line and is deliberately sceptical of prose — an unbulleted line has
+ * to carry a requirement cue and stay under 220 characters to count, or every
+ * sentence of company blurb would become a requirement. Net effect on a posting
+ * that writes long bullets: 34 list items arrived as 3 usable lines, and the
+ * posting came back unscorable with its requirements sitting right there.
+ *
+ * `innerText` needs layout and a detached clone has none — it quietly degrades
+ * to `textContent` and loses every line break — so the clone is attached
+ * offscreen for the read and removed straight after. The marker is inserted as
+ * a text node rather than by rewriting `textContent`, which would flatten any
+ * nested list into its parent.
+ *
+ * Falls back to plain `innerText` on any failure: a missing marker costs
+ * fidelity, a thrown error costs the whole analysis.
+ */
+function readJobText(el: Element | null): string {
+  if (!el) return '';
+  const plain = (el as HTMLElement).innerText || el.textContent || '';
+  let host: HTMLElement | null = null;
+  try {
+    if (!el.querySelector('li')) return plain;
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('li').forEach((li) => {
+      if ((li.textContent || '').trim()) {
+        li.insertBefore(document.createTextNode('• '), li.firstChild);
+      }
+    });
+    host = document.createElement('div');
+    // Rendered (so innerText still resolves line breaks) but off the canvas and
+    // inert, so nothing about the user's page shifts during the read.
+    host.style.cssText =
+      'position:fixed;left:-99999px;top:0;width:900px;pointer-events:none;z-index:-1;';
+    host.setAttribute('aria-hidden', 'true');
+    host.appendChild(clone);
+    document.body.appendChild(host);
+    const marked = clone.innerText || '';
+    // If the offscreen read came back materially shorter, something about the
+    // clone did not render — trust the original rather than a truncated copy.
+    return marked.trim().length >= plain.trim().length * 0.6 ? marked : plain;
+  } catch (_) {
+    return plain;
+  } finally {
+    if (host && host.parentNode) host.parentNode.removeChild(host);
+  }
+}
+
 function getJobInfo(): JobInfo | null {
   let title = '';
   let company = '';
   let description = '';
 
   if (currentSite) {
+    // (see readJobText — description reads go through it so bullets survive)
     const titleEl = document.querySelector(currentSite.titleSelector);
     const companyEl = document.querySelector(currentSite.companySelector);
     
@@ -802,7 +854,7 @@ function getJobInfo(): JobInfo | null {
       try {
         const el = document.querySelector(sel);
         if (el) {
-          const text = (el as HTMLElement).innerText || el.textContent || '';
+          const text = readJobText(el);
           if (text.trim().length > (description?.length || 0)) {
             description = text;
           }
@@ -824,7 +876,7 @@ function getJobInfo(): JobInfo | null {
       // Walk up to find the container and get its full text
       let container = aboutJobHeading.closest('section') || aboutJobHeading.closest('[class*="description"]') || aboutJobHeading.parentElement?.parentElement;
       if (container) {
-        const text = (container as HTMLElement).innerText || '';
+        const text = readJobText(container);
         if (text.trim().length > (description?.trim().length || 0)) {
           description = text;
         }
@@ -845,7 +897,7 @@ function getJobInfo(): JobInfo | null {
       try {
         const el = document.querySelector(sel);
         if (el) {
-          const text = (el as HTMLElement).innerText || '';
+          const text = readJobText(el);
           if (text.trim().length > (description?.trim().length || 0)) {
             description = text;
           }
@@ -888,7 +940,7 @@ function getJobInfo(): JobInfo | null {
       try {
         const el = document.querySelector(sel);
         if (el) {
-          const text = (el as HTMLElement).innerText || el.textContent || '';
+          const text = readJobText(el);
           if (text.trim().length > longestDesc.length) {
             longestDesc = text;
           }
@@ -902,7 +954,7 @@ function getJobInfo(): JobInfo | null {
 
   // Ultimate fallback: use page body text (same as vanilla extension)
   if (!description || description.trim().length < 50) {
-    description = document.body.innerText.slice(0, 8000);
+    description = readJobText(document.body).slice(0, 8000);
   }
 
   console.log('[ProfileAI] getJobInfo result:', {
