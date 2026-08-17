@@ -418,7 +418,14 @@ const Dashboard = () => {
     skills: profile?.skills ? Object.values(profile.skills).flat() : [],
     experience: profile?.experience || [],
     education: profile?.education || [],
-    projects: profile?.projects || []
+    projects: profile?.projects || [],
+    // The resume generator builds the contact header purely from this payload —
+    // drop these and the PDF header collapses to just the email.
+    phone: profile?.phone || '',
+    location: profile?.location || '',
+    linkedinUrl: profile?.linkedinUrl || '',
+    githubUrl: profile?.githubUrl || '',
+    portfolioUrl: profile?.portfolioUrl || ''
   };
 
   // Detect if extension is installed via DOM attribute + custom event
