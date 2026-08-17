@@ -6,7 +6,6 @@
  * This service has been modularized into:
  * - ./resume/extractors.js: PDF/DOCX text extraction
  * - ./resume/patterns.js: Regex patterns and utilities
- * - ./resume/prompts.js: AI prompts for all operations
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -18,7 +17,7 @@ const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 const mammoth = require('mammoth');
 
 // Import modular components
-const { extractors: resumeExtractors, patterns: resumePatterns, prompts: resumePrompts } = require('./resume');
+const { extractors: resumeExtractors, patterns: resumePatterns } = require('./resume');
 const { classifyDepartment } = require('./resume/departmentClassifier');
 const { getDepartmentEnhancementPrompt } = require('./resume/enhancementPrompts');
 const { buildTailoringPrompt } = require('./resume/tailoringPrompts');

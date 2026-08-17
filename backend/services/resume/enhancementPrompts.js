@@ -6,6 +6,26 @@
  * config for the AI call.
  */
 
+const { writingRules, readAloudCheck } = require('./writingRules');
+
+// Quality rules shared with the tailoring prompts, so the two paths can never
+// disagree about what good resume writing is. Enhancement is the general pass —
+// there's no target job here — so the JD-dependent rules (keyword limits,
+// GENUINE GAPS, title mirroring) stay in tailoringPrompts.js, and the metric
+// rule is deliberately the enhancement variant: this prompt writes the stored
+// profile every future application draws from, so it keeps every real number
+// rather than picking a few. See writingRules.js.
+const SHARED_WRITING_RULES = writingRules({
+  mode: 'enhance',
+  explanationField: 'enhancements',
+  unverifiableDestination: "the candidate's own review (leave the number exactly as the source states it)",
+});
+
+const SHARED_READ_ALOUD = readAloudCheck({
+  unverifiableDestination: "the candidate's own review — keep it exactly as the source states it",
+});
+
+
 // ═══════════════════════════════════════════════════════════════
 // GROUP 1: ENGINEERING & TECHNICAL
 // ═══════════════════════════════════════════════════════════════
@@ -18,8 +38,9 @@ function engineeringEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "results-driven," "detail-oriented," "passionate," "proven track record," "dynamic," "seasoned," "leverage," "spearheaded," "utilized," or "synergy"
 - Write like a senior engineer speaking to a hiring manager — direct, specific, zero fluff
 - Every sentence must contain concrete information. If it doesn't, cut it.
 
@@ -33,7 +54,7 @@ ${JSON.stringify(profileData, null, 2)}
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
 - Formula: [Action verb] + [what/how] + [measurable result]
-- Always include a metric (%, ms, users, $, time saved) — if unknown, describe scope or scale
+- Where the source has a metric (%, ms, users, $, time saved), surface it. Where it does not, write the accomplishment without one — do not substitute an invented scope or scale claim.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
 - Strong openers: Built, Reduced, Increased, Migrated, Architected, Shipped, Cut, Led, Designed, Automated
@@ -57,8 +78,10 @@ Detect the candidate's sub-role from their title/experience and apply:
 - If role is ambiguous, default to Full-Stack
 
 ═══ GENERAL RULES ═══
-- Never invent metrics — if none exist, describe scope (team size, user base, system scale)
+- Never invent metrics. If none exist, say what was built and for whom, in plain terms.
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
@@ -101,22 +124,23 @@ function salesEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "results-driven," "go-getter," "self-motivated," "passionate," "dynamic," "synergy," "leverage," or "proven track record"
 - Write like a top-performing rep talking to a VP of Sales — confident, number-forward, direct
-- Every sentence must contain a revenue figure, quota, or business outcome. If it doesn't, cut it.
+- Every sentence must carry concrete information — a real revenue figure, quota, or business outcome where one exists in the source, otherwise a specific description of the work. If a sentence carries neither, cut it.
 
 ═══ SUMMARY SECTION ═══
 - Maximum 3 sentences
 - Sentence 1: [Title] with [X] years in [sales motion: SaaS/enterprise/SMB/inside/field]
 - Sentence 2: Core strengths — deal size, sales cycle, market segment, methodology (MEDDIC, Challenger, SPIN)
-- Sentence 3: One headline number — quota attainment %, revenue generated, or team ranking
+- Sentence 3: the strongest real number from the profile — quota attainment %, revenue generated, or team ranking. Omit this sentence entirely if the profile contains no such number.
 - Banned: any claim that can't be backed by a number
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
 - Formula: [Action verb] + [what/how] + [revenue or quota outcome]
-- Always include at least one of: quota %, deal size, ARR, pipeline created, team ranking
+- Quota %, deal size, ARR, pipeline created and team ranking are the numbers worth surfacing when the source contains them. When it does not, state the accomplishment plainly rather than estimating one.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
 - Strong openers: Closed, Grew, Exceeded, Generated, Prospected, Negotiated, Expanded, Landed, Ranked, Built
@@ -140,8 +164,10 @@ Detect the candidate's sub-role from their title/experience and apply:
 - VP of Sales: revenue growth, team scaling, process built, market expansion
 
 ═══ GENERAL RULES ═══
-- Never invent numbers — if no metrics exist, describe scope: territory size, number of accounts, deal complexity
+- Never invent numbers. If no metrics exist, describe the work — territory, accounts or deal complexity ONLY where the profile states them.
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
@@ -184,8 +210,9 @@ function productOpsEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "results-driven," "passionate," "dynamic," "thought leader," "synergy," "leverage," "spearheaded," or "cross-functional ninja"
 - Write like a sharp operator presenting to a leadership team — strategic, outcome-focused, clear
 - Every bullet must show impact on the business, user, or team. If it doesn't, cut it.
 
@@ -199,7 +226,7 @@ ${JSON.stringify(profileData, null, 2)}
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
 - Formula: [Action verb] + [initiative or method] + [business outcome]
-- Always include a metric where possible — if not, describe scope or organizational reach
+- Surface a metric where the source contains one. Where it does not, state the outcome plainly — a described "scope or organizational reach" the candidate never wrote is an invented claim too.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
 - Strong openers (Product): Launched, Defined, Prioritized, Drove, Shipped, Increased, Reduced, Owned
@@ -222,9 +249,11 @@ Detect the candidate's sub-role from their title/experience and apply:
 - Revenue Operations: CRM optimization, pipeline visibility, forecasting accuracy, tooling rollout
 
 ═══ GENERAL RULES ═══
-- Never invent metrics — if none exist, describe scope (budget managed, team size, market reach)
+- Never invent metrics. If none exist, describe what shipped and its effect, without estimating budget, team size or reach.
 - Avoid technical jargon unless the user's input clearly uses it
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
@@ -267,8 +296,9 @@ function designEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "creative visionary," "passionate designer," "pixel-perfect," "out-of-the-box thinker," "dynamic," or "results-driven"
 - Write with clarity and confidence — like a designer presenting their work to a product team
 - Every line should reflect craft, intention, and impact. Decorative language adds nothing.
 
@@ -306,9 +336,11 @@ Detect the candidate's sub-role from their title/experience and apply:
 - Motion Designer: animation tools (After Effects, Rive, Lottie), platform (web/mobile/video), load performance
 
 ═══ GENERAL RULES ═══
-- Never invent metrics — if none exist, describe scope: screens designed, products shipped, team size
+- Never invent metrics. If none exist, describe the design work itself; only cite screens, products or team size the profile actually states.
 - Keep formatting clean — design resumes are judged visually as well as content-wise
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
@@ -351,8 +383,9 @@ function peopleLegalEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "people person," "passionate advocate," "results-driven," "dynamic," "go-getter," "synergy," or "leverage"
 - Write with professionalism and precision — like a trusted advisor presenting to the C-suite
 - Every bullet must show organizational impact, risk reduced, or people outcomes. If it doesn't, cut it.
 
@@ -366,7 +399,7 @@ ${JSON.stringify(profileData, null, 2)}
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
 - Formula: [Action verb] + [program, policy, or initiative] + [organizational outcome]
-- Always include scope or scale — headcount, caseload, budget, retention rate, resolution time
+- Surface headcount, caseload, budget, retention rate or resolution time when the source states them. Never estimate one to fill a bullet.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
 - Strong openers (People/HR): Built, Launched, Reduced, Scaled, Designed, Improved, Partnered, Led
@@ -392,8 +425,10 @@ Detect the candidate's sub-role from their title/experience and apply:
 ═══ GENERAL RULES ═══
 - For legal roles: never fabricate case outcomes or settlement figures
 - For compliance: always list specific frameworks the user mentions (GDPR, SOC2, etc.)
-- Never invent metrics — if none exist, describe scope: org size, caseload, accounts managed
+- Never invent metrics. If none exist, describe the programs run; only cite org size, caseload or accounts the profile actually states.
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
@@ -436,10 +471,11 @@ function financeEnhancementPrompt(profileData, customInstructions) {
 ═══ CANDIDATE'S CURRENT PROFILE ═══
 ${JSON.stringify(profileData, null, 2)}
 
+${SHARED_WRITING_RULES}
+
 ═══ VOICE & TONE ═══
-- Never use: "results-driven," "detail-oriented," "numbers person," "dynamic," "passionate," "proven track record," or "leverage"
 - Write with precision and authority — like a CFO presenting to a board
-- Every sentence must reflect financial impact, accuracy, or analytical rigor. If it doesn't, cut it.
+- Every sentence must carry concrete information about the financial work done. If it carries none, cut it — but never manufacture a figure to save a bullet.
 
 ═══ SUMMARY SECTION ═══
 - Maximum 3 sentences
@@ -451,7 +487,7 @@ ${JSON.stringify(profileData, null, 2)}
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
 - Formula: [Action verb] + [analysis, model, or process] + [financial or operational outcome]
-- Always include a dollar figure, percentage, or time metric
+- Surface the dollar figure, percentage or time metric the source contains. Where none exists, describe the work without one.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
 - Strong openers: Managed, Reduced, Built, Forecasted, Improved, Identified, Streamlined, Led, Automated, Reconciled, Advised
@@ -483,8 +519,10 @@ Detect the candidate's sub-role from their title/experience and apply:
 
 ═══ GENERAL RULES ═══
 - Never invent dollar figures or audit outcomes
-- If no metrics exist, describe scope: company revenue size, budget overseen, team size, number of entities
+- If no metrics exist, describe the work performed. Company revenue, budget, team size and entity counts are claims too — use them only when the profile states them.
 - Maintain factual accuracy — enhance wording and presentation, don't fabricate achievements
+
+${SHARED_READ_ALOUD}
 
 ═══ OUTPUT FORMAT ═══
 Return a JSON object:
