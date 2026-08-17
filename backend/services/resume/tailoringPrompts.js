@@ -69,23 +69,50 @@ TITLE
   \`title\` field (e.g. if the JD says "Senior Product Manager" use that, not
   "Product Lead").
 
-CONTACT INFO — NOT YOURS TO HANDLE
+CONTACT INFO — NOT YOURS TO EDIT
 - Name, email, phone, LinkedIn, location and portfolio are attached by the
   renderer from the candidate's stored profile. There is no field for them in
   your output and they are never at risk from your edits.
 - So never write contact details into any field, and never emit a placeholder
   for a missing one. Both just end up as stray text in the middle of a resume.
 
+LOCATION CONFLICT — NOT YOURS TO EDIT, BUT YOURS TO RAISE
+- You cannot change the candidate's location, but you must NOTICE when the
+  posting is incompatible with it. Check the JD for on-site, in-office,
+  in-person, hybrid, relocation or "must be based in" requirements and compare
+  the named city against the candidate's location.
+- If they conflict — the JD requires in-office work in New York and the
+  candidate is in San Francisco — put it in \`matchAnalysis.locationFlag\` as a
+  question for the candidate: relocating, disclosing willingness to relocate, or
+  skipping the posting are their decision, not yours.
+- Never resolve it yourself: do not quietly write "open to relocation" into the
+  summary, and do not treat the conflict as a GENUINE GAP. It is not a skill
+  the candidate lacks; it is a fact about their life that only they can act on.
+- A hard on-site requirement the candidate cannot meet also caps the honest
+  match score. Say so in \`recommendation\` rather than scoring around it.
+
 SUMMARY
 - Rewrite summary to speak directly to this role's priorities
 - Short and plain: 2–3 sentences, no more. Shorter is better than padded.
+  This is a CEILING, not a target, and no user preference raises it. If the
+  candidate's length setting asks for more, it governs the EXPERIENCE
+  descriptions only — the summary still stops at three sentences.
 - No metrics in the summary. Numbers belong in bullets, where the work that
   produced them is visible.
-- Never copy phrasing from the job posting. If a sentence could be pasted back
-  into the JD without anyone noticing, rewrite it in the candidate's own words.
+- Never copy phrasing from the job posting. Concretely: no run of four or more
+  consecutive words in the summary may also appear in the JD. "Strong computer
+  science fundamentals" is four words lifted whole, and it is the kind of line
+  that gets checked. Say the same thing in the candidate's own register or say
+  nothing.
 - At most 1–2 JD terms, and only ones the candidate's actual history supports.
   A summary stuffed with posting language is the first thing a recruiter reads
   and the first thing that reads as generated.
+- EVERY CLAIM IN THE SUMMARY MUST BE VISIBLE IN A BULLET BELOW IT. Before you
+  write a summary sentence, point to the specific role and bullet that carries
+  the evidence. A summary is a table of contents for the resume, not an
+  additional place to make claims. If the JD wants visualization experience and
+  no role mentions visualization, the summary does not mention it either — that
+  requirement goes to GENUINE GAPS.
 - No adjective stacking ("experienced, motivated, versatile engineer"). Say what
   the person does and at what level, then stop.
 
@@ -133,8 +160,20 @@ SKILLS SECTION
 - Never add a skill the candidate has not demonstrated in their resume.
 
 EDUCATION COMPLETENESS
-- Always include institution name, degree or certificate title, and graduation year.
-- If any field is missing, add a placeholder: [add institution name] [add graduation year]
+- Education is a RECORD, not a pitch. It is never shortened, condensed, or
+  de-emphasised for relevance, and tailoring has no business editing it.
+- Copy every education entry from the source with its institution name, degree
+  or certificate title, and graduation year intact. If the source names
+  "UCSC Silicon Valley Extension", the output names it too — an entry that keeps
+  the certificate but loses the school is worse than no entry, because it reads
+  as a credential the candidate is hiding the source of.
+- Only add a placeholder ([add institution name], [add graduation year]) when
+  the SOURCE genuinely lacks that field. Never use one to replace a value you
+  dropped.
+- De-duplicating education means MERGING INTO the most complete entry — the one
+  that has the institution — and deleting the thinner duplicate. It never means
+  keeping the thin one. If merging two entries would lose any field present in
+  either, you have merged them wrong.
 - Never output an incomplete education entry.
 
 PROJECT DATES
@@ -213,28 +252,43 @@ skeptical recruiter would — not as an ATS parser:
 STEP 7: ${SHARED_READ_ALOUD}
 
 ═══════════════════════════════════════
-STEP 8: FINAL SWEEP BEFORE RETURNING
+STEP 8: COUNTED SELF-AUDIT BEFORE RETURNING
 ═══════════════════════════════════════
-Run these six checks over the JSON you are about to return. Fix anything that
-fails and re-check; do not return until all six pass.
+This step used to say "run these six checks and fix anything that fails". It
+was followed by output containing six metrics, the same percentage on three
+different companies, and one phrase repeated five times. Asserting that a check
+passed is not the same as running it, and only one of those two things can be
+verified. So this step is no longer a promise — it is arithmetic, and you show
+your work in the \`selfAudit\` field.
 
-1. ANNOTATIONS: scan every resume-facing string (summary, all experience
-   descriptions, all project descriptions, all skills). Zero review notes,
-   zero suggestions, zero commentary about the JD, zero "consider…" phrasing,
-   zero bracketed text other than the five permitted missing-fact
-   placeholders. Every tailoring decision has been APPLIED, and the reasoning
-   lives only in changelog / matchAnalysis.
-2. KEYWORD COUNT: no JD keyword appears more than twice in the whole resume,
-   and no stock phrase repeats across roles.
-3. BANNED VOCABULARY: none of the banned words appear in any form, and no
-   bullet ends in an abstract quality clause.
-4. METRICS: 3–4 total, of different kinds, no repeated percentage, every one
-   traceable to a number in the source resume.
-5. VARIATION: bullet lengths and shapes differ; older roles are shorter and
-   lighter than recent ones; roles do not all carry the same bullet count.
-6. CONSISTENCY: titles match across header/bullets/summary, education has no
-   duplicates, one date format throughout, hyphenation and product-name
-   capitalization uniform, no typos.`;
+Go through the finished JSON and LIST, not summarise:
+
+1. EVERY METRIC. Write out each number that survives, with the field it sits
+   in. Then count them. If the count is above 4, or two entries share a value,
+   or they are all the same kind, go back and drop the weakest until they are
+   not, and re-list.
+2. EVERY PHRASE OF TWO OR MORE WORDS THAT YOU USED MORE THAN ONCE. For each,
+   write the count and where it appears. Anything at 3+, or any JD keyword
+   above 2, gets rewritten in the concrete terms of that specific job — then
+   re-count.
+3. EVERY TERM IN THE DRAFT THAT IS NOT IN THE ORIGINAL RESUME. Read the skills
+   list and the summary against the source, term by term. Anything you cannot
+   point to a line of the original for goes in \`selfAudit.notInOriginal\` AND
+   comes out of the resume. Not softened. Out.
+4. EVERY TITLE. For each role, write the header title and any title mentioned
+   inside its own bullets. They must be identical strings. The header wins.
+5. EVERY EDUCATION ENTRY, against the source. Any institution, degree, or year
+   that was in the source and is not in your output is a defect, not an edit.
+6. ANNOTATIONS: zero review notes, suggestions, JD commentary, "consider…"
+   phrasing, or bracketed text beyond the permitted missing-fact placeholders.
+7. BANNED VOCABULARY, VARIATION, DATE FORMAT: none of the banned words in any
+   form; no bullet ending in an abstract quality clause; bullet lengths and
+   shapes differ; older roles shorter than recent ones; one date format.
+
+An independent review pass runs on this output afterwards. It counts the same
+things mechanically and compares against what you reported here, so a
+\`selfAudit\` that claims three metrics on a draft carrying six does not get the
+draft through — it just makes the discrepancy the first thing anyone sees.`;
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -530,6 +584,14 @@ ${resumeSection}
 ${jobDescription}
 ${keywordsBlock}${gapContext}${settingsContext}
 ═══ ADDITIONAL RULES ═══
+- PRECEDENCE: where a user preference below conflicts with an honesty rule or a
+  hard cap above (summary at 3 sentences, 4 metrics, keyword at 2 uses), the
+  rule above wins. A length preference lengthens EXPERIENCE descriptions; it
+  never lengthens the summary and never buys room for another metric.
+- The candidate's existing resume shown above is the ONLY source of truth for
+  what they have done. The JD tells you what to emphasise, never what to claim.
+  Any term you cannot locate in the resume above does not enter the output —
+  it goes to GENUINE GAPS instead.
 - This resume has ${expCount} experience entries. They do not all get the same treatment: the most recent and most JD-relevant roles carry the most bullets and the most detail, older roles get 1–3 short lines.
 - Reorder bullets within each role so the most JD-relevant appears first.
 - Never change a number that appears in the source. You may drop a metric by rephrasing its bullet without it; you may never alter, round, re-derive, or relocate one.
@@ -565,7 +627,16 @@ Return a JSON object with this exact structure:
     "strongMatches": ["5-8 areas where candidate directly matches JD"],
     "gaps": ["GENUINE GAPS — all JD requirements the resume cannot honestly cover"],
     "needsVerification": ["metrics or claims from the source resume the candidate should confirm before submitting — kept verbatim in the resume, never edited"],
+    "locationFlag": "null when there is no conflict, otherwise the conflict stated plainly as a question for the candidate — e.g. 'Posting requires on-site work in New York; profile location is San Francisco. Relocate, state willingness to relocate, or skip?'",
     "recommendation": "One specific action before submitting"
+  },
+  "selfAudit": {
+    "metrics": [{"value": "40%", "kind": "percentage", "location": "experience_1"}],
+    "metricCount": 3,
+    "repeatedPhrases": [{"phrase": "design system", "count": 2, "locations": ["experience_1", "skills"]}],
+    "notInOriginal": ["any term you could not trace to the source resume — these must ALSO be absent from the resume fields"],
+    "titleCheck": [{"role": "experience_1", "headerTitle": "Full Stack Web Developer", "titlesInBullets": []}],
+    "educationCheck": "one line confirming every institution, degree and year in the source survived into the output"
   },
   "changelog": [
     {"section": "title", "action": "matched", "detail": "Set title to match JD: Senior Software Engineer"},

@@ -72,10 +72,73 @@ export interface SavedAnswer {
 }
 
 export interface KeywordAnalysis {
-  score: number;
+  /** Share of the job's keywords the profile already covers, 0-100. */
+  matchScore: number;
+  /** Fully evidenced. On the AI pass this is `strong` coverage ONLY — half-
+   *  credit matches live in `partial`, so the count beside the score can't
+   *  claim more evidence than the score was computed from. */
   present: string[];
+  /** Requirements with adjacent or dated evidence — half credit in the score.
+   *  Absent on the on-device pass, which has no notion of evidence strength. */
+  partial?: string[];
   missing: string[];
-  suggestions: string[];
+  totalKeywords: number;
+  /** Where this came from. Scoring is on-device now, so 'local' is the normal
+   *  case; 'ai' remains for results restored from an older cached task. */
+  source?: 'local' | 'ai';
+  /** Importance per keyword (lowercased key) from the AI pass. The local pass
+   *  has no notion of importance and leaves this undefined. */
+  priorities?: Record<string, 'high' | 'medium' | 'low'>;
+  /** True when all we have is the vocabulary scan — the posting couldn't be
+   *  read into requirements, so there is nothing to score. It compares
+   *  vocabulary only, with no notion of title, seniority or evidence, so its
+   *  ratio is never shown as a match score. */
+  provisional?: boolean;
+  /** Why no score was produced, shown to the user verbatim. */
+  reason?: string;
+  /** Requirements that are stated as required, have no support in the profile,
+   *  and are of a kind a screen actually filters on. These are the ones that
+   *  fail an ATS; soft skills never appear here. */
+  blockers?: Array<{ requirement: string; type: string; why: string }>;
+  /** Sub-scores behind the number, so the UI can explain it. */
+  components?: {
+    roleFit: number;
+    /** Weighted share of requirements evidenced — this IS the score, before
+     *  role fit, seniority and recency modulate it. */
+    coverage: number;
+    /** null when the posting stated no requirements of that class; that
+     *  dimension was dropped from the score rather than scored as zero. */
+    mustCoverage: number | null;
+    niceCoverage: number | null;
+    seniorityFit: number;
+    recency: number;
+    mustCount: number;
+    niceCount: number;
+    /** Requirements with full evidence vs. half credit. */
+    strongCount: number;
+    partialCount: number;
+    /** Requirements that carried weight, and responsibilities that didn't. */
+    scoredCount: number;
+    unscoredCount: number;
+    /** 'dates' when seniority came from the profile's dates against a stated
+     *  minimum, 'model' when the posting named no years and we fell back. */
+    seniorityBasis: 'dates' | 'model';
+    candidateYears: number | null;
+    requiredYears: number | null;
+    cappedByBlockers: boolean;
+  };
+  /** Score if tailoring closes every gap it can close honestly. */
+  projectedScore?: number;
+  /** One sentence on what drove the score. */
+  verdict?: string;
+  /** Full requirement list with evidence, newest read only. */
+  requirements?: Array<{
+    requirement: string;
+    type: string;
+    hardness: 'must' | 'nice';
+    coverage: 'strong' | 'partial' | 'none';
+    evidence?: string;
+  }>;
 }
 
 // Message types for chrome.runtime messaging

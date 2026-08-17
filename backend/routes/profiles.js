@@ -2147,7 +2147,10 @@ router.post('/job-match', authMiddleware, aiRateLimiter('profile_enhance'), asyn
     const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
     try {
       const cached = await getCachedAnalysis({
-        kind: 'job_match',
+        // v2 namespace: rows written before the weighting rewrite hold scores
+        // computed with the old free-credit-for-an-empty-bucket arithmetic, and
+        // serving one would hand the user an inflated number from cache.
+        kind: 'job_match_v2',
         userId: req.user.id,
         profileData,
         jobDescription,
@@ -2189,17 +2192,28 @@ router.post('/job-match', authMiddleware, aiRateLimiter('profile_enhance'), asyn
       return res.status(502).json({ error: 'Could not read requirements from this posting' });
     }
 
-    const scored = scoreJobMatch(read);
+    // The profile goes in so seniority can be computed from real dates against
+    // the posting's stated years, instead of taken from the model's guess.
+    const scored = scoreJobMatch(read, profileData);
+
+    // Every line the model pulled was a responsibility or otherwise carries no
+    // weight, so there is nothing to score against. A 0% here would be an
+    // artefact of the arithmetic, not a fact about the candidate.
+    if (scored.components.scoredCount === 0) {
+      return res.status(502).json({ error: 'This posting states no checkable requirements to score against' });
+    }
 
     await recordAIUsage(req.user.id, 'profile_enhance');
 
     console.log(
-      '[job-match] user=%s score=%d roleFit=%s must=%d/%s blockers=%d',
+      '[job-match] user=%s score=%d roleFit=%s must=%d/%s seniority=%s(%s) blockers=%d',
       req.user.id,
       scored.score,
       scored.components.roleFit,
       scored.components.mustCount,
       scored.components.mustCoverage,
+      scored.components.seniorityFit,
+      scored.components.seniorityBasis,
       scored.blockers.length,
     );
 
@@ -2218,7 +2232,7 @@ router.post('/job-match', authMiddleware, aiRateLimiter('profile_enhance'), asyn
     };
 
     await setCachedAnalysis({
-      kind: 'job_match',
+      kind: 'job_match_v2',
       userId: req.user.id,
       profileData,
       jobDescription,

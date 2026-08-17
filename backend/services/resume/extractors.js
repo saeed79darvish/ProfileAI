@@ -7,6 +7,7 @@
 
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
+const { repairWrappedHyphens } = require('./textNormalizer');
 
 /**
  * Extract text from PDF file buffer
@@ -16,7 +17,11 @@ const mammoth = require('mammoth');
 async function extractPdfText(buffer) {
   try {
     const data = await pdfParse(buffer);
-    return data.text;
+    // A hyphenated compound broken across a line comes back joined
+    // ("componentdriven") or carrying a soft hyphen. Repairing it here means
+    // every downstream consumer — parsing, enhancement, tailoring, the
+    // fabrication diff — sees the same intact word.
+    return repairWrappedHyphens(data.text);
   } catch (error) {
     console.error('Error extracting PDF text:', error);
     throw new Error('Failed to extract text from PDF');
@@ -31,7 +36,7 @@ async function extractPdfText(buffer) {
 async function extractDocxText(buffer) {
   try {
     const result = await mammoth.extractRawText({ buffer });
-    return result.value;
+    return repairWrappedHyphens(result.value);
   } catch (error) {
     console.error('Error extracting DOCX text:', error);
     throw new Error('Failed to extract text from DOCX');

@@ -1,6 +1,14 @@
 // ProfileAI Background Service Worker
 import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
+import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
+import { analyzeJobMatchLocally, type Vocabulary } from '../jobMatch/localJobMatch';
+
+// Any task that was still running when a previous worker generation was torn
+// down has no fetch behind it any more. Flag those immediately on boot so a
+// reopened side panel shows "run it again" instead of a spinner that never
+// resolves. Runs at module scope, before any message can start a new task.
+void sweepInterruptedTasks();
 
 // State
 let authToken: string | null = null;
@@ -84,13 +92,33 @@ const NON_JOB_URL_PATTERNS = [
   /(^|\.)slack\.com/i,
   /(^|\.)chat\.openai\.com/i,
   /(^|\.)claude\.ai/i,
-  /(^|\.)profilleai\.com/i,
-  /localhost:3000/i,
+  // Our own web app. The dashboard/profile screens would hand the extractor
+  // phantom job info, but /jobs and /jobs/:id are real postings — carve those
+  // out. The character class after "jobs" is what keeps /my-jobs blocked.
+  // (The old `(^|\.)` form required a dot before the host, so it only ever
+  // matched www. and left the apex host unguarded.)
+  /(^|\/\/)(www\.)?profilleai\.com(?!\/jobs(?:[/?#]|$))/i,
+  /localhost:3000(?!\/jobs(?:[/?#]|$))/i,
 ];
 
 function isNonJobUrl(url: string | undefined | null): boolean {
   if (!url) return true;
   return NON_JOB_URL_PATTERNS.some((p) => p.test(url));
+}
+
+/** URL of the tab a panel-initiated operation is about. */
+async function activeTabUrl(): Promise<string> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tab?.url || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Task key for work scoped to whatever page is in front of the user. */
+async function activeTabJobKey(): Promise<string> {
+  return jobTaskKey({ jobUrl: await activeTabUrl() });
 }
 
 /** Clear any stale detected-job info so the SidePanel doesn't keep showing a
@@ -507,176 +535,15 @@ async function handleMessage(
       }
 
       case 'ANALYZE_JOB_PAGE': {
-        // Combined: extract job info via scripting API, then analyze keywords in one step
-        let pageJobInfo: any = null;
-        let resolvedTabId: number | null = null;
-        try {
-          const tabs2 = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          const tab = tabs2[0];
-          resolvedTabId = tab?.id ?? null;
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
-          // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
-          // titles/companies from social/profile/search pages.
-          if (isNonJobUrl(tab?.url)) {
-            console.log('[ProfileAI BG] Skipping analyze — non-job URL');
-            await clearStoredJobInfo();
-            sendResponse({ success: false, error: 'This page does not look like a job posting.' });
-            break;
-          }
-          if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-            // Method 1: executeScript (direct DOM access, no content script dependency)
-            try {
-              const results = await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () => {
-                  // Try multiple selectors, return first non-empty match
-                  const getText = (selectors: string[]) => {
-                    for (const sel of selectors) {
-                      try {
-                        const el = document.querySelector(sel);
-                        const text = el?.textContent?.trim();
-                        if (text && text.length > 0 && text.length < 500) return text;
-                      } catch (_) {}
-                    }
-                    return '';
-                  };
-                  let title = getText([
-                    '.job-details-jobs-unified-top-card__job-title a',
-                    '.job-details-jobs-unified-top-card__job-title h1',
-                    '.job-details-jobs-unified-top-card__job-title',
-                    '.jobs-unified-top-card__job-title a',
-                    '.jobs-unified-top-card__job-title h1',
-                    '.jobs-unified-top-card__job-title',
-                    '.jobs-details-top-card__job-title',
-                    '.top-card-layout__title',
-                    'h1.t-24', 'h1.t-18',
-                    'h1[class*="job"]', 'h2[class*="job-title"]',
-                    '.app-title',
-                    '.posting-headline h2',
-                    '[data-automation-id="jobPostingTitle"]',
-                    'h1',
-                  ]);
-                  let company = getText([
-                    '.job-details-jobs-unified-top-card__company-name a',
-                    '.job-details-jobs-unified-top-card__company-name',
-                    '.job-details-jobs-unified-top-card__primary-description-without-tagline a',
-                    '.jobs-unified-top-card__company-name a',
-                    '.jobs-unified-top-card__company-name',
-                    '.jobs-details-top-card__company-info a',
-                    '.topcard__org-name-link',
-                    'a[data-tracking-control-name*="company"]',
-                    '.job-details-jobs-unified-top-card__primary-description a[href*="/company/"]',
-                    'a[href*="/company/"]',
-                    '[class*="company-name"]',
-                    '[data-automation-id="jobPostingCompany"]',
-                  ]);
-                  // Fallback: extract from document.title (e.g. "Frontend Architect | Distyl | LinkedIn")
-                  if (!title || !company) {
-                    const docTitle = document.title || '';
-                    // LinkedIn pattern: "Job Title | Company | LinkedIn" or "(N) Job Title | Company | LinkedIn"
-                    const cleaned = docTitle.replace(/^\(\d+\)\s*/, '');
-                    const parts = cleaned.split(/\s*[|·–—]\s*/);
-                    if (parts.length >= 2) {
-                      if (!title && parts[0].length < 200) title = parts[0].trim();
-                      if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
-                    }
-                  }
-                  let description = '';
-                  for (const sel of [
-                    '#job-details', '.jobs-description-content', '.jobs-description__content',
-                    '.jobs-description-content__text', '.jobs-box__html-content',
-                    '.show-more-less-html__markup', 'div.jobs-description',
-                    'div[class*="jobs-description"]', 'section[class*="description"]',
-                    '.job-description', '#job_description',
-                    '[data-automation-id="jobPostingDescription"]',
-                    '.posting-page', '.section-wrapper',
-                    '[class*="job-description"]', '[class*="description"]',
-                    'article', 'main',
-                  ]) {
-                    try {
-                      const el = document.querySelector(sel);
-                      if (el) {
-                        const text = (el as HTMLElement).innerText || '';
-                        if (text.trim().length > description.length) description = text.trim();
-                      }
-                    } catch (_) {}
-                  }
-                  if (description.length < 100) description = document.body.innerText.slice(0, 8000);
-                  return { title, company, description };
-                },
-              });
-              if (results?.[0]?.result) {
-                pageJobInfo = results[0].result;
-                console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript result:', {
-                  title: pageJobInfo.title?.slice(0, 60),
-                  company: pageJobInfo.company?.slice(0, 40),
-                  descLength: pageJobInfo.description?.length || 0,
-                });
-              }
-            } catch (e) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript failed:', e);
-            }
-
-            // Method 2: Ask content script (has richer site-specific extraction)
-            try {
-              const csResponse = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
-              if (csResponse) {
-                // Use content script data if it's better (longer description, or has title/company we're missing)
-                const csDescLen = csResponse.description?.trim().length || 0;
-                const curDescLen = pageJobInfo?.description?.trim().length || 0;
-                const csBetter = csDescLen > curDescLen
-                  || (!pageJobInfo?.title && csResponse.title)
-                  || (!pageJobInfo?.company && csResponse.company);
-                if (csBetter) {
-                  console.log('[ProfileAI BG] ANALYZE_JOB_PAGE got better data from content script:', {
-                    title: csResponse.title?.slice(0, 60),
-                    company: csResponse.company?.slice(0, 40),
-                    descLength: csDescLen,
-                  });
-                  // Merge: prefer content script fields that are better
-                  pageJobInfo = {
-                    title: csResponse.title || pageJobInfo?.title || '',
-                    company: csResponse.company || pageJobInfo?.company || '',
-                    description: csDescLen > curDescLen ? csResponse.description : (pageJobInfo?.description || ''),
-                    location: csResponse.location || pageJobInfo?.location || '',
-                  };
-                }
-              }
-            } catch (e) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE content script message failed:', e);
-            }
-
-            // Store in storage for future use
-            if (pageJobInfo && (pageJobInfo.title || pageJobInfo.company || pageJobInfo.description)) {
-              chrome.storage.local.set({ currentJobInfo: pageJobInfo, currentJobUrl: tab.url });
-            }
-          }
-        } catch (e) {
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE tabs.query failed:', e);
-        }
-        // Storage fallback
-        if (!pageJobInfo || (!pageJobInfo.description || pageJobInfo.description.trim().length < 30)) {
-          try {
-            const stored = await chrome.storage.local.get(['currentJobInfo']);
-            if (stored.currentJobInfo && stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)) {
-              console.log('[ProfileAI BG] ANALYZE_JOB_PAGE using storage fallback, descLength:', stored.currentJobInfo.description?.length);
-              pageJobInfo = stored.currentJobInfo;
-            }
-          } catch (_) {}
-        }
-
-        if (!pageJobInfo?.description || pageJobInfo.description.trim().length < 30) {
-          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: no description found, pageJobInfo:', JSON.stringify(pageJobInfo)?.slice(0, 200));
-          sendResponse({ success: false, error: 'Could not extract job description from this page. Try scrolling down to load the full job description, then click Analyze again.', jobInfo: pageJobInfo });
-          break;
-        }
-
-        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
-        const analysisResult = await analyzeKeywords(pageJobInfo.description);
-        sendResponse({ ...analysisResult, jobInfo: pageJobInfo });
+        // Runs as a durable task so closing the side panel mid-analysis does not
+        // kill the page extraction, which is the slow part — the scoring itself
+        // is on-device and immediate.
+        const pageKey = await activeTabJobKey();
+        const jobPageResult = await runBackgroundTask('keywords', pageKey, undefined, analyzeActiveJobPage);
+        sendResponse(jobPageResult);
         break;
       }
-        
+
       case 'SYNC_AUTH_FROM_WEB':
         // Try to get auth from the web app
         await syncAuthFromWebApp();
@@ -694,40 +561,33 @@ async function handleMessage(
         
       case 'TAILOR_PROFILE': {
         const tailorData = message.data as { jobDescription: string; jobTitle?: string; company?: string; jobUrl?: string; gapSelections?: { acceptedGaps: string[]; skippedGaps: string[]; acceptedGapObjects?: any[] }; tailorSettings?: any };
-        // Persist in-flight state so the side panel can restore progress UI
-        // when it's closed and reopened mid-tailor.
-        const tailoringInFlight = {
-          jobUrl: tailorData.jobUrl || '',
-          jobTitle: tailorData.jobTitle || '',
-          company: tailorData.company || '',
-          startedAt: Date.now(),
-        };
-        try {
-          await chrome.storage.local.set({ tailoringInFlight });
-          await chrome.storage.local.remove(['tailoringResult', 'tailoringError']);
-        } catch (_) {}
+        // The whole run — AI call, cache write, backend save — lives inside the
+        // task, so none of it depends on the side panel still being open.
+        const tailorResult = await runBackgroundTask(
+          'tailor',
+          tailorData.jobUrl ? jobTaskKey({ jobUrl: tailorData.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: tailorData.jobUrl || '', jobTitle: tailorData.jobTitle || '', company: tailorData.company || '' },
+          async () => {
+            const result = await tailorProfileForJob(tailorData.jobDescription, tailorData.jobTitle, tailorData.company, tailorData.gapSelections, tailorData.tailorSettings);
+            if (!result?.success || !result.tailoredProfile) return result;
 
-        const tailorResult = await tailorProfileForJob(tailorData.jobDescription, tailorData.jobTitle, tailorData.company, tailorData.gapSelections, tailorData.tailorSettings);
-
-        // Persist the outcome so a closed-and-reopened side panel can pick it up.
-        try {
-          if (tailorResult?.success && tailorResult.tailoredProfile) {
+            // Stamp the job context onto the profile here rather than in the
+            // panel, so the stored task result and the direct response are the
+            // same object either way.
             const tailored = {
-              ...tailorResult.tailoredProfile,
+              ...result.tailoredProfile,
               jobTitle: tailorData.jobTitle,
               company: tailorData.company,
               _skillGaps: tailorData.gapSelections?.acceptedGapObjects || [],
             };
-            const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-            if (tailorData.jobUrl) {
-              tailoredCache[tailorData.jobUrl] = tailored;
-            }
-            await chrome.storage.local.set({
-              tailoredCache,
-              tailoringResult: { jobUrl: tailorData.jobUrl || '', tailored, ts: Date.now() },
-            });
+            try {
+              if (tailorData.jobUrl) {
+                const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+                tailoredCache[tailorData.jobUrl] = tailored;
+                await chrome.storage.local.set({ tailoredCache });
+              }
+            } catch (_) {}
 
-            // Save to backend in the background as well, so it doesn't depend on the panel staying open.
             saveTailoredProfile({
               jobTitle: tailorData.jobTitle || '',
               jobUrl: tailorData.jobUrl,
@@ -741,13 +601,10 @@ async function handleMessage(
                 createdAt: new Date().toISOString(),
               } : null,
             }).catch(() => {});
-          } else {
-            await chrome.storage.local.set({
-              tailoringError: { jobUrl: tailorData.jobUrl || '', error: tailorResult?.error || 'Tailoring failed', ts: Date.now() },
-            });
-          }
-        } catch (_) {}
-        try { await chrome.storage.local.remove('tailoringInFlight'); } catch (_) {}
+
+            return { ...result, tailoredProfile: tailored };
+          },
+        );
 
         sendResponse(tailorResult);
         break;
@@ -755,20 +612,32 @@ async function handleMessage(
 
       case 'ANALYZE_GAPS': {
         const gapData = message.data as { jobDescription: string; jobTitle?: string; company?: string };
-        const gapResult = await analyzeGapsForJob(gapData.jobDescription);
+        // Keyed by page, like every other job-scoped task, so the panel can
+        // tell whether a restored record belongs to the tab in front of the user.
+        const gapResult = await runBackgroundTask(
+          'gaps',
+          await activeTabJobKey(),
+          { jobTitle: gapData.jobTitle || '', company: gapData.company || '' },
+          () => analyzeGapsForJob(gapData.jobDescription),
+        );
         sendResponse(gapResult);
         break;
       }
 
       case 'ANALYZE_KEYWORDS':
-        const keywordData = message.data as { jobDescription: string };
-        const keywordResult = await analyzeKeywords(keywordData.jobDescription);
+        const keywordData = message.data as { jobDescription: string; jobTitle?: string };
+        const keywordResult = await analyzeKeywords(keywordData.jobDescription, keywordData.jobTitle);
         sendResponse(keywordResult);
         break;
 
       case 'GENERATE_AI_ANSWERS':
         const aiData = message.data as { questions: string[]; jobDescription: string; questionMeta?: Array<{ question: string; fieldType: string; options?: string[] | null }> };
-        const aiResult = await generateAIAnswers(aiData.questions, aiData.jobDescription, aiData.questionMeta);
+        const aiResult = await runBackgroundTask(
+          'singleAnswer',
+          `page-answers:${hashStringBg((aiData.questions || []).join('|'))}`,
+          undefined,
+          () => generateAIAnswers(aiData.questions, aiData.jobDescription, aiData.questionMeta),
+        );
         sendResponse(aiResult);
         break;
 
@@ -799,10 +668,33 @@ async function handleMessage(
           jobTitle?: string;
           company?: string;
           jobDescription: string;
+          jobUrl?: string;
           tone?: string;
           length?: string;
         };
-        const clResult = await generateCoverLetter(clData);
+        const clResult = await runBackgroundTask(
+          'coverLetter',
+          clData.jobUrl ? jobTaskKey({ jobUrl: clData.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: clData.jobUrl || '', jobTitle: clData.jobTitle || '', company: clData.company || '' },
+          async () => {
+            const result = await generateCoverLetter(clData);
+            // Cache here rather than in the modal — a letter that finishes
+            // after the panel closed must still be waiting when it reopens.
+            if (result?.success && result.coverLetter && clData.jobUrl) {
+              try {
+                const { coverLetterCache = {} } = await chrome.storage.local.get('coverLetterCache');
+                coverLetterCache[clData.jobUrl] = {
+                  coverLetter: result.coverLetter,
+                  jobTitle: clData.jobTitle,
+                  company: clData.company,
+                  savedAt: Date.now(),
+                };
+                await chrome.storage.local.set({ coverLetterCache });
+              } catch (_) {}
+            }
+            return result;
+          },
+        );
         sendResponse(clResult);
         break;
       }
@@ -833,7 +725,12 @@ async function handleMessage(
           jobInfo?: { title?: string; company?: string; description?: string } | null;
           jobUrl?: string;
         };
-        const result = await generateSmartAnswers(data);
+        const result = await runBackgroundTask(
+          'smartAnswers',
+          data.jobUrl ? jobTaskKey({ jobUrl: data.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: data.jobUrl || '', jobTitle: data.jobInfo?.title || '', company: data.jobInfo?.company || '', questions: data.questions },
+          () => generateSmartAnswers(data),
+        );
         sendResponse(result);
         break;
       }
@@ -845,7 +742,12 @@ async function handleMessage(
           jobUrl?: string;
           forceRegenerate?: boolean;
         };
-        const result = await generateSingleSmartAnswer(data);
+        const result = await runBackgroundTask(
+          'singleAnswer',
+          `${jobTaskKey({ jobUrl: data.jobUrl })}::${data.question?.id || 'q'}${data.forceRegenerate ? ':regen' : ''}`,
+          undefined,
+          () => generateSingleSmartAnswer(data),
+        );
         sendResponse(result);
         break;
       }
@@ -856,21 +758,36 @@ async function handleMessage(
           company?: string;
           jobDescription?: string;
         };
-        const result = await analyzeMatch(data);
+        const result = await runBackgroundTask(
+          'match',
+          await activeTabJobKey(),
+          { jobTitle: data.jobTitle || '', company: data.company || '' },
+          () => analyzeMatch(data),
+        );
         sendResponse(result);
         break;
       }
 
       case 'ANALYZE_LINKEDIN_PROFILE': {
         const data = (message.data || {}) as { targetTitle?: string };
-        const result = await analyzeLinkedInProfile(data.targetTitle);
+        const result = await runBackgroundTask(
+          'linkedin',
+          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
+          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
+          () => analyzeLinkedInProfile(data.targetTitle),
+        );
         sendResponse(result);
         break;
       }
 
       case 'ANALYZE_LINKEDIN_PROFILE_GUEST': {
         const data = (message.data || {}) as { targetTitle?: string };
-        const result = await analyzeLinkedInProfileGuest(data.targetTitle);
+        const result = await runBackgroundTask(
+          'linkedinGuest',
+          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
+          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
+          () => analyzeLinkedInProfileGuest(data.targetTitle),
+        );
         sendResponse(result);
         break;
       }
@@ -1557,38 +1474,271 @@ async function generateCoverLetter(data: {
 }
 
 // Keyword analysis — runs entirely client-side, no backend needed
-async function analyzeKeywords(jobDescription: string) {
+
+/**
+ * Extracts the job posting from the active tab (scripting API first, content
+ * script second, stored info as a fallback) and runs the keyword analysis on
+ * it. Returns the response shape the side panel expects.
+ */
+async function analyzeActiveJobPage(): Promise<any> {
+  let pageJobInfo: any = null;
+  let resolvedTabId: number | null = null;
+  try {
+    const tabs2 = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs2[0];
+    resolvedTabId = tab?.id ?? null;
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
+    // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
+    // titles/companies from social/profile/search pages.
+    if (isNonJobUrl(tab?.url)) {
+      console.log('[ProfileAI BG] Skipping analyze — non-job URL');
+      await clearStoredJobInfo();
+      return { success: false, error: 'This page does not look like a job posting.' };
+    }
+    if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+      // Method 1: executeScript (direct DOM access, no content script dependency)
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            // Try multiple selectors, return first non-empty match
+            const getText = (selectors: string[]) => {
+              for (const sel of selectors) {
+                try {
+                  const el = document.querySelector(sel);
+                  const text = el?.textContent?.trim();
+                  if (text && text.length > 0 && text.length < 500) return text;
+                } catch (_) {}
+              }
+              return '';
+            };
+            let title = getText([
+              '.job-details-jobs-unified-top-card__job-title a',
+              '.job-details-jobs-unified-top-card__job-title h1',
+              '.job-details-jobs-unified-top-card__job-title',
+              '.jobs-unified-top-card__job-title a',
+              '.jobs-unified-top-card__job-title h1',
+              '.jobs-unified-top-card__job-title',
+              '.jobs-details-top-card__job-title',
+              '.top-card-layout__title',
+              'h1.t-24', 'h1.t-18',
+              'h1[class*="job"]', 'h2[class*="job-title"]',
+              '.app-title',
+              '.posting-headline h2',
+              '[data-automation-id="jobPostingTitle"]',
+              'h1',
+            ]);
+            let company = getText([
+              '.job-details-jobs-unified-top-card__company-name a',
+              '.job-details-jobs-unified-top-card__company-name',
+              '.job-details-jobs-unified-top-card__primary-description-without-tagline a',
+              '.jobs-unified-top-card__company-name a',
+              '.jobs-unified-top-card__company-name',
+              '.jobs-details-top-card__company-info a',
+              '.topcard__org-name-link',
+              'a[data-tracking-control-name*="company"]',
+              '.job-details-jobs-unified-top-card__primary-description a[href*="/company/"]',
+              'a[href*="/company/"]',
+              '[class*="company-name"]',
+              '[data-automation-id="jobPostingCompany"]',
+            ]);
+            // Fallback: extract from document.title (e.g. "Frontend Architect | Distyl | LinkedIn")
+            if (!title || !company) {
+              const docTitle = document.title || '';
+              // LinkedIn pattern: "Job Title | Company | LinkedIn" or "(N) Job Title | Company | LinkedIn"
+              const cleaned = docTitle.replace(/^\(\d+\)\s*/, '');
+              const parts = cleaned.split(/\s*[|·–—]\s*/);
+              if (parts.length >= 2) {
+                if (!title && parts[0].length < 200) title = parts[0].trim();
+                if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
+              }
+            }
+            // Two tiers. The generic containers (`article`, `main`) are almost
+            // always the longest match on a page, so mixing them in with the
+            // specific ones meant they won on any list+detail layout — e.g.
+            // our own /jobs, where `main` is the 200-row sidebar plus the
+            // posting. Only fall back to them when nothing specific found a
+            // real description.
+            const longestOf = (selectors: string[]) => {
+              let best = '';
+              for (const sel of selectors) {
+                try {
+                  const el = document.querySelector(sel);
+                  if (el) {
+                    const text = ((el as HTMLElement).innerText || '').trim();
+                    if (text.length > best.length) best = text;
+                  }
+                } catch (_) {}
+              }
+              return best;
+            };
+            let description = longestOf([
+              '#job-details', '.jobs-description-content', '.jobs-description__content',
+              '.jobs-description-content__text', '.jobs-box__html-content',
+              '.show-more-less-html__markup', 'div.jobs-description',
+              'div[class*="jobs-description"]', 'section[class*="description"]',
+              '.job-description', '#job_description',
+              '[data-automation-id="jobPostingDescription"]',
+              '.posting-page', '.section-wrapper',
+              '.external-job-description',
+              '[class*="job-description"]', '[class*="description"]',
+            ]);
+            if (description.length < 400) {
+              const generic = longestOf(['article', 'main']);
+              if (generic.length > description.length) description = generic;
+            }
+            if (description.length < 100) description = document.body.innerText.slice(0, 8000);
+            return { title, company, description };
+          },
+        });
+        if (results?.[0]?.result) {
+          pageJobInfo = results[0].result;
+          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript result:', {
+            title: pageJobInfo.title?.slice(0, 60),
+            company: pageJobInfo.company?.slice(0, 40),
+            descLength: pageJobInfo.description?.length || 0,
+          });
+        }
+      } catch (e) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript failed:', e);
+      }
+
+      // Method 2: Ask content script (has richer site-specific extraction)
+      try {
+        const csResponse = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
+        if (csResponse) {
+          // Use content script data if it's better (longer description, or has title/company we're missing)
+          const csDescLen = csResponse.description?.trim().length || 0;
+          const curDescLen = pageJobInfo?.description?.trim().length || 0;
+          const csBetter = csDescLen > curDescLen
+            || (!pageJobInfo?.title && csResponse.title)
+            || (!pageJobInfo?.company && csResponse.company);
+          if (csBetter) {
+            console.log('[ProfileAI BG] ANALYZE_JOB_PAGE got better data from content script:', {
+              title: csResponse.title?.slice(0, 60),
+              company: csResponse.company?.slice(0, 40),
+              descLength: csDescLen,
+            });
+            // Merge: prefer content script fields that are better
+            pageJobInfo = {
+              title: csResponse.title || pageJobInfo?.title || '',
+              company: csResponse.company || pageJobInfo?.company || '',
+              description: csDescLen > curDescLen ? csResponse.description : (pageJobInfo?.description || ''),
+              location: csResponse.location || pageJobInfo?.location || '',
+            };
+          }
+        }
+      } catch (e) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE content script message failed:', e);
+      }
+
+      // Store in storage for future use
+      if (pageJobInfo && (pageJobInfo.title || pageJobInfo.company || pageJobInfo.description)) {
+        chrome.storage.local.set({ currentJobInfo: pageJobInfo, currentJobUrl: tab.url });
+      }
+    }
+  } catch (e) {
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE tabs.query failed:', e);
+  }
+  // Storage fallback
+  if (!pageJobInfo || (!pageJobInfo.description || pageJobInfo.description.trim().length < 30)) {
+    try {
+      const stored = await chrome.storage.local.get(['currentJobInfo']);
+      if (stored.currentJobInfo && stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)) {
+        console.log('[ProfileAI BG] ANALYZE_JOB_PAGE using storage fallback, descLength:', stored.currentJobInfo.description?.length);
+        pageJobInfo = stored.currentJobInfo;
+      }
+    } catch (_) {}
+  }
+
+  if (!pageJobInfo?.description || pageJobInfo.description.trim().length < 30) {
+    console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: no description found, pageJobInfo:', JSON.stringify(pageJobInfo)?.slice(0, 200));
+    return { success: false, error: 'Could not extract job description from this page. Try scrolling down to load the full job description, then click Analyze again.', jobInfo: pageJobInfo };
+  }
+
+  console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
+  // The title carries the role-fit judgement, so it goes in with the body.
+  const analysisResult = await analyzeKeywords(pageJobInfo.description, pageJobInfo.title);
+  return { ...analysisResult, jobInfo: pageJobInfo };
+}
+
+/**
+ * The vocabulary the local scorer reads with. Handed over explicitly so the
+ * job-page keyword scan and the match scorer can never drift onto two
+ * different keyword lists — that split is what once made 147 terms detectable
+ * in a posting but never in a candidate's own profile.
+ */
+// Built on demand rather than at module scope: the keyword lists it points at
+// are declared further down the file, so an eager const would read them before
+// they are assigned.
+const localVocabulary = (): Vocabulary => ({
+  keywords: KNOWN_KEYWORDS,
+  canonical: canonicalKeyword,
+  contains: containsKeyword,
+});
+
+/**
+ * Scores the candidate against a posting on-device.
+ *
+ * Reads the posting into requirements, grades the evidence for each against
+ * the profile, and applies the same weights the server uses. No AI call, so
+ * there is no credit spent, no quota to run out of, and no second pass to wait
+ * for — the number is there as soon as the page has been read.
+ *
+ * When the posting can't be read into requirements (a single prose paragraph,
+ * no qualifications section) it falls back to the vocabulary scan and marks the
+ * result provisional with a reason. That path shows the terms it found and
+ * declines to put a score on them, because a number derived from word overlap
+ * reads as authoritative and isn't.
+ */
+async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
   try {
     // Always refresh profile to get latest skills
     await fetchProfile();
-    
+
     const profile = cachedProfile || {} as any;
-    
-    // Debug: log what we got
-    console.log('[ProfileAI] Analyzing keywords:', {
-      hasProfile: !!cachedProfile,
-      descriptionLength: jobDescription?.length || 0,
-      descriptionPreview: jobDescription?.slice(0, 200) || '(empty)',
-      skills: profile.skills,
-      skillsType: typeof profile.skills,
-      experience: Array.isArray(profile.experience) ? profile.experience.length : 0,
+
+    const result = analyzeJobMatchLocally({
+      jobDescription,
+      jobTitle,
+      profile,
+      vocab: localVocabulary(),
     });
-    
-    const keywords = extractKeywordsLocal(jobDescription, profile);
-    
-    console.log('[ProfileAI] Keyword analysis result:', {
-      totalKeywords: keywords.totalKeywords,
-      present: keywords.present,
-      missing: keywords.missing,
-      matchScore: keywords.matchScore,
+
+    if ('unscorable' in result) {
+      console.log('[ProfileAI] Local match: posting not scoreable —', result.unscorable);
+      const scan = extractKeywordsLocal(jobDescription, profile);
+      return { success: true, keywords: { ...scan, reason: result.unscorable } };
+    }
+
+    console.log('[ProfileAI] Local match analysis:', {
+      score: result.matchScore,
+      projected: result.projectedScore,
+      requirements: result.totalKeywords,
+      evidenced: result.present.length,
+      partial: result.partial.length,
+      blockers: result.blockers.length,
+      components: result.components,
     });
-    
-    return { success: true, keywords };
+
+    return { success: true, keywords: result };
   } catch (error) {
     console.error('[ProfileAI] Keyword analysis error:', error);
     return { success: false, error: (error as Error).message };
   }
 }
+
+/**
+ * The AI second pass is gone.
+ *
+ * The match card used to show an instant on-device keyword ratio and then
+ * replace it seconds later with a server-scored result from /profiles/job-match
+ * (shaped by a `shapeJobMatch` helper, cached here for a day to avoid spending
+ * a second AI run on an unchanged posting). Scoring now happens on-device in
+ * jobMatch/localJobMatch.ts, so there is one pass, no credit spent, no cache to
+ * keep coherent, and no failure mode where the score never arrives. The server
+ * endpoint still exists for the web app.
+ */
 
 // Generic soft-skill / business terms that show up in nearly every JD as filler.
 // We require ≥2 occurrences for these to count, otherwise a single mention of
@@ -1602,10 +1752,159 @@ const SOFT_SKILL_FLUFF = new Set<string>([
   'sales', 'marketing', 'salesforce', 'hubspot', 'sap', 'erp', 'crm',
 ]);
 
+// Word-boundary occurrence count. Multi-word keywords carrying symbols
+// (".net", "c++", "ci/cd") need looser edges than \b, which misbehaves next to
+// punctuation. Shared by the job-description scan and the profile scan so both
+// sides of the comparison use identical matching rules.
+const escapeRegexBg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function countKeywordMatches(text: string, keyword: string): number {
+  if (!text || !keyword) return 0;
+  const hasSymbol = /[^a-z0-9 ]/i.test(keyword);
+  const pattern = hasSymbol
+    ? `(?<![a-z0-9])${escapeRegexBg(keyword)}(?![a-z0-9])`
+    : `\\b${escapeRegexBg(keyword)}\\b`;
+  try {
+    return text.match(new RegExp(pattern, 'gi'))?.length || 0;
+  } catch {
+    // Defensive fallback if a runtime doesn't support lookbehind
+    return text.match(new RegExp(`\\b${escapeRegexBg(keyword)}\\b`, 'gi'))?.length || 0;
+  }
+}
+
+const containsKeyword = (text: string, keyword: string): boolean =>
+  countKeywordMatches(text, keyword) > 0;
+
+// Comprehensive keyword list covering tech, business, and soft skills.
+// ONE list, used to read the job description AND to read the candidate's
+// profile. They used to be two different lists, which meant 147 terms could be
+// detected in a posting but never in the user's experience — those always came
+// back "missing" no matter what the person had actually done.
+const KNOWN_KEYWORDS = [
+  // Programming languages
+  'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
+  'rust', 'swift', 'kotlin', 'scala', 'php', 'perl', 'r lang', 'matlab', 'dart',
+  'elixir', 'haskell', 'lua', 'objective-c', 'groovy', 'powershell', 'bash', 'shell scripting',
+  // Frontend
+  'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt', 'gatsby',
+  'html', 'css', 'sass', 'less', 'tailwind', 'bootstrap', 'material ui',
+  'webpack', 'vite', 'rollup', 'babel', 'storybook',
+  'redux', 'mobx', 'zustand', 'recoil',
+  'frontend', 'front-end', 'front end',
+  // Backend
+  'node.js', 'nodejs', 'express', 'fastify', 'nestjs', 'django', 'flask', 'fastapi',
+  'spring', 'spring boot', '.net', 'asp.net', 'rails', 'ruby on rails', 'laravel',
+  'backend', 'back-end', 'back end',
+  'microservices', 'serverless',
+  'rest', 'restful', 'graphql', 'grpc', 'websocket', 'api',
+  // Databases
+  'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
+  'cassandra', 'dynamodb', 'firebase', 'supabase', 'sqlite', 'oracle', 'mariadb', 'neo4j',
+  // Cloud & DevOps
+  'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
+  'terraform', 'ansible', 'puppet', 'cloudformation',
+  'jenkins', 'github actions', 'gitlab ci', 'circleci',
+  'ci/cd', 'cicd', 'devops', 'sre', 'infrastructure',
+  'nginx', 'apache', 'load balancing', 'cdn',
+  'linux', 'unix', 'windows server',
+  'cloud', 'cloud computing',
+  'prometheus', 'grafana', 'datadog', 'splunk', 'monitoring',
+  // Data & ML
+  'machine learning', 'deep learning', 'neural network', 'nlp',
+  'natural language processing', 'computer vision',
+  'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
+  'data science', 'data engineering', 'data analysis', 'analytics',
+  'etl', 'data pipeline', 'data warehouse', 'snowflake', 'databricks', 'airflow',
+  'tableau', 'power bi', 'looker',
+  'big data', 'hadoop', 'spark', 'kafka',
+  'ai', 'artificial intelligence', 'llm', 'generative ai',
+  'statistics', 'regression', 'classification',
+  // Mobile
+  'ios', 'android', 'react native', 'flutter', 'swiftui',
+  'mobile', 'mobile development',
+  // Design & UX
+  'figma', 'sketch', 'adobe xd', 'invision',
+  'ux', 'ui', 'ux design', 'ui design', 'user experience', 'user interface',
+  'wireframe', 'prototype', 'design system', 'accessibility',
+  'responsive design', 'interaction design',
+  // Testing & QA
+  'unit testing', 'integration testing', 'e2e testing', 'end-to-end',
+  'jest', 'mocha', 'cypress', 'selenium', 'playwright', 'puppeteer',
+  'tdd', 'bdd', 'qa', 'quality assurance', 'automation testing', 'test automation',
+  // Project & product
+  'agile', 'scrum', 'kanban', 'waterfall', 'lean', 'safe',
+  'sprint', 'backlog', 'product owner', 'scrum master',
+  'project management', 'product management', 'program management',
+  'jira', 'confluence', 'asana', 'trello',
+  'roadmap', 'stakeholder management',
+  // Security
+  'security', 'cybersecurity', 'infosec', 'penetration testing',
+  'encryption', 'authentication', 'authorization', 'oauth', 'jwt', 'sso',
+  'owasp', 'compliance', 'gdpr', 'soc 2',
+  // Version control
+  'git', 'github', 'gitlab', 'bitbucket', 'code review', 'pull request',
+  // Architecture
+  'system design', 'distributed systems', 'high availability', 'scalability',
+  'performance', 'caching', 'message queue', 'rabbitmq', 'event-driven',
+  'design patterns', 'clean architecture',
+  'full stack', 'fullstack', 'full-stack',
+  // General tech
+  'web development', 'software engineering', 'software development',
+  'open source', 'documentation', 'technical writing',
+  // Soft skills
+  'communication', 'leadership', 'teamwork', 'collaboration', 'problem solving',
+  'mentoring', 'coaching', 'presentation', 'critical thinking', 'analytical',
+  'attention to detail', 'time management', 'organizational skills',
+  // Business / non-tech
+  'marketing', 'digital marketing', 'content marketing', 'seo', 'sem',
+  'sales', 'business development', 'strategy',
+  'crm', 'salesforce', 'hubspot', 'sap', 'erp',
+  'excel', 'powerpoint', 'google analytics',
+  'financial analysis', 'budgeting', 'forecasting',
+  'supply chain', 'logistics', 'operations',
+  'customer service', 'customer success', 'account management',
+  'negotiation', 'procurement',
+  'human resources', 'recruiting', 'talent acquisition',
+  'risk management', 'audit',
+];
+
+// Alias collapse, so "node.js" and "nodejs" never appear as two keywords.
+const KEYWORD_ALIASES: Record<string, string> = {
+  'nodejs': 'node.js', 'nextjs': 'next.js', 'front-end': 'frontend',
+  'front end': 'frontend', 'back-end': 'backend', 'back end': 'backend',
+  'full-stack': 'full stack', 'fullstack': 'full stack', 'cicd': 'ci/cd',
+  'postgres': 'postgresql', 'k8s': 'kubernetes', 'golang': 'go',
+  'restful': 'rest',
+  // Plural / variant collapse — fixes "design system" + "design systems" duplication
+  'design systems': 'design system',
+  'testing frameworks': 'unit testing',
+  'test automation': 'automation testing',
+  'user interface': 'ui',
+  'user experience': 'ux',
+  'natural language processing': 'nlp',
+  'artificial intelligence': 'ai',
+  'machine-learning': 'machine learning',
+};
+
+/** Canonical form of a keyword ("nodejs" and "node.js" are the same thing). */
+const canonicalKeyword = (kw: string): string => KEYWORD_ALIASES[kw] || kw;
+
+/** Every spelling of a canonical keyword, so a profile written as "golang"
+ *  still satisfies a posting that says "Go". */
+const KEYWORD_VARIANTS: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [alias, canonical] of Object.entries(KEYWORD_ALIASES)) {
+    (out[canonical] = out[canonical] || []).push(alias);
+  }
+  return out;
+})();
+
+const keywordSpellings = (keyword: string): string[] => [keyword, ...(KEYWORD_VARIANTS[keyword] || [])];
+
 function extractKeywordsLocal(jobDescription: string, profile: any) {
   if (!jobDescription || typeof jobDescription !== 'string' || jobDescription.trim().length < 20) {
     console.warn('[ProfileAI] extractKeywordsLocal: description too short or missing', { length: jobDescription?.length });
-    return { totalKeywords: 0, matchScore: 0, present: [], missing: [] };
+    return { totalKeywords: 0, matchScore: 0, present: [], missing: [], source: 'local' as const, provisional: true };
   }
 
   // Stash the original (case-preserved) JD on globalThis so extractDynamicKeywords
@@ -1613,204 +1912,87 @@ function extractKeywordsLocal(jobDescription: string, profile: any) {
   // from "experience with the company"). Also keep a lowercased copy for matching.
   (globalThis as any).__profileai_lastJobDescription = jobDescription;
   const text = jobDescription.toLowerCase();
-  // Comprehensive keyword list covering tech, business, and soft skills
-  const knownKeywords = [
-    // Programming languages
-    'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
-    'rust', 'swift', 'kotlin', 'scala', 'php', 'perl', 'r lang', 'matlab', 'dart',
-    'elixir', 'haskell', 'lua', 'objective-c', 'groovy', 'powershell', 'bash', 'shell scripting',
-    // Frontend
-    'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt', 'gatsby',
-    'html', 'css', 'sass', 'less', 'tailwind', 'bootstrap', 'material ui',
-    'webpack', 'vite', 'rollup', 'babel', 'storybook',
-    'redux', 'mobx', 'zustand', 'recoil',
-    'frontend', 'front-end', 'front end',
-    // Backend
-    'node.js', 'nodejs', 'express', 'fastify', 'nestjs', 'django', 'flask', 'fastapi',
-    'spring', 'spring boot', '.net', 'asp.net', 'rails', 'ruby on rails', 'laravel',
-    'backend', 'back-end', 'back end',
-    'microservices', 'serverless',
-    'rest', 'restful', 'graphql', 'grpc', 'websocket', 'api',
-    // Databases
-    'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
-    'cassandra', 'dynamodb', 'firebase', 'supabase', 'sqlite', 'oracle', 'mariadb', 'neo4j',
-    // Cloud & DevOps
-    'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
-    'terraform', 'ansible', 'puppet', 'cloudformation',
-    'jenkins', 'github actions', 'gitlab ci', 'circleci',
-    'ci/cd', 'cicd', 'devops', 'sre', 'infrastructure',
-    'nginx', 'apache', 'load balancing', 'cdn',
-    'linux', 'unix', 'windows server',
-    'cloud', 'cloud computing',
-    'prometheus', 'grafana', 'datadog', 'splunk', 'monitoring',
-    // Data & ML
-    'machine learning', 'deep learning', 'neural network', 'nlp',
-    'natural language processing', 'computer vision',
-    'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
-    'data science', 'data engineering', 'data analysis', 'analytics',
-    'etl', 'data pipeline', 'data warehouse', 'snowflake', 'databricks', 'airflow',
-    'tableau', 'power bi', 'looker',
-    'big data', 'hadoop', 'spark', 'kafka',
-    'ai', 'artificial intelligence', 'llm', 'generative ai',
-    'statistics', 'regression', 'classification',
-    // Mobile
-    'ios', 'android', 'react native', 'flutter', 'swiftui',
-    'mobile', 'mobile development',
-    // Design & UX
-    'figma', 'sketch', 'adobe xd', 'invision',
-    'ux', 'ui', 'ux design', 'ui design', 'user experience', 'user interface',
-    'wireframe', 'prototype', 'design system', 'accessibility',
-    'responsive design', 'interaction design',
-    // Testing & QA
-    'unit testing', 'integration testing', 'e2e testing', 'end-to-end',
-    'jest', 'mocha', 'cypress', 'selenium', 'playwright', 'puppeteer',
-    'tdd', 'bdd', 'qa', 'quality assurance', 'automation testing', 'test automation',
-    // Project & product
-    'agile', 'scrum', 'kanban', 'waterfall', 'lean', 'safe',
-    'sprint', 'backlog', 'product owner', 'scrum master',
-    'project management', 'product management', 'program management',
-    'jira', 'confluence', 'asana', 'trello',
-    'roadmap', 'stakeholder management',
-    // Security
-    'security', 'cybersecurity', 'infosec', 'penetration testing',
-    'encryption', 'authentication', 'authorization', 'oauth', 'jwt', 'sso',
-    'owasp', 'compliance', 'gdpr', 'soc 2',
-    // Version control
-    'git', 'github', 'gitlab', 'bitbucket', 'code review', 'pull request',
-    // Architecture
-    'system design', 'distributed systems', 'high availability', 'scalability',
-    'performance', 'caching', 'message queue', 'rabbitmq', 'event-driven',
-    'design patterns', 'clean architecture',
-    'full stack', 'fullstack', 'full-stack',
-    // General tech
-    'web development', 'software engineering', 'software development',
-    'open source', 'documentation', 'technical writing',
-    // Soft skills
-    'communication', 'leadership', 'teamwork', 'collaboration', 'problem solving',
-    'mentoring', 'coaching', 'presentation', 'critical thinking', 'analytical',
-    'attention to detail', 'time management', 'organizational skills',
-    // Business / non-tech
-    'marketing', 'digital marketing', 'content marketing', 'seo', 'sem',
-    'sales', 'business development', 'strategy',
-    'crm', 'salesforce', 'hubspot', 'sap', 'erp',
-    'excel', 'powerpoint', 'google analytics',
-    'financial analysis', 'budgeting', 'forecasting',
-    'supply chain', 'logistics', 'operations',
-    'customer service', 'customer success', 'account management',
-    'negotiation', 'procurement',
-    'human resources', 'recruiting', 'talent acquisition',
-    'risk management', 'audit',
-  ];
 
   // --- Phase 1: Check known keywords against job description ---
-  // Use word-boundary matching for ALL keywords to avoid substring false positives
-  // (e.g. "less" matching "wireless", "lean" matching "clean", "rust" matching "trust",
-  //  "safe" matching "safety", "sales" matching "wholesales", etc.).
-  // We also count occurrences so we can drop "mentioned once in passing" noise like
-  // a competitor name or an example product appearing in the company description.
-  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const countMatches = (text: string, keyword: string): number => {
-    // Multi-word keywords with non-alphanum chars (e.g. ".net", "c++", "ci/cd") need a
-    // looser boundary — \b doesn't behave well around symbols. Fall back to a simple
-    // word-edge check using lookarounds against alphanumerics.
-    const hasSymbol = /[^a-z0-9 ]/i.test(keyword);
-    const pattern = hasSymbol
-      ? `(?<![a-z0-9])${escapeRegex(keyword)}(?![a-z0-9])`
-      : `\\b${escapeRegex(keyword)}\\b`;
-    try {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      return matches ? matches.length : 0;
-    } catch {
-      // Defensive fallback if a runtime doesn't support lookbehind
-      const re = new RegExp(`\\b${escapeRegex(keyword)}\\b`, 'gi');
-      const matches = text.match(re);
-      return matches ? matches.length : 0;
-    }
-  };
-
-  // Short keywords (≤3 chars: "ai", "go", "ux", "ui", "qa", "r lang", etc.) are
-  // particularly noisy — require ≥1 strong hit but treat them as low-confidence
-  // unless they appear inside a requirements-like context.
-  const foundSet = new Set<string>();
-  for (const keyword of knownKeywords) {
-    const count = countMatches(text, keyword);
+  // Word-boundary matching for ALL keywords avoids substring false positives
+  // ("less" in "wireless", "rust" in "trust", "safe" in "safety"). Occurrence
+  // counts do double duty: they drop mentioned-once-in-passing noise, and they
+  // order the results by how much the posting actually leans on each term.
+  const counts = new Map<string, number>();
+  for (const keyword of KNOWN_KEYWORDS) {
+    const count = countKeywordMatches(text, keyword);
     if (count === 0) continue;
-    // Generic fluff terms ("communication", "leadership", "teamwork") need to
-    // appear at least twice to be treated as a real requirement, not a throwaway
-    // line in the company blurb. Same for any short ≤3-char keyword.
+    // Generic fluff ("communication", "leadership") and very short terms
+    // ("ai", "go", "ux") need a second mention to count as a real requirement
+    // rather than a throwaway line in the company blurb.
     const isFluff = SOFT_SKILL_FLUFF.has(keyword) || keyword.length <= 3;
     if (isFluff && count < 2) continue;
-    foundSet.add(keyword);
+    const canonical = canonicalKeyword(keyword);
+    counts.set(canonical, (counts.get(canonical) || 0) + count);
   }
 
   // --- Phase 2: Extract skills dynamically from requirements/qualifications ---
-  // Strict mode: only accept phrases that look like proper proper nouns / tech terms,
+  // Strict mode: only accept phrases that look like proper nouns / tech terms,
   // OR are already in our known vocabulary. Generic categorical phrases like
   // "design systems", "testing frameworks", "user interface" get filtered out
   // because they collapse to known aliases or fail the quality filter.
-  const knownKeywordsLower = new Set(knownKeywords.map(k => k.toLowerCase()));
-  const dynamicSkills = extractDynamicKeywords(text, knownKeywordsLower);
-  for (const skill of dynamicSkills) {
-    foundSet.add(skill);
+  const knownKeywordsLower = new Set(KNOWN_KEYWORDS.map((k) => k.toLowerCase()));
+  for (const skill of extractDynamicKeywords(text, knownKeywordsLower)) {
+    const canonical = canonicalKeyword(skill);
+    if (!counts.has(canonical)) {
+      counts.set(canonical, countKeywordMatches(text, skill) || 1);
+    }
   }
 
-  // Deduplicate aliases (e.g., keep "node.js" not both "node.js" and "nodejs")
-  const aliases: Record<string, string> = {
-    'nodejs': 'node.js', 'nextjs': 'next.js', 'front-end': 'frontend',
-    'front end': 'frontend', 'back-end': 'backend', 'back end': 'backend',
-    'full-stack': 'full stack', 'fullstack': 'full stack', 'cicd': 'ci/cd',
-    'postgres': 'postgresql', 'k8s': 'kubernetes', 'golang': 'go',
-    'restful': 'rest',
-    // Plural / variant collapse — fixes "design system" + "design systems" duplication
-    'design systems': 'design system',
-    'testing frameworks': 'unit testing',
-    'test automation': 'automation testing',
-    'user interface': 'ui',
-    'user experience': 'ux',
-    'natural language processing': 'nlp',
-    'artificial intelligence': 'ai',
-    'machine-learning': 'machine learning',
-  };
-  const deduped = new Set<string>();
-  for (const kw of foundSet) {
-    deduped.add(aliases[kw] || kw);
-  }
-  const foundInJob = Array.from(deduped);
+  // Most-repeated first. The UI ranks impact by position, so this ordering is
+  // what makes "high impact" mean anything at all.
+  const foundInJob = Array.from(counts.keys()).sort(
+    (a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || a.localeCompare(b),
+  );
 
   console.log('[ProfileAI] Keywords found in job description:', foundInJob.length, foundInJob.slice(0, 20));
 
   // --- Match against user profile ---
+  // A keyword counts as covered when it appears as a WHOLE WORD among the
+  // user's skills or in their experience text. The previous check was a
+  // bidirectional substring test, which matched "go" inside "mongodb", "ai"
+  // inside "tailwind" and "ui" inside "build tools" — every one of those
+  // inflated the score with skills the candidate never claimed.
   const profileSkills = flattenSkills(profile.skills);
-  const experienceSkills = extractSkillsFromExperience(profile.experience);
-  const allProfileSkills = [...new Set([...profileSkills, ...experienceSkills])];
+  const experienceKeywords = new Set(extractSkillsFromExperience(profile.experience));
+  const skillBlob = profileSkills.join(' | ');
 
   console.log('[ProfileAI] Extracted profile skills:', {
     fromSkillsField: profileSkills,
-    fromExperience: experienceSkills,
-    combined: allProfileSkills,
+    fromExperience: Array.from(experienceKeywords),
   });
 
   const present: string[] = [];
   const missing: string[] = [];
 
   for (const keyword of foundInJob) {
-    const hasSkill = allProfileSkills.some((skill) => {
-      if (skill === keyword) return true;
-      if (skill.includes(keyword) || keyword.includes(skill)) return true;
-      const normSkill = skill.replace(/[.\-\s]/g, '').toLowerCase();
-      const normKeyword = keyword.replace(/[.\-\s]/g, '').toLowerCase();
-      return normSkill === normKeyword || normSkill.includes(normKeyword) || normKeyword.includes(normSkill);
-    });
-    if (hasSkill) {
-      present.push(keyword);
-    } else {
-      missing.push(keyword);
-    }
+    const covered = keywordSpellings(keyword).some(
+      (spelling) => experienceKeywords.has(spelling) || containsKeyword(skillBlob, spelling),
+    );
+    if (covered) present.push(keyword);
+    else missing.push(keyword);
   }
 
   const matchScore = foundInJob.length > 0 ? Math.round((present.length / foundInJob.length) * 100) : 0;
 
-  return { totalKeywords: foundInJob.length, matchScore, present, missing };
+  // `provisional` is the important field here. This ratio is vocabulary overlap
+  // — it knows nothing about the candidate's title, seniority, or whether a term
+  // was a hard requirement or a word in the company blurb. Presented as a match
+  // score it reads as authoritative and is not; the panel shows the keyword
+  // chips from this pass but waits for /job-match for a number.
+  return {
+    totalKeywords: foundInJob.length,
+    matchScore,
+    present,
+    missing,
+    source: 'local' as const,
+    provisional: true,
+  };
 }
 
 /**
@@ -1955,47 +2137,16 @@ function flattenSkills(skills: any): string[] {
   return [];
 }
 
-// Extract skills mentioned in experience descriptions and titles
+/**
+ * Canonical keywords the candidate demonstrably has, read out of their
+ * experience entries. Uses the SAME vocabulary as the job-description scan —
+ * a second, shorter list here used to make 147 terms permanently unmatchable.
+ */
 function extractSkillsFromExperience(experience: any[]): string[] {
   if (!experience || !Array.isArray(experience)) return [];
-  
-  const techKeywordsToFind = [
-    'javascript', 'typescript', 'python', 'java', 'c#', 'c++', 'ruby', 'go', 'golang',
-    'rust', 'swift', 'kotlin', 'scala', 'php', 'react', 'angular', 'vue', 'svelte',
-    'next.js', 'nextjs', 'nuxt', 'node.js', 'nodejs', 'express', 'nestjs',
-    'django', 'flask', 'fastapi', 'spring', 'spring boot', '.net', 'rails', 'laravel',
-    'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s',
-    'terraform', 'ansible', 'jenkins', 'github actions', 'gitlab ci', 'circleci',
-    'sql', 'postgresql', 'postgres', 'mysql', 'mongodb', 'redis', 'elasticsearch',
-    'dynamodb', 'firebase', 'supabase', 'cassandra', 'neo4j',
-    'graphql', 'rest', 'restful', 'grpc', 'api', 'websocket',
-    'git', 'github', 'gitlab', 'bitbucket',
-    'agile', 'scrum', 'kanban', 'ci/cd', 'devops', 'sre',
-    'machine learning', 'deep learning', 'nlp', 'computer vision',
-    'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
-    'data science', 'data engineering', 'data analysis', 'analytics',
-    'tableau', 'power bi', 'looker', 'snowflake', 'databricks', 'airflow',
-    'hadoop', 'spark', 'kafka',
-    'figma', 'sketch', 'adobe xd', 'ux', 'ui',
-    'jest', 'mocha', 'cypress', 'selenium', 'playwright',
-    'product management', 'project management',
-    'frontend', 'backend', 'full stack', 'fullstack',
-    'web', 'mobile', 'ios', 'android', 'react native', 'flutter',
-    'css', 'html', 'sass', 'tailwind', 'bootstrap',
-    'webpack', 'vite', 'rollup',
-    'redux', 'mobx', 'zustand',
-    'nginx', 'linux', 'unix',
-    'cloud', 'serverless', 'microservices',
-    'security', 'cybersecurity', 'encryption', 'oauth', 'jwt',
-    'monitoring', 'prometheus', 'grafana', 'datadog',
-    'communication', 'leadership', 'mentoring', 'collaboration',
-    'salesforce', 'hubspot', 'sap', 'erp', 'crm',
-    'excel', 'seo', 'google analytics',
-    'marketing', 'sales', 'strategy', 'operations',
-  ];
-  
-  const found: Set<string> = new Set();
-  
+
+  const found = new Set<string>();
+
   experience.forEach((exp: any) => {
     // Combine all text fields from experience (handle both title and position field names)
     const textToSearch = [
@@ -2003,19 +2154,18 @@ function extractSkillsFromExperience(experience: any[]): string[] {
       exp.description || '',
       exp.company || '',
       ...(exp.achievements || []),
-      ...(exp.skills || []).map((s: any) => typeof s === 'string' ? s : s?.name || ''),
+      ...(exp.skills || []).map((s: any) => (typeof s === 'string' ? s : s?.name || '')),
     ].join(' ').toLowerCase();
-    
-    // Find matching tech keywords
-    techKeywordsToFind.forEach(keyword => {
-      // Use word boundary matching for better accuracy
-      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (regex.test(textToSearch) || textToSearch.includes(keyword)) {
-        found.add(keyword);
-      }
-    });
+
+    for (const keyword of KNOWN_KEYWORDS) {
+      // Two-letter terms ("ai", "go", "ux") are too easy to hit inside prose
+      // like "go-to-market", so free-form experience text doesn't get to claim
+      // them — only an explicit entry in the skills list does.
+      if (keyword.length <= 2) continue;
+      if (containsKeyword(textToSearch, keyword)) found.add(canonicalKeyword(keyword));
+    }
   });
-  
+
   return Array.from(found);
 }
 
@@ -2592,27 +2742,35 @@ async function analyzeMatch(payload: {
     }
     if (!cachedProfile) await fetchProfile();
 
-    // Run client-side keyword scoring + backend gap analysis in parallel.
+    // Run on-device match scoring + backend gap analysis in parallel.
     const [keywords, gapsResp] = await Promise.all([
-      analyzeKeywords(payload.jobDescription),
+      analyzeKeywords(payload.jobDescription, payload.jobTitle),
       analyzeGapsForJob(payload.jobDescription).catch(() => null),
     ]);
 
-    const matchScore = (keywords as any)?.matchScore ?? 0;
-    const presentKeywords: string[] = (keywords as any)?.present || [];
-    const missingKeywords: string[] = (keywords as any)?.missing || [];
+    // analyzeKeywords resolves to { success, keywords } — reading the score off
+    // the wrapper meant this modal showed 0% and no matched items on every run.
+    const analysis = (keywords as any)?.keywords || {};
+    const matchScore = analysis.matchScore ?? 0;
+    const presentKeywords: string[] = analysis.present || [];
+    const missingKeywords: string[] = analysis.missing || [];
+    const components = analysis.components || {};
 
-    // Build alignment bullets from the user's profile + matched keywords.
+    // Build alignment bullets from the user's profile + evidenced requirements.
     const profile = cachedProfile || ({} as any);
     const skills = flattenSkills(profile.skills);
     const alignments: string[] = [];
     if (presentKeywords.length > 0) {
-      alignments.push(`You match on ${presentKeywords.length} core keywords from the JD: ${presentKeywords.slice(0, 8).join(', ')}.`);
+      alignments.push(
+        `You can evidence ${presentKeywords.length} of the posting's requirements: ${presentKeywords.slice(0, 5).join('; ')}.`,
+      );
     }
     if (Array.isArray(profile.experience) && profile.experience.length > 0) {
       const recent = profile.experience[0];
-      if (recent?.title || recent?.company) {
-        alignments.push(`Recent role as ${recent.title || ''}${recent.company ? ` at ${recent.company}` : ''} aligns with the seniority being asked for.`);
+      // Only claim the seniority lines up when the numbers say it does — this
+      // used to assert it unconditionally.
+      if ((recent?.title || recent?.company) && (components.seniorityFit ?? 1) >= 0.8) {
+        alignments.push(`Recent role as ${recent.title || ''}${recent.company ? ` at ${recent.company}` : ''} sits in the range this posting asks for.`);
       }
     }
     if (skills.length >= 5) {
@@ -2631,13 +2789,13 @@ async function analyzeMatch(payload: {
     // Talking points = pair strongest alignments with concrete suggestions.
     const talkingPoints: string[] = [];
     if (presentKeywords.length > 0) {
-      talkingPoints.push(`Lead with a specific example showing ${presentKeywords[0]} in production.`);
+      talkingPoints.push(`Lead with a specific example covering "${presentKeywords[0]}".`);
     }
     if (presentKeywords[1]) {
-      talkingPoints.push(`Quantify impact involving ${presentKeywords[1]} (numbers > adjectives).`);
+      talkingPoints.push(`Quantify your impact on "${presentKeywords[1]}" (numbers > adjectives).`);
     }
     if (missingKeywords.length > 0) {
-      talkingPoints.push(`Pre-empt the gap on ${missingKeywords[0]} — name a transferable project, don't dodge it.`);
+      talkingPoints.push(`Pre-empt the gap on "${missingKeywords[0]}" — name a transferable project, don't dodge it.`);
     }
     if (payload.company) {
       talkingPoints.push(`Tie one sentence directly to ${payload.company}'s product, not just the role description.`);
