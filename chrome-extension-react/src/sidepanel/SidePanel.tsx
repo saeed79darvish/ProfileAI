@@ -175,8 +175,6 @@ export const SidePanel: React.FC = () => {
   const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
   const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
   const [keywordAnalysis, setKeywordAnalysis] = useState<KeywordAnalysis | null>(null);
-  /** The AI second pass is running over the instant local result. */
-  const [keywordsRefining, setKeywordsRefining] = useState(false);
   // Snapshot of the keyword analysis captured when tailoring starts, so the
   // tailored result can show an honest before → after comparison.
   const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
@@ -1081,14 +1079,9 @@ export const SidePanel: React.FC = () => {
     setIsAnalyzing(true);
     beginOp('keywords');
     try {
-      // Use ANALYZE_JOB_PAGE: background extracts fresh job info via scripting API + analyzes in one step.
-      // refineWithAi asks the worker to follow up with the model-backed pass —
-      // only set here, on a deliberate click, never on the internal
-      // "I just need the job info" calls in the tailor/cover-letter flows.
-      const response = await chrome.runtime.sendMessage({
-        type: 'ANALYZE_JOB_PAGE',
-        data: { refineWithAi: true },
-      });
+      // ANALYZE_JOB_PAGE extracts fresh job info via the scripting API and
+      // scores it on-device in one step — there is no second pass to trigger.
+      const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
 
       // Update the job card with fresh info (accept if it has description, title, or company)
       if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
@@ -1097,7 +1090,9 @@ export const SidePanel: React.FC = () => {
 
       if (response?.success && response?.keywords) {
         setKeywordAnalysis(response.keywords);
-        showNotification(`Matched ${response.keywords.present.length} of ${response.keywords.totalKeywords} keywords`, 'success');
+        // No toast: the card itself carries the result, and a "matched N of M"
+        // banner would announce a count the card deliberately breaks apart into
+        // evidenced / partial / gaps.
       } else {
         throw new Error(response?.error || 'Analysis failed');
       }
@@ -1227,16 +1222,6 @@ export const SidePanel: React.FC = () => {
         if (res?.jobInfo && (res.jobInfo.title || res.jobInfo.company || res.jobInfo.description)) {
           setCurrentJob(res.jobInfo);
         }
-        if (res?.keywords) setKeywordAnalysis(res.keywords);
-        return;
-      }
-
-      case 'keywordsAi': {
-        // Upgrade-only. The local numbers are already on screen, so a failure
-        // here (no credits, offline, unusable response) stays silent rather
-        // than replacing a usable result with an error.
-        setKeywordsRefining(running);
-        if (running || failure) return;
         if (res?.keywords) setKeywordAnalysis(res.keywords);
         return;
       }
@@ -1525,7 +1510,6 @@ export const SidePanel: React.FC = () => {
               onAnalyze={handleAnalyzeKeywords}
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
-              isRefining={keywordsRefining}
               onTailor={handleTailor}
               isTailoring={isTailoring || isAnalyzingGaps}
               hasTailored={!!tailoredProfile}

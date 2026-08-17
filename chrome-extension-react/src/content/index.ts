@@ -714,7 +714,7 @@ function handleNavigation() {
   if (oldBanner) oldBanner.remove();
   document.getElementById('profileai-inline-banner')?.remove();
   document.getElementById('profileai-li-topbtn')?.remove();
-  inlineBannerState = { analyzing: false, tailoring: false, score: null, present: [], missing: [] };
+  inlineBannerState = { analyzing: false, tailoring: false, score: null, present: [], missing: [], total: null };
 
   // Update stored job info for the overlay SidePanel — cascade retries.
   // ONLY store when this is actually a job page: getJobInfo()'s `h1` fallback
@@ -1573,7 +1573,10 @@ let inlineBannerState: {
   score: number | null;
   present: string[];
   missing: string[];
-} = { analyzing: false, tailoring: false, score: null, present: [], missing: [] };
+  /** Requirements read from the posting. Null when the scorer couldn't read
+   *  any, in which case there is no score either. */
+  total: number | null;
+} = { analyzing: false, tailoring: false, score: null, present: [], missing: [], total: null };
 
 function injectLinkedInBanner() {
   // ── Disabled ──────────────────────────────────────────────────────────
@@ -1827,14 +1830,18 @@ async function handleInlineAnalyze(banner: HTMLElement) {
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'ANALYZE_KEYWORDS',
-      data: { jobDescription: jobInfo.description },
+      // The title drives the role-fit judgement in the on-device scorer.
+      data: { jobDescription: jobInfo.description, jobTitle: jobInfo.title },
     });
 
     if (response?.success && response?.keywords) {
       const kw = response.keywords;
-      inlineBannerState.score = kw.matchScore ?? Math.round((kw.present.length / Math.max(kw.totalKeywords, 1)) * 100);
+      // A provisional result is the vocabulary scan — the posting couldn't be
+      // read into requirements, so there is no score to show.
+      inlineBannerState.score = kw.provisional ? null : kw.matchScore ?? null;
       inlineBannerState.present = kw.present || [];
       inlineBannerState.missing = kw.missing || [];
+      inlineBannerState.total = kw.totalKeywords ?? null;
       updateBannerScore(banner);
     } else {
       showNotification(response?.error || 'Keyword analysis failed');
@@ -1851,11 +1858,13 @@ async function handleInlineAnalyze(banner: HTMLElement) {
 }
 
 function updateBannerScore(banner: HTMLElement) {
-  const score = inlineBannerState.score ?? 0;
+  const score = inlineBannerState.score;
   const present = inlineBannerState.present;
   const missing = inlineBannerState.missing;
-  const total = present.length + missing.length;
-  const deg = Math.round((score / 100) * 360);
+  // The requirement count from the scorer, not present + missing: partial
+  // matches are in neither list, so adding the two understated the total.
+  const total = inlineBannerState.total ?? present.length + missing.length;
+  const deg = Math.round(((score ?? 0) / 100) * 360);
 
   const scoreEl = banner.querySelector('.profileai-inline-score') as HTMLElement;
   const titleEl = banner.querySelector('.profileai-inline-title') as HTMLElement;
@@ -1863,12 +1872,16 @@ function updateBannerScore(banner: HTMLElement) {
 
   if (scoreEl) {
     scoreEl.style.setProperty('--score-deg', `${deg}deg`);
-    scoreEl.setAttribute('data-label', `${score}%`);
+    scoreEl.setAttribute('data-label', score === null ? '—' : `${score}%`);
   }
   if (titleEl) titleEl.textContent = 'Resume Match';
   if (subEl) {
+    if (score === null) {
+      subEl.textContent = "This posting's requirements couldn't be read";
+      return;
+    }
     const color = score >= 70 ? '#16a34a' : score >= 40 ? '#d97706' : '#dc2626';
-    subEl.innerHTML = `<span style="color:${color};font-weight:600">${present.length} of ${total} keywords</span> in your profile`;
+    subEl.innerHTML = `<span style="color:${color};font-weight:600">${present.length} of ${total} requirements</span> evidenced in your profile`;
   }
 }
 

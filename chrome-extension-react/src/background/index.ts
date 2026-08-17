@@ -2,6 +2,7 @@
 import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
 import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
+import { analyzeJobMatchLocally, type Vocabulary } from '../jobMatch/localJobMatch';
 
 // Any task that was still running when a previous worker generation was torn
 // down has no fetch behind it any more. Flag those immediately on boot so a
@@ -534,32 +535,12 @@ async function handleMessage(
       }
 
       case 'ANALYZE_JOB_PAGE': {
-        // Runs as a durable task so closing the side panel mid-analysis
-        // does not kill the extraction + keyword run.
+        // Runs as a durable task so closing the side panel mid-analysis does not
+        // kill the page extraction, which is the slow part — the scoring itself
+        // is on-device and immediate.
         const pageKey = await activeTabJobKey();
         const jobPageResult = await runBackgroundTask('keywords', pageKey, undefined, analyzeActiveJobPage);
         sendResponse(jobPageResult);
-
-        // An explicit "Analyze" click also earns a second, AI-quality pass.
-        // Deliberately not awaited: the panel already has the instant local
-        // numbers, and the task layer keeps the worker alive until the
-        // refinement lands even if the panel is closed in the meantime.
-        // Only user-initiated analysis sets this flag — the tailor and cover
-        // letter flows call ANALYZE_JOB_PAGE just to read the page, and must
-        // not quietly spend an AI credit doing it.
-        const wantsRefine = (message.data as any)?.refineWithAi === true;
-        const description = jobPageResult?.jobInfo?.description;
-        if (wantsRefine && jobPageResult?.success && description) {
-          void runBackgroundTask(
-            'keywordsAi',
-            pageKey,
-            { jobTitle: jobPageResult.jobInfo?.title || '', company: jobPageResult.jobInfo?.company || '' },
-            () => refineKeywordsWithAI({
-              jobDescription: description,
-              jobTitle: jobPageResult.jobInfo?.title || '',
-            }),
-          );
-        }
         break;
       }
 
@@ -644,8 +625,8 @@ async function handleMessage(
       }
 
       case 'ANALYZE_KEYWORDS':
-        const keywordData = message.data as { jobDescription: string };
-        const keywordResult = await analyzeKeywords(keywordData.jobDescription);
+        const keywordData = message.data as { jobDescription: string; jobTitle?: string };
+        const keywordResult = await analyzeKeywords(keywordData.jobDescription, keywordData.jobTitle);
         sendResponse(keywordResult);
         break;
 
@@ -1676,185 +1657,88 @@ async function analyzeActiveJobPage(): Promise<any> {
   }
 
   console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
-  const analysisResult = await analyzeKeywords(pageJobInfo.description);
+  // The title carries the role-fit judgement, so it goes in with the body.
+  const analysisResult = await analyzeKeywords(pageJobInfo.description, pageJobInfo.title);
   return { ...analysisResult, jobInfo: pageJobInfo };
 }
 
-async function analyzeKeywords(jobDescription: string) {
+/**
+ * The vocabulary the local scorer reads with. Handed over explicitly so the
+ * job-page keyword scan and the match scorer can never drift onto two
+ * different keyword lists — that split is what once made 147 terms detectable
+ * in a posting but never in a candidate's own profile.
+ */
+// Built on demand rather than at module scope: the keyword lists it points at
+// are declared further down the file, so an eager const would read them before
+// they are assigned.
+const localVocabulary = (): Vocabulary => ({
+  keywords: KNOWN_KEYWORDS,
+  canonical: canonicalKeyword,
+  contains: containsKeyword,
+});
+
+/**
+ * Scores the candidate against a posting on-device.
+ *
+ * Reads the posting into requirements, grades the evidence for each against
+ * the profile, and applies the same weights the server uses. No AI call, so
+ * there is no credit spent, no quota to run out of, and no second pass to wait
+ * for — the number is there as soon as the page has been read.
+ *
+ * When the posting can't be read into requirements (a single prose paragraph,
+ * no qualifications section) it falls back to the vocabulary scan and marks the
+ * result provisional with a reason. That path shows the terms it found and
+ * declines to put a score on them, because a number derived from word overlap
+ * reads as authoritative and isn't.
+ */
+async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
   try {
     // Always refresh profile to get latest skills
     await fetchProfile();
-    
+
     const profile = cachedProfile || {} as any;
-    
-    // Debug: log what we got
-    console.log('[ProfileAI] Analyzing keywords:', {
-      hasProfile: !!cachedProfile,
-      descriptionLength: jobDescription?.length || 0,
-      descriptionPreview: jobDescription?.slice(0, 200) || '(empty)',
-      skills: profile.skills,
-      skillsType: typeof profile.skills,
-      experience: Array.isArray(profile.experience) ? profile.experience.length : 0,
+
+    const result = analyzeJobMatchLocally({
+      jobDescription,
+      jobTitle,
+      profile,
+      vocab: localVocabulary(),
     });
-    
-    const keywords = extractKeywordsLocal(jobDescription, profile);
-    
-    console.log('[ProfileAI] Keyword analysis result:', {
-      totalKeywords: keywords.totalKeywords,
-      present: keywords.present,
-      missing: keywords.missing,
-      matchScore: keywords.matchScore,
+
+    if ('unscorable' in result) {
+      console.log('[ProfileAI] Local match: posting not scoreable —', result.unscorable);
+      const scan = extractKeywordsLocal(jobDescription, profile);
+      return { success: true, keywords: { ...scan, reason: result.unscorable } };
+    }
+
+    console.log('[ProfileAI] Local match analysis:', {
+      score: result.matchScore,
+      projected: result.projectedScore,
+      requirements: result.totalKeywords,
+      evidenced: result.present.length,
+      partial: result.partial.length,
+      blockers: result.blockers.length,
+      components: result.components,
     });
-    
-    return { success: true, keywords };
+
+    return { success: true, keywords: result };
   } catch (error) {
     console.error('[ProfileAI] Keyword analysis error:', error);
     return { success: false, error: (error as Error).message };
   }
 }
 
-const KEYWORD_AI_CACHE_KEY = 'keywordAiCache';
-const KEYWORD_AI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const KEYWORD_AI_CACHE_MAX = 20;
-
-/** Shapes the /job-match response into the panel's analysis shape.
- *
- *  `present` / `missing` are kept because the rest of the panel (tailor
- *  snapshot, cover letter, match analysis) reads them, but they are now derived
- *  from requirements-with-evidence rather than dictionary hits: `present` is
- *  what the candidate can actually evidence, `missing` is what they can't,
- *  hard requirements first. */
-function shapeJobMatch(data: any): {
-  matchScore: number;
-  present: string[];
-  missing: string[];
-  totalKeywords: number;
-  source: 'ai';
-  priorities: Record<string, 'high' | 'medium' | 'low'>;
-  blockers: Array<{ requirement: string; type: string; why: string }>;
-  components: any;
-  projectedScore: number;
-  verdict: string;
-  requirements: any[];
-} | null {
-  const requirements = Array.isArray(data?.requirements) ? data.requirements : [];
-  if (requirements.length === 0 || typeof data?.score !== 'number') return null;
-
-  const label = (r: any) => (typeof r?.requirement === 'string' ? r.requirement.trim() : '');
-  const covered = requirements.filter((r: any) => r?.coverage === 'strong' || r?.coverage === 'partial');
-  const uncovered = requirements.filter((r: any) => r?.coverage === 'none');
-  const byHardness = (list: any[]) => [
-    ...list.filter((r) => r?.hardness === 'must'),
-    ...list.filter((r) => r?.hardness !== 'must'),
-  ];
-
-  const present = byHardness(covered).map(label).filter(Boolean).slice(0, 24);
-  const missing = byHardness(uncovered).map(label).filter(Boolean).slice(0, 16);
-
-  // Impact now means what it says: a missing hard requirement a screen filters
-  // on is high, any other hard requirement is medium, preferred is low.
-  const blockerSet = new Set(
-    (Array.isArray(data.blockers) ? data.blockers : []).map((b: any) =>
-      String(b?.requirement || '').toLowerCase(),
-    ),
-  );
-  const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
-  for (const r of uncovered) {
-    const name = label(r).toLowerCase();
-    if (!name) continue;
-    priorities[name] = blockerSet.has(name) ? 'high' : r?.hardness === 'must' ? 'medium' : 'low';
-  }
-
-  return {
-    matchScore: Math.round(data.score),
-    present,
-    missing,
-    totalKeywords: requirements.length,
-    source: 'ai',
-    priorities,
-    blockers: Array.isArray(data.blockers) ? data.blockers : [],
-    components: data.components || null,
-    projectedScore: typeof data.projectedScore === 'number' ? data.projectedScore : Math.round(data.score),
-    verdict: typeof data.verdict === 'string' ? data.verdict : '',
-    requirements,
-  };
-}
-
 /**
- * The authoritative pass: scores the candidate against the posting server-side
- * (requirements, evidence, role and seniority fit) and replaces the on-device
- * keyword scan. Results are cached per job description for a day, so re-opening
- * the panel or hitting Re-analyze on an unchanged posting doesn't spend another
- * credit.
+ * The AI second pass is gone.
+ *
+ * The match card used to show an instant on-device keyword ratio and then
+ * replace it seconds later with a server-scored result from /profiles/job-match
+ * (shaped by a `shapeJobMatch` helper, cached here for a day to avoid spending
+ * a second AI run on an unchanged posting). Scoring now happens on-device in
+ * jobMatch/localJobMatch.ts, so there is one pass, no credit spent, no cache to
+ * keep coherent, and no failure mode where the score never arrives. The server
+ * endpoint still exists for the web app.
  */
-async function refineKeywordsWithAI(payload: { jobDescription: string; jobTitle?: string }) {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-
-  const description = (payload.jobDescription || '').trim();
-  if (description.length < 120) {
-    return { success: false, error: 'Job description too short to refine' };
-  }
-
-  // v2 namespace: entries written before the job-match rewrite hold keyword
-  // ratios, not scores, and must not be served as if they were the new number.
-  const cacheKey = `v2:${hashStringBg(description.slice(0, 4000))}`;
-  try {
-    const { [KEYWORD_AI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(KEYWORD_AI_CACHE_KEY);
-    const hit = cache?.[cacheKey];
-    if (hit?.keywords && Date.now() - (hit.cachedAt || 0) < KEYWORD_AI_CACHE_TTL_MS) {
-      console.log('[ProfileAI] Keyword refinement cache hit — no credit spent');
-      return { success: true, keywords: hit.keywords };
-    }
-  } catch (_) { /* cache is best-effort */ }
-
-  await fetchProfile();
-  if (!cachedProfile) return { success: false, error: 'No profile to compare against' };
-
-  try {
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/job-match`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        profileData: cachedProfile,
-        jobDescription: description,
-        jobTitle: payload.jobTitle || '',
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({} as any));
-      // 429 here means the user is out of AI runs. Not an error worth shouting
-      // about — they still have the local keyword scan.
-      return { success: false, error: err.error || `Server returned ${response.status}` };
-    }
-
-    const data = await response.json();
-    const keywords = shapeJobMatch(data?.data);
-    if (!keywords) return { success: false, error: 'AI returned an unusable result' };
-
-    try {
-      const { [KEYWORD_AI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(KEYWORD_AI_CACHE_KEY);
-      const next: Record<string, any> = { ...cache, [cacheKey]: { keywords, cachedAt: Date.now() } };
-      const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
-      if (entries.length > KEYWORD_AI_CACHE_MAX) {
-        entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
-        const trimmed: Record<string, any> = {};
-        entries.slice(0, KEYWORD_AI_CACHE_MAX).forEach(([k, v]) => (trimmed[k] = v));
-        await chrome.storage.local.set({ [KEYWORD_AI_CACHE_KEY]: trimmed });
-      } else {
-        await chrome.storage.local.set({ [KEYWORD_AI_CACHE_KEY]: next });
-      }
-    } catch (_) { /* non-fatal */ }
-
-    return { success: true, keywords };
-  } catch (error) {
-    console.warn('[ProfileAI] Keyword refinement failed:', error);
-    return { success: false, error: (error as Error).message || 'Refinement failed' };
-  }
-}
 
 // Generic soft-skill / business terms that show up in nearly every JD as filler.
 // We require ≥2 occurrences for these to count, otherwise a single mention of
@@ -2858,27 +2742,35 @@ async function analyzeMatch(payload: {
     }
     if (!cachedProfile) await fetchProfile();
 
-    // Run client-side keyword scoring + backend gap analysis in parallel.
+    // Run on-device match scoring + backend gap analysis in parallel.
     const [keywords, gapsResp] = await Promise.all([
-      analyzeKeywords(payload.jobDescription),
+      analyzeKeywords(payload.jobDescription, payload.jobTitle),
       analyzeGapsForJob(payload.jobDescription).catch(() => null),
     ]);
 
-    const matchScore = (keywords as any)?.matchScore ?? 0;
-    const presentKeywords: string[] = (keywords as any)?.present || [];
-    const missingKeywords: string[] = (keywords as any)?.missing || [];
+    // analyzeKeywords resolves to { success, keywords } — reading the score off
+    // the wrapper meant this modal showed 0% and no matched items on every run.
+    const analysis = (keywords as any)?.keywords || {};
+    const matchScore = analysis.matchScore ?? 0;
+    const presentKeywords: string[] = analysis.present || [];
+    const missingKeywords: string[] = analysis.missing || [];
+    const components = analysis.components || {};
 
-    // Build alignment bullets from the user's profile + matched keywords.
+    // Build alignment bullets from the user's profile + evidenced requirements.
     const profile = cachedProfile || ({} as any);
     const skills = flattenSkills(profile.skills);
     const alignments: string[] = [];
     if (presentKeywords.length > 0) {
-      alignments.push(`You match on ${presentKeywords.length} core keywords from the JD: ${presentKeywords.slice(0, 8).join(', ')}.`);
+      alignments.push(
+        `You can evidence ${presentKeywords.length} of the posting's requirements: ${presentKeywords.slice(0, 5).join('; ')}.`,
+      );
     }
     if (Array.isArray(profile.experience) && profile.experience.length > 0) {
       const recent = profile.experience[0];
-      if (recent?.title || recent?.company) {
-        alignments.push(`Recent role as ${recent.title || ''}${recent.company ? ` at ${recent.company}` : ''} aligns with the seniority being asked for.`);
+      // Only claim the seniority lines up when the numbers say it does — this
+      // used to assert it unconditionally.
+      if ((recent?.title || recent?.company) && (components.seniorityFit ?? 1) >= 0.8) {
+        alignments.push(`Recent role as ${recent.title || ''}${recent.company ? ` at ${recent.company}` : ''} sits in the range this posting asks for.`);
       }
     }
     if (skills.length >= 5) {
@@ -2897,13 +2789,13 @@ async function analyzeMatch(payload: {
     // Talking points = pair strongest alignments with concrete suggestions.
     const talkingPoints: string[] = [];
     if (presentKeywords.length > 0) {
-      talkingPoints.push(`Lead with a specific example showing ${presentKeywords[0]} in production.`);
+      talkingPoints.push(`Lead with a specific example covering "${presentKeywords[0]}".`);
     }
     if (presentKeywords[1]) {
-      talkingPoints.push(`Quantify impact involving ${presentKeywords[1]} (numbers > adjectives).`);
+      talkingPoints.push(`Quantify your impact on "${presentKeywords[1]}" (numbers > adjectives).`);
     }
     if (missingKeywords.length > 0) {
-      talkingPoints.push(`Pre-empt the gap on ${missingKeywords[0]} — name a transferable project, don't dodge it.`);
+      talkingPoints.push(`Pre-empt the gap on "${missingKeywords[0]}" — name a transferable project, don't dodge it.`);
     }
     if (payload.company) {
       talkingPoints.push(`Tie one sentence directly to ${payload.company}'s product, not just the role description.`);
