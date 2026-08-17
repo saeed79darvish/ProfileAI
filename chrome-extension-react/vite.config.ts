@@ -41,6 +41,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Vite emits <link rel="modulepreload" crossorigin> for each entry's
+    // dependencies. Under chrome-extension:// the crossorigin attribute puts
+    // the preload in a different request world than the module load that
+    // follows, so Chrome fetches the file, refuses to match it, logs "cross-
+    // world extension resource mismatch", and fetches it again. The preload is
+    // pure waste here regardless: these are local files with no network to
+    // hide, so the latency the hint exists to buy does not exist.
+    modulePreload: false,
     rollupOptions: {
       input: {
         sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
