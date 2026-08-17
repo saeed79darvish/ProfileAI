@@ -1,4 +1,12 @@
 const { Op } = require('sequelize');
+const { Readable } = require('stream');
+// stream-json v3 exposes subpaths via an `exports` map that does not append
+// extensions, so these requires need the explicit `.js` (and the v3 kebab-case
+// filenames — `filters/Pick` was the v1 spelling and throws MODULE_NOT_FOUND).
+const { chain } = require('stream-chain');
+const { parser: jsonParser } = require('stream-json');
+const { pick } = require('stream-json/filters/pick.js');
+const { streamArray } = require('stream-json/streamers/stream-array.js');
 const { ExternalJob, ATSBoard, BlockedCompany } = require('../models');
 const { detectScamSignals } = require('./jobScamDetector');
 
@@ -234,7 +242,110 @@ function tagFetchError(err, { status, source } = {}) {
   return err;
 }
 
-async function fetchGreenhouseJobs(boardToken) {
+// Hard ceiling on a single board's job-list response. Nothing legitimate comes
+// close (the largest boards we sync run ~40MB / ~2200 jobs); this only exists so
+// a pathological or malicious response can't reintroduce the OOM this streaming
+// path was written to fix. Breaching it THROWS rather than truncating — see the
+// note on streamJobBatches below for why a partial list must never be returned.
+const MAX_BOARD_RESPONSE_BYTES = parseInt(process.env.MAX_BOARD_RESPONSE_BYTES || String(120 * 1024 * 1024), 10);
+
+// How many normalized jobs syncBoard ingests per round trip. This is the knob
+// that bounds sync memory: peak tracks one batch, not one board.
+const INGEST_BATCH_SIZE = parseInt(process.env.INGEST_BATCH_SIZE || '250', 10);
+
+/**
+ * Stream a job-list JSON response, normalizing each job as it is parsed and
+ * handing them to `onBatch` in fixed-size batches.
+ *
+ * `response.json()` was the original OOM: it materializes the whole body as one
+ * JS string and builds the entire object graph before we touch it. But the
+ * bigger cost was that syncBoard then held the whole *normalized* board too.
+ * Measured live against the boards we actually sync, live heap after
+ * normalization, against a 259MB V8 heap:
+ *
+ *   greenhouse/andurilindustries  38MB payload → 240MB   (131MB raw graph
+ *                                                         + 109MB normalized)
+ *   greenhouse/spacex             24MB payload → ~155MB
+ *
+ * (The raw string is double the byte count because job descriptions contain
+ * non-ASCII, so V8 stores them two-byte — the `JsonParser<unsigned short>`
+ * frame in the crash dump.) Anduril alone therefore could not fit, before the
+ * app's own baseline, and SYNC_CONCURRENCY=3 started it alongside SpaceX.
+ * Because the cron runs inline in the web process, that OOM took the API down
+ * and the 10s post-boot initial sync turned it into a restart loop.
+ *
+ * Streaming alone was measured at 188MB for Anduril — still an OOM — because
+ * the dominant term is *live* normalized data (each job stores `description`
+ * AND `descriptionHtml`, ~107MB of text for that board), not parse garbage.
+ * So the parse is streamed AND the result is handed off in batches, which is
+ * what actually bounds the peak.
+ *
+ * IMPORTANT: this drives every job in the response through `onBatch` or it
+ * throws. It must never stop early and return normally: a partial pass looks
+ * to syncBoard like a successful smaller fetch, and its "deactivate anything
+ * not in this fetch" step would then deactivate every job past the cut,
+ * silently emptying a live board.
+ *
+ * @param {Response} response  a fetch Response whose status has been checked
+ * @param {string|null} arrayPath  key holding the array ('jobs'), or null if the
+ *                                 body is itself a top-level array (Lever)
+ * @param {(raw: object) => object|null} normalize  per-job normalizer
+ * @param {(batch: object[]) => Promise<void>} onBatch  consumer, awaited
+ */
+async function streamJobBatches(response, { arrayPath, normalize, label, onBatch, batchSize = INGEST_BATCH_SIZE }) {
+  let bytes = 0;
+  const source = Readable.fromWeb(response.body);
+  source.on('data', (chunk) => {
+    bytes += chunk.length;
+    if (bytes > MAX_BOARD_RESPONSE_BYTES) {
+      source.destroy(new Error(
+        `${label}: response exceeded ${Math.round(MAX_BOARD_RESPONSE_BYTES / 1048576)}MB cap (aborted at ${Math.round(bytes / 1048576)}MB)`
+      ));
+    }
+  });
+
+  const stages = [source, jsonParser()];
+  if (arrayPath) stages.push(pick({ filter: arrayPath }));
+  stages.push(streamArray());
+
+  const pipeline = chain(stages);
+  let batch = [];
+  try {
+    // `for await` applies backpressure: the parser stays paused while onBatch
+    // awaits, so each raw job — and each flushed batch — becomes garbage
+    // instead of accumulating behind a faster producer.
+    for await (const { value } of pipeline) {
+      const normalized = normalize(value);
+      if (!normalized) continue;
+      batch.push(normalized);
+      if (batch.length >= batchSize) {
+        await onBatch(batch);
+        batch = [];
+      }
+    }
+    if (batch.length) await onBatch(batch);
+  } finally {
+    pipeline.destroy();
+  }
+}
+
+/**
+ * Array-returning wrapper for the callers that genuinely want the whole list
+ * in memory (validateBoard, scripts/validateBoardCandidates) — those run
+ * against one board at a time, outside the sweep, so the peak is theirs alone.
+ * syncBoard must use streamJobBatches directly.
+ */
+async function collectJobBatches(response, opts) {
+  const out = [];
+  await streamJobBatches(response, { ...opts, onBatch: (batch) => { out.push(...batch); } });
+  return out;
+}
+
+// The per-company ATS fetchers take an optional `onBatch`. With it they stream
+// and hand off batches, never materializing the board (this is the path
+// syncBoard uses). Without it they return the full array, for the one-board-at-
+// a-time callers (validateBoard, scripts/validateBoardCandidates).
+async function fetchGreenhouseJobs(boardToken, { onBatch, batchSize } = {}) {
   const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(boardToken)}/jobs?content=true`;
   const response = await fetch(url, {
     headers: { 'Accept': 'application/json' },
@@ -248,10 +359,15 @@ async function fetchGreenhouseJobs(boardToken) {
     );
   }
 
-  const data = await response.json();
-  const jobs = data.jobs || [];
-
-  return jobs.map(job => normalizeGreenhouseJob(job, boardToken));
+  const opts = {
+    arrayPath: 'jobs',
+    label: `greenhouse/${boardToken}`,
+    normalize: (job) => normalizeGreenhouseJob(job, boardToken),
+    batchSize,
+  };
+  return onBatch
+    ? streamJobBatches(response, { ...opts, onBatch })
+    : collectJobBatches(response, opts);
 }
 
 // Hostnames/paths that are SEARCH or LIST pages, not a specific posting.
@@ -880,7 +996,7 @@ function normalizeTheirStackJob(job) {
  * Fetch jobs from Lever public API (no auth required)
  * API: GET https://api.lever.co/v0/postings/{company}
  */
-async function fetchLeverJobs(companySlug) {
+async function fetchLeverJobs(companySlug, { onBatch, batchSize } = {}) {
   const url = `https://api.lever.co/v0/postings/${encodeURIComponent(companySlug)}?mode=json`;
   const response = await fetch(url, {
     headers: { 'Accept': 'application/json' },
@@ -894,10 +1010,20 @@ async function fetchLeverJobs(companySlug) {
     throw new Error(`Lever API error ${response.status}: ${response.statusText}`);
   }
 
-  const jobs = await response.json();
-  if (!Array.isArray(jobs)) return [];
-
-  return jobs.map(job => normalizeLeverJob(job, companySlug));
+  // Lever returns a top-level array, so there is no key to pick.
+  // BEHAVIOR CHANGE: this used to `return []` when the body wasn't an array;
+  // now the parser throws. Returning [] was actively dangerous — an empty
+  // "successful" fetch makes syncBoard deactivate every job on the board. A
+  // throw marks the sync failed and leaves the existing jobs alone.
+  const opts = {
+    arrayPath: null,
+    label: `lever/${companySlug}`,
+    normalize: (job) => normalizeLeverJob(job, companySlug),
+    batchSize,
+  };
+  return onBatch
+    ? streamJobBatches(response, { ...opts, onBatch })
+    : collectJobBatches(response, opts);
 }
 
 /**
@@ -969,7 +1095,7 @@ function normalizeLeverJob(job, companySlug) {
  * Fetch jobs from Ashby public API (no auth required)
  * API: POST https://api.ashbyhq.com/posting-api/job-board/{org_slug}
  */
-async function fetchAshbyJobs(orgSlug) {
+async function fetchAshbyJobs(orgSlug, { onBatch, batchSize } = {}) {
   const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(orgSlug)}`;
   const response = await fetch(url, {
     method: 'GET',
@@ -984,10 +1110,15 @@ async function fetchAshbyJobs(orgSlug) {
     throw new Error(`Ashby API error ${response.status}: ${response.statusText}`);
   }
 
-  const data = await response.json();
-  const jobs = data.jobs || [];
-
-  return jobs.map(job => normalizeAshbyJob(job, orgSlug));
+  const opts = {
+    arrayPath: 'jobs',
+    label: `ashby/${orgSlug}`,
+    normalize: (job) => normalizeAshbyJob(job, orgSlug),
+    batchSize,
+  };
+  return onBatch
+    ? streamJobBatches(response, { ...opts, onBatch })
+    : collectJobBatches(response, opts);
 }
 
 /**
@@ -1446,6 +1577,47 @@ function clampVarchar255Fields(payload) {
   return payload;
 }
 
+// Columns jobEmbeddingService.buildJobText actually reads, plus the id it
+// writes back to. Loading only these keeps the reload cheap — notably it leaves
+// `descriptionHtml` and `metadata` (the two bulkiest columns) on the server.
+const EMBEDDING_SOURCE_ATTRIBUTES = [
+  'id', 'title', 'company', 'department', 'location',
+  'locationType', 'experienceLevel', 'skills', 'requirements', 'description',
+];
+
+/**
+ * Embed newly-created jobs in the background, reloading them from the DB in
+ * chunks so only one chunk is in memory at a time. Fire-and-forget by design:
+ * the caller must not await this, and any job missed here is picked up by
+ * jobEmbeddingService's NULL-embedding backfill sweep.
+ */
+function embedNewJobsInBackground(embSvc, jobIds, boardName) {
+  const CHUNK = 200;
+  (async () => {
+    let success = 0;
+    let failed = 0;
+    for (let i = 0; i < jobIds.length; i += CHUNK) {
+      const rows = await ExternalJob.findAll({
+        where: { id: { [Op.in]: jobIds.slice(i, i + CHUNK) } },
+        attributes: EMBEDDING_SOURCE_ATTRIBUTES,
+        raw: true,
+      });
+      if (rows.length === 0) continue;
+      const result = await embSvc.generateBatchJobEmbeddings(rows);
+      success += result.success;
+      failed += result.failed;
+      // The embedding provider is unreachable — stop rather than grinding
+      // every remaining chunk against a dead socket. The backfill sweep will
+      // retry these later.
+      if (result.connectionError) break;
+    }
+    if (success > 0) console.log(`[ExternalJobs] Embedded ${success} new jobs for ${boardName}`);
+    if (failed > 0) console.warn(`[ExternalJobs] Failed to embed ${failed} jobs for ${boardName}`);
+  })().catch((err) => {
+    console.warn(`[ExternalJobs] Embedding error for ${boardName}:`, err.message);
+  });
+}
+
 /**
  * Sync a single ATS board — fetch jobs and upsert into DB
  */
@@ -1478,130 +1650,30 @@ async function syncBoard(atsBoard) {
   console.log(`[ExternalJobs] Syncing board: ${atsBoard.name} (${atsBoard.platform}/${atsBoard.boardToken})`);
 
   try {
-    let normalizedJobs;
-    if (atsBoard.platform === 'greenhouse') {
-      normalizedJobs = await fetchGreenhouseJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'lever') {
-      normalizedJobs = await fetchLeverJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'ashby') {
-      normalizedJobs = await fetchAshbyJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'remoteok') {
-      normalizedJobs = await fetchRemoteOKJobs();
-    } else if (atsBoard.platform === 'adzuna') {
-      normalizedJobs = await fetchAdzunaJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'jsearch') {
-      // boardToken format: "query" or "query::pages" e.g. "software engineer" or "data scientist::2"
-      const parts = atsBoard.boardToken.split('::');
-      const query = parts[0] || 'software engineer';
-      const pages = parseInt(parts[1]) || 3;
-      normalizedJobs = await fetchJSearchJobs(query, { pages, country: 'us', datePosted: 'week' });
-    } else if (atsBoard.platform === 'theirstack') {
-      const config = parseTheirStackBoardToken(atsBoard.boardToken);
-      normalizedJobs = await fetchTheirStackJobs(config);
-    } else if (atsBoard.platform === 'wwr') {
-      normalizedJobs = await fetchWWRJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'amazon') {
-      // boardToken is the job category, e.g. "software-development"
-      normalizedJobs = await fetchAmazonJobs(atsBoard.boardToken);
-    } else if (atsBoard.platform === 'hn_hiring') {
-      // boardToken: "monthly" (auto) or "thread:<itemId>" (pinned)
-      normalizedJobs = await fetchHackerNewsHiringJobs(atsBoard.boardToken);
-    } else {
-      throw new Error(`Unsupported platform: ${atsBoard.platform}`);
-    }
+    // ───────────────────── Batched ingestion state ─────────────────────
+    // A board is ingested in INGEST_BATCH_SIZE batches and never held whole:
+    // the only things retained for the full board are externalIds, new row
+    // ids and counters — all small. See streamJobBatches for the measured
+    // heap numbers that forced this shape.
+    const fetchedExternalIds = new Set();
+    const flaggedByCompany = new Map();
+    const newJobIds = [];
+    let ingested = 0;
+    let created = 0;
+    let updated = 0;
+    let blockedFiltered = 0;
+    let scamFiltered = 0;
 
-    // Enrich company name from ATSBoard for per-company sources
-    // Aggregators (remoteok, adzuna, wwr) already have company names from their data
-    if (['greenhouse', 'lever', 'ashby'].includes(atsBoard.platform) && atsBoard.platform !== 'amazon') {
-      normalizedJobs = normalizedJobs.map(job => ({
-        ...job,
-        company: atsBoard.name
-      }));
-    }
-
+    const isPerCompanyBoard = ['greenhouse', 'lever', 'ashby'].includes(atsBoard.platform);
     // Admin moderation for aggregator sources: unlike greenhouse/lever/ashby
     // (checked whole-board above), one aggregator board (jsearch/adzuna/
     // theirstack/remoteok/wwr) spans many companies, so blocked companies are
-    // stripped per-job here instead. Filtering BEFORE fetchedExternalIds is
-    // computed means any previously-ingested row for a newly-blocked company
-    // naturally falls out of the fetch and gets caught by the normal
-    // "deactivate jobs not in this fetch" step below — no extra cleanup code
-    // needed, and legitimate companies on the same board are untouched.
+    // stripped per-job in ingestBatch. Filtering BEFORE an externalId reaches
+    // fetchedExternalIds means any previously-ingested row for a newly-blocked
+    // company falls out of the fetch and gets caught by the normal "deactivate
+    // jobs not in this fetch" step below — no extra cleanup code needed, and
+    // legitimate companies on the same board are untouched.
     const blockedNames = await getBlockedCompanyNames();
-    if (blockedNames.size > 0) {
-      const beforeCount = normalizedJobs.length;
-      normalizedJobs = normalizedJobs.filter(
-        (j) => !blockedNames.has(String(j.company || '').trim().toLowerCase())
-      );
-      const removed = beforeCount - normalizedJobs.length;
-      if (removed > 0) {
-        console.log(`[ExternalJobs] Filtered ${removed} blocked-company job(s) from ${atsBoard.name}`);
-      }
-    }
-
-    // Automatic scam/spam detection — fully unattended, no admin action
-    // required. Flagged jobs are stripped from this batch the same way
-    // blocked-company jobs are above: filtering BEFORE fetchedExternalIds is
-    // computed means a previously-ingested row for a now-flagged job falls
-    // out of the fetch and gets deactivated by the normal "not in this fetch"
-    // step below. A company with MULTIPLE independently-flagged postings in
-    // the same sync (not just one) gets auto-blocklisted via blockCompany —
-    // purged instantly and never re-ingested by any board/source again. The
-    // >1 bar is deliberate: one flagged posting could still be an unseen
-    // heuristic false-positive (see jobScamDetector.js — tested clean against
-    // the full corpus, but new phrasing will appear over time); requiring a
-    // repeated pattern from the same company before blocking the WHOLE
-    // company keeps that higher-blast-radius action conservative.
-    const flaggedByCompany = new Map();
-    normalizedJobs = normalizedJobs.filter((j) => {
-      const result = detectScamSignals(j);
-      if (!result.flagged) return true;
-      const key = String(j.company || '').trim().toLowerCase();
-      if (key) {
-        if (!flaggedByCompany.has(key)) flaggedByCompany.set(key, { company: j.company, jobs: [] });
-        flaggedByCompany.get(key).jobs.push({ title: j.title, reasons: result.reasons });
-      }
-      return false;
-    });
-    let totalScamFlagged = 0;
-    for (const [, info] of flaggedByCompany) {
-      totalScamFlagged += info.jobs.length;
-      if (info.jobs.length < 2) continue; // single flagged posting: drop the job, don't block the company
-      const allReasons = [...new Set(info.jobs.flatMap((j) => j.reasons))].join('; ');
-      console.warn(`[ExternalJobs] 🚫 Auto-blocking "${info.company}" — ${info.jobs.length} scam-flagged postings (${allReasons})`);
-      await blockCompany(info.company, {
-        reason: `Auto-flagged: ${info.jobs.length} postings matched scam heuristics (${allReasons})`,
-      });
-    }
-    if (totalScamFlagged > 0) {
-      console.log(`[ExternalJobs] Filtered ${totalScamFlagged} scam-flagged job(s) from ${atsBoard.name}`);
-    }
-
-    const fetchedExternalIds = new Set(normalizedJobs.map(j => j.externalId));
-
-    // Pre-fetch the externalIds we already have for this fetched set. Two
-    // uses: (1) classify inserts vs updates after the bulk upsert below
-    // (PostgreSQL's ON CONFLICT can't tell us per row), so we only embed /
-    // extract skills for genuinely NEW jobs; (2) the FIRST-seen posting date
-    // is preserved by EXCLUDING postedAt from updateOnDuplicate (see below) so
-    // a re-published listing never restamps itself as "Posted just now". NULL
-    // postedAt rows are instead healed by the IS NULL backfill after the upsert.
-    const existingRows = await ExternalJob.findAll({
-      where: {
-        source: normalizedJobs[0]?.source || null,
-        externalId: { [Op.in]: [...fetchedExternalIds] }
-      },
-      attributes: ['externalId'],
-      raw: true,
-    });
-    const existingIds = new Set(existingRows.map(r => r.externalId));
-
-    // Build deduped payloads keyed on externalId (last wins). Dedup is
-    // REQUIRED: a single ON CONFLICT statement cannot affect the same row
-    // twice, so a flaky source returning a duplicate externalId in one fetch
-    // would otherwise abort the whole chunk. isStartup is denormalized from
-    // the board so the "Startups" filter is a plain indexed boolean.
-    const payloadsById = new Map();
     // ExternalJobs.metadata holds the raw ATS response "for reference" but no
     // prod read path ever reads it back (only one ad-hoc debug script does).
     // For ~10k+ jobs each carrying multi-KB of raw JSON (often with full
@@ -1610,13 +1682,6 @@ async function syncBoard(atsBoard) {
     // filling up and going Unavailable. Default OFF; set STORE_JOB_METADATA=true
     // to opt back in for debugging.
     const storeMetadata = process.env.STORE_JOB_METADATA === 'true';
-    for (const jobData of normalizedJobs) {
-      const payload = clampVarchar255Fields({ ...jobData });
-      payload.isStartup = atsBoard.isStartup === true;
-      if (!storeMetadata) payload.metadata = null;
-      payloadsById.set(payload.externalId, payload);
-    }
-    const payloads = [...payloadsById.values()];
 
     // Fields to overwrite on conflict: every mutable column EXCEPT the identity
     // keys, the canonical first-seen postedAt, createdAt, and the background-
@@ -1632,13 +1697,6 @@ async function syncBoard(atsBoard) {
     const updateOnDuplicate = Object.keys(ExternalJob.rawAttributes)
       .filter((k) => !NEVER_UPDATE.has(k));
 
-    // Chunked bulkCreate → ON CONFLICT (source, externalId) DO UPDATE. One
-    // index-maintenance pass per ~500-row chunk instead of per row: the old
-    // per-job upsert loop ran ~0.2s/job (Anthropic's 373 jobs = 81.5s) and
-    // big boards (Coinbase / Cloudflare / Block / Instacart) blew the 15s
-    // statement timeout. returning:true gives back the persisted instances so
-    // NEW rows can be embedded; updated rows are skipped via existingIds.
-    const CHUNK_SIZE = 500;
     // Per-statement timeout for the SYNC WRITE path only. Connections set a
     // global statement_timeout=15s (tuned for the read/ANN SELECT path in
     // database.js afterConnect). A chunked upsert must refresh the large
@@ -1650,17 +1708,89 @@ async function syncBoard(atsBoard) {
     // SYNC_WRITE_TIMEOUT_MS for the write transaction ONLY (SET LOCAL is scoped
     // to the transaction) so the read path keeps its 15s protection.
     const SYNC_WRITE_TIMEOUT_MS = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
-    let created = 0;
-    let updated = 0;
-    const newJobs = [];
-    for (let i = 0; i < payloads.length; i += CHUNK_SIZE) {
-      const chunk = payloads.slice(i, i + CHUNK_SIZE);
+
+    /**
+     * Filter, upsert and account for one batch of normalized jobs. Throws on
+     * any DB failure, which aborts the whole board via the outer catch — the
+     * deactivation step below must only ever see a COMPLETE fetch.
+     */
+    const ingestBatch = async (rawBatch) => {
+      // Enrich company name from ATSBoard for per-company sources. Aggregators
+      // (remoteok, adzuna, wwr) already have company names from their data.
+      let jobs = isPerCompanyBoard
+        ? rawBatch.map((job) => ({ ...job, company: atsBoard.name }))
+        : rawBatch;
+
+      if (blockedNames.size > 0) {
+        const before = jobs.length;
+        jobs = jobs.filter(
+          (j) => !blockedNames.has(String(j.company || '').trim().toLowerCase())
+        );
+        blockedFiltered += before - jobs.length;
+      }
+
+      // Automatic scam/spam detection — fully unattended, no admin action
+      // required. Flagged jobs are stripped from this batch the same way
+      // blocked-company jobs are above. A company with MULTIPLE independently-
+      // flagged postings across the board (not just one) gets auto-blocklisted
+      // once the fetch completes — see the flaggedByCompany pass below.
+      jobs = jobs.filter((j) => {
+        const result = detectScamSignals(j);
+        if (!result.flagged) return true;
+        scamFiltered++;
+        const key = String(j.company || '').trim().toLowerCase();
+        if (key) {
+          if (!flaggedByCompany.has(key)) flaggedByCompany.set(key, { company: j.company, jobs: [] });
+          flaggedByCompany.get(key).jobs.push({ title: j.title, reasons: result.reasons });
+        }
+        return false;
+      });
+
+      ingested += jobs.length;
+      for (const j of jobs) fetchedExternalIds.add(j.externalId);
+      if (jobs.length === 0) return;
+
+      const source = jobs[0].source;
+
+      // Which of these do we already have? Must run BEFORE this batch's upsert:
+      // it classifies inserts vs updates (PostgreSQL's ON CONFLICT can't tell
+      // us per row), so we only embed genuinely NEW jobs.
+      const existingRows = await ExternalJob.findAll({
+        where: { source, externalId: { [Op.in]: jobs.map((j) => j.externalId) } },
+        attributes: ['externalId'],
+        raw: true,
+      });
+      const existingIds = new Set(existingRows.map((r) => r.externalId));
+
+      // Build deduped payloads keyed on externalId (last wins). Dedup is
+      // REQUIRED: a single ON CONFLICT statement cannot affect the same row
+      // twice, so a flaky source returning a duplicate externalId in one batch
+      // would otherwise abort it. Deduping per batch rather than per board is
+      // sufficient — a duplicate spanning two batches lands in two separate
+      // statements, where the later one simply updates the earlier row.
+      // isStartup is denormalized from the board so the "Startups" filter is a
+      // plain indexed boolean.
+      const payloadsById = new Map();
+      for (const jobData of jobs) {
+        const payload = clampVarchar255Fields({ ...jobData });
+        payload.isStartup = atsBoard.isStartup === true;
+        if (!storeMetadata) payload.metadata = null;
+        payloadsById.set(payload.externalId, payload);
+      }
+      const payloads = [...payloadsById.values()];
+
+      // bulkCreate → ON CONFLICT (source, externalId) DO UPDATE. One
+      // index-maintenance pass per batch instead of per row: the old per-job
+      // upsert loop ran ~0.2s/job (Anthropic's 373 jobs = 81.5s) and big boards
+      // (Coinbase / Cloudflare / Block / Instacart) blew the 15s statement
+      // timeout. returning:true gives back the persisted rows so NEW ones can
+      // be embedded; updated rows are skipped via existingIds.
       const rows = await ExternalJob.sequelize.transaction(async (t) => {
         await ExternalJob.sequelize.query(
           `SET LOCAL statement_timeout = ${SYNC_WRITE_TIMEOUT_MS}`,
           { transaction: t }
         );
-        return ExternalJob.bulkCreate(chunk, {
+        return ExternalJob.bulkCreate(payloads, {
           updateOnDuplicate,
           conflictAttributes: ['source', 'externalId'],
           returning: true,
@@ -1672,64 +1802,130 @@ async function syncBoard(atsBoard) {
           updated++;
         } else {
           created++;
-          newJobs.push(row);
+          // Only the id — retaining the Sequelize instance for every new job
+          // was itself a large retained set on a first sync of a big board.
+          newJobIds.push(row.id);
         }
       }
-    }
 
-    // Backfill postedAt for rows that currently have NULL — WITHOUT overwriting
-    // any existing date. `postedAt` is excluded from updateOnDuplicate above to
-    // keep the first-seen date sticky (Greenhouse uses createdAt; re-published
-    // listings must not jump to "just now"), but that also meant the long-
-    // standing Ashby rows that were saved with postedAt=NULL (from the old
-    // publishedDate/updatedAt field-name bug) could never pick up their real
-    // `publishedAt`. This set-based UPDATE fills only the NULL rows from the
-    // freshly-fetched payloads, so each Ashby board self-heals the next time it
-    // syncs — riding existing refreshIfStale traffic with no extra fetch. The
-    // `IS NULL` guard makes it a no-op once filled and leaves every other
-    // source's first-seen date untouched.
-    const datedPayloads = payloads.filter(
-      (p) => p.postedAt instanceof Date && !isNaN(p.postedAt.getTime())
-    );
-    if (datedPayloads.length > 0) {
-      const source = normalizedJobs[0]?.source || atsBoard.platform;
-      await ExternalJob.sequelize.transaction(async (t) => {
-        await ExternalJob.sequelize.query(
-          `SET LOCAL statement_timeout = ${SYNC_WRITE_TIMEOUT_MS}`,
-          { transaction: t }
-        );
-        await ExternalJob.sequelize.query(
-          `UPDATE "ExternalJobs" AS ej
-            SET "postedAt" = v.posted_at::timestamptz
-           FROM (SELECT UNNEST($1::text[]) AS external_id,
-                        UNNEST($2::text[]) AS posted_at) AS v
-          WHERE ej.source = $3
-            AND ej."externalId" = v.external_id
-            AND ej."postedAt" IS NULL`,
-          {
-            bind: [
-              datedPayloads.map((p) => p.externalId),
-              datedPayloads.map((p) => p.postedAt.toISOString()),
-              source,
-            ],
-            type: ExternalJob.sequelize.QueryTypes.UPDATE,
-            transaction: t,
-          }
-        );
-      });
-    }
-
-    // Generate embeddings for new jobs in the background
-    if (newJobs.length > 0) {
-      const embSvc = getJobEmbeddingService();
-      if (embSvc) {
-        embSvc.generateBatchJobEmbeddings(newJobs).then(({ success, failed }) => {
-          if (success > 0) console.log(`[ExternalJobs] Embedded ${success} new jobs for ${atsBoard.name}`);
-          if (failed > 0) console.warn(`[ExternalJobs] Failed to embed ${failed} jobs for ${atsBoard.name}`);
-        }).catch(err => {
-          console.warn(`[ExternalJobs] Embedding error for ${atsBoard.name}:`, err.message);
+      // Backfill postedAt for rows that currently have NULL — WITHOUT
+      // overwriting any existing date. `postedAt` is excluded from
+      // updateOnDuplicate above to keep the first-seen date sticky (Greenhouse
+      // uses createdAt; re-published listings must not jump to "just now"), but
+      // that also meant long-standing Ashby rows saved with postedAt=NULL (from
+      // the old publishedDate/updatedAt field-name bug) could never pick up
+      // their real `publishedAt`. This set-based UPDATE fills only the NULL rows
+      // from the freshly-fetched payloads, so each Ashby board self-heals the
+      // next time it syncs — riding existing traffic with no extra fetch. The
+      // `IS NULL` guard makes it a no-op once filled and leaves every other
+      // source's first-seen date untouched.
+      const datedPayloads = payloads.filter(
+        (p) => p.postedAt instanceof Date && !isNaN(p.postedAt.getTime())
+      );
+      if (datedPayloads.length > 0) {
+        await ExternalJob.sequelize.transaction(async (t) => {
+          await ExternalJob.sequelize.query(
+            `SET LOCAL statement_timeout = ${SYNC_WRITE_TIMEOUT_MS}`,
+            { transaction: t }
+          );
+          await ExternalJob.sequelize.query(
+            `UPDATE "ExternalJobs" AS ej
+              SET "postedAt" = v.posted_at::timestamptz
+             FROM (SELECT UNNEST($1::text[]) AS external_id,
+                          UNNEST($2::text[]) AS posted_at) AS v
+            WHERE ej.source = $3
+              AND ej."externalId" = v.external_id
+              AND ej."postedAt" IS NULL`,
+            {
+              bind: [
+                datedPayloads.map((p) => p.externalId),
+                datedPayloads.map((p) => p.postedAt.toISOString()),
+                source,
+              ],
+              type: ExternalJob.sequelize.QueryTypes.UPDATE,
+              transaction: t,
+            }
+          );
         });
       }
+    };
+
+    // Feed an already-materialized array through ingestBatch in slices. Used by
+    // the aggregator sources, whose responses are small enough to buffer (a few
+    // hundred jobs per page) and which have no streaming fetcher.
+    const ingestAll = async (jobs) => {
+      for (let i = 0; i < jobs.length; i += INGEST_BATCH_SIZE) {
+        await ingestBatch(jobs.slice(i, i + INGEST_BATCH_SIZE));
+      }
+    };
+
+    // The per-company ATS platforms stream straight into ingestBatch, so the
+    // board is never materialized. Everything else buffers, then slices.
+    if (atsBoard.platform === 'greenhouse') {
+      await fetchGreenhouseJobs(atsBoard.boardToken, { onBatch: ingestBatch });
+    } else if (atsBoard.platform === 'lever') {
+      await fetchLeverJobs(atsBoard.boardToken, { onBatch: ingestBatch });
+    } else if (atsBoard.platform === 'ashby') {
+      await fetchAshbyJobs(atsBoard.boardToken, { onBatch: ingestBatch });
+    } else if (atsBoard.platform === 'remoteok') {
+      await ingestAll(await fetchRemoteOKJobs());
+    } else if (atsBoard.platform === 'adzuna') {
+      await ingestAll(await fetchAdzunaJobs(atsBoard.boardToken));
+    } else if (atsBoard.platform === 'jsearch') {
+      // boardToken format: "query" or "query::pages" e.g. "software engineer" or "data scientist::2"
+      const parts = atsBoard.boardToken.split('::');
+      const query = parts[0] || 'software engineer';
+      const pages = parseInt(parts[1]) || 3;
+      await ingestAll(await fetchJSearchJobs(query, { pages, country: 'us', datePosted: 'week' }));
+    } else if (atsBoard.platform === 'theirstack') {
+      const config = parseTheirStackBoardToken(atsBoard.boardToken);
+      await ingestAll(await fetchTheirStackJobs(config));
+    } else if (atsBoard.platform === 'wwr') {
+      await ingestAll(await fetchWWRJobs(atsBoard.boardToken));
+    } else if (atsBoard.platform === 'amazon') {
+      // boardToken is the job category, e.g. "software-development"
+      await ingestAll(await fetchAmazonJobs(atsBoard.boardToken));
+    } else if (atsBoard.platform === 'hn_hiring') {
+      // boardToken: "monthly" (auto) or "thread:<itemId>" (pinned)
+      await ingestAll(await fetchHackerNewsHiringJobs(atsBoard.boardToken));
+    } else {
+      throw new Error(`Unsupported platform: ${atsBoard.platform}`);
+    }
+
+    // Auto-block companies whose postings were repeatedly scam-flagged across
+    // this fetch. A company with MULTIPLE independently-flagged postings (not
+    // just one) is blocklisted via blockCompany — purged instantly and never
+    // re-ingested by any board/source again. The >1 bar is deliberate: one
+    // flagged posting could still be an unseen heuristic false-positive (see
+    // jobScamDetector.js — tested clean against the full corpus, but new
+    // phrasing will appear over time); requiring a repeated pattern from the
+    // same company before blocking the WHOLE company keeps that
+    // higher-blast-radius action conservative. This runs once the fetch is
+    // complete so the count spans the whole board, not a single batch.
+    for (const [, info] of flaggedByCompany) {
+      if (info.jobs.length < 2) continue; // single flagged posting: drop the job, don't block the company
+      const allReasons = [...new Set(info.jobs.flatMap((j) => j.reasons))].join('; ');
+      console.warn(`[ExternalJobs] 🚫 Auto-blocking "${info.company}" — ${info.jobs.length} scam-flagged postings (${allReasons})`);
+      await blockCompany(info.company, {
+        reason: `Auto-flagged: ${info.jobs.length} postings matched scam heuristics (${allReasons})`,
+      });
+    }
+    if (blockedFiltered > 0) {
+      console.log(`[ExternalJobs] Filtered ${blockedFiltered} blocked-company job(s) from ${atsBoard.name}`);
+    }
+    if (scamFiltered > 0) {
+      console.log(`[ExternalJobs] Filtered ${scamFiltered} scam-flagged job(s) from ${atsBoard.name}`);
+    }
+
+    // Generate embeddings for new jobs in the background. The rows are reloaded
+    // from the DB in chunks rather than retained through the whole sync: on a
+    // first sync of a big board that was thousands of Sequelize instances held
+    // alive for the board's lifetime. Fire-and-forget as before — anything that
+    // fails here is healed by jobEmbeddingService's backfill sweep, which picks
+    // up any active job whose embedding is still NULL.
+    if (newJobIds.length > 0) {
+      const embSvc = getJobEmbeddingService();
+      if (embSvc) embedNewJobsInBackground(embSvc, newJobIds, atsBoard.name);
     }
 
     // NOTE: skill extraction is NOT done here any more.
@@ -1780,12 +1976,12 @@ async function syncBoard(atsBoard) {
       consecutiveNoChangeSyncs: changedNothing
         ? (atsBoard.consecutiveNoChangeSyncs || 0) + 1
         : 0,
-      jobCount: normalizedJobs.length,
+      jobCount: ingested,
       syncError: null
     });
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[ExternalJobs] ✓ ${atsBoard.name}: ${normalizedJobs.length} jobs (${created} new, ${updated} updated, ${deactivated[0] || 0} deactivated) in ${elapsed}s`);
+    console.log(`[ExternalJobs] ✓ ${atsBoard.name}: ${ingested} jobs (${created} new, ${updated} updated, ${deactivated[0] || 0} deactivated) in ${elapsed}s`);
 
     // Invalidate the aggregation caches (companies / departments / locations
     // / skills) any time we change the corpus. Without this, freshly-added
@@ -1806,7 +2002,7 @@ async function syncBoard(atsBoard) {
       } catch { /* same — never fail the sync because of cache plumbing */ }
     }
 
-    return { success: true, created, updated, deactivated: deactivated[0] || 0, total: normalizedJobs.length };
+    return { success: true, created, updated, deactivated: deactivated[0] || 0, total: ingested };
   } catch (error) {
     console.error(`[ExternalJobs] ✗ ${atsBoard.name}: ${error.message}`);
 
