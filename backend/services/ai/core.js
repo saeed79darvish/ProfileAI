@@ -16,7 +16,9 @@ const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929
 
 // Fast/cheap model for low-stakes features (post enhancement, career tips, etc.)
 // ~80% cheaper than Sonnet — used for features where quality is good enough.
-const HAIKU_MODEL = process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-5-haiku-20241022';
+// claude-3-5-haiku-20241022 was retired 2026-02-19 and now 404s. Keep this an
+// alias rather than a dated snapshot so the next retirement is a no-op here.
+const HAIKU_MODEL = process.env.ANTHROPIC_HAIKU_MODEL || 'claude-haiku-4-5';
 
 /**
  * Centralized AI call function

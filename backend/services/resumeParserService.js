@@ -1163,7 +1163,11 @@ Be specific and actionable. Return ONLY valid JSON.`;
         prompt,
         temperature: 0.7,
         max_tokens: 2000,
-        model: process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-5-haiku-20241022'  // cost-sensitive feature
+        // claude-3-5-haiku-20241022 was retired 2026-02-19 and now 404s, which
+        // callAI treats as non-retryable — the throw surfaced to the client as a
+        // 400 on this route. Alias, not a dated snapshot, so the next Haiku
+        // retirement doesn't break this again.
+        model: process.env.ANTHROPIC_HAIKU_MODEL || 'claude-haiku-4-5'  // cost-sensitive feature
       });
       
       let jsonText = responseText;

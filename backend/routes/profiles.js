@@ -535,9 +535,16 @@ router.post('/enhancement-suggestions', authMiddleware, aiRateLimiter('career_su
 
     const result = await resumeParserService.getEnhancementSuggestions(profileData);
 
+    // A failure here is upstream (model call, JSON parse), never the caller's
+    // fault — the only client-side error on this route is the missing-body
+    // check above. This used to answer 400, which is how a retired model ID
+    // 404-ing at Anthropic reached the browser looking like a validation
+    // problem. 502 keeps that diagnosable from the status code alone.
+    // result.error carries raw provider/parser text, so it stays in the log.
     if (!result.success) {
-      return res.status(400).json({ 
-        error: result.error || 'Failed to get suggestions'
+      console.error('[enhancement-suggestions] upstream failure:', result.error);
+      return res.status(502).json({
+        error: 'Could not generate suggestions right now. Please try again.'
       });
     }
 
