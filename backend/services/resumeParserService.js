@@ -1424,6 +1424,21 @@ Return ONLY a valid JSON array, no additional text.`;
    * @param {Object} gapSelections - Optional gap selections: { acceptedGaps: string[], skippedGaps: string[] }
    */
   async tailorProfileForJob(profileData, jobDescription, originalResumeText = null, gapSelections = null, tailorSettings = null) {
+    // api.profilleai.com sits behind Cloudflare, which cuts a proxied request
+    // off at 100 seconds and returns 524. The backend keeps working, but the
+    // response has nowhere to go — the extension never hears back and the panel
+    // sits on "Finalizing tailored profile" forever. That is why this reads as
+    // hung rather than slow, and why there is a "Stuck? Cancel and retry"
+    // button at all.
+    //
+    // Tailoring makes three sequential AI calls and callAI retries each up to
+    // three times, so the ceiling is far above 100s. No amount of per-call
+    // trimming makes that safe; the request has to be answerable on a clock.
+    // So the work that is optional gets a deadline, and blowing the deadline
+    // costs polish rather than the whole response.
+    const startedAt = Date.now();
+    const elapsedMs = () => Date.now() - startedAt;
+    const RESPONSE_BUDGET_MS = 85000; // 15s of headroom under Cloudflare's 100s
     try {
       // Line-wrap repair happens HERE, before the text reaches any prompt.
       // "componentdriven" and "crossfunctional" are not model errors — PDF
@@ -1672,6 +1687,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         temperature: tailoringConfig.temperature,
         max_tokens: tailoringConfig.max_tokens
       });
+      console.log(`[ProfilleAI] Timing: tailoring call done at ${Math.round(elapsedMs() / 1000)}s`);
       
       let jsonText = responseText;
       if (jsonText.startsWith('```json')) {
@@ -1913,9 +1929,23 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       );
 
       let reviewed = tailoredData;
+      // A review round is one more AI call, and an AI call can take the better
+      // part of a minute. If there is not room for it inside the budget, it is
+      // skipped: the draft still had its deterministic repairs, the audit still
+      // ran, and every unfixed defect still travels to the candidate as an open
+      // question. A returned resume with known caveats beats a 524.
+      const REVIEW_RESERVE_MS = 40000;
+      const roomForReview = elapsedMs() + REVIEW_RESERVE_MS < RESPONSE_BUDGET_MS;
+      if (!roomForReview && auditReport.needsRewrite.length > 0) {
+        console.warn(
+          `[ProfilleAI] Skipping review pass — ${Math.round(elapsedMs() / 1000)}s already spent, ` +
+          `not enough budget left. ${auditReport.needsRewrite.length} defect(s) returned unresolved.`
+        );
+      }
+
       // Only defects that need a writer justify the call. Everything else was
       // already repaired above, and will be checked again in the final scan.
-      if (auditReport.needsRewrite.length > 0) {
+      if (roomForReview && auditReport.needsRewrite.length > 0) {
         // ONE round. The re-audit gate below still rejects a round that made
         // things worse; a second round bought little and doubled the worst
         // case on an endpoint where every AI call can take up to 60 seconds.
@@ -1936,6 +1966,10 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
               prompt: reviewConfig.prompt,
               temperature: reviewConfig.temperature,
               max_tokens: reviewConfig.max_tokens,
+              // No retries. Everywhere else a retry saves a request that would
+              // otherwise fail; here it just spends the remaining budget on
+              // polish and turns a returnable resume into a timeout.
+              retries: 1,
             });
 
             let reviewJson = reviewRaw.trim();
@@ -2021,6 +2055,11 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         passed: finalReport.passed,
         basis: originalSourceBasis,
         rounds: reviewMeta.rounds,
+        // True when the draft was returned without its AI review because the
+        // request ran out of clock. The defects are still listed in
+        // `unresolved` — they were found, just not fixed.
+        reviewSkippedForTime: !roomForReview && reviewMeta.rounds === 0,
+        elapsedMs: elapsedMs(),
         metricCount: finalReport.metrics.count,
         metrics: finalReport.metrics.items,
         repeatedPhrases: finalReport.repetition.phraseOffenders,
@@ -2043,6 +2082,12 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       } else {
         console.log(`[ProfilleAI] ✅ Review passed: ${finalReport.metrics.count} metric(s), 0 repeated phrases, 0 untraceable terms`);
       }
+      // The number to watch. Anything approaching 100s is a request Cloudflare
+      // will cut off before the candidate ever sees it.
+      console.log(
+        `[ProfilleAI] Timing: tailor-for-job total ${Math.round(elapsedMs() / 1000)}s ` +
+        `(review rounds: ${reviewMeta.rounds}${!roomForReview ? ', skipped for budget' : ''})`
+      );
 
       // Sanitize text fields — strip characters that ATS platforms (Workday etc.) reject
       const sanitizeATS = (str) => typeof str === 'string' ? str.replace(/[<>\[\]"{}\\]/g, '') : str;
