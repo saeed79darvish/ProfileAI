@@ -109,6 +109,69 @@ function serializeProfileAsResumeText(profileData) {
   return lines.join('\n');
 }
 
+/**
+ * The repairs that need no model: joined-word artifacts and skills that cannot
+ * be traced to the original. Both are fully decidable in code — a dictionary
+ * substitution and an array filter — and neither can introduce a claim, so both
+ * are safe to apply unattended.
+ *
+ * Runs BEFORE the review decision as well as after it. Before, so a draft whose
+ * only faults are these does not pay for a 60-second model round to fix what
+ * this function fixes anyway; after, because the review rewrites prose and can
+ * reintroduce either one. Mutates `draft` in place.
+ *
+ * @param {Object} draft
+ * @param {string} originalSourceText - the fabrication baseline
+ * @param {Object|null} gapSelections - accepted gaps are exempt from removal
+ * @returns {{ removedSkills: string[] }}
+ */
+function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
+  const compounds = harvestCompounds(originalSourceText);
+  const repair = (s) =>
+    typeof s === 'string' ? repairJoinedCompounds(s, compounds, originalSourceText) : s;
+
+  if (draft.summary) draft.summary = repair(draft.summary);
+  if (Array.isArray(draft.experience)) {
+    draft.experience = draft.experience.map((e) => ({ ...e, description: repair(e.description) }));
+  }
+  if (Array.isArray(draft.projects)) {
+    draft.projects = draft.projects.map((p) => ({ ...p, description: repair(p.description) }));
+  }
+
+  const acceptedLower = new Set(
+    ((gapSelections && gapSelections.acceptedGaps) || []).map((g) => String(g).toLowerCase())
+  );
+  const keep = (s) => {
+    const t = String(s).trim();
+    return !t || acceptedLower.has(t.toLowerCase()) || hasSupport(originalSourceText, t);
+  };
+
+  const removedSkills = [];
+  if (Array.isArray(draft.skills)) {
+    draft.skills = draft.skills.map(repair).filter((s) => {
+      if (keep(s)) return true;
+      removedSkills.push(String(s).trim());
+      return false;
+    });
+  }
+  if (draft.skillsGrouped && typeof draft.skillsGrouped === 'object') {
+    for (const group of Object.keys(draft.skillsGrouped)) {
+      draft.skillsGrouped[group] = (draft.skillsGrouped[group] || []).map(repair).filter(keep);
+    }
+  }
+
+  if (removedSkills.length) {
+    console.log('[ProfilleAI] ⚠️ Removed skills with no support in the original:', removedSkills);
+    if (!Array.isArray(draft.changelog)) draft.changelog = [];
+    draft.changelog.push({
+      section: 'skills',
+      action: 'removed_unsupported',
+      detail: `Removed ${removedSkills.join(', ')} — not traceable to the original resume`,
+    });
+  }
+  return { removedSkills };
+}
+
 // OpenAI fallback when Claude is unavailable
 const OpenAI = require('openai');
 const openai = process.env.OPENAI_API_KEY
@@ -1811,12 +1874,21 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // model grades the text in the same call that writes it, and it graded
       // six metrics as three. So the real review lives out here.
       //
+      //   repair -> fix in code everything that can be fixed in code.
       //   audit  -> count metrics, count repeated phrases, diff every term
       //             against the original. Deterministic, no model involved.
-      //   review -> a second AI call handed those counts as instructions.
+      //   review -> ONE more AI call, and only for what still needs a writer.
       //   re-audit -> confirm the counts actually moved. A review pass that
       //             says it fixed things and did not is the failure mode we
       //             are replacing, so its claims are never taken on trust.
+      //
+      // The repair step runs first on purpose. When it ran last, joined-word
+      // artifacts and unsupported skills — both pure code fixes — still counted
+      // as defects when deciding whether to call the model, so a draft whose
+      // only faults were a stray "componentdriven" and one unbacked skill paid
+      // for a 60-second review round to fix what a dictionary lookup and an
+      // array filter then fixed anyway. That took the endpoint from two AI
+      // calls to four and is why tailoring got slow.
       const auditInput = {
         originalText: originalSourceText,
         jobDescription,
@@ -1824,6 +1896,8 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         acceptedGaps: (gapSelections && gapSelections.acceptedGaps) || [],
         profileData,
       };
+
+      applyDeterministicRepairs(tailoredData, originalSourceText, gapSelections);
 
       let auditReport = auditDraft({ draft: tailoredData, ...auditInput });
       const reviewMeta = {
@@ -1833,18 +1907,29 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         residualDefects: [],
         questions: [],
       };
-      console.log(`[ProfilleAI] Step 4: Review audit found ${auditReport.blocking.length} defect(s)`);
+      console.log(
+        `[ProfilleAI] Step 4: audit found ${auditReport.blocking.length} defect(s), ` +
+        `${auditReport.needsRewrite.length} needing a rewrite`
+      );
 
       let reviewed = tailoredData;
-      if (auditReport.blocking.length > 0) {
-        for (let round = 0; round < 2 && auditReport.blocking.length > 0; round++) {
+      // Only defects that need a writer justify the call. Everything else was
+      // already repaired above, and will be checked again in the final scan.
+      if (auditReport.needsRewrite.length > 0) {
+        // ONE round. The re-audit gate below still rejects a round that made
+        // things worse; a second round bought little and doubled the worst
+        // case on an endpoint where every AI call can take up to 60 seconds.
+        for (let round = 0; round < 1; round++) {
           reviewMeta.rounds = round + 1;
           try {
             const reviewConfig = buildReviewPrompt({
               draft: reviewed,
               originalResumeText: originalSourceText,
               jobDescription,
-              auditReport,
+              // Only the rewrite-needing defects. Listing the ones already
+              // repaired in code would have the model re-fix settled text and
+              // risk it editing around a change it cannot see the reason for.
+              auditReport: { ...auditReport, blocking: auditReport.needsRewrite },
             });
             const reviewRaw = await callAI({
               system: reviewConfig.system,
@@ -1877,8 +1962,8 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
             // count. A "fix" that trades three repetitions for four is a
             // regression, and without this comparison it would ship as an
             // improvement because the model said so.
-            if (nextReport.blocking.length >= auditReport.blocking.length && round > 0) {
-              console.warn(`[ProfilleAI] Review round ${round + 1} did not reduce defects (${auditReport.blocking.length} to ${nextReport.blocking.length}) — stopping`);
+            if (nextReport.blocking.length > auditReport.blocking.length) {
+              console.warn(`[ProfilleAI] Review made it worse (${auditReport.blocking.length} to ${nextReport.blocking.length}) — discarding the correction`);
               break;
             }
 
@@ -1907,59 +1992,10 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // ═══════════════════════════════════════════════════════════════
       // STEP 5: FINAL SCAN — the two bugs that keep coming back
       // ═══════════════════════════════════════════════════════════════
-      // Line-wrap artifacts and unsupported skills have each survived a round
-      // of "be careful about this" instructions. Both are fully decidable in
-      // code, so neither is left to a prompt at this point: joined compounds
-      // are substituted from a dictionary, and any skill still untraceable to
-      // the original is removed outright and turned into a question. Neither
-      // edit can introduce a claim, so both are safe to apply unattended.
-      {
-        const compounds = harvestCompounds(originalSourceText);
-        const repair = (s) => (typeof s === 'string' ? repairJoinedCompounds(s, compounds, originalSourceText) : s);
-
-        if (tailoredData.summary) tailoredData.summary = repair(tailoredData.summary);
-        if (Array.isArray(tailoredData.experience)) {
-          tailoredData.experience = tailoredData.experience.map(e => ({ ...e, description: repair(e.description) }));
-        }
-        if (Array.isArray(tailoredData.projects)) {
-          tailoredData.projects = tailoredData.projects.map(p => ({ ...p, description: repair(p.description) }));
-        }
-        if (Array.isArray(tailoredData.skills)) {
-          tailoredData.skills = tailoredData.skills.map(repair);
-        }
-
-        const acceptedLower = new Set(
-          ((gapSelections && gapSelections.acceptedGaps) || []).map(g => String(g).toLowerCase())
-        );
-        const stillUnsupported = [];
-        if (Array.isArray(tailoredData.skills)) {
-          tailoredData.skills = tailoredData.skills.filter((s) => {
-            const t = String(s).trim();
-            if (!t || acceptedLower.has(t.toLowerCase())) return true;
-            if (hasSupport(originalSourceText, t)) return true;
-            stillUnsupported.push(t);
-            return false;
-          });
-        }
-        if (tailoredData.skillsGrouped && typeof tailoredData.skillsGrouped === 'object') {
-          for (const group of Object.keys(tailoredData.skillsGrouped)) {
-            tailoredData.skillsGrouped[group] = (tailoredData.skillsGrouped[group] || [])
-              .map(repair)
-              .filter((s) => {
-                const t = String(s).trim();
-                return !t || acceptedLower.has(t.toLowerCase()) || hasSupport(originalSourceText, t);
-              });
-          }
-        }
-        if (stillUnsupported.length) {
-          console.log('[ProfilleAI] ⚠️ Final scan removed skills with no support in the original:', stillUnsupported);
-          tailoredData.changelog.push({
-            section: 'skills',
-            action: 'removed_unsupported',
-            detail: `Final scan removed ${stillUnsupported.join(', ')} — not traceable to the original resume`,
-          });
-        }
-      }
+      // Same repairs as before the review, run again because the review pass
+      // rewrites prose and can reintroduce either one. Both are decidable in
+      // code and neither can introduce a claim, so both apply unattended.
+      applyDeterministicRepairs(tailoredData, originalSourceText, gapSelections);
 
       // Re-audit one last time so what ships to the candidate describes the
       // bytes being returned, not an earlier version of them.

@@ -52,11 +52,21 @@ function buildReviewPrompt({ draft, originalResumeText, jobDescription, auditRep
     ? (auditReport.questions || []).map((q) => `- [${q.type}] ${q.term}: ${q.question}`).join('\n')
     : '(none)';
 
+  // The review pass does not re-derive anything from the posting — the audit
+  // already did that and handed over the specific spans to fix. The JD is here
+  // only so a rewrite stays on-topic, and a long one (the Anthropic posting
+  // runs 18k characters) was adding ~4.5k tokens per round to a call that is
+  // already the slowest step in the request. Excerpt is enough for tone.
+  const jdExcerpt =
+    String(jobDescription || '').length > 4000
+      ? `${String(jobDescription).slice(0, 4000)}\n[…posting truncated — the defect list below carries every specific you need…]`
+      : jobDescription;
+
   const prompt = `═══ THE CANDIDATE'S ORIGINAL RESUME (the only source of truth) ═══
 ${originalResumeText}
 
-═══ TARGET JOB DESCRIPTION ═══
-${jobDescription}
+═══ TARGET JOB DESCRIPTION (context only, excerpted) ═══
+${jdExcerpt}
 
 ═══ TAILORED DRAFT UNDER REVIEW ═══
 ${JSON.stringify(draft, null, 2)}

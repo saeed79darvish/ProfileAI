@@ -705,6 +705,16 @@ function auditDraft({ draft, originalText, jobDescription, jdKeywords = [], acce
 
   report.blocking = buildBlockingList(report);
   report.questions = buildQuestions(report);
+  // Defects that need a writer, as opposed to the ones the final scan repairs
+  // in code. Only these justify an AI round: artifacts are a dictionary
+  // substitution and unsupported skills are a list deletion, and spending a
+  // 60-second model call to do either is how the tailoring endpoint went from
+  // two AI calls to four.
+  report.needsRewrite = buildBlockingList({
+    ...report,
+    artifacts: { joinedWords: [], clean: true },
+    fabrication: { ...report.fabrication, unsupportedSkills: [] },
+  });
   return report;
 }
 
