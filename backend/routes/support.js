@@ -125,9 +125,12 @@ router.post(
           { role: 'system', content: SUPPORT_SYSTEM_PROMPT },
           ...messages
         ],
-        // Use the default (Sonnet) model. Prod's Anthropic key doesn't
-        // have Haiku access, so pinning to HAIKU_MODEL was 404-ing.
-        // Support chat is low-volume, so the cost delta is negligible.
+        // Use the default (Sonnet) model. The earlier 404 here was NOT a key
+        // permission problem as previously noted — HAIKU_MODEL was pinned to
+        // claude-3-5-haiku-20241022, which Anthropic retired 2026-02-19. That
+        // default is now claude-haiku-4-5 and the key does have Haiku access,
+        // so this can move back to HAIKU_MODEL if the cost delta matters;
+        // support chat is low-volume, so Sonnet is left in place for quality.
         max_tokens: 400,
         temperature: 0.4
       });
