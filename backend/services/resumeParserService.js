@@ -21,6 +21,13 @@ const { extractors: resumeExtractors, patterns: resumePatterns } = require('./re
 const { classifyDepartment } = require('./resume/departmentClassifier');
 const { getDepartmentEnhancementPrompt } = require('./resume/enhancementPrompts');
 const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
+const { buildReviewPrompt } = require('./resume/reviewPrompt');
+const { auditDraft, hasSupport } = require('./resume/draftAudit');
+const {
+  repairWrappedHyphens,
+  harvestCompounds,
+  repairJoinedCompounds,
+} = require('./resume/textNormalizer');
 
 const anthropic = new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -63,6 +70,43 @@ function stripResumeAnnotations(value) {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Flatten a stored profile into resume-shaped plain text.
+ *
+ * The fabrication diff needs ONE string to search, and JSON.stringify is the
+ * wrong one: key names ("summary", "skills", "description") become searchable
+ * tokens, so a draft claiming "description" or a profile field called "python"
+ * would match on structure rather than content. This emits only values.
+ *
+ * Used as the diff baseline when the candidate never uploaded a resume file.
+ */
+function serializeProfileAsResumeText(profileData) {
+  const p = profileData || {};
+  const lines = [];
+  const push = (v) => { if (v && String(v).trim()) lines.push(String(v).trim()); };
+
+  push(p.headline);
+  push(p.summary || p.bio);
+  for (const exp of p.experience || []) {
+    push([exp.title, exp.company, exp.period || exp.duration].filter(Boolean).join(' | '));
+    push(exp.description);
+  }
+  for (const edu of p.education || []) {
+    push([edu.degree, edu.field, edu.school, edu.year].filter(Boolean).join(' | '));
+  }
+  for (const proj of p.projects || []) {
+    push(proj.title);
+    push(proj.description);
+  }
+  const skills = Array.isArray(p.skills)
+    ? p.skills
+    : (p.skills && typeof p.skills === 'object' ? Object.values(p.skills).flat() : []);
+  if (skills.length) push(skills.join(', '));
+  for (const cert of p.certifications || []) push(typeof cert === 'string' ? cert : cert.name);
+
+  return lines.join('\n');
 }
 
 // OpenAI fallback when Claude is unavailable
@@ -1318,7 +1362,39 @@ Return ONLY a valid JSON array, no additional text.`;
    */
   async tailorProfileForJob(profileData, jobDescription, originalResumeText = null, gapSelections = null, tailorSettings = null) {
     try {
+      // Line-wrap repair happens HERE, before the text reaches any prompt.
+      // "componentdriven" and "crossfunctional" are not model errors — PDF
+      // extraction drops the hyphen when a compound wraps, so the model
+      // received the damage and faithfully reproduced it. Every past fix aimed
+      // at the model's output was aimed one stage too late.
+      if (typeof originalResumeText === 'string') {
+        originalResumeText = repairWrappedHyphens(originalResumeText);
+      }
+
       const hasUploadedResume = originalResumeText && originalResumeText.trim().length > 100;
+
+      // ═══════════════════════════════════════════════════════════════
+      // THE ORIGINAL — required, and fixed for the whole run
+      // ═══════════════════════════════════════════════════════════════
+      // Every anti-fabrication check diffs against this and nothing else. It is
+      // captured once, before any tailoring, so no later step can widen what
+      // counts as "supported". When the candidate uploaded a resume that is the
+      // source; otherwise it is a snapshot of the stored profile taken now.
+      // The distinction is recorded because a profile-derived baseline is
+      // weaker evidence — the profile may itself contain text an earlier AI
+      // pass wrote — and the reviewer should know which one was in play.
+      const originalSourceBasis = hasUploadedResume ? 'uploaded_resume' : 'stored_profile_snapshot';
+      const originalSourceText = hasUploadedResume
+        ? originalResumeText
+        : serializeProfileAsResumeText(profileData);
+
+      if (!originalSourceText || !originalSourceText.trim()) {
+        return {
+          success: false,
+          error: 'Cannot tailor without an original resume or a populated profile — there would be nothing to check the result against.',
+        };
+      }
+      console.log(`[ProfilleAI] Fabrication baseline: ${originalSourceBasis} (${originalSourceText.length} chars)`);
 
       // ═══════════════════════════════════════════════════════════════
       // STEP 1: EXTRACT KEYWORDS FROM JOB DESCRIPTION (separate AI call)
@@ -1472,8 +1548,16 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         };
         const parts = [];
         parts.push(`WRITING TONE: ${toneDesc[tailorSettings.tone] || toneDesc.professional}`);
+        // The summary preset defaults to 7 ("Detailed · 6–8 lines") in both the
+        // web and extension settings modals, and this line was appended AFTER
+        // the master prompt's "2–3 sentences, no more" — so the user's default
+        // silently overrode a hard rule, and every tailored resume came back
+        // with a six-sentence summary. The preference now governs the
+        // experience descriptions, which is where length is a real choice; the
+        // summary cap is not negotiable by a slider.
         if (tailorSettings.summaryLines) {
-          parts.push(`SUMMARY LENGTH: Write the summary in approximately ${tailorSettings.summaryLines} lines/sentences.`);
+          const summaryCap = Math.min(Number(tailorSettings.summaryLines) || 3, 3);
+          parts.push(`SUMMARY LENGTH: At most ${summaryCap} sentences. This is a ceiling — do not pad to reach it.`);
         }
         if (tailorSettings.experienceLines) {
           parts.push(`EXPERIENCE DESCRIPTION LENGTH: Each experience entry description should be approximately ${tailorSettings.experienceLines} lines/sentences long.`);
@@ -1533,7 +1617,9 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
       }
 
-      const tailoredData = JSON.parse(jsonText);
+      // `let`, not `const`: the review pass in Step 4 replaces this wholesale
+      // with its corrected version.
+      let tailoredData = JSON.parse(jsonText);
 
       // Ensure changelog array exists (AI should have returned it, but be safe)
       if (!Array.isArray(tailoredData.changelog)) {
@@ -1570,18 +1656,27 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // JD keywords the model added; it never adds anything (unlike the old
       // injection code this replaced), so it can't introduce new fabrication.
       {
-        const sourceText = [originalResumeText || '', JSON.stringify(profileData || {})]
-          .join(' ')
-          .toLowerCase();
         const acceptedGapsLower = new Set(
           ((gapSelections && gapSelections.acceptedGaps) || []).map(g => String(g).toLowerCase())
         );
         const jdKeywordsLower = new Set(allRequiredKeywords.map(k => k.toLowerCase()));
+        // Two bugs lived in the old version of this check, and between them they
+        // are why "SQL" and "Python" shipped on a resume containing neither:
+        //
+        //   1. It matched with `sourceText.includes(skill)`. "postgresql"
+        //      contains "sql", so a candidate who had used Postgres was treated
+        //      as having SQL experience. hasSupport() does word-boundary
+        //      matching with an explicit alias table instead, so a syllable is
+        //      no longer mistaken for a skill.
+        //   2. It searched the ORIGINAL RESUME *AND* the stored profile. The
+        //      stored profile is written by previous enhancement and tailoring
+        //      passes, so anything fabricated once became its own evidence the
+        //      next time round. The diff now runs against the original only.
         const isFabricatedJdKeyword = (skill) => {
           const skillLower = String(skill).toLowerCase().trim();
           if (!jdKeywordsLower.has(skillLower)) return false; // only police JD-extracted terms
           if (acceptedGapsLower.has(skillLower)) return false; // user explicitly accepted this gap
-          return !sourceText.includes(skillLower); // no support anywhere in resume/profile
+          return !hasSupport(originalSourceText, skillLower);
         };
 
         const removedSkills = [];
@@ -1707,6 +1802,210 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
             detail: 'Removed review notes the model left in resume text — the resume shows applied edits only'
           });
         }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 4: REVIEW PASS — a separate call on the finished draft
+      // ═══════════════════════════════════════════════════════════════
+      // The tailoring prompt's own STEP 6/7/8 checks are self-assessment: the
+      // model grades the text in the same call that writes it, and it graded
+      // six metrics as three. So the real review lives out here.
+      //
+      //   audit  -> count metrics, count repeated phrases, diff every term
+      //             against the original. Deterministic, no model involved.
+      //   review -> a second AI call handed those counts as instructions.
+      //   re-audit -> confirm the counts actually moved. A review pass that
+      //             says it fixed things and did not is the failure mode we
+      //             are replacing, so its claims are never taken on trust.
+      const auditInput = {
+        originalText: originalSourceText,
+        jobDescription,
+        jdKeywords: allKeywords,
+        acceptedGaps: (gapSelections && gapSelections.acceptedGaps) || [],
+        profileData,
+      };
+
+      let auditReport = auditDraft({ draft: tailoredData, ...auditInput });
+      const reviewMeta = {
+        basis: originalSourceBasis,
+        initialDefects: auditReport.blocking.length,
+        rounds: 0,
+        residualDefects: [],
+        questions: [],
+      };
+      console.log(`[ProfilleAI] Step 4: Review audit found ${auditReport.blocking.length} defect(s)`);
+
+      let reviewed = tailoredData;
+      if (auditReport.blocking.length > 0) {
+        for (let round = 0; round < 2 && auditReport.blocking.length > 0; round++) {
+          reviewMeta.rounds = round + 1;
+          try {
+            const reviewConfig = buildReviewPrompt({
+              draft: reviewed,
+              originalResumeText: originalSourceText,
+              jobDescription,
+              auditReport,
+            });
+            const reviewRaw = await callAI({
+              system: reviewConfig.system,
+              prompt: reviewConfig.prompt,
+              temperature: reviewConfig.temperature,
+              max_tokens: reviewConfig.max_tokens,
+            });
+
+            let reviewJson = reviewRaw.trim();
+            if (reviewJson.startsWith('```json')) reviewJson = reviewJson.replace(/^```json\n/, '').replace(/\n```$/, '');
+            else if (reviewJson.startsWith('```')) reviewJson = reviewJson.replace(/^```\n/, '').replace(/\n```$/, '');
+
+            const parsed = JSON.parse(reviewJson);
+            if (!parsed.resume || typeof parsed.resume !== 'object') {
+              console.warn('[ProfilleAI] Review pass returned no resume object — keeping previous draft');
+              break;
+            }
+
+            // Carry forward the fields the review pass has no business editing.
+            const corrected = {
+              ...reviewed,
+              ...parsed.resume,
+              matchAnalysis: { ...(reviewed.matchAnalysis || {}), ...(parsed.resume.matchAnalysis || {}) },
+              changelog: reviewed.changelog || [],
+            };
+
+            const nextReport = auditDraft({ draft: corrected, ...auditInput });
+
+            // Only accept the correction if it actually reduced the defect
+            // count. A "fix" that trades three repetitions for four is a
+            // regression, and without this comparison it would ship as an
+            // improvement because the model said so.
+            if (nextReport.blocking.length >= auditReport.blocking.length && round > 0) {
+              console.warn(`[ProfilleAI] Review round ${round + 1} did not reduce defects (${auditReport.blocking.length} to ${nextReport.blocking.length}) — stopping`);
+              break;
+            }
+
+            reviewed = corrected;
+            auditReport = nextReport;
+            for (const q of parsed.openQuestions || []) reviewMeta.questions.push(q);
+            for (const fix of parsed.fixes || []) {
+              reviewed.changelog.push({
+                section: fix.location || 'review',
+                action: 'review_fix',
+                detail: `${fix.defect}: ${fix.action}`,
+              });
+            }
+            console.log(`[ProfilleAI] Review round ${round + 1}: ${reviewMeta.initialDefects} defect(s) reduced to ${auditReport.blocking.length}`);
+          } catch (reviewError) {
+            // A failed review must never silently pass the draft off as
+            // reviewed. Keep the draft, keep the findings, and let them travel
+            // to the candidate as unresolved.
+            console.error('[ProfilleAI] Review pass failed:', reviewError.message);
+            break;
+          }
+        }
+        tailoredData = reviewed;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 5: FINAL SCAN — the two bugs that keep coming back
+      // ═══════════════════════════════════════════════════════════════
+      // Line-wrap artifacts and unsupported skills have each survived a round
+      // of "be careful about this" instructions. Both are fully decidable in
+      // code, so neither is left to a prompt at this point: joined compounds
+      // are substituted from a dictionary, and any skill still untraceable to
+      // the original is removed outright and turned into a question. Neither
+      // edit can introduce a claim, so both are safe to apply unattended.
+      {
+        const compounds = harvestCompounds(originalSourceText);
+        const repair = (s) => (typeof s === 'string' ? repairJoinedCompounds(s, compounds, originalSourceText) : s);
+
+        if (tailoredData.summary) tailoredData.summary = repair(tailoredData.summary);
+        if (Array.isArray(tailoredData.experience)) {
+          tailoredData.experience = tailoredData.experience.map(e => ({ ...e, description: repair(e.description) }));
+        }
+        if (Array.isArray(tailoredData.projects)) {
+          tailoredData.projects = tailoredData.projects.map(p => ({ ...p, description: repair(p.description) }));
+        }
+        if (Array.isArray(tailoredData.skills)) {
+          tailoredData.skills = tailoredData.skills.map(repair);
+        }
+
+        const acceptedLower = new Set(
+          ((gapSelections && gapSelections.acceptedGaps) || []).map(g => String(g).toLowerCase())
+        );
+        const stillUnsupported = [];
+        if (Array.isArray(tailoredData.skills)) {
+          tailoredData.skills = tailoredData.skills.filter((s) => {
+            const t = String(s).trim();
+            if (!t || acceptedLower.has(t.toLowerCase())) return true;
+            if (hasSupport(originalSourceText, t)) return true;
+            stillUnsupported.push(t);
+            return false;
+          });
+        }
+        if (tailoredData.skillsGrouped && typeof tailoredData.skillsGrouped === 'object') {
+          for (const group of Object.keys(tailoredData.skillsGrouped)) {
+            tailoredData.skillsGrouped[group] = (tailoredData.skillsGrouped[group] || [])
+              .map(repair)
+              .filter((s) => {
+                const t = String(s).trim();
+                return !t || acceptedLower.has(t.toLowerCase()) || hasSupport(originalSourceText, t);
+              });
+          }
+        }
+        if (stillUnsupported.length) {
+          console.log('[ProfilleAI] ⚠️ Final scan removed skills with no support in the original:', stillUnsupported);
+          tailoredData.changelog.push({
+            section: 'skills',
+            action: 'removed_unsupported',
+            detail: `Final scan removed ${stillUnsupported.join(', ')} — not traceable to the original resume`,
+          });
+        }
+      }
+
+      // Re-audit one last time so what ships to the candidate describes the
+      // bytes being returned, not an earlier version of them.
+      const finalReport = auditDraft({ draft: tailoredData, ...auditInput });
+      reviewMeta.residualDefects = finalReport.blocking;
+      reviewMeta.passed = finalReport.passed;
+
+      // Questions are the escape hatch for everything that must NOT be decided
+      // silently: a term the original cannot support, an education entry that
+      // was altered, an on-site requirement the candidate's location conflicts
+      // with. They are merged, de-duplicated, and returned with the resume.
+      const seenQuestions = new Set();
+      const openQuestions = [];
+      for (const q of [...finalReport.questions, ...reviewMeta.questions]) {
+        const key = `${q.type}|${String(q.term || '').toLowerCase()}`;
+        if (seenQuestions.has(key)) continue;
+        seenQuestions.add(key);
+        openQuestions.push(q);
+      }
+
+      tailoredData.openQuestions = openQuestions;
+      tailoredData.reviewReport = {
+        passed: finalReport.passed,
+        basis: originalSourceBasis,
+        rounds: reviewMeta.rounds,
+        metricCount: finalReport.metrics.count,
+        metrics: finalReport.metrics.items,
+        repeatedPhrases: finalReport.repetition.phraseOffenders,
+        overusedKeywords: finalReport.repetition.keywordOffenders,
+        summarySentences: finalReport.summary.sentenceCount,
+        copiedFromJd: finalReport.summary.copiedSpans,
+        titleMismatches: finalReport.consistency.titleMismatches,
+        educationIssues: {
+          dropped: finalReport.education.droppedInstitutions,
+          incomplete: finalReport.education.incomplete.map((i) => i.missing),
+          duplicates: finalReport.education.duplicates,
+        },
+        joinedWordArtifacts: finalReport.artifacts.joinedWords,
+        locationConflict: finalReport.location.conflict ? finalReport.location : null,
+        unresolved: finalReport.blocking,
+      };
+
+      if (!finalReport.passed) {
+        console.warn(`[ProfilleAI] ⚠️ Returning draft with ${finalReport.blocking.length} unresolved defect(s):`, finalReport.blocking.slice(0, 5));
+      } else {
+        console.log(`[ProfilleAI] ✅ Review passed: ${finalReport.metrics.count} metric(s), 0 repeated phrases, 0 untraceable terms`);
       }
 
       // Sanitize text fields — strip characters that ATS platforms (Workday etc.) reject
