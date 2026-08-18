@@ -511,7 +511,12 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance'),
     res.json({
       success: true,
       message: 'Profile enhanced successfully',
-      data: result.data
+      data: result.data,
+      // Counted findings from the deterministic checker, plus anything only the
+      // candidate can settle (a number we removed, a skill nothing evidences).
+      // Travels with the response so the product can show what was checked
+      // rather than implying everything was.
+      audit: result.audit || null
     });
 
   } catch (error) {

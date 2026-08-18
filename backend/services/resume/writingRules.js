@@ -24,11 +24,18 @@ const BANNED_VOCABULARY = `BANNED VOCABULARY (all grammatical forms — verb, no
 - seamless / seamlessly
 - robust / robustly
 - cutting-edge / bleeding-edge / state-of-the-art / best-in-class / world-class
-- proven track record / track record of
+- proven track record / track record of / proven ability
 - passionate / passion for
 - results-driven / results-oriented / data-driven (as a self-description)
+- innovative / innovative solutions
 - detail-oriented, dynamic, seasoned, synergy, team player, go-getter,
   proactively, in order to, instrumental in, tasked with
+- SELF-RATINGS, which are the same error in a different costume: expert in,
+  expert at, expert-level, highly skilled, highly proficient, exceptional,
+  extensive experience. A rating is a claim the reader has to take your word
+  for. Show the level through what was built, at what scale, and stop —
+  "Expert in React" tells a recruiter nothing that "Built the design system
+  four product teams shipped on" does not tell them better.
 - Plain substitutes: used, ran, built, led, cut, moved, rewrote, set up, fixed.
   Say the actual verb for the actual action.
 - THIS LIST IS NOT A PREFERENCE AND THE SOURCE DOES NOT EXEMPT IT. Most of these
@@ -70,13 +77,22 @@ const BANNED_DELETIONS = [
   'cutting-edge', 'bleeding-edge', 'state-of-the-art', 'best-in-class', 'world-class',
   'detail-oriented', 'results-driven', 'results-oriented',
   'seasoned', 'proactively',
+  // Self-rating adjectives. Deleting the word leaves a grammatical sentence
+  // ("delivered exceptional results" becomes "delivered results"), which is the
+  // test for this tier — the ones that need the sentence rebuilt are below.
+  'exceptional', 'innovative',
 ];
 
 const BANNED_FLAG_ONLY = [
-  'proven track record', 'track record of',
+  'proven track record', 'track record of', 'proven ability',
   'passionate', 'passion for',
   'synergy', 'synergies', 'team player', 'go-getter',
   'instrumental in', 'tasked with', 'dynamic',
+  // Self-ratings that open a claim rather than modify one. "Expert in React"
+  // cannot lose its first two words and stay a sentence — the line has to be
+  // rewritten around the evidence instead, which is a writer's job.
+  'expert in', 'expert at', 'expert-level',
+  'highly skilled', 'highly proficient', 'extensive experience',
 ];
 
 /**
@@ -250,6 +266,22 @@ function findBannedLanguage(text) {
  */
 const METHODOLOGY_LABEL_RE = /\b(?:driven|first|oriented|based)\s+(?:design|development|architecture|approach|thinking|mindset|culture)\b|\b(?:design|development|architecture)\s+(?:philosophy|principles|mindset|thinking)\b|\bbest practices\b|\bclean code\b|\bproblem[- ]solving\b|\battention to detail\b/i;
 
+/**
+ * The vocabulary of the buzzword chain: abstract quality nouns that mean
+ * something on their own and nothing in a list. Deliberately nouns only, and
+ * deliberately not technologies — "React, TypeScript, and Node" is a factual
+ * enumeration, "usability, accessibility, and maintainability" is three claims
+ * with no anchor. The audit needs a fixed vocabulary to tell those apart, so
+ * the list lives here next to the rule that describes it.
+ */
+const ABSTRACT_QUALITY_NOUNS = [
+  'scalability', 'maintainability', 'usability', 'reliability', 'availability',
+  'performance', 'quality', 'efficiency', 'flexibility', 'extensibility',
+  'readability', 'robustness', 'consistency', 'observability', 'testability',
+  'reusability', 'productivity', 'velocity', 'stability', 'accessibility',
+  'modularity', 'interoperability', 'compliance', 'innovation', 'excellence',
+];
+
 const BANNED_BULLET_ENDINGS = `BANNED BULLET ENDINGS (abstract quality clauses)
 - No bullet may end in a trailing clause that asserts a virtue instead of an
   outcome. Examples of what is banned:
@@ -259,7 +291,13 @@ const BANNED_BULLET_ENDINGS = `BANNED BULLET ENDINGS (abstract quality clauses)
     "...to improve overall efficiency"
 - These clauses are unfalsifiable and add no information. Either state the
   concrete result (what changed, for whom, by how much) or end the bullet at
-  the last factual word.`;
+  the last factual word.
+- The same ban covers the chain wherever it sits, not only at the end: three or
+  more abstract quality nouns in a row ("usability, accessibility, and
+  maintainability") is a list of adjectives wearing nouns' clothing. Name the
+  one that the work actually turned on and say what it changed, or cut all
+  three. A list of technologies is not this — "React, TypeScript, and Node" is
+  a fact about the stack; the banned shape is a list of virtues.`;
 
 const SENTENCE_STRUCTURE_VARIATION = `SENTENCE & STRUCTURE VARIATION
 - Most bullets: [Action verb] + [what/how] + [outcome]. But do NOT force every
@@ -269,7 +307,15 @@ const SENTENCE_STRUCTURE_VARIATION = `SENTENCE & STRUCTURE VARIATION
   words) with longer ones (20–30). Never let a role's bullets all land within
   a few words of each other.
 - Never start consecutive bullets with the same verb, and don't cycle the same
-  four verbs down the whole resume.
+  four verbs down the whole resume. Both halves are COUNTED after you return:
+  the opening word of every bullet is extracted, adjacent repeats inside a role
+  are reported, and any verb opening three or more bullets anywhere in the
+  resume is reported with its locations. "Built" five times is the same defect
+  as one phrase five times, in the position a recruiter's eye lands first.
+- Bullets inside one role must not all be the same LENGTH either. Four lines
+  that each run 18 to 20 words are a template even when every word is true.
+  Word counts are measured per role; a role whose bullets all land within three
+  words of each other is reported.
 - Older roles get FEWER and SHORTER bullets than recent ones — 2–3 compact
   lines for a job from eight years ago, more for the current one. A resume
   that gives equal weight to every role reads as a template, not a career.
@@ -321,6 +367,70 @@ function noAnnotations({ explanationField }) {
 }
 
 /**
+ * Summary policy, shared because a summary is the same object in both modes:
+ * three sentences a human reads first, and the only section where a claim can
+ * be made without the work that produced it standing directly underneath.
+ *
+ * It is shared for a specific reason. Tailoring banned numbers in the summary
+ * while five of the six enhancement prompts REQUIRED one — "Sentence 3: one
+ * proof point of scale", and in the sales prompt, "the strongest real number
+ * from the profile". Enhancement writes the stored profile tailoring then
+ * starts from, so the two rules met in the middle and the number was already
+ * there. Neither prompt was wrong on its own terms; they were never read
+ * together.
+ */
+const SUMMARY_DISCIPLINE = `SUMMARY DISCIPLINE
+- Three sentences maximum. Shorter is better than padded. This is a CEILING,
+  not a target, and no user preference raises it — a length setting governs the
+  EXPERIENCE descriptions only.
+- NO METRICS IN THE SUMMARY. Not a percentage, not a dollar figure, not a
+  headcount, not "one proof point of scale". Numbers belong in bullets, where
+  the work that produced them is visible and the reader can judge them. A
+  number in the summary is a claim with its evidence one section away.
+- No self-rating. "Expert in", "highly skilled", "exceptional", "extensive
+  experience" — say what the person does and at what level, then stop.
+- No adjective stacking: "experienced, motivated, versatile engineer" is three
+  words that survive being deleted.
+- EVERY CLAIM IN THE SUMMARY MUST BE VISIBLE IN A BULLET BELOW IT. Before
+  writing a summary sentence, point to the role and bullet carrying the
+  evidence. The summary is a table of contents for the resume, not an extra
+  place to make claims.
+- The professional identity in the first sentence is a claim like any other. It
+  may only say what the experience section shows.`;
+
+/**
+ * Skills policy. Mode-dependent for the same reason metrics are: enhancement
+ * writes the record every future application draws from, so capping the list
+ * there would delete real skills before any tailoring pass could choose among
+ * them. Tailoring renders one resume for one posting and picks.
+ */
+function skillsRules(mode) {
+  const shared = `- Every entry is a technology, tool, language, platform or credential a
+  recruiter can verify. A way of working is not a skill: "component-driven
+  design", "clean code", "best practices", "attention to detail" and
+  "problem-solving" never appear in this list. The bullet that shows the
+  practice is the evidence for it, and the Skills list is where such a phrase
+  quietly collects the repetitions that put it over the frequency limit.
+- Never pad. Every entry must be traceable to something the candidate actually
+  used — the list is diffed against the source in code afterwards, and anything
+  untraceable is deleted before the candidate sees it.`;
+  if (mode === 'tailor') {
+    return `SKILLS DISCIPLINE
+${shared}
+- AT MOST 15 ENTRIES across all categories combined, counted after you return.
+  A 30-item list is not a stronger match; it is a list nobody reads, and it
+  buries the eight terms this posting actually asked for. Keep the ones this JD
+  prioritises and the ones a bullet demonstrates, and drop the rest — they are
+  still in the candidate's stored profile for the next application.`;
+  }
+  return `SKILLS DISCIPLINE
+${shared}
+- No cap here. This is the candidate's record, not one application's shortlist,
+  so a real skill is kept even when it is irrelevant to any posting you can
+  imagine. The tailoring pass is what selects; deleting here deletes for good.`;
+}
+
+/**
  * Metric policy. The one place the two modes SHOULD differ.
  *
  * Enhancement writes the stored profile — the candidate's full record, which
@@ -347,6 +457,18 @@ function metricRules(mode) {
 - Prefer specific over round. "Cut p95 latency from 840ms to 210ms" is credible;
   "improved performance by 50%" is not. If the original resume has a round
   number and no supporting detail, keep it verbatim but don't add more like it.
+- Never three round percentages. 20%, 25% and 30% down one resume is the shape
+  of numbers someone chose rather than measured, and it is counted after you
+  return. When the source only offers round percentages, keep the single
+  strongest and write the others as concrete outcomes with no number.
+- NO RANGES. "25-30%", "3-4 weeks", "roughly 40%" — a range is an estimate, and
+  an estimate presented as a measurement is the kind of number a candidate
+  cannot defend when an interviewer asks how it was calculated. State the one
+  real figure the source gives, or drop the number.
+- EVERY NUMBER YOU RETURN IS DIFFED AGAINST THE ORIGINAL RESUME IN CODE. A
+  figure that appears nowhere in the source is removed and raised with the
+  candidate, whatever the sentence around it says. This is not a check you can
+  satisfy by asserting the number is right.
 - Choose which of the candidate's REAL metrics to keep — the strongest 3–4,
   placed in the most JD-relevant bullets. Metrics you drop are simply not
   written; the bullet is rephrased without them. Dropping is allowed; inventing,
@@ -359,7 +481,11 @@ function metricRules(mode) {
   all of them. Preserve them exactly — never round, re-derive ("30% faster"
   becoming "saved 200 hours"), or move a number onto a different accomplishment.
 - Never add a number that isn't in the source. Not a percentage, not a count,
-  not a dollar figure, and not an estimate dressed as one.
+  not a dollar figure, and not an estimate dressed as one. Every number in your
+  output is diffed against the source in code; one that is not there is removed
+  and raised with the candidate.
+- Never widen a figure into a range. If the source says 25%, the output says
+  25% — "25-30%" is a number the candidate never claimed and cannot defend.
 - A bullet with no metric is fine. Do NOT reach for a scope or scale claim to
   fill the gap — "supported a 40-person org" is a factual claim too, and if the
   source doesn't say it, inventing it is the same error as inventing a
@@ -432,6 +558,8 @@ function writingRules({ mode, explanationField, unverifiableDestination }) {
     BANNED_VOCABULARY,
     BANNED_BULLET_ENDINGS,
     SENTENCE_STRUCTURE_VARIATION,
+    SUMMARY_DISCIPLINE,
+    skillsRules(mode),
     metricRules(mode),
     CONSISTENCY_CHECKS,
     ATS_SAFE_FORMATTING,
@@ -439,21 +567,41 @@ function writingRules({ mode, explanationField, unverifiableDestination }) {
   ].join('\n\n');
 }
 
+/**
+ * Every banned term as a flat list, for prompts that state the ban inline
+ * rather than composing the block above — the cover letter, which is prose in a
+ * different genre but has no business disagreeing about which words are dead.
+ * It kept its own hand-written list, and the two drifted exactly as enhancement
+ * and tailoring had: the letter banned "leveraging" and "utilizing" while
+ * permitting "leverage", "leveraged", "utilize" and "utilized".
+ */
+function bannedTerms() {
+  return [
+    ...Object.keys(BANNED_SUBSTITUTIONS),
+    ...BANNED_DELETIONS,
+    ...BANNED_FLAG_ONLY,
+  ];
+}
+
 module.exports = {
   writingRules,
   readAloudCheck,
   scrubBannedLanguage,
   findBannedLanguage,
+  bannedTerms,
   BANNED_SUBSTITUTIONS,
   BANNED_DELETIONS,
   BANNED_FLAG_ONLY,
   METHODOLOGY_LABEL_RE,
+  ABSTRACT_QUALITY_NOUNS,
   metricRules,
+  skillsRules,
   antiFabrication,
   noAnnotations,
   BANNED_VOCABULARY,
   BANNED_BULLET_ENDINGS,
   SENTENCE_STRUCTURE_VARIATION,
+  SUMMARY_DISCIPLINE,
   CONSISTENCY_CHECKS,
   ATS_SAFE_FORMATTING,
 };

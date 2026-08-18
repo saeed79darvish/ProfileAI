@@ -21,8 +21,9 @@ const { extractors: resumeExtractors, patterns: resumePatterns } = require('./re
 const { classifyDepartment } = require('./resume/departmentClassifier');
 const { getDepartmentEnhancementPrompt } = require('./resume/enhancementPrompts');
 const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
-const { buildReviewPrompt } = require('./resume/reviewPrompt');
+const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/reviewPrompt');
 const { auditDraft, hasSupport, hardClassDefects } = require('./resume/draftAudit');
+const { auditProfile } = require('./resume/profileAudit');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -74,6 +75,49 @@ function stripResumeAnnotations(value) {
 }
 
 /**
+ * Strip review annotations from every resume-facing field of a draft or an
+ * enhanced profile, in place. Returns the labels of the fields that carried
+ * one, so the caller can record what was removed.
+ *
+ * One implementation on purpose: the tailoring path had this inline, the
+ * enhancement path had nothing, and "the model was told not to annotate" was
+ * the whole of the enforcement on the side that had nothing.
+ */
+function stripAnnotationsInPlace(draft) {
+  const annotated = [];
+  const scrub = (label, str) => {
+    const cleaned = stripResumeAnnotations(str);
+    if (typeof str === 'string' && cleaned !== str.trim()) annotated.push(label);
+    return cleaned;
+  };
+
+  if (draft.summary) draft.summary = scrub('summary', draft.summary);
+  if (Array.isArray(draft.experience)) {
+    draft.experience = draft.experience.map((e, i) => ({
+      ...e,
+      description: scrub(`experience_${i + 1}`, e.description),
+    }));
+  }
+  if (Array.isArray(draft.projects)) {
+    draft.projects = draft.projects.map((p, i) => ({
+      ...p,
+      description: scrub(`project_${i + 1}`, p.description),
+    }));
+  }
+  return annotated;
+}
+
+/**
+ * Parse a model response that is supposed to be JSON and often arrives fenced.
+ */
+function parseAIJson(responseText) {
+  let jsonText = String(responseText || '').trim();
+  if (jsonText.startsWith('```json')) jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
+  else if (jsonText.startsWith('```')) jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+  return JSON.parse(jsonText);
+}
+
+/**
  * Flatten a stored profile into resume-shaped plain text.
  *
  * The fabrication diff needs ONE string to search, and JSON.stringify is the
@@ -94,12 +138,17 @@ function serializeProfileAsResumeText(profileData) {
     push([exp.title, exp.company, exp.period || exp.duration].filter(Boolean).join(' | '));
     push(exp.description);
   }
+  // Both key sets are in circulation: the tailored/stored shape uses
+  // school/year and title, the enhancement output uses institution/period and
+  // name. A baseline missing an institution makes that institution look
+  // fabricated the next time anything diffs against it, so both are read.
   for (const edu of p.education || []) {
-    push([edu.degree, edu.field, edu.school, edu.year].filter(Boolean).join(' | '));
+    push([edu.degree, edu.field, edu.school || edu.institution, edu.year || edu.period].filter(Boolean).join(' | '));
   }
   for (const proj of p.projects || []) {
-    push(proj.title);
+    push(proj.title || proj.name);
     push(proj.description);
+    if (Array.isArray(proj.technologies) && proj.technologies.length) push(proj.technologies.join(', '));
   }
   const skills = Array.isArray(p.skills)
     ? p.skills
@@ -148,8 +197,31 @@ function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
   };
 
   if (draft.summary) draft.summary = repair(draft.summary);
+
+  // Company names take the spelling the original uses. "Paypal" for PayPal is a
+  // regression the rewrite introduced, and restoring it is an assignment — the
+  // original holds the correct string, so this never needs a model round.
+  const companyCasingFixed = [];
+  const originalCasing = (name) => {
+    const t = String(name || '').trim();
+    if (t.length < 2) return null;
+    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const found = String(originalSourceText || '').match(
+      new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'i')
+    );
+    return found && found[0] !== t ? found[0] : null;
+  };
+
   if (Array.isArray(draft.experience)) {
-    draft.experience = draft.experience.map((e) => ({ ...e, description: repair(e.description) }));
+    draft.experience = draft.experience.map((e) => {
+      const corrected = originalCasing(e.company);
+      if (corrected) companyCasingFixed.push({ from: e.company, to: corrected });
+      return {
+        ...e,
+        company: corrected || e.company,
+        description: repair(e.description),
+      };
+    });
   }
   if (Array.isArray(draft.projects)) {
     draft.projects = draft.projects.map((p) => ({ ...p, description: repair(p.description) }));
@@ -215,6 +287,14 @@ function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
       detail: `Removed ${removedMethodologies.join(', ')} from Skills — a methodology is evidenced by a bullet, not listed as a tool`,
     });
   }
+  if (companyCasingFixed.length) {
+    console.log('[ProfilleAI] Restored company capitalization from the original:', companyCasingFixed);
+    draft.changelog.push({
+      section: 'experience',
+      action: 'company_casing_restored',
+      detail: companyCasingFixed.map((c) => `"${c.from}" to "${c.to}"`).join('; '),
+    });
+  }
   if (bannedReplacements.length) {
     const summarised = [...new Set(bannedReplacements.map((r) => `${r.from} to ${r.to}`))];
     console.log(`[ProfilleAI] Banned-language pass made ${bannedReplacements.length} replacement(s):`, summarised.slice(0, 8));
@@ -228,6 +308,7 @@ function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
   return {
     removedSkills,
     removedMethodologies,
+    companyCasingFixed,
     bannedReplacements,
     bannedResidual: [...bannedResidual],
   };
@@ -1255,6 +1336,26 @@ Important guidelines:
       const classification = classifyDepartment(profileData);
       console.log(`[ProfilleAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
 
+      // ═══════════════════════════════════════════════════════════════
+      // THE SOURCE OF TRUTH — captured before anything is rewritten
+      // ═══════════════════════════════════════════════════════════════
+      // Same discipline as the tailoring path: the candidate's own words are
+      // snapshotted once, up front, so no later step can widen what counts as
+      // supported. Here the snapshot matters more, not less — this pass writes
+      // the stored profile every future application draws from, so a number or
+      // a skill invented here becomes next week's "evidence".
+      const sourceText = serializeProfileAsResumeText(profileData);
+
+      // This endpoint used to make exactly one model call and now can make two,
+      // on a stack where Cloudflare cuts the request at 100 seconds. The review
+      // round is the optional half, so it gets the deadline: blowing it costs
+      // polish, and the candidate still receives the repaired, audited profile
+      // with every unresolved defect listed rather than a 524.
+      const startedAt = Date.now();
+      const elapsedMs = () => Date.now() - startedAt;
+      const RESPONSE_BUDGET_MS = 85000;
+      const REVIEW_RESERVE_MS = 40000;
+
       // Get the department-specific enhancement prompt
       const promptConfig = getDepartmentEnhancementPrompt(classification.group, profileData, customPrompt);
 
@@ -1264,20 +1365,143 @@ Important guidelines:
         temperature: promptConfig.temperature,
         max_tokens: promptConfig.max_tokens
       });
-      
-      // Remove markdown code blocks if present
-      let jsonText = responseText;
-      if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
-      } else if (jsonText.startsWith('```')) {
-        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+
+      const enhancedData = parseAIJson(responseText);
+
+      // Without a source there is nothing to check the enhancement against, and
+      // an empty profile is the one case where that happens. Returning the
+      // model's output unexamined is the old behaviour and it is still the
+      // wrong one, but a hard failure would break enhancement for a candidate
+      // whose profile is genuinely empty — so it degrades loudly instead.
+      if (!sourceText || !sourceText.trim()) {
+        console.warn('[ProfilleAI] ⚠️ Enhancement ran with an empty profile — no checks possible');
+        return { success: true, data: enhancedData, audit: null };
       }
 
-      const enhancedData = JSON.parse(jsonText);
-      
+      // ═══════════════════════════════════════════════════════════════
+      // ENFORCEMENT — the same shape as tailoring, for the same reason
+      // ═══════════════════════════════════════════════════════════════
+      //   repair   -> fix in code everything decidable in code
+      //   audit    -> count. No model involved.
+      //   review   -> ONE more call, and only for what still needs a writer
+      //   re-audit -> confirm the counts moved, because a pass that says it
+      //               fixed things and did not is the failure being replaced.
+      //
+      // This path had none of it. Every rule in the enhancement prompt was
+      // graded by the model that wrote the text, which is precisely the
+      // arrangement that shipped six metrics under a four-metric rule on the
+      // tailoring side three times running.
+      applyDeterministicRepairs(enhancedData, sourceText, null);
+      stripAnnotationsInPlace(enhancedData);
+
+      let auditReport = auditProfile({ profile: enhancedData, sourceText });
+      const initialDefects = auditReport.blocking.length;
+      let reviewRan = false;
+
+      const roomForReview = elapsedMs() + REVIEW_RESERVE_MS < RESPONSE_BUDGET_MS;
+      if (!roomForReview && auditReport.needsRewrite.length > 0) {
+        console.warn(
+          `[ProfilleAI] Skipping enhancement review — ${Math.round(elapsedMs() / 1000)}s already spent. ` +
+          `${auditReport.needsRewrite.length} defect(s) returned unresolved and listed in the audit.`
+        );
+      }
+
+      if (roomForReview && auditReport.needsRewrite.length > 0) {
+        try {
+          const reviewConfig = buildProfileReviewPrompt({
+            profile: enhancedData,
+            sourceText,
+            auditReport,
+          });
+          const reviewRaw = await callAI({
+            system: reviewConfig.system,
+            prompt: reviewConfig.prompt,
+            temperature: reviewConfig.temperature,
+            max_tokens: reviewConfig.max_tokens,
+            // No retries, for the same reason the tailoring review has none: a
+            // retry here spends the remaining budget on polish and turns a
+            // returnable profile into a timeout.
+            retries: 1,
+          });
+          const parsedReview = parseAIJson(reviewRaw);
+
+          if (parsedReview && parsedReview.profile && typeof parsedReview.profile === 'object') {
+            // Merge over the repaired draft rather than taking the review's
+            // object whole: a correction that omits a field it had no reason to
+            // touch would otherwise read as a field the review deleted, and get
+            // discarded for a defect it did not introduce.
+            const corrected = {
+              ...enhancedData,
+              ...parsedReview.profile,
+              enhancements: {
+                ...(enhancedData.enhancements || {}),
+                ...(parsedReview.profile.enhancements || {}),
+              },
+              changelog: enhancedData.changelog || [],
+            };
+
+            // Repair BEFORE re-auditing: the review rewrites prose and can
+            // reintroduce a banned word or a joined compound in a sentence it
+            // was fixing something else in.
+            applyDeterministicRepairs(corrected, sourceText, null);
+            stripAnnotationsInPlace(corrected);
+            const nextReport = auditProfile({ profile: corrected, sourceText });
+
+            // Accept unless it made things worse — the same gate the tailoring
+            // review uses. A "fix" that trades two defects for three is a
+            // regression that would otherwise ship as an improvement because
+            // the model said so.
+            if (nextReport.blocking.length > auditReport.blocking.length) {
+              console.warn(`[ProfilleAI] Enhancement review made it worse (${auditReport.blocking.length} to ${nextReport.blocking.length}) — keeping the repaired draft`);
+            } else {
+              Object.assign(enhancedData, corrected);
+              auditReport = nextReport;
+              reviewRan = true;
+            }
+          }
+        } catch (reviewError) {
+          // A failed review must not cost the candidate their enhancement. The
+          // repaired draft is still better than the raw model output, and the
+          // audit travels with it so nothing is claimed that was not checked.
+          console.error('[ProfilleAI] Enhancement review pass failed:', reviewError.message);
+        }
+      }
+
+      // The repair pass writes into `changelog`, which is the tailoring output's
+      // field. Enhancement explains itself in `enhancements`, so the entries are
+      // moved there rather than leaving a stray key that the profile save would
+      // persist onto the candidate's record.
+      if (Array.isArray(enhancedData.changelog)) {
+        if (!enhancedData.enhancements || typeof enhancedData.enhancements !== 'object') {
+          enhancedData.enhancements = {};
+        }
+        enhancedData.enhancements.appliedFixes = enhancedData.changelog;
+        delete enhancedData.changelog;
+      }
+
+      console.log(
+        `[ProfilleAI] Enhancement audit: ${initialDefects} defect(s) found, ` +
+        `${auditReport.blocking.length} remaining, ${auditReport.questions.length} question(s) ` +
+        `(review round: ${reviewRan ? 'applied' : 'not needed or not used'})`
+      );
+      if (auditReport.blocking.length) {
+        console.log('[ProfilleAI] ⚠️ Enhancement defects still standing:', auditReport.blocking.slice(0, 8));
+      }
+
       return {
         success: true,
-        data: enhancedData
+        data: enhancedData,
+        // Counts, not claims. The product can surface these; nothing here is
+        // asserted by the model that wrote the text.
+        audit: {
+          passed: auditReport.passed,
+          initialDefects,
+          remainingDefects: auditReport.blocking,
+          questions: auditReport.questions,
+          reviewRan,
+          metricCount: auditReport.metrics.count,
+          inventedMetrics: auditReport.metrics.invented,
+        },
       };
     } catch (error) {
       console.error('Error enhancing profile:', error);
@@ -1914,26 +2138,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // promote an annotation into a sentence the employer reads as the
       // candidate's own words — the exact failure already seen on the upload path.
       {
-        const annotated = [];
-        const scrub = (label, str) => {
-          const cleaned = stripResumeAnnotations(str);
-          if (typeof str === 'string' && cleaned !== str.trim()) annotated.push(label);
-          return cleaned;
-        };
-
-        if (tailoredData.summary) tailoredData.summary = scrub('summary', tailoredData.summary);
-        if (Array.isArray(tailoredData.experience)) {
-          tailoredData.experience = tailoredData.experience.map((e, i) => ({
-            ...e,
-            description: scrub(`experience_${i + 1}`, e.description)
-          }));
-        }
-        if (Array.isArray(tailoredData.projects)) {
-          tailoredData.projects = tailoredData.projects.map((p, i) => ({
-            ...p,
-            description: scrub(`project_${i + 1}`, p.description)
-          }));
-        }
+        const annotated = stripAnnotationsInPlace(tailoredData);
 
         if (annotated.length > 0) {
           console.log('[ProfilleAI] ⚠️ Stripped review annotations the model left in the resume text:', annotated);

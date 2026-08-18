@@ -92,14 +92,10 @@ LOCATION CONFLICT — NOT YOURS TO EDIT, BUT YOURS TO RAISE
 - A hard on-site requirement the candidate cannot meet also caps the honest
   match score. Say so in \`recommendation\` rather than scoring around it.
 
-SUMMARY
+SUMMARY (the universal rules are in SUMMARY DISCIPLINE below — length, no
+metrics, no self-rating, every claim visible in a bullet. These are the ones
+that only apply when there is a posting to tailor to.)
 - Rewrite summary to speak directly to this role's priorities
-- Short and plain: 2–3 sentences, no more. Shorter is better than padded.
-  This is a CEILING, not a target, and no user preference raises it. If the
-  candidate's length setting asks for more, it governs the EXPERIENCE
-  descriptions only — the summary still stops at three sentences.
-- No metrics in the summary. Numbers belong in bullets, where the work that
-  produced them is visible.
 - Never copy phrasing from the job posting. Concretely: no run of four or more
   consecutive words in the summary may also appear in the JD. "Strong computer
   science fundamentals" is four words lifted whole, and it is the kind of line
@@ -119,14 +115,10 @@ SUMMARY
 - At most 1–2 JD terms, and only ones the candidate's actual history supports.
   A summary stuffed with posting language is the first thing a recruiter reads
   and the first thing that reads as generated.
-- EVERY CLAIM IN THE SUMMARY MUST BE VISIBLE IN A BULLET BELOW IT. Before you
-  write a summary sentence, point to the specific role and bullet that carries
-  the evidence. A summary is a table of contents for the resume, not an
-  additional place to make claims. If the JD wants visualization experience and
-  no role mentions visualization, the summary does not mention it either — that
-  requirement goes to GENUINE GAPS.
-- No adjective stacking ("experienced, motivated, versatile engineer"). Say what
-  the person does and at what level, then stop.
+- The claims-must-be-visible rule has a JD-shaped consequence worth stating
+  outright: if the posting wants visualization experience and no role mentions
+  visualization, the summary does not mention it either. That requirement goes
+  to GENUINE GAPS, not into the first paragraph a recruiter reads.
 
 BULLETS
 - Rewrite bullets to use the same vocabulary as the JD where accurate
@@ -191,6 +183,10 @@ WEAK BULLET RESOLUTION (decide, don't annotate)
 
 SKILLS SECTION — EVERY ENTRY MUST SURVIVE A DIFF
 - Always group skills into labeled categories — never output a flat ungrouped list.
+- AT MOST 15 ENTRIES in total across every category, counted after you return.
+  See SKILLS DISCIPLINE below for why the cap exists here and not in the stored
+  profile: cutting a skill from THIS resume loses nothing, because the profile
+  keeps it for the next application.
 - Minimum categories: Languages | Frameworks | Infrastructure | Tools
 - Add role-specific categories if the JD warrants it (e.g. Platforms, Certifications).
   Never a "Methodologies" category — see the phrase frequency limit.
@@ -314,9 +310,15 @@ your work in the \`selfAudit\` field.
 Go through the finished JSON and LIST, not summarise:
 
 1. EVERY METRIC. Write out each number that survives, with the field it sits
-   in. Then count them. If the count is above 4, or two entries share a value,
-   or any of them is in the summary, or they are all the same kind, go back and
-   drop the weakest until none of those is true, and re-list.
+   in, AND the line of the original resume it came from. Then count them. If the
+   count is above 4, or two entries share a value, or any of them is in the
+   summary, or they are all the same kind, or every percentage is a multiple of
+   five, or any of them is a range or a hedge ("25-30%", "roughly 40%"), go back
+   and drop the weakest until none of those is true, and re-list.
+   - A number you cannot point to a line of the original for is invented, and
+     citing its source is the check: if the citation cannot be written, the
+     number does not go in the resume. Every figure is diffed against the
+     original in code afterwards and removed if it is not there.
    - The original resume's numbers are a menu, not a manifest. Carrying all five
      of them through unchanged, run after run, is the failure this check exists
      for: a tailored resume picks the 3–4 that matter to THIS posting.
@@ -337,6 +339,14 @@ Go through the finished JSON and LIST, not summarise:
    words. Each one is rewritten in the candidate's own register.
 2c. BULLET COUNTS PER ROLE against the budget you were given, and the summary's
    professional identity against the one in the original resume.
+2d. THE OPENING WORD OF EVERY BULLET, in order, and the word count of each.
+   Two bullets in a row opening with the same verb, one verb opening three or
+   more bullets anywhere in the resume, or a role whose bullets all land within
+   three words of the same length: rewrite until none of those is true. This is
+   counted after you return, and it is the tell that survives when every fact
+   in the resume is correct.
+2e. THE NUMBER OF SKILLS ENTRIES. Above 15, cut to the ones this posting asks
+   for and the ones a bullet demonstrates.
 3. EVERY TERM IN THE DRAFT THAT IS NOT IN THE ORIGINAL RESUME. Read the skills
    list and the summary against the source, term by term. Anything you cannot
    point to a line of the original for goes in \`selfAudit.notInOriginal\` AND
@@ -357,12 +367,16 @@ things mechanically and compares against what you reported here, so a
 draft through — it just makes the discrepancy the first thing anyone sees.
 
 What that pass does, so you know what is actually enforced rather than asked:
-every metric is counted and located; every repeated phrase is counted; the
-banned list is find-and-replaced out of your text whatever its origin; every
-four-word span is diffed against the posting; every skill is diffed against the
-original resume and deleted if untraceable; bullet counts are checked against the
-budget. Anything still failing goes back to a model for a second, narrower round.
-None of these are things you can settle by asserting you handled them.`;
+every metric is counted, located, and its digits diffed against the original —
+a number that is not in the source is removed and raised with the candidate;
+every repeated phrase is counted; the banned list, self-ratings included, is
+find-and-replaced out of your text whatever its origin; every four-word span is
+diffed against the posting; every skill is diffed against the original resume,
+deleted if untraceable, and the list is counted against the cap of 15; bullet
+counts are checked against the budget; the opening word and word count of every
+bullet are extracted and compared. Anything still failing goes back to a model
+for a second, narrower round. None of these are things you can settle by
+asserting you handled them.`;
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -727,8 +741,10 @@ Return a JSON object with this exact structure:
     "recommendation": "One specific action before submitting"
   },
   "selfAudit": {
-    "metrics": [{"value": "40%", "kind": "percentage", "location": "experience_1"}],
+    "metrics": [{"value": "40%", "kind": "percentage", "location": "experience_1", "sourceLine": "the line of the ORIGINAL resume this number came from"}],
     "metricCount": 3,
+    "bulletOpeners": [{"role": "experience_1", "openers": ["Built", "Cut", "Wrote"], "wordCounts": [21, 9, 14]}],
+    "skillsCount": 12,
     "metricsDropped": [{"value": "25%", "replacedWith": "the concrete outcome you wrote instead"}],
     "repeatedPhrases": [{"phrase": "design system", "count": 2, "locations": ["experience_1", "experience_2"]}],
     "bannedWordScan": "clean, or the words you found and what you replaced them with",

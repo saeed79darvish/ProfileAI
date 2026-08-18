@@ -201,4 +201,126 @@ from the draft, corrected. Return ONLY valid JSON.`;
   };
 }
 
-module.exports = { buildReviewPrompt, REVIEW_SYSTEM };
+const PROFILE_REVIEW_SYSTEM = `You are a resume review pass. You are NOT writing a profile — one already exists, and you are correcting specific, already-identified defects in it.
+
+You receive: the candidate's OWN PROFILE as they wrote it, an ENHANCED version of it, and a list of DEFECTS found by a deterministic checker that counted numbers, counted repeated openers, and diffed the enhanced text against what the candidate actually wrote.
+
+The defect list is authoritative. It is the output of counting, not of judgement. Do not argue with it, do not explain why a defect is acceptable, and do not return the profile unchanged because you disagree. Fix every listed defect and change nothing else.
+
+Your single hard limit: you may not add anything that is not in the candidate's own profile. When a fix would require inventing something, remove the offending text instead. Return valid JSON only.`;
+
+/**
+ * The enhancement pass's review round.
+ *
+ * Deliberately narrower than the tailoring review: there is no posting, so
+ * nothing here is about relevance, keywords or identity drift. What is left is
+ * the honesty and the human-writing half of the list — which is the half that
+ * matters most on this pass, because its output becomes the stored profile that
+ * every future application starts from. A defect fixed here is fixed for every
+ * tailored resume the candidate ever generates; one left standing recurs in all
+ * of them.
+ *
+ * @param {Object} opts
+ * @param {Object} opts.profile - the enhanced profile to correct
+ * @param {string} opts.sourceText - the candidate's pre-enhancement profile
+ * @param {Object} opts.auditReport - from auditProfile()
+ */
+function buildProfileReviewPrompt({ profile, sourceText, auditReport }) {
+  if (!sourceText || !String(sourceText).trim()) {
+    throw new Error('buildProfileReviewPrompt requires sourceText — the review pass cannot verify traceability without it');
+  }
+
+  const defects = (auditReport && auditReport.needsRewrite) || [];
+  const defectBlock = defects.length
+    ? defects.map((d, i) => `${i + 1}. ${d}`).join('\n')
+    : '(none — return the profile unchanged)';
+
+  const prompt = `═══ THE CANDIDATE'S OWN PROFILE (the only source of truth) ═══
+${sourceText}
+
+═══ THE ENHANCED VERSION UNDER REVIEW ═══
+${JSON.stringify(profile, null, 2)}
+
+═══ DEFECTS FOUND BY THE CHECKER (counted, not judged) ═══
+${defectBlock}
+
+═══ HOW TO FIX EACH CLASS OF DEFECT ═══
+
+METRICS
+- A number that is not in the candidate's own profile is removed, not replaced.
+  Rewrite the line so it is a complete thought without it: "Built the customer
+  dashboard" is finished; "built the dashboard used by active users" is a
+  sentence still waiting for a number.
+- Never leave the shape of a metric behind — "improved performance
+  significantly", "supported a large team" — and never round, re-derive or move
+  a number that stays. This profile is the record; every real figure in it must
+  survive exactly as the candidate wrote it.
+- A range or a hedge ("25-30%", "roughly 40%") becomes the exact figure the
+  profile states, or no figure.
+
+SUMMARY
+- Three sentences maximum, and NO NUMBERS of any kind — not a percentage, not a
+  headcount, not "serving millions of users". A scale claim is a metric written
+  in words. The figures stay in the bullets, where the work behind them is
+  visible.
+- No self-rating and no adjective stacking. Say what the person does and at what
+  level, then stop.
+
+BANNED
+- Rewrite the sentence with the plain word for what happened. Do not reach for a
+  different impressive word; "leveraged" becoming "harnessed" is the same
+  defect, and "expert in React" becoming "deep expertise in React" is the same
+  self-rating.
+- These words are usually in the candidate's own writing. That is not a reason
+  to keep them: their profile is the source of truth for FACTS, never for
+  wording.
+
+VARIATION
+- Rewrite the repeated opening verbs so each names what that specific job
+  involved, and let bullet lengths differ — one short clause among longer lines
+  is what human writing looks like. Do not add material to lengthen a bullet;
+  shorten the others instead.
+- An abstract quality chain ("usability, accessibility, and maintainability")
+  collapses to the one that the work actually turned on, with what changed.
+
+SKILLS
+- Remove any skill the candidate's own profile does not evidence. Do not soften
+  it into a vaguer claim pointing at the same thing.
+
+CONSISTENCY & EDUCATION
+- The role header title is authoritative; fix the bullet, never the header.
+- Restore any institution, degree or year present in the candidate's profile.
+  Education is a record, not a pitch, and is never shortened.
+
+═══ OUTPUT FORMAT ═══
+Return a JSON object:
+{
+  "profile": { ...the corrected profile, same shape and same fields as the one you were given, with every listed defect fixed... },
+  "fixes": [
+    {"defect": "the defect number and short name", "action": "what you changed", "location": "summary / experience_2 / skills / education"}
+  ],
+  "unfixable": [
+    {"defect": "defect that could not be fixed without inventing something", "why": "one sentence"}
+  ]
+}
+
+The "profile" object must contain the COMPLETE profile, not a patch — every
+field from the version you were given, corrected. Return ONLY valid JSON.`;
+
+  return {
+    system: PROFILE_REVIEW_SYSTEM,
+    prompt,
+    // Same reasoning as the tailoring review: this pass performs specified
+    // corrections, and creative variance is how a "fix" becomes a rewrite that
+    // introduces new defects.
+    temperature: 0.2,
+    max_tokens: 4000,
+  };
+}
+
+module.exports = {
+  buildReviewPrompt,
+  buildProfileReviewPrompt,
+  REVIEW_SYSTEM,
+  PROFILE_REVIEW_SYSTEM,
+};

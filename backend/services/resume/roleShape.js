@@ -83,26 +83,36 @@ function roleDurationMonths(period, now = new Date()) {
 }
 
 /**
- * Count the bullets in a description.
+ * Split a description into its bullets.
  *
  * Descriptions come back as one string. When the model emits real lines, the
  * lines are the bullets; when it emits running prose, each sentence is a bullet
- * on the rendered resume, so sentences are what get counted.
+ * on the rendered resume, so sentences are what get split.
+ *
+ * The variation checks (opening verbs, bullet lengths) read the bullets this
+ * returns and the tapering check counts them, which is the point of it being
+ * one function: a resume cannot have four bullets for the budget and three for
+ * the repetition check.
  */
-function countBullets(description) {
+function splitBullets(description) {
   const text = String(description || '').trim();
-  if (!text) return 0;
+  if (!text) return [];
 
   const lines = text
     .split('\n')
     .map((l) => l.replace(/^\s*[•\-*·]\s*/, '').trim())
     .filter(Boolean);
-  if (lines.length > 1) return lines.length;
+  if (lines.length > 1) return lines;
 
   return text
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
-    .filter((s) => s.replace(/[^A-Za-z0-9]/g, '').length > 2).length;
+    .filter((s) => s.replace(/[^A-Za-z0-9]/g, '').length > 2);
+}
+
+/** How many bullets a description carries. */
+function countBullets(description) {
+  return splitBullets(description).length;
 }
 
 const DEFAULT_SELECTED_BULLETS = 5;
@@ -206,6 +216,7 @@ module.exports = {
   parsePeriod,
   roleAgeYears,
   roleDurationMonths,
+  splitBullets,
   countBullets,
   bulletAllowance,
   planRoleShapes,

@@ -16,6 +16,12 @@
  * then makes a second call for screener answers.
  */
 const { callAI, safeParseJSON } = require('./ai/core');
+const {
+  bannedTerms,
+  scrubBannedLanguage,
+  findBannedLanguage,
+} = require('./resume/writingRules');
+const { numberTokens } = require('./resume/draftAudit');
 
 const TONE_INSTRUCTIONS = {
   professional: 'Polished and respectful. Warm but not casual. Use complete sentences and a courteous tone throughout. Open and close with politeness without slipping into corporate jargon.',
@@ -96,7 +102,21 @@ function summarizeProfile(profile) {
     ? `${mostRecent.title || ''} at ${mostRecent.company || ''}`.trim()
     : '';
 
-  return { name, skills: skills.substring(0, 300), experience, fullList, mostRecentRole };
+  // The untruncated text of everything the candidate actually wrote. `fullList`
+  // is capped at 2400 characters for the prompt's sake; a number check run
+  // against a truncated source would call the candidate's own figures invented,
+  // which is the one way this check could do harm.
+  const sourceText = [
+    p.summary || p.bio || '',
+    p.headline || '',
+    JSON.stringify(allExperience),
+    JSON.stringify(p.education || []),
+    JSON.stringify(p.projects || []),
+    JSON.stringify(p.certifications || []),
+    skills,
+  ].join('\n');
+
+  return { name, skills: skills.substring(0, 300), experience, fullList, mostRecentRole, sourceText };
 }
 
 function summarizeJob(job) {
@@ -222,7 +242,12 @@ VOICE RULES:
 13. Do NOT invent numbers. If the candidate profile does not state a number, do not put one in the letter. AND even if a percentage IS in the profile, do not use it in the letter — describe the change qualitatively instead.
 14. POLITENESS: keep the tone warm and respectful throughout. The opening should acknowledge the role courteously. The closing should thank the reader or invite a conversation politely. Avoid blunt or overly casual phrasing like "Saw the post", "Hit me up", "Let me know if there is a fit". A real human writing to a hiring manager is friendly but considerate.
 
-BANNED (do not use, even paraphrased):
+BANNED — THE SHARED RESUME LIST APPLIES HERE TOO (all grammatical forms):
+${bannedTerms().join(', ')}
+Self-ratings included: never "expert in", "highly skilled", "exceptional" or
+"extensive experience". A letter shows the level by describing the work.
+
+BANNED — LETTER-SPECIFIC (do not use, even paraphrased):
 "resonates", "translate well", "caught my attention", "caught my eye", "excites me", "reminds me of",
 "challenging but rewarding", "I'm confident", "I believe", "from day one", "align with",
 "aligns with", "passionate about", "thrilled", "eager to", "uniquely positioned",
@@ -252,7 +277,71 @@ BANNED (do not use, even paraphrased):
 OUTPUT FORMAT:
 Start with "Dear Hiring Manager,". Then a blank line. Then the body. Then "${closing}" on its own line. Then "${p.name}" on its own line. Nothing else.`,
     maxTokens: wordTarget ? Math.round(wordTarget * 1.8) + 60 : Math.round(lineCount * 22) + 60,
+    // Carried out so the enforcement pass diffs against the same profile the
+    // letter was written from, rather than re-deriving it and drifting.
+    sourceText: p.sourceText,
   };
+}
+
+/**
+ * Every digit-run in a text. Digits only, deliberately: "two years" is ordinary
+ * English in a letter, and dropping a sentence for spelling a small number
+ * would cost more than it saves. What is being hunted is the fabricated
+ * measurement, and those arrive as digits.
+ */
+function digitTokens(text) {
+  return (String(text || '').replace(/,(?=\d{3}\b)/g, '').match(/\d+(?:\.\d+)?/g) || []);
+}
+
+/**
+ * The letter's enforcement pass.
+ *
+ * The prompt bans a long list of words and tells the model not to invent
+ * numbers, and until this existed the only thing checked afterwards was
+ * percentages. Everything else was enforced by asking — at temperature 0.95,
+ * which is the highest in the product. The resume path learned this lesson
+ * three times: a rule the model both applies and grades is not enforced.
+ *
+ * Line by line, never across the whole string: the scrub joins sentences with
+ * spaces, and running it over the letter whole would collapse "Best," and the
+ * candidate's name onto one line.
+ */
+function enforceLetterRules(text, sourceText) {
+  const sourceNumbers = numberTokens(sourceText);
+
+  const scrubbed = String(text || '')
+    .split('\n')
+    .map((line) => (line.trim() ? scrubBannedLanguage(line).text : line))
+    .join('\n');
+
+  // Sentences that cannot be repaired by word substitution: a banned phrase
+  // that needs the sentence rebuilt, or a number the candidate's profile does
+  // not contain. Both are dropped whole, which is the policy percentages
+  // already had here — a letter reads fine one sentence shorter, and neither
+  // an unfalsifiable boast nor an invented figure can be salvaged in place.
+  const dropped = [];
+  const out = scrubbed
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => {
+        if (/\b\d{1,3}\s*%/.test(sentence)) { dropped.push(sentence.trim()); return false; }
+        if (findBannedLanguage(sentence).some((h) => !h.fixable)) { dropped.push(sentence.trim()); return false; }
+        const invented = digitTokens(sentence).filter((d) => !sourceNumbers.has(d));
+        if (invented.length) { dropped.push(sentence.trim()); return false; }
+        return true;
+      })
+      .join(' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim()
+    )
+    .filter(Boolean)
+    .join('\n\n');
+
+  if (dropped.length) {
+    console.log(`[ProfilleAI] Cover letter: dropped ${dropped.length} sentence(s) for banned phrasing or an unverifiable number:`, dropped.slice(0, 3));
+  }
+  return out;
 }
 
 function cleanLetter(text) {
@@ -271,28 +360,10 @@ function cleanLetter(text) {
       .replace(/\s+(Best|Thanks|Regards|Sincerely),\s*/i, '\n\n$1,\n');
   }
 
-  // Strip percentage-based improvement claims sentence-by-sentence. These
-  // are the strongest AI tell in a cover letter and the model occasionally
-  // sneaks them past the prompt rules. We drop the entire sentence rather
-  // than the number alone so the letter still reads cleanly.
-  // Process paragraph by paragraph so blank lines (paragraph breaks) are
-  // preserved in the output.
-  const PERCENT_PATTERNS = [
-    /\b\d{1,3}\s*%/,
-    /\b(reduced|increased|dropped|jumped|boosted|cut|grew|improved|raised|lowered)\b[^.!?]*\b\d+\s*%/i,
-  ];
-  out = out
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph
-      .split(/(?<=[.!?])\s+/)
-      .filter((sentence) => !PERCENT_PATTERNS.some((p) => p.test(sentence)))
-      .join(' ')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim()
-    )
-    .filter(Boolean)
-    .join('\n\n');
-
+  // Percentages used to be stripped here, on their own. They are now one of the
+  // three things enforceLetterRules drops — alongside banned phrasing and
+  // numbers the candidate's profile does not contain — because they were never
+  // the only rule this letter was failing, only the only one being checked.
   return out;
 }
 
@@ -326,14 +397,14 @@ function enforceWordLimit(text, length) {
  * Shared by the profile route and by generateCoverLetterAndAnswers below.
  */
 async function generateCoverLetter({ profile, job, tone, lines, length, memory = [] }) {
-  const { prompt, maxTokens } = buildLetterPrompt({ profile, job, tone, lines, length, memory });
+  const { prompt, maxTokens, sourceText } = buildLetterPrompt({ profile, job, tone, lines, length, memory });
   const res = await callAI({
     messages: [{ role: 'user', content: prompt }],
     max_tokens: maxTokens,
     temperature: 0.95,
   });
   const raw = res.choices[0].message.content || '';
-  return enforceWordLimit(cleanLetter(raw), length);
+  return enforceWordLimit(enforceLetterRules(cleanLetter(raw), sourceText), length);
 }
 
 /**
@@ -381,6 +452,17 @@ CRITICAL RULES for dropdown / select / radio fields:
 - If you can't confidently pick from the options, return the option that means "decline / prefer not to say" if available, else set confidence < 60 and pick the closest option.
 - For free-text fields (no options), write a concise 1-3 sentence answer.
 
+WRITING RULES for free-text answers (the same ones the resume and the letter follow):
+- Never invent anything. Only what the profile and memory state — no skill, no
+  project, no number the candidate did not give you. An answer you cannot
+  source belongs in the low-confidence path below, not in a confident sentence.
+- No numbers the profile does not contain, and no percentages at all.
+- Banned words, in every grammatical form: ${bannedTerms().join(', ')}.
+  Self-ratings included — never "expert in", "highly skilled", "exceptional".
+  Say what the candidate did; let the reader do the rating.
+- Plain sentences. No abstract closing clauses ("with a focus on scalability"),
+  no three-in-a-row quality nouns, no phrasing copied from the job description.
+
 If a question can't be answered confidently from profile + memory, set confidence < 60 and put a placeholder so the human notices.`;
 
   const res = await callAI({
@@ -391,7 +473,32 @@ If a question can't be answered confidently from profile + memory, set confidenc
   const raw = res.choices[0].message.content.trim();
   const json = raw.match(/\{[\s\S]*\}/)?.[0];
   const parsed = safeParseJSON(json || raw, { answers: [] });
-  return parsed.answers || [];
+  const answers = parsed.answers || [];
+
+  // Scrub free-text answers only. An answer to a select/radio field must stay a
+  // verbatim copy of one of the field's options — rewriting "Yes, utilizing a
+  // work visa" into "Yes, using a work visa" would break the exact-match
+  // contract above and fail the form submission, so those are left alone and
+  // the banned word is the lesser problem.
+  const optionFields = new Set(
+    (formFields || [])
+      .filter((f) => Array.isArray(f.options) && f.options.length > 0)
+      .map((f) => f.fieldId || f.id)
+  );
+
+  return answers.map((a) => {
+    if (typeof a.answer !== 'string' || optionFields.has(a.fieldId)) return a;
+    const scrubbed = scrubBannedLanguage(a.answer);
+    if (!scrubbed.replaced.length && !scrubbed.residual.length) return a;
+    // Residual phrasing needs a writer, and there is no review round on a
+    // screener answer — so it lands in front of the human instead, which is
+    // what the low-confidence path is for.
+    return {
+      ...a,
+      answer: scrubbed.text,
+      confidence: scrubbed.residual.length ? Math.min(Number(a.confidence) || 0, 55) : a.confidence,
+    };
+  });
 }
 
 /**
@@ -409,4 +516,8 @@ async function generateCoverLetterAndAnswers({ profile, job, memory = [], formFi
 module.exports = {
   generateCoverLetter,
   generateCoverLetterAndAnswers,
+  // Exported for the regression harness: the enforcement pass is pure, and it
+  // is the half of this service that can be verified without a model call.
+  enforceLetterRules,
+  cleanLetter,
 };

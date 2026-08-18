@@ -44,16 +44,19 @@ ${SHARED_WRITING_RULES}
 - Write like a senior engineer speaking to a hiring manager — direct, specific, zero fluff
 - Every sentence must contain concrete information. If it doesn't, cut it.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years of experience in [top specializations]
 - Sentence 2: Core technical strengths with 2–3 specific technologies or architectural patterns
-- Sentence 3: One proof point of scale or leadership (users served, team size, systems built)
+- Sentence 3, optional: what kind of systems this person builds and for whom.
+  NOT a number — no users served, no team size, no percentage. The summary
+  carries no metrics, and a scale claim is a metric written in words.
 - Banned: any adjective that cannot be proven
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [what/how] + [measurable result]
+- Common shape: [Action verb] + [what/how] + [measurable result] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Where the source has a metric (%, ms, users, $, time saved), surface it. Where it does not, write the accomplishment without one — do not substitute an invented scope or scale claim.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
@@ -130,16 +133,22 @@ ${SHARED_WRITING_RULES}
 - Write like a top-performing rep talking to a VP of Sales — confident, number-forward, direct
 - Every sentence must carry concrete information — a real revenue figure, quota, or business outcome where one exists in the source, otherwise a specific description of the work. If a sentence carries neither, cut it.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years in [sales motion: SaaS/enterprise/SMB/inside/field]
-- Sentence 2: Core strengths — deal size, sales cycle, market segment, methodology (MEDDIC, Challenger, SPIN)
-- Sentence 3: the strongest real number from the profile — quota attainment %, revenue generated, or team ranking. Omit this sentence entirely if the profile contains no such number.
-- Banned: any claim that can't be backed by a number
+- Sentence 2: Core strengths — segment, deal type, market, methodology (MEDDIC, Challenger, SPIN)
+- Sentence 3, optional: what this rep sells and to whom. NO NUMBER — not quota
+  attainment, not revenue, not a ranking. The numbers are the bullets' job, and
+  a quota figure in the summary is the first line of a resume asking to be
+  taken on trust. This rule overrides any instinct that sales resumes open with
+  a number; the strongest figure still appears, one section down, attached to
+  the deal that produced it.
+- Banned: any claim the bullets below do not evidence
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [what/how] + [revenue or quota outcome]
+- Common shape: [Action verb] + [what/how] + [revenue or quota outcome] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Quota %, deal size, ARR, pipeline created and team ranking are the numbers worth surfacing when the source contains them. When it does not, state the accomplishment plainly rather than estimating one.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
@@ -216,16 +225,19 @@ ${SHARED_WRITING_RULES}
 - Write like a sharp operator presenting to a leadership team — strategic, outcome-focused, clear
 - Every bullet must show impact on the business, user, or team. If it doesn't, cut it.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years driving [core function: product growth / go-to-market / operational efficiency]
 - Sentence 2: Domain expertise — market, product type, channels, or operational scope
-- Sentence 3: One proof point — revenue influenced, users grown, cost reduced, or process improved
+- Sentence 3, optional: the kind of problem this person is brought in to solve.
+  NOT a number — no revenue influenced, no user growth, no cost reduced. Those
+  belong in the bullet that shows the work behind them.
 - Banned: adjectives that can't be proven
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [initiative or method] + [business outcome]
+- Common shape: [Action verb] + [initiative or method] + [business outcome] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Surface a metric where the source contains one. Where it does not, state the outcome plainly — a described "scope or organizational reach" the candidate never wrote is an invented claim too.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
@@ -302,16 +314,18 @@ ${SHARED_WRITING_RULES}
 - Write with clarity and confidence — like a designer presenting their work to a product team
 - Every line should reflect craft, intention, and impact. Decorative language adds nothing.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years designing [product type: SaaS / consumer / enterprise / brand]
 - Sentence 2: Core strengths — design disciplines (UX, UI, motion, brand, systems) and tools
-- Sentence 3: One proof point — user outcome, product shipped, design system scale, or team impact
+- Sentence 3, optional: what this designer is known for. NOT a number — no
+  adoption figure, no team size, no research count.
 - Banned: anything that sounds like a mood board caption
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [what you designed/led] + [user or business outcome]
+- Common shape: [Action verb] + [what you designed/led] + [user or business outcome] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Metrics to include where possible: user satisfaction score, task completion rate, conversion lift, design system adoption, screens shipped, research participants
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
@@ -389,16 +403,19 @@ ${SHARED_WRITING_RULES}
 - Write with professionalism and precision — like a trusted advisor presenting to the C-suite
 - Every bullet must show organizational impact, risk reduced, or people outcomes. If it doesn't, cut it.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years in [domain: HR / talent / legal / compliance / customer success]
-- Sentence 2: Core strengths — functional expertise, industry, team or org size supported
-- Sentence 3: One proof point — headcount scaled, risk mitigated, retention improved, cases resolved
+- Sentence 2: Core strengths — functional expertise, industry, type of organization
+- Sentence 3, optional: the kind of work this person is trusted with. NOT a
+  number — no headcount, no retention rate, no caseload. An org size is a
+  metric even when written as a phrase.
 - Banned: soft claims with no organizational evidence
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [program, policy, or initiative] + [organizational outcome]
+- Common shape: [Action verb] + [program, policy, or initiative] + [organizational outcome] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Surface headcount, caseload, budget, retention rate or resolution time when the source states them. Never estimate one to fill a bullet.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"
@@ -477,16 +494,19 @@ ${SHARED_WRITING_RULES}
 - Write with precision and authority — like a CFO presenting to a board
 - Every sentence must carry concrete information about the financial work done. If it carries none, cut it — but never manufacture a figure to save a bullet.
 
-═══ SUMMARY SECTION ═══
-- Maximum 3 sentences
+═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - Sentence 1: [Title] with [X] years in [domain: FP&A / corporate finance / accounting / audit / treasury]
 - Sentence 2: Core strengths — financial functions, tools (Excel, SQL, Tableau, NetSuite, SAP), and company stage (startup / public / enterprise)
-- Sentence 3: One proof point — budget managed, cost saved, revenue influenced, or audit outcome
-- Banned: any claim that can't be tied to a dollar amount or process improvement
+- Sentence 3, optional: the kind of finance work this person owns. NOT a
+  number — no budget managed, no cost saved, no audit outcome. Finance bullets
+  carry figures well; the summary still carries none.
+- Banned: any claim the bullets below do not evidence
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
-- Formula: [Action verb] + [analysis, model, or process] + [financial or operational outcome]
+- Common shape: [Action verb] + [analysis, model, or process] + [financial or operational outcome] — but NOT every bullet. See SENTENCE & STRUCTURE
+  VARIATION above: a role whose lines all share one grammatical shape and one
+  length reads as generated, and both are counted after you return.
 - Surface the dollar figure, percentage or time metric the source contains. Where none exists, describe the work without one.
 - Never start consecutive bullets with the same verb
 - Banned openers: "Responsible for," "Worked on," "Helped with," "Was part of"

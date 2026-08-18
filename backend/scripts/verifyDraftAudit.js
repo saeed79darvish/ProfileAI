@@ -17,13 +17,22 @@
  * No network, no database, no API key.
  */
 
-const { auditDraft, hasSupport, hardClassDefects } = require('../services/resume/draftAudit');
+const {
+  auditDraft,
+  auditMetrics,
+  auditVariation,
+  auditConsistency,
+  auditSkillsProvenance,
+  findEstimatedMetrics,
+  hasSupport,
+  hardClassDefects,
+} = require('../services/resume/draftAudit');
 const {
   repairWrappedHyphens,
   repairJoinedCompounds,
   harvestCompounds,
 } = require('../services/resume/textNormalizer');
-const { scrubBannedLanguage } = require('../services/resume/writingRules');
+const { scrubBannedLanguage, findBannedLanguage } = require('../services/resume/writingRules');
 const { planRoleShapes, countBullets } = require('../services/resume/roleShape');
 
 // Role ages are arithmetic against today, so the fixtures pin a clock. Without
@@ -462,6 +471,121 @@ check('R11', 'The clean draft still passes every NEW check too',
   clean.banned.clean && clean.jdEcho.clean && clean.skills.clean &&
     clean.identity.clean && clean.tapering.clean && clean.metrics.ghostShapes.length === 0,
   `banned=${clean.banned.hits.length} jdEcho=${clean.jdEcho.spans.length} skills=${JSON.stringify(clean.skills.unevidenced)} identity=${clean.identity.clean} tapering=${clean.tapering.clean}`);
+
+// ── The avoid-list additions ─────────────────────────────────────────────────
+//
+// Everything below was on the reviewed contract and enforced by prompt text
+// alone: the model was told, and nothing counted. The invented metric is the
+// one that matters most — a fabricated skill was caught by the term diff, a
+// fabricated NUMBER was caught by nothing, and a draft that made one up passed
+// every metric check by staying under the cap and not repeating itself.
+
+check('N1', 'A number that is nowhere in the original is caught as invented',
+  bad.metrics.invented.some((i) => /20\s?%/.test(i.value)) &&
+    bad.blocking.some((b) => /^METRICS:.*appears nowhere in the original/.test(b)),
+  bad.metrics.invented.map((i) => `${i.value}[${i.location}] missing ${i.missing.join('/')}`).join(', ') || 'none');
+
+check('N1b', 'The candidate is asked about it rather than only losing it',
+  bad.questions.some((q) => q.type === 'invented_metric'),
+  bad.questions.filter((q) => q.type === 'invented_metric').map((q) => q.term).join(', ') || 'none');
+
+check('N1c', 'A real number written as a word is NOT called invented',
+  (() => {
+    const r = auditDraft({
+      draft: { summary: '', skills: [], experience: [{ company: 'Acme', title: 'Engineer', period: 'Jan 2021 - Mar 2023', description: 'Shipped 3 services.' }], education: [], projects: [] },
+      originalText: 'Acme | Engineer | Jan 2021 - Mar 2023\nShipped three services.',
+      jobDescription: 'Engineer',
+    });
+    return r.metrics.invented.length === 0;
+  })(),
+  '"three services" in the source supports "3 services" in the draft');
+
+check('N2', 'A range is caught as an estimate, not accepted as a measurement',
+  bad.metrics.estimates.some((e) => /25\s?-\s?30\s?%/.test(e.phrase)),
+  bad.metrics.estimates.map((e) => `${e.phrase}[${e.location}]`).join(', ') || 'none');
+
+check('N2b', 'A hedged number is caught the same way',
+  findEstimatedMetrics({ experience: [{ description: 'Cut review time by roughly 40%.' }] }).length === 1,
+  '"roughly 40%" is an estimate');
+
+check('N3', 'Three round percentages are flagged even when other kinds are present',
+  (() => {
+    const items = auditMetrics({
+      experience: [{ description: 'Cut load by 20%. Grew adoption 25%. Raised coverage 30%. Shipped 12 services.' }],
+    }).roundPercentages;
+    return items.length === 3;
+  })(),
+  'all-multiples-of-five percentages counted');
+
+check('N3b', 'Irregular percentages are left alone',
+  auditMetrics({ experience: [{ description: 'Cut load 23%. Grew adoption 31%. Raised coverage 47%.' }] }).roundPercentages.length === 0,
+  'real measurements are irregular and pass');
+
+check('N4', 'Two bullets in a row opening with the same verb are caught',
+  auditVariation({
+    experience: [{ company: 'Acme', description: 'Built the dashboard.\nBuilt the API.\nCut latency.' }],
+  }).adjacentRepeats.length === 1,
+  'adjacent opener repeat reported');
+
+check('N4b', 'One verb opening three bullets anywhere is caught',
+  auditVariation({
+    experience: [
+      { company: 'A', description: 'Built the dashboard.\nCut latency.' },
+      { company: 'B', description: 'Built the API.\nShipped the docs.' },
+      { company: 'C', description: 'Built the pipeline.\nWrote the runbook.' },
+    ],
+  }).repeatedOpeners.some((o) => o.opener === 'built' && o.count === 3),
+  'cross-role opener repetition counted');
+
+check('N5', 'A role whose bullets are all the same length is caught',
+  recurring.variation.uniformLengthRoles.some((u) => /Nordstrom/.test(u.location)),
+  recurring.variation.uniformLengthRoles.map((u) => `${u.location}=${u.lengths.join('/')}`).join(' | ') || 'none');
+
+check('N6', 'A chain of abstract quality nouns in a bullet is caught',
+  auditVariation({
+    experience: [{ company: 'Acme', description: 'Rebuilt the design system, improving usability, accessibility, and maintainability.' }],
+  }).buzzwordChains.length === 1,
+  'three virtues in a row reported');
+
+check('N6b', 'A list of technologies is NOT a buzzword chain',
+  auditVariation({
+    experience: [{ company: 'Acme', description: 'Built the service in React, TypeScript, and Node.' }],
+  }).buzzwordChains.length === 0,
+  'a factual stack list passes');
+
+check('N7', 'Self-ratings are banned vocabulary now, in both tiers',
+  (() => {
+    const flagged = findBannedLanguage('Expert in React and highly skilled at scaling teams.');
+    const deleted = scrubBannedLanguage('Delivered exceptional results for the team.');
+    return flagged.some((h) => h.term === 'expert in' && !h.fixable) &&
+      flagged.some((h) => h.term === 'highly skilled') &&
+      deleted.text === 'Delivered results for the team.';
+  })(),
+  'declared expertise is flagged; the adjective is deleted');
+
+check('N8', 'A skills list over 15 entries is capped',
+  (() => {
+    const many = Array.from({ length: 18 }, (_, i) => `Skill${i}`);
+    const r = auditSkillsProvenance({ skills: many, experience: [] }, many.join(', '), []);
+    return r.overCap && r.count === 18 && r.cap === 15;
+  })(),
+  '18 entries reported against a cap of 15');
+
+check('N9', 'Company capitalization is corrected against the original',
+  (() => {
+    const r = auditConsistency(
+      { experience: [{ company: 'Paypal', title: 'Engineer', period: 'Jan 2021 - Mar 2023' }] },
+      'PayPal | Engineer | Jan 2021 - Mar 2023'
+    );
+    return r.companyCasing.length === 1 && r.companyCasing[0].inOriginal === 'PayPal';
+  })(),
+  '"Paypal" reported against the original "PayPal"');
+
+check('N10', 'The clean draft still passes every added check',
+  clean.metrics.invented.length === 0 && clean.metrics.estimates.length === 0 &&
+    clean.metrics.roundPercentages.length === 0 && clean.variation.clean &&
+    clean.consistency.companyCasing.length === 0 && !clean.skills.overCap,
+  `invented=${clean.metrics.invented.length} estimates=${clean.metrics.estimates.length} variation=${clean.variation.clean} skillsCount=${clean.skills.count}`);
 
 check('17', 'Missing original is a hard error, not a silent pass',
   (() => {

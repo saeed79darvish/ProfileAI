@@ -150,7 +150,16 @@ const METRIC_PATTERNS = [
   { kind: 'multiplier', re: /\b\d+(?:\.\d+)?\s?[x×]\b/gi },
   { kind: 'latency', re: /\b\d[\d,.]*\s?(?:ms|milliseconds?|µs)\b/gi },
   { kind: 'duration', re: /\b\d[\d,.]*\s?(?:seconds?|minutes?|hours?|days?|weeks?|months?)\b/gi },
-  { kind: 'count', re: /\b\d[\d,.]*\s?[KMB]?\+?\s?(?:users?|customers?|clients?|engineers?|developers?|people|services?|components?|screens?|repos?|requests?|rps|qps|records?|tests?|apps?|applications?|teams?)\b/gi },
+  // Up to two words may sit between the number and the thing counted: the
+  // scale claim the enhancement prompts used to require arrives as "12 product
+  // teams" and "30 shared components", and a pattern that only matched "12
+  // teams" saw neither. A calendar year caught this way is discarded below.
+  { kind: 'count', re: /\b\d[\d,.]*\s?[KMB]?\+?\s+(?:[a-z]+\s+){0,2}(?:users?|customers?|clients?|engineers?|developers?|people|services?|components?|screens?|repos?|requests?|rps|qps|records?|tests?|apps?|applications?|teams?)\b/gi },
+  // A scale claim with no digits in it at all. "Serving millions of users" is a
+  // measurement the reader is asked to take on trust, and it was the shape five
+  // of the six enhancement prompts asked for by name — "one proof point of
+  // scale". It is a metric written in words, so it is counted as one.
+  { kind: 'scale', re: /\b(?:hundreds|thousands|millions|billions)\s+of\s+(?:users|customers|clients|people|requests|records|engineers|developers|transactions|documents|events)\b/gi },
 ];
 
 /** "from 840ms to 210ms", "3 weeks to 4 days" — a single before/after metric. */
@@ -170,7 +179,7 @@ function isCalendarYear(token) {
  * two failures the prompt banned but never checked: exceeding the cap, and
  * repeating the same figure across different companies.
  */
-function auditMetrics(draft) {
+function auditMetrics(draft, { originalText = null } = {}) {
   const items = [];
   for (const seg of collectSegments(draft)) {
     // A before/after pair is ONE metric, not two. "Cut p95 latency from 840ms
@@ -215,12 +224,134 @@ function auditMetrics(draft) {
     repeatedValues,
     inSummary,
     ghostShapes: findGhostMetrics(draft),
+    // Provenance is only checkable with a source. Callers that have one (every
+    // real caller does — auditDraft refuses to run without it) get the invented
+    // list; the internal summary-only call does not, and asks nothing of it.
+    invented: originalText === null ? [] : findInventedMetrics(items, originalText),
+    estimates: findEstimatedMetrics(draft),
+    roundPercentages: findRoundPercentages(items),
     overCap: items.length > 4,
     kindsUsed: [...new Set(items.map((i) => i.kind))],
     // A resume whose metrics are all percentages reads as invented even at
     // three of them, which is why METRIC DISCIPLINE asks for different kinds.
     monotonous: items.length >= 3 && new Set(items.map((i) => i.kind)).size === 1,
   };
+}
+
+// ── 1b. Metric provenance: the number that was never in the source ───────────
+
+/**
+ * Numbers written as words, mapped to digits.
+ *
+ * Without this, an original that says "three product teams" and a draft that
+ * says "3 product teams" reads as an invented figure — a false finding, on the
+ * one check where a false finding is most expensive: the review pass deletes
+ * what this reports, so crying wolf here destroys real data.
+ */
+const WORD_NUMBERS = {
+  zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6',
+  seven: '7', eight: '8', nine: '9', ten: '10', eleven: '11', twelve: '12',
+  twenty: '20', thirty: '30', forty: '40', fifty: '50', sixty: '60',
+  seventy: '70', eighty: '80', ninety: '90', hundred: '100', thousand: '1000',
+  million: '1000000', billion: '1000000000',
+};
+
+/** Every distinct number in a text, comma-stripped, digits and words alike. */
+function numberTokens(text) {
+  const out = new Set();
+  const str = String(text || '').replace(/,(?=\d{3}\b)/g, '');
+  for (const raw of str.match(/\d+(?:\.\d+)?/g) || []) {
+    out.add(raw);
+    // "25.0" and "25" are the same measurement written two ways.
+    if (raw.includes('.')) out.add(String(parseFloat(raw)));
+  }
+  for (const [word, digits] of Object.entries(WORD_NUMBERS)) {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(str)) out.add(digits);
+  }
+  return out;
+}
+
+/**
+ * Metrics carrying a number that appears NOWHERE in the original resume.
+ *
+ * This is the check the audit was missing, and it is the one the contract calls
+ * a deal-breaker: a fabricated skill gets caught by the term diff, a fabricated
+ * NUMBER was caught by nothing. The cap counted metrics, the repeat check
+ * compared them to each other, and a draft that invented "35%" out of nothing
+ * passed every one of them by staying under four and not repeating itself.
+ *
+ * Deliberately the weakest possible test — the digits must be absent from the
+ * source entirely, not merely attached to a different noun. A number moved onto
+ * the wrong accomplishment is also banned, but it is not decidable from digits
+ * alone, and a check that guesses would delete real figures. Absent digits are
+ * decidable, and they are what invention actually looks like.
+ */
+function findInventedMetrics(metricItems, originalText) {
+  const sourceNumbers = numberTokens(originalText);
+  const invented = [];
+  for (const item of metricItems) {
+    const digits = [...numberTokens(item.value)];
+    if (!digits.length) continue;
+    const missing = digits.filter((d) => !sourceNumbers.has(d));
+    if (missing.length) {
+      invented.push({ value: item.value, location: item.location, missing });
+    }
+  }
+  return invented;
+}
+
+/**
+ * Estimates wearing a measurement's clothes.
+ *
+ * A range ("25-30%") and a hedge ("roughly 40%") are both numbers the candidate
+ * never claimed, and both fail in the same place: an interviewer asks how it
+ * was calculated and there is no answer, because nothing was calculated.
+ * Scanned over the raw text rather than over counted metrics, since the metric
+ * patterns see "3-4 weeks" as the single value "4 weeks" and the range is
+ * exactly what needs reporting.
+ */
+const ESTIMATED_METRIC_PATTERNS = [
+  /\b\d[\d,.]*\s?-\s?\d[\d,.]*\s?(?:%|x|k\b|m\b|hours?|days?|weeks?|months?|years?|people|users?)/gi,
+  /\b(?:roughly|approximately|around|about|nearly|almost|over|under|up to|more than|less than)\s+\d[\d,.]*\s?(?:%|x|k\b|m\b|hours?|days?|weeks?|months?)/gi,
+];
+
+function findEstimatedMetrics(draft) {
+  const hits = [];
+  for (const seg of collectSegments(draft)) {
+    for (const re of ESTIMATED_METRIC_PATTERNS) {
+      for (const raw of seg.text.match(new RegExp(re.source, re.flags)) || []) {
+        hits.push({ phrase: raw.trim(), location: seg.location });
+      }
+    }
+  }
+  return hits;
+}
+
+/**
+ * Percentages that are all multiples of five.
+ *
+ * `monotonous` already catches a resume whose metrics are ALL percentages. This
+ * catches the version that slips past it: three round percentages plus one
+ * count, which satisfies the mix-the-kinds rule while still reading as numbers
+ * someone picked rather than measured. Real measurements are irregular — 23%,
+ * 31%, 47% — and a run of 20/25/30 is the single most recognisable invented
+ * shape on a resume.
+ *
+ * Three is the threshold because two round numbers is a coincidence and every
+ * resume has one.
+ */
+function findRoundPercentages(metricItems) {
+  const percentages = metricItems
+    // Ranges are excluded, not parsed: "25-30%" has no single value, and
+    // stripping its punctuation yields 2530, which is a multiple of five by
+    // accident. It is already reported as an estimate, which is the more
+    // specific defect.
+    .filter((i) => i.kind === 'percentage' && !/[-–]/.test(String(i.value)))
+    .map((i) => ({ ...i, n: parseFloat(String(i.value).replace(/[^\d.]/g, '')) }))
+    .filter((i) => Number.isFinite(i.n));
+  const round = percentages.filter((i) => i.n % 5 === 0);
+  if (percentages.length < 3 || round.length !== percentages.length) return [];
+  return round.map((i) => ({ value: i.value, location: i.location }));
 }
 
 /**
@@ -596,6 +727,122 @@ function auditJdEcho(draft, jobDescription, originalText) {
   return { spans, clean: spans.length === 0 };
 }
 
+// ── 4b. Variation audit (uniform construction) ───────────────────────────────
+
+const { splitBullets } = require('./roleShape');
+const { ABSTRACT_QUALITY_NOUNS } = require('./writingRules');
+
+/** The opening word of a bullet, lowercased and stripped of markers. */
+function openingWord(bullet) {
+  const m = String(bullet).replace(/^[^A-Za-z]+/, '').match(/^[A-Za-z][A-Za-z'-]*/);
+  return m ? m[0].toLowerCase() : '';
+}
+
+function wordCount(text) {
+  return String(text).split(/\s+/).filter(Boolean).length;
+}
+
+const ABSTRACT_NOUN_RE = new RegExp(`\\b(${ABSTRACT_QUALITY_NOUNS.join('|')})\\b`, 'gi');
+
+/**
+ * Three or more abstract quality nouns strung together in one list.
+ *
+ * The summary already gets a comma-chain check, but that one matches ANY three
+ * comma-separated words, which in a bullet would fire on "React, TypeScript,
+ * and Node" — a factual list of the stack. So the bullet version is keyed to a
+ * fixed vocabulary of virtues instead, and requires them to sit in an actual
+ * list: the span from the first to the last must contain nothing but words,
+ * commas and conjunctions. "Improved usability, accessibility, and
+ * maintainability" matches; a paragraph that happens to mention performance in
+ * one sentence and quality in another does not.
+ */
+function findBuzzwordChains(text) {
+  const chains = [];
+  for (const sentence of String(text).split(/(?<=[.!?])\s+/)) {
+    const matches = [...sentence.matchAll(ABSTRACT_NOUN_RE)];
+    if (matches.length < 3) continue;
+    const start = matches[0].index;
+    const end = matches[matches.length - 1].index + matches[matches.length - 1][0].length;
+    const span = sentence.slice(start, end);
+    const separators = (span.match(/,|\band\b|&/gi) || []).length;
+    if (separators >= 2 && /^[A-Za-z\s,&-]+$/.test(span)) chains.push(span.trim());
+  }
+  return chains;
+}
+
+/**
+ * Uniform construction — the tell that survives every content check.
+ *
+ * Nothing here is about truth. A resume can be entirely factual, correctly
+ * capped on metrics, free of banned words, and still read as generated because
+ * fourteen bullets open with six verbs on rotation and every line in a role
+ * runs nineteen words. Both are arithmetic, and both were prose rules the model
+ * graded itself against.
+ *
+ * The thresholds are set where a human writer would not naturally land:
+ *   - an opener used 3+ times across the whole resume, or twice in a row inside
+ *     one role. Two uses of "Built" on a resume is unremarkable.
+ *   - a role of 4+ bullets whose longest and shortest differ by 3 words or
+ *     fewer. Three bullets can match by chance; four cannot.
+ */
+function auditVariation(draft) {
+  const openerLocations = new Map();
+  const adjacentRepeats = [];
+  const uniformLengthRoles = [];
+  const buzzwordChains = [];
+
+  (draft.experience || []).forEach((entry, i) => {
+    const location = `experience_${i + 1}${entry.company ? ` (${entry.company})` : ''}`;
+    const bullets = splitBullets(entry.description);
+    let previous = null;
+
+    for (const bullet of bullets) {
+      const opener = openingWord(bullet);
+      if (opener.length >= 3) {
+        if (!openerLocations.has(opener)) openerLocations.set(opener, []);
+        openerLocations.get(opener).push(location);
+        if (opener === previous) adjacentRepeats.push({ opener, location });
+      }
+      previous = opener;
+      for (const chain of findBuzzwordChains(bullet)) {
+        buzzwordChains.push({ chain, location });
+      }
+    }
+
+    if (bullets.length >= 4) {
+      const lengths = bullets.map(wordCount);
+      const spread = Math.max(...lengths) - Math.min(...lengths);
+      if (spread <= 3) uniformLengthRoles.push({ location, lengths, spread });
+    }
+  });
+
+  for (const seg of collectSegments(draft)) {
+    if (!seg.location.startsWith('experience_')) {
+      for (const chain of findBuzzwordChains(seg.text)) {
+        buzzwordChains.push({ chain, location: seg.location });
+      }
+    }
+  }
+
+  const repeatedOpeners = [...openerLocations.entries()]
+    .filter(([, locs]) => locs.length >= 3)
+    .map(([opener, locations]) => ({ opener, count: locations.length, locations: [...new Set(locations)] }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    repeatedOpeners,
+    adjacentRepeats,
+    uniformLengthRoles,
+    buzzwordChains,
+    openersUsed: [...openerLocations.keys()],
+    clean:
+      repeatedOpeners.length === 0 &&
+      adjacentRepeats.length === 0 &&
+      uniformLengthRoles.length === 0 &&
+      buzzwordChains.length === 0,
+  };
+}
+
 // ── 5. Consistency audit (issue 6) ───────────────────────────────────────────
 
 const ROLE_NOUN = '(?:Engineer|Developer|Manager|Designer|Analyst|Lead|Architect|Scientist|Consultant|Director|Specialist|Administrator|Programmer)';
@@ -607,7 +854,7 @@ const ROLE_NOUN = '(?:Engineer|Developer|Manager|Designer|Analyst|Lead|Architect
  * CONSISTENCY CHECKS asked the model to confirm titles matched, and the model
  * confirmed. Extracting both strings and comparing them cannot do that.
  */
-function auditConsistency(draft) {
+function auditConsistency(draft, originalText = '') {
   const titleMismatches = [];
   const inBulletTitle = new RegExp(`\\bas\\s+(?:an?\\s+)?((?:[A-Z][A-Za-z.+#]*\\s+){0,4}${ROLE_NOUN})\\b`, 'g');
 
@@ -638,11 +885,27 @@ function auditConsistency(draft) {
     else if (/\b\d{4}\b/.test(p)) dateShapes.add('YYYY');
   });
 
+  // Company names take the company's own casing. "Paypal" for PayPal reads as
+  // someone who has never seen the logo, and it is checkable rather than
+  // stylistic: the original resume spells the employer's name, so any other
+  // spelling of the same letters is a regression the rewrite introduced.
+  const companyCasing = [];
+  const source = String(originalText || '');
+  for (const entry of draft.experience || []) {
+    const name = String(entry.company || '').trim();
+    if (name.length < 2) continue;
+    const found = source.match(new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`, 'i'));
+    if (found && found[0] !== name) {
+      companyCasing.push({ inDraft: name, inOriginal: found[0] });
+    }
+  }
+
   return {
     titleMismatches,
     dateFormats: [...dateShapes],
     mixedDateFormats: dateShapes.size > 1,
-    clean: titleMismatches.length === 0 && dateShapes.size <= 1,
+    companyCasing,
+    clean: titleMismatches.length === 0 && dateShapes.size <= 1 && companyCasing.length === 0,
   };
 }
 
@@ -827,14 +1090,26 @@ function auditSkillsProvenance(draft, originalText, acceptedGaps = []) {
       return { skill, evidence, inOriginal, inBullet };
     });
 
+  // A tailored resume shows the skills THIS posting asked for. Past roughly
+  // fifteen entries the list stops being read and starts burying the eight
+  // terms that matter, and nothing is lost by cutting it — the candidate's
+  // stored profile still holds every skill for the next application. The cap is
+  // deliberately absent from the enhancement pass for that reason.
+  const cap = 15;
+
   return {
     items,
+    count: items.length,
+    cap,
+    overCap: items.length > cap,
     // "Bullet only" means the term is in a tailored bullet but nowhere in the
     // original — the bullet is the fabrication, and the skill is downstream of
     // it. Reported separately so the finding points at the cause.
     bulletOnly: items.filter((i) => i.evidence === 'bullet only').map((i) => i.skill),
     unevidenced: items.filter((i) => i.evidence === 'none').map((i) => i.skill),
-    clean: items.every((i) => i.evidence !== 'none' && i.evidence !== 'bullet only'),
+    clean:
+      items.length <= cap &&
+      items.every((i) => i.evidence !== 'none' && i.evidence !== 'bullet only'),
   };
 }
 
@@ -1056,7 +1331,7 @@ function auditDraft({
     throw new Error('auditDraft requires originalText — the fabrication diff has no source of truth without it');
   }
 
-  const metrics = auditMetrics(draft);
+  const metrics = auditMetrics(draft, { originalText });
   const repetition = auditRepetition(draft, jdKeywords);
   const fabrication = auditFabrication(draft, originalText, acceptedGaps, jdKeywords, jobDescription);
   const summary = auditSummary(draft, jobDescription, originalText);
@@ -1066,14 +1341,15 @@ function auditDraft({
   const identity = auditIdentity(draft, originalText, jobDescription);
   const coverage = auditCoverage(draft, originalText, requiredKeywords || jdKeywords, acceptedGaps);
   const tapering = auditTapering(draft, { selectedBullets, now });
-  const consistency = auditConsistency(draft);
+  const variation = auditVariation(draft);
+  const consistency = auditConsistency(draft, originalText);
   const education = auditEducation(draft, originalText);
   const location = auditLocation(jobDescription, profileData);
   const artifacts = auditArtifacts(draft, originalText);
 
   const report = {
     metrics, repetition, fabrication, summary, jdEcho, banned, skills, identity,
-    coverage, tapering, consistency, education, location, artifacts,
+    coverage, tapering, variation, consistency, education, location, artifacts,
   };
 
   // A location conflict is a question for the candidate, never a defect in the
@@ -1085,6 +1361,10 @@ function auditDraft({
     metrics.repeatedValues.length === 0 &&
     metrics.inSummary.length === 0 &&
     metrics.ghostShapes.length === 0 &&
+    metrics.invented.length === 0 &&
+    metrics.estimates.length === 0 &&
+    metrics.roundPercentages.length === 0 &&
+    variation.clean &&
     repetition.clean &&
     fabrication.clean &&
     summary.clean &&
@@ -1110,6 +1390,10 @@ function auditDraft({
     fabrication: { ...report.fabrication, unsupportedSkills: [] },
     banned: { ...report.banned, hits: report.banned.hits.filter((h) => !h.fixable) },
     skills: { ...report.skills, unevidenced: [] },
+    // Company capitalization is a string swap against the original, done in
+    // code alongside the other repairs. Listing it here would buy a 60-second
+    // model round to fix what an assignment already fixed.
+    consistency: { ...report.consistency, companyCasing: [] },
   });
   return report;
 }
@@ -1146,6 +1430,15 @@ function buildBlockingList(r) {
   for (const ghost of r.metrics.ghostShapes || []) {
     out.push(`METRICS: "${ghost.phrase}" in ${ghost.location} is a metric with the number taken out. Rewrite the bullet so it states a concrete outcome without needing one.`);
   }
+  for (const inv of r.metrics.invented || []) {
+    out.push(`METRICS: "${inv.value}" in ${inv.location} contains a number (${inv.missing.join(', ')}) that appears nowhere in the original resume. Remove the figure and rewrite the bullet so it reads as a complete thought without it. Never substitute a different number.`);
+  }
+  for (const est of r.metrics.estimates || []) {
+    out.push(`METRICS: "${est.phrase}" in ${est.location} is an estimate, not a measurement. State the single figure the original gives, or drop the number entirely.`);
+  }
+  if ((r.metrics.roundPercentages || []).length) {
+    out.push(`METRICS: every percentage in the resume is a multiple of five (${r.metrics.roundPercentages.map((p) => `${p.value} [${p.location}]`).join('; ')}). Keep the strongest one and rewrite the others as concrete outcomes with no number — real measurements are irregular, and a run of round percentages reads as invented.`);
+  }
   for (const off of r.repetition.phraseOffenders) {
     out.push(`REPETITION: "${off.phrase}" appears ${off.count} times (${off.locations.join(', ')}). Reduce to at most 2 by rewriting the others as specific descriptions of the work in that role.`);
   }
@@ -1162,6 +1455,9 @@ function buildBlockingList(r) {
     if (span.location === 'summary') continue; // already reported by the summary check
     out.push(`JD LANGUAGE: "${span.phrase}" in ${span.location} is four or more consecutive words taken from the posting. Say it in the candidate's own words, anchored to what they actually did.`);
   }
+  if (r.skills && r.skills.overCap) {
+    out.push(`SKILLS: ${r.skills.count} entries, cap is ${r.skills.cap}. Keep the ones this posting asks for and the ones a bullet demonstrates; cut the rest — they stay in the candidate's stored profile for other applications.`);
+  }
   for (const s of (r.skills && r.skills.bulletOnly) || []) {
     out.push(`SKILLS: "${s}" appears in a tailored bullet but nowhere in the original resume. Remove the skill AND the claim in the bullet that props it up.`);
   }
@@ -1173,6 +1469,18 @@ function buildBlockingList(r) {
   }
   if (r.tapering && r.tapering.uniform) {
     out.push(`TAPERING: every role carries the same ${r.tapering.roles[0].bullets} bullets across a history spanning more than four years. Shorten the older ones.`);
+  }
+  for (const off of (r.variation && r.variation.repeatedOpeners) || []) {
+    out.push(`VARIATION: ${off.count} bullets open with "${off.opener}" (${off.locations.join(', ')}). Rewrite all but one so the opening verb names what that specific job involved.`);
+  }
+  for (const adj of (r.variation && r.variation.adjacentRepeats) || []) {
+    out.push(`VARIATION: two bullets in a row in ${adj.location} open with "${adj.opener}". Rewrite the second.`);
+  }
+  for (const uni of (r.variation && r.variation.uniformLengthRoles) || []) {
+    out.push(`VARIATION: every bullet in ${uni.location} is the same length (${uni.lengths.join(', ')} words). Cut one to a short clause and let another run longer — uniform lines read as a template even when every word is true.`);
+  }
+  for (const chain of (r.variation && r.variation.buzzwordChains) || []) {
+    out.push(`VARIATION: "${chain.chain}" in ${chain.location} is a chain of abstract qualities with no concrete anchor. Name the one the work actually turned on and say what changed, or cut all of them.`);
   }
   if (r.summary.overLength) {
     out.push(`SUMMARY: ${r.summary.sentenceCount} sentences, maximum is 3. Cut it down.`);
@@ -1188,6 +1496,9 @@ function buildBlockingList(r) {
   }
   if (r.consistency.mixedDateFormats) {
     out.push(`CONSISTENCY: mixed date formats (${r.consistency.dateFormats.join(', ')}). Use one throughout.`);
+  }
+  for (const c of r.consistency.companyCasing || []) {
+    out.push(`CONSISTENCY: company "${c.inDraft}" is spelled "${c.inOriginal}" in the original resume. Use the original's capitalization.`);
   }
   for (const inst of r.education.droppedInstitutions) {
     out.push(`EDUCATION: "${inst}" is in the original resume but missing from the draft. Restore it.`);
@@ -1238,6 +1549,16 @@ function buildQuestions(r) {
       question: `"${f.term}" was added to ${f.section} but is not in your original resume. Did you do this work in that role?`,
     });
   }
+  // An invented number is removed, not confirmed — but the candidate may
+  // genuinely have the figure and simply never have written it down, and they
+  // are the only one who can say. The removal happens either way.
+  for (const inv of r.metrics.invented || []) {
+    questions.push({
+      type: 'invented_metric',
+      term: inv.value,
+      question: `We removed "${inv.value}" from ${inv.location} — that number is nowhere in your original resume. If it is real, tell us the figure and how it was measured and we will put it back.`,
+    });
+  }
   for (const inst of r.education.droppedInstitutions) {
     questions.push({
       type: 'education_restored',
@@ -1282,6 +1603,12 @@ function buildQuestions(r) {
 module.exports = {
   auditDraft,
   auditMetrics,
+  auditVariation,
+  findInventedMetrics,
+  findGhostMetrics,
+  findEstimatedMetrics,
+  numberTokens,
+  collectSegments,
   auditRepetition,
   auditFabrication,
   auditSummary,
