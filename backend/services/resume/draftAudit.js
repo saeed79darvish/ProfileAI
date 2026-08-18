@@ -130,12 +130,22 @@ function collectSegments(draft) {
   return segments;
 }
 
-/** Flatten grouped or flat skills into a plain array. */
+/**
+ * Flatten grouped or flat skills into a plain array.
+ *
+ * Empty entries are dropped rather than passed on. A grouped object with an
+ * empty category — `{Languages: ["React"], Tools: null}`, which a model emits
+ * readily enough — used to flatten to `["React", null]`, and every downstream
+ * check stringifies what it is given: the provenance check then found no
+ * evidence for a skill named "null" and asked the candidate whether they had
+ * real experience with it.
+ */
 function flattenSkills(skills) {
   if (!skills) return [];
-  if (Array.isArray(skills)) return skills;
-  if (typeof skills === 'object') return Object.values(skills).flat();
-  return [];
+  const raw = Array.isArray(skills)
+    ? skills
+    : (typeof skills === 'object' ? Object.values(skills).flat() : []);
+  return raw.filter((s) => s !== null && s !== undefined && String(s).trim() !== '');
 }
 
 // ── 1. Metric audit (issue 3) ────────────────────────────────────────────────

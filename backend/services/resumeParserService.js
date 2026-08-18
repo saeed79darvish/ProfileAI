@@ -22,7 +22,7 @@ const { classifyDepartment } = require('./resume/departmentClassifier');
 const { getDepartmentEnhancementPrompt } = require('./resume/enhancementPrompts');
 const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
 const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/reviewPrompt');
-const { auditDraft, hasSupport, hardClassDefects } = require('./resume/draftAudit');
+const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./resume/draftAudit');
 const { auditProfile } = require('./resume/profileAudit');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
@@ -2001,13 +2001,11 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // padded/fake. We no longer add anything the model didn't already
       // justify — missing keywords are surfaced as gaps instead.
 
-      // Normalize skills: support both grouped object and flat array formats
-      const flattenSkills = (skills) => {
-        if (!skills) return [];
-        if (Array.isArray(skills)) return skills;
-        if (typeof skills === 'object') return Object.values(skills).flat();
-        return [];
-      };
+      // Normalize skills: support both grouped object and flat array formats.
+      // The shared one, not a local copy — this was a second implementation of
+      // the same four lines, and it carried the same hole: an empty category
+      // flattened to a literal null that every downstream check then treated as
+      // a skill named "null".
 
       // ═══════════════════════════════════════════════════════════════
       // STEP 3a: POST-PROCESSING — strip fabricated JD keywords from skills
