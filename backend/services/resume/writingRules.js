@@ -30,7 +30,225 @@ const BANNED_VOCABULARY = `BANNED VOCABULARY (all grammatical forms — verb, no
 - detail-oriented, dynamic, seasoned, synergy, team player, go-getter,
   proactively, in order to, instrumental in, tasked with
 - Plain substitutes: used, ran, built, led, cut, moved, rewrote, set up, fixed.
-  Say the actual verb for the actual action.`;
+  Say the actual verb for the actual action.
+- THIS LIST IS NOT A PREFERENCE AND THE SOURCE DOES NOT EXEMPT IT. Most of these
+  words reach the output by being copied out of the candidate's own resume, and
+  "it was already there" has been the reason they came back on run after run.
+  Every word above is find-and-replaced out of your draft mechanically after you
+  return it, whether it came from the original or from your own tailoring. Write
+  the plain word yourself so the substitution has nothing left to do — the
+  machine pass cannot rewrite a sentence, only strip a word, and a sentence you
+  built around "utilizing" reads worse after the strip than before it.`;
+
+// ── The banned list, in machine-applicable form ──────────────────────────────
+//
+// The prose block above is what the model reads. This is what runs. They are
+// deliberately in the same file: the previous arrangement had the ban written in
+// one place and enforced nowhere, and "utilize" came back on three consecutive
+// runs because it was in the candidate's original resume and every rule the
+// model was asked to apply to its own output is a rule it can report as applied.
+//
+// Three tiers, by what a machine can safely do to a sentence it cannot read:
+//   SUBSTITUTIONS — a word with an exact plain equivalent. Always safe.
+//   DELETIONS     — a modifier that carries no information. Dropping it leaves a
+//                   grammatical sentence (articles are repaired afterwards).
+//   FLAG_ONLY     — phrases whose removal needs the sentence rebuilt. These are
+//                   reported as defects for the review pass, never auto-edited,
+//                   because a bad mechanical edit here is worse than the word.
+
+const BANNED_SUBSTITUTIONS = {
+  leverage: 'use', leverages: 'uses', leveraged: 'used', leveraging: 'using',
+  utilize: 'use', utilizes: 'uses', utilized: 'used', utilizing: 'using',
+  utilisation: 'use', utilization: 'use',
+  spearhead: 'lead', spearheads: 'leads', spearheaded: 'led', spearheading: 'leading',
+  'in order to': 'to',
+};
+
+const BANNED_DELETIONS = [
+  'seamless', 'seamlessly',
+  'robust', 'robustly',
+  'cutting-edge', 'bleeding-edge', 'state-of-the-art', 'best-in-class', 'world-class',
+  'detail-oriented', 'results-driven', 'results-oriented',
+  'seasoned', 'proactively',
+];
+
+const BANNED_FLAG_ONLY = [
+  'proven track record', 'track record of',
+  'passionate', 'passion for',
+  'synergy', 'synergies', 'team player', 'go-getter',
+  'instrumental in', 'tasked with', 'dynamic',
+];
+
+/**
+ * Trailing clauses that assert a virtue instead of an outcome. Only the shapes
+ * with a fixed, unfalsifiable vocabulary are matched — "ensuring SOC2 controls
+ * passed audit" is a fact and must survive, so `ensuring` alone is not a
+ * trigger; `ensuring high availability` is.
+ */
+const ABSTRACT_CLOSING_PATTERNS = [
+  /[,;]?\s*with\s+(?:an?\s+)?(?:strong\s+|particular\s+|special\s+|heavy\s+)?(?:focus|emphasis)\s+on\s+[^.;\n]*/gi,
+  /[,;]?\s*(?:ensuring|guaranteeing)\s+(?:high|optimal|maximum|consistent|seamless|greater|improved)\s+(?:availability|performance|quality|reliability|scalability|uptime|efficiency|consistency|usability|maintainability)[^.;\n]*/gi,
+  /[,;]?\s*driving\s+(?:business|customer|organizational|organisational|significant)?\s*value[^.;\n]*/gi,
+  /[,;]?\s*to\s+improve\s+overall\s+[^.;\n]*/gi,
+  /[,;]?\s*thereby\s+[^.;\n]*/gi,
+];
+
+// How much sentence has to survive a trim for the trim to be worth making.
+// Three words is the floor because "Delivered an integration" is a sentence and
+// "With a focus on maintainability" is not — a clause that opens a sentence is
+// the sentence, and cutting it would leave nothing behind.
+const WORDS_KEPT_AFTER_TRIM = 3;
+
+function escapeForRe(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Match a term as a whole word, tolerating the hyphens in "cutting-edge". */
+function bannedTermRe(term) {
+  return new RegExp(`(?<![A-Za-z0-9])${escapeForRe(term)}(?![A-Za-z0-9])`, 'gi');
+}
+
+/** Keep the replacement's capitalisation in step with what it replaced. */
+function matchCase(sample, replacement) {
+  if (/^[A-Z]/.test(sample) && !/^[A-Z]/.test(replacement)) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+/**
+ * "a integration" after "seamless" is deleted, "an system" after "an optimal
+ * system" loses its adjective. Both are artifacts of the deletion, not of the
+ * writing, so they are repaired here rather than left in the resume.
+ */
+function fixArticles(text) {
+  return String(text)
+    .replace(/\ba\s+(?=[aeiou])/gi, (m) => (m[0] === 'A' ? 'An ' : 'an '))
+    .replace(/\ban\s+(?![aeiou])/gi, (m) => (m[0] === 'A' ? 'A ' : 'a '));
+}
+
+function tidySpacing(text) {
+  return String(text)
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/[ \t]+$/gm, '');
+}
+
+/**
+ * Trim abstract closing clauses, sentence by sentence.
+ *
+ * Per sentence, so a clause that opens one ("With a focus on accessibility, I
+ * rebuilt…") is never mistaken for a trailing one, and so a trim can be
+ * abandoned when it would leave a stub instead of a sentence.
+ */
+function trimAbstractClosings(text) {
+  const trimmed = [];
+  const out = String(text)
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => {
+      let next = sentence;
+      for (const re of ABSTRACT_CLOSING_PATTERNS) {
+        next = next.replace(new RegExp(re.source, re.flags), (match, offset, whole) => {
+          const before = whole.slice(0, offset).trim();
+          // A clause is only trailing if a real sentence precedes it.
+          if (before.split(/\s+/).filter(Boolean).length < WORDS_KEPT_AFTER_TRIM) return match;
+          return '';
+        });
+      }
+      next = next.trim();
+      if (next !== sentence.trim()) {
+        // Restore the sentence's terminator, which the clause took with it.
+        if (!/[.!?]$/.test(next)) next = `${next.replace(/[,;\s]+$/, '')}.`;
+        trimmed.push(tidySpacing(sentence).trim());
+      }
+      return next;
+    })
+    .join(' ');
+  return { text: tidySpacing(out).trim(), trimmed };
+}
+
+/**
+ * The find-and-replace pass. Runs on every draft, every run, over text that came
+ * from the model AND text that survived unchanged from the candidate's original.
+ *
+ * @param {string} text
+ * @returns {{text: string, replaced: Array<{from: string, to: string}>, residual: string[]}}
+ *   `residual` is what a machine must not touch — reported as a defect instead.
+ */
+function scrubBannedLanguage(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { text, replaced: [], residual: [] };
+  }
+
+  let out = text;
+  const replaced = [];
+
+  for (const [term, replacement] of Object.entries(BANNED_SUBSTITUTIONS)) {
+    out = out.replace(bannedTermRe(term), (match) => {
+      replaced.push({ from: match, to: replacement });
+      return matchCase(match, replacement);
+    });
+  }
+
+  for (const term of BANNED_DELETIONS) {
+    out = out.replace(bannedTermRe(term), (match) => {
+      replaced.push({ from: match, to: '(removed)' });
+      return '';
+    });
+  }
+
+  const closings = trimAbstractClosings(out);
+  out = closings.text;
+  for (const clause of closings.trimmed) {
+    replaced.push({ from: clause, to: '(abstract closing clause removed)' });
+  }
+
+  out = fixArticles(tidySpacing(out)).trim();
+
+  const residual = [];
+  for (const term of BANNED_FLAG_ONLY) {
+    if (bannedTermRe(term).test(out)) residual.push(term);
+  }
+
+  return { text: out, replaced, residual };
+}
+
+/**
+ * Read-only version: what banned language is present, without changing anything.
+ * Used by the audit so the report describes the bytes being returned.
+ */
+function findBannedLanguage(text) {
+  const found = [];
+  if (typeof text !== 'string' || !text.trim()) return found;
+  for (const term of Object.keys(BANNED_SUBSTITUTIONS)) {
+    if (bannedTermRe(term).test(text)) found.push({ term, fixable: true });
+  }
+  for (const term of BANNED_DELETIONS) {
+    if (bannedTermRe(term).test(text)) found.push({ term, fixable: true });
+  }
+  for (const term of BANNED_FLAG_ONLY) {
+    if (bannedTermRe(term).test(text)) found.push({ term, fixable: false });
+  }
+  for (const re of ABSTRACT_CLOSING_PATTERNS) {
+    const m = text.match(new RegExp(re.source, re.flags));
+    if (m) found.push({ term: m[0].trim(), fixable: false, kind: 'abstract_closing' });
+  }
+  return found;
+}
+
+/**
+ * Skills-list entries that are methodologies or philosophies rather than
+ * technologies. Deliberately narrow: "Agile" and "Scrum" are industry-standard
+ * ATS keywords a recruiter expects to find in a skills list, so they do not
+ * match — what matches is the unfalsifiable kind ("component-driven design",
+ * "clean code", "attention to detail").
+ *
+ * Shared between the audit that reports these and the repair that deletes them,
+ * so the two can never disagree about what counts.
+ */
+const METHODOLOGY_LABEL_RE = /\b(?:driven|first|oriented|based)\s+(?:design|development|architecture|approach|thinking|mindset|culture)\b|\b(?:design|development|architecture)\s+(?:philosophy|principles|mindset|thinking)\b|\bbest practices\b|\bclean code\b|\bproblem[- ]solving\b|\battention to detail\b/i;
 
 const BANNED_BULLET_ENDINGS = `BANNED BULLET ENDINGS (abstract quality clauses)
 - No bullet may end in a trailing clause that asserts a virtue instead of an
@@ -224,6 +442,12 @@ function writingRules({ mode, explanationField, unverifiableDestination }) {
 module.exports = {
   writingRules,
   readAloudCheck,
+  scrubBannedLanguage,
+  findBannedLanguage,
+  BANNED_SUBSTITUTIONS,
+  BANNED_DELETIONS,
+  BANNED_FLAG_ONLY,
+  METHODOLOGY_LABEL_RE,
   metricRules,
   antiFabrication,
   noAnnotations,

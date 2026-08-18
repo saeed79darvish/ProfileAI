@@ -9,6 +9,7 @@
  */
 
 const { writingRules, readAloudCheck } = require('./writingRules');
+const { planRoleShapes, DEFAULT_SELECTED_BULLETS } = require('./roleShape');
 
 // Quality rules shared with the enhancement prompts. Kept in one module so the
 // two paths can never disagree about what good resume writing is; see
@@ -104,6 +105,17 @@ SUMMARY
   science fundamentals" is four words lifted whole, and it is the kind of line
   that gets checked. Say the same thing in the candidate's own register or say
   nothing.
+- THE PROFESSIONAL IDENTITY IN THE FIRST SENTENCE IS A CLAIM LIKE ANY OTHER, and
+  it may only move as far as the bullets below it support. A frontend engineer
+  applying to a full-stack posting is a frontend engineer in the summary unless
+  the experience section shows backend ownership; a full-stack posting does not
+  make the candidate full-stack, and relabelling is the cheapest possible
+  fabrication because it costs no sentence anywhere else.
+  - Where the posting's core requirement is PARTIALLY supported, keep the honest
+    identity and let the supporting bullets carry as much of the claim as they
+    honestly can. That is the whole permitted move.
+  - Then put the shortfall in GENUINE GAPS, phrased for a cover letter. Never
+    close a gap by widening a label.
 - At most 1–2 JD terms, and only ones the candidate's actual history supports.
   A summary stuffed with posting language is the first thing a recruiter reads
   and the first thing that reads as generated.
@@ -133,11 +145,39 @@ KEYWORD INJECTION INTO BULLETS
 - If a top keyword has no honest home in any bullet, either leave it in the skills section (only if the candidate has genuine exposure) or list it in the gap report. Do not force it into a sentence just to hit a quota — an unnatural sentence is worse than a missed keyword.
 - A keyword mentioned once, in the place it actually belongs, reads as a real skill. The same keyword crammed into two or three bullets reads as manipulation to a recruiter — never repeat a keyword artificially for density.
 
-KEYWORD FREQUENCY LIMIT (hard rule)
-- Each JD keyword may appear AT MOST 1–2 times across the ENTIRE resume — summary, skills, and all bullets combined. Not per role. Not per section. Per resume.
+JD LANGUAGE — THE FOUR-WORD RULE APPLIES TO THE WHOLE RESUME
+- No run of four or more consecutive words from the posting may appear anywhere
+  in the output: not the summary, not a bullet, not a project description. The
+  rule used to cover the summary only, and the copied phrases simply moved down
+  into the bullets.
+- Words the candidate's own resume already uses are not copying — that is
+  agreement, and it is exactly what tailoring is for. What is banned is importing
+  the posting's phrasing for something the candidate described differently, or
+  did not describe at all.
+- Match a requirement by naming the real work that satisfies it. The posting says
+  "experience building scalable data pipelines"; the candidate's resume says they
+  moved a nightly batch job to streaming. Write the second one.
+
+PHRASE FREQUENCY LIMIT (hard rule, counted after you return)
+- Each JD keyword may appear AT MOST 2 times across the ENTIRE resume — summary, skills, and all bullets combined. Not per role. Not per section. Per resume.
+- The same limit applies to ANY multi-word phrase of your own. "Component-driven design" five times is the single most reported defect in this product's output, and it happens because the phrase is accurate — accuracy is not a licence to repeat. Two uses, maximum, then the work gets described in the specific terms of the role it happened in.
 - ATS scoring matches on presence, not frequency. A third mention adds zero match score and costs credibility with the human who reads it next. There is no density target to hit.
 - Never repeat the same stock phrase across multiple roles ("cross-functional collaboration" in three jobs, "cloud-native architecture" in two). If two roles genuinely involved the same skill, describe each in the concrete terms of that job — different systems, different scope, different words.
-- Before returning, count occurrences of each top JD keyword. Anything above two: keep the single strongest, most specific placement and rewrite the others in the candidate's own plain description of that work.
+- A methodology phrase — "component-driven design", "test-driven development", "clean code", "best practices" — NEVER goes in the Skills list. Skills are tools and technologies a recruiter can verify. A way of working is evidenced by the bullet that shows it, and putting it in Skills is how these phrases collect the extra mentions that put them over this limit.
+- Before returning, count every phrase of two or more words you used more than once, and list each one with its count in \`selfAudit.repeatedPhrases\`. Anything at 3 or more: keep the two strongest placements and rewrite the rest.
+
+ROLE TAPERING (bullet counts are not uniform)
+- A per-role bullet budget is given to you further down, computed from the dates
+  on each job. It is a CEILING per role, not a target: a role with two good lines
+  gets two lines.
+- The shape of the budget: the two most recent roles carry the candidate's chosen
+  bullet count, roles that ended more than four years ago get 2–3, and the oldest
+  entry or a stint under a year gets 1–2.
+- Four roles with five bullets each, spread over eight years, is the single most
+  recognisable machine-written resume shape there is. A career has a taper —
+  recent work is described in detail, early work is a line and a date.
+- Never pad a thin role to reach its ceiling. Inventing a bullet to balance the
+  layout is fabrication with a cosmetic motive, which is still fabrication.
 
 WEAK BULLET RESOLUTION (decide, don't annotate)
 - If a bullet cannot be connected to the JD in any meaningful way and has no metrics or scale, do exactly one of:
@@ -149,15 +189,25 @@ WEAK BULLET RESOLUTION (decide, don't annotate)
 - Never silently keep a weak bullet you judged weak, and never leave the decision
   to the reader. You make the call; the output contains only the result.
 
-SKILLS SECTION
+SKILLS SECTION — EVERY ENTRY MUST SURVIVE A DIFF
 - Always group skills into labeled categories — never output a flat ungrouped list.
 - Minimum categories: Languages | Frameworks | Infrastructure | Tools
-- Add role-specific categories if the JD warrants it (e.g. Methodologies, Platforms, Certifications).
+- Add role-specific categories if the JD warrants it (e.g. Platforms, Certifications).
+  Never a "Methodologies" category — see the phrase frequency limit.
 - Reorder skills within each category to lead with what the JD prioritizes.
 - Add any skills from the JD that exist in the resume body but are missing
   from the skills section.
 - Remove or deprioritize skills that have no relevance to this JD.
-- Never add a skill the candidate has not demonstrated in their resume.
+- THE ADMISSION TEST, applied to every single entry: the skill appears in the
+  candidate's original resume, OR an experience bullet in this output
+  demonstrates it. Nothing else gets in. A skill is not admitted because the JD
+  asks for it, because it is adjacent to something the candidate knows, or
+  because it seems implied by their stack.
+- A skill you wanted to add and could not justify goes in
+  \`matchAnalysis.skillsToConfirm\` as a question for the candidate — "you list
+  Postgres; have you written raw SQL?" — never into the list on the chance it is
+  true. The list is diffed against the original in code afterwards, and anything
+  untraceable is deleted before the candidate ever sees it.
 
 EDUCATION COMPLETENESS
 - Education is a RECORD, not a pitch. It is never shortened, condensed, or
@@ -265,12 +315,28 @@ Go through the finished JSON and LIST, not summarise:
 
 1. EVERY METRIC. Write out each number that survives, with the field it sits
    in. Then count them. If the count is above 4, or two entries share a value,
-   or they are all the same kind, go back and drop the weakest until they are
-   not, and re-list.
+   or any of them is in the summary, or they are all the same kind, go back and
+   drop the weakest until none of those is true, and re-list.
+   - The original resume's numbers are a menu, not a manifest. Carrying all five
+     of them through unchanged, run after run, is the failure this check exists
+     for: a tailored resume picks the 3–4 that matter to THIS posting.
+   - A dropped metric becomes a concrete non-numeric outcome, not a hole. "Cut
+     load time by 25%" becomes "Cut the dashboard's load time enough that support
+     stopped fielding complaints about it" — something that happened, stated
+     without the number. Never "improved performance significantly": that is the
+     shape of a metric with the digits removed, and it reads worse than either
+     the number or the plain sentence.
+   - Never invent a number, and never re-derive one.
 2. EVERY PHRASE OF TWO OR MORE WORDS THAT YOU USED MORE THAN ONCE. For each,
-   write the count and where it appears. Anything at 3+, or any JD keyword
-   above 2, gets rewritten in the concrete terms of that specific job — then
-   re-count.
+   write the count and where it appears — including the ones at exactly two,
+   which are legal. The list is the proof the count happened. Anything at 3+, or
+   any JD keyword above 2, gets rewritten in the concrete terms of that specific
+   job — then re-count.
+2b. EVERY RUN OF FOUR OR MORE CONSECUTIVE WORDS SHARED WITH THE POSTING,
+   anywhere in the resume, unless the candidate's original resume uses the same
+   words. Each one is rewritten in the candidate's own register.
+2c. BULLET COUNTS PER ROLE against the budget you were given, and the summary's
+   professional identity against the one in the original resume.
 3. EVERY TERM IN THE DRAFT THAT IS NOT IN THE ORIGINAL RESUME. Read the skills
    list and the summary against the source, term by term. Anything you cannot
    point to a line of the original for goes in \`selfAudit.notInOriginal\` AND
@@ -288,7 +354,15 @@ Go through the finished JSON and LIST, not summarise:
 An independent review pass runs on this output afterwards. It counts the same
 things mechanically and compares against what you reported here, so a
 \`selfAudit\` that claims three metrics on a draft carrying six does not get the
-draft through — it just makes the discrepancy the first thing anyone sees.`;
+draft through — it just makes the discrepancy the first thing anyone sees.
+
+What that pass does, so you know what is actually enforced rather than asked:
+every metric is counted and located; every repeated phrase is counted; the
+banned list is find-and-replaced out of your text whatever its origin; every
+four-word span is diffed against the posting; every skill is diffed against the
+original resume and deleted if untraceable; bullet counts are checked against the
+budget. Anything still failing goes back to a model for a second, narrower round.
+None of these are things you can settle by asserting you handled them.`;
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -530,6 +604,8 @@ function getRoleBlock(group) {
  * @param {string} options.settingsContext - User tailoring preferences block
  * @param {Object} options.extractedKeywords - Extracted keywords from JD
  * @param {number} options.expCount - Number of experience entries
+ * @param {Object} [options.tailorSettings] - User preferences (bullet count etc.)
+ * @param {Date} [options.now] - injectable clock for the role-age arithmetic
  * @returns {Object} { system, prompt, temperature, max_tokens }
  */
 function buildTailoringPrompt(options) {
@@ -541,11 +617,30 @@ function buildTailoringPrompt(options) {
     gapContext,
     settingsContext,
     extractedKeywords,
-    expCount
+    expCount,
+    tailorSettings,
+    now = new Date(),
   } = options;
 
   const hasResume = originalResumeText && originalResumeText.trim().length > 100;
   const roleBlock = getRoleBlock(group);
+
+  // The per-role bullet budget, computed rather than described. "Older roles get
+  // fewer bullets" is a sentence a model can agree with and then ignore; "Acme
+  // (2014-2016): at most 2 bullets" is an instruction with a number in it, and
+  // it is the same number the audit measures the result against afterwards.
+  const selectedBullets = Number(tailorSettings && tailorSettings.experienceLines) || DEFAULT_SELECTED_BULLETS;
+  const rolePlan = planRoleShapes((profileData && profileData.experience) || [], {
+    selected: selectedBullets,
+    now,
+  });
+  const taperingBlock = rolePlan.length > 0 ? `
+═══ PER-ROLE BULLET BUDGET (ceilings, computed from the dates) ═══
+${rolePlan.map((r) => `  ${r.index + 1}. ${r.company || 'role'}${r.title ? ` — ${r.title}` : ''}${r.period ? ` (${r.period})` : ''}: at most ${r.allowance.max} bullet${r.allowance.max === 1 ? '' : 's'} — ${r.allowance.reason}`).join('\n')}
+The candidate's chosen bullet count for recent roles is ${selectedBullets}. These
+are ceilings: a role with less genuinely relevant material gets fewer lines, and
+never gets a line invented to fill its budget.
+` : '';
 
   // Build OR-groups block
   const orGroups = extractedKeywords.orGroups || [];
@@ -582,7 +677,7 @@ ${resumeSection}
 
 ═══ TARGET JOB DESCRIPTION ═══
 ${jobDescription}
-${keywordsBlock}${gapContext}${settingsContext}
+${keywordsBlock}${taperingBlock}${gapContext}${settingsContext}
 ═══ ADDITIONAL RULES ═══
 - PRECEDENCE: where a user preference below conflicts with an honesty rule or a
   hard cap above (summary at 3 sentences, 4 metrics, keyword at 2 uses), the
@@ -592,7 +687,7 @@ ${keywordsBlock}${gapContext}${settingsContext}
   what they have done. The JD tells you what to emphasise, never what to claim.
   Any term you cannot locate in the resume above does not enter the output —
   it goes to GENUINE GAPS instead.
-- This resume has ${expCount} experience entries. They do not all get the same treatment: the most recent and most JD-relevant roles carry the most bullets and the most detail, older roles get 1–3 short lines.
+- This resume has ${expCount} experience entries. They do not all get the same treatment: follow the PER-ROLE BULLET BUDGET above exactly. Equal bullet counts across the whole history is a defect the checker measures, not a stylistic preference.
 - Reorder bullets within each role so the most JD-relevant appears first.
 - Never change a number that appears in the source. You may drop a metric by rephrasing its bullet without it; you may never alter, round, re-derive, or relocate one.
 - For skills the candidate doesn't have direct experience with but are in accepted gaps, use honest framing: "familiar with", "exposure to".
@@ -625,7 +720,8 @@ Return a JSON object with this exact structure:
     "experienceMatch": "One sentence assessing experience alignment",
     "top3Gaps": ["gap 1", "gap 2", "gap 3"],
     "strongMatches": ["5-8 areas where candidate directly matches JD"],
-    "gaps": ["GENUINE GAPS — all JD requirements the resume cannot honestly cover"],
+    "gaps": ["GENUINE GAPS — all JD requirements the resume cannot honestly cover, INCLUDING requirements that are only partially supported. Say which, and what the candidate could say about it in a cover letter"],
+    "skillsToConfirm": ["skills the JD asks for that you wanted to add but could not trace to the original resume — questions for the candidate, never entries in the skills list"],
     "needsVerification": ["metrics or claims from the source resume the candidate should confirm before submitting — kept verbatim in the resume, never edited"],
     "locationFlag": "null when there is no conflict, otherwise the conflict stated plainly as a question for the candidate — e.g. 'Posting requires on-site work in New York; profile location is San Francisco. Relocate, state willingness to relocate, or skip?'",
     "recommendation": "One specific action before submitting"
@@ -633,7 +729,13 @@ Return a JSON object with this exact structure:
   "selfAudit": {
     "metrics": [{"value": "40%", "kind": "percentage", "location": "experience_1"}],
     "metricCount": 3,
-    "repeatedPhrases": [{"phrase": "design system", "count": 2, "locations": ["experience_1", "skills"]}],
+    "metricsDropped": [{"value": "25%", "replacedWith": "the concrete outcome you wrote instead"}],
+    "repeatedPhrases": [{"phrase": "design system", "count": 2, "locations": ["experience_1", "experience_2"]}],
+    "bannedWordScan": "clean, or the words you found and what you replaced them with",
+    "jdSpansCopied": ["four-word-or-longer runs shared with the posting — this list should be empty"],
+    "identityCheck": {"originalIdentity": "Frontend engineer", "summaryIdentity": "Frontend engineer", "shifted": false, "supportedBy": "which bullets carry it if it did shift"},
+    "skillsProvenance": [{"skill": "React", "evidence": "original resume, line in Wells Fargo role"}],
+    "bulletCounts": [{"role": "experience_1", "bullets": 5, "budget": 5}],
     "notInOriginal": ["any term you could not trace to the source resume — these must ALSO be absent from the resume fields"],
     "titleCheck": [{"role": "experience_1", "headerTitle": "Full Stack Web Developer", "titlesInBullets": []}],
     "educationCheck": "one line confirming every institution, degree and year in the source survived into the output"

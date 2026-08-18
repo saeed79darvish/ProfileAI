@@ -17,12 +17,19 @@
  * No network, no database, no API key.
  */
 
-const { auditDraft, hasSupport } = require('../services/resume/draftAudit');
+const { auditDraft, hasSupport, hardClassDefects } = require('../services/resume/draftAudit');
 const {
   repairWrappedHyphens,
   repairJoinedCompounds,
   harvestCompounds,
 } = require('../services/resume/textNormalizer');
+const { scrubBannedLanguage } = require('../services/resume/writingRules');
+const { planRoleShapes, countBullets } = require('../services/resume/roleShape');
+
+// Role ages are arithmetic against today, so the fixtures pin a clock. Without
+// this the tapering checks would start failing on their own in a year's time,
+// which is the least useful kind of test failure there is.
+const NOW = new Date('2026-08-17T00:00:00Z');
 
 const ORIGINAL = `
 Alex Rivera
@@ -142,6 +149,103 @@ const CLEAN_DRAFT = {
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Fixture C: the three-run regression set. Every defect here was covered by a
+ * written rule in the tailoring prompt and shipped anyway on three consecutive
+ * runs, because the rule was enforced by asking the model to confirm it had
+ * followed it.
+ *
+ * All five of the original's metrics carried through untouched, one phrase used
+ * five times, "utilizing" and "seamless" inherited from the original resume, a
+ * qualification lifted word-for-word out of the posting, a frontend engineer
+ * relabelled full-stack, a JD skill with no backing, and four roles carrying
+ * four bullets each across eight years.
+ */
+const RECURRING_ORIGINAL = `
+Sam Okafor
+Summary
+Frontend engineer building React interfaces for logistics products.
+
+Experience
+Flexport | Frontend Engineer | Feb 2022 - Present
+Rebuilt the shipment tracking UI in React and TypeScript, improving load time by 25%.
+Utilizing Storybook, documented 30 shared components. Cut error rates by 30%.
+
+Convoy | Frontend Engineer | Mar 2019 - Jan 2022
+Built a component-driven design system adopted by 25% more teams each quarter.
+Delivered seamless integration with the carrier portal. Reduced bundle size by 20%.
+
+Zulily | Web Developer | Jun 2016 - Feb 2019
+Maintained the checkout flow in Angular. Wrote the team's testing guidelines.
+
+Nordstrom | Junior Developer | Jul 2015 - May 2016
+Built internal reporting pages in jQuery.
+
+Education
+BS Computer Science, University of Washington, 2015
+`;
+
+const RECURRING_JD = `
+Databricks - Senior Full-Stack Engineer - Remote
+You will own features end to end across our data visualization platform.
+Requirements: React, TypeScript, Python, backend service development,
+data visualization, and experience designing scalable component systems.
+`;
+
+const RECURRING_KEYWORDS = ['React', 'TypeScript', 'Python', 'data visualization', 'component-driven design'];
+
+const RECURRING_DRAFT = {
+  title: 'Senior Full-Stack Engineer',
+  summary:
+    'Full-stack engineer who owns features end to end across data visualization platforms. ' +
+    'Skilled in component-driven design and scalable component systems.',
+  skills: ['React', 'TypeScript', 'Python', 'Storybook', 'component-driven design'],
+  experience: [
+    {
+      company: 'Flexport',
+      title: 'Frontend Engineer',
+      period: 'Feb 2022 - Present',
+      description:
+        'Rebuilt shipment tracking in React, improving load time by 25%. ' +
+        'Utilizing Storybook, documented 30 shared components. ' +
+        'Owned features end to end across the tracking surface. ' +
+        'Cut error rates by 30%.',
+    },
+    {
+      company: 'Convoy',
+      title: 'Frontend Engineer',
+      period: 'Mar 2019 - Jan 2022',
+      description:
+        'Built a component-driven design system adopted by 25% more teams each quarter. ' +
+        'Delivered seamless integration with the carrier portal. ' +
+        'Reduced bundle size by 20%. ' +
+        'Extended component-driven design to the shipper app.',
+    },
+    {
+      company: 'Zulily',
+      title: 'Web Developer',
+      period: 'Jun 2016 - Feb 2019',
+      description:
+        'Maintained the checkout flow in Angular, with a focus on maintainability. ' +
+        'Wrote the testing guidelines, lifting coverage to 30%. ' +
+        'Applied component-driven design to shared widgets. ' +
+        'Improved rendering significantly.',
+    },
+    {
+      company: 'Nordstrom',
+      title: 'Junior Developer',
+      period: 'Jul 2015 - May 2016',
+      description:
+        'Built internal reporting pages in jQuery. ' +
+        'Partnered with analysts on report layouts. ' +
+        'Documented the reporting stack. ' +
+        'Supported a large team of merchandisers.',
+    },
+  ],
+  education: [{ school: 'University of Washington', degree: 'BS', field: 'Computer Science', year: '2015' }],
+  projects: [],
+};
+
 const bad = auditDraft({
   draft: BAD_DRAFT,
   originalText: ORIGINAL,
@@ -149,6 +253,7 @@ const bad = auditDraft({
   jdKeywords: JD_KEYWORDS,
   acceptedGaps: [],
   profileData: { location: 'San Francisco, CA' },
+  now: NOW,
 });
 
 const clean = auditDraft({
@@ -158,6 +263,19 @@ const clean = auditDraft({
   jdKeywords: ['React', 'TypeScript', 'design systems', 'accessibility', 'SQL'],
   acceptedGaps: [],
   profileData: { location: 'San Francisco, CA' },
+  now: NOW,
+});
+
+const recurring = auditDraft({
+  draft: RECURRING_DRAFT,
+  originalText: RECURRING_ORIGINAL,
+  jobDescription: RECURRING_JD,
+  jdKeywords: RECURRING_KEYWORDS,
+  requiredKeywords: RECURRING_KEYWORDS,
+  acceptedGaps: [],
+  profileData: { location: 'Seattle, WA' },
+  selectedBullets: 5,
+  now: NOW,
 });
 
 const checks = [];
@@ -236,6 +354,114 @@ check('15', 'A skills-section listing does not trip the repetition limit',
 
 check('16', 'Remote posting raises no location conflict', clean.location.conflict === false,
   `conflict=${clean.location.conflict}`);
+
+// ── The three-run regression set ─────────────────────────────────────────────
+
+check('R1', 'All five original metrics carried through: over cap and repeats counted',
+  recurring.metrics.overCap && recurring.metrics.count >= 5 && recurring.metrics.repeatedValues.length > 0,
+  `count=${recurring.metrics.count} values=${recurring.metrics.items.map((i) => i.value).join(',')} repeated=${recurring.metrics.repeatedValues.map((r) => r.value).join(',')}`);
+
+check('R2', 'Phrase used 3+ times is reported with an at-most-2 instruction',
+  recurring.repetition.phraseOffenders.some((o) => /component-driven design/.test(o.phrase)) &&
+    recurring.blocking.some((b) => /^REPETITION:.*component-driven design.*at most 2/i.test(b)),
+  recurring.repetition.phraseOffenders.map((o) => `"${o.phrase}"x${o.count}`).join(', '));
+
+check('R2b', 'Everything used twice or more is listed, not only the offenders',
+  recurring.repetition.repeatedTwicePlus.length > recurring.repetition.phraseOffenders.length,
+  `${recurring.repetition.repeatedTwicePlus.length} phrase(s) at 2+, ${recurring.repetition.phraseOffenders.length} over the limit`);
+
+check('R2c', 'A methodology in the Skills list is a defect',
+  recurring.repetition.methodologyInSkills.includes('component-driven design'),
+  JSON.stringify(recurring.repetition.methodologyInSkills));
+
+check('R3', 'Banned words inherited from the ORIGINAL are still caught',
+  recurring.banned.hits.some((h) => /utiliz/i.test(h.term)) &&
+    recurring.banned.hits.some((h) => /seamless/i.test(h.term)),
+  recurring.banned.hits.map((h) => `${h.term}[${h.location}]`).join(', '));
+
+check('R3b', 'The find-and-replace pass rewrites them without touching the facts',
+  (() => {
+    const r = scrubBannedLanguage('Utilizing Storybook, documented 30 shared components. Delivered a seamless integration, with a focus on maintainability.');
+    return r.text === 'Using Storybook, documented 30 shared components. Delivered an integration.' &&
+      r.replaced.length === 3 &&
+      /30 shared components/.test(r.text);
+  })(),
+  JSON.stringify(scrubBannedLanguage('Utilizing Storybook, documented 30 shared components. Delivered a seamless integration, with a focus on maintainability.')));
+
+check('R3c', 'A factual "ensuring" clause survives; an abstract one does not',
+  scrubBannedLanguage('Rebuilt the audit trail, ensuring SOC2 controls passed the annual review.').replaced.length === 0 &&
+    scrubBannedLanguage('Rebuilt the audit trail, ensuring high availability across regions.').replaced.length === 1,
+  'only the unfalsifiable clause is trimmed');
+
+check('R4', 'JD language copied into a BULLET is caught, not just the summary',
+  recurring.jdEcho.spans.some((s) => s.location !== 'summary'),
+  recurring.jdEcho.spans.map((s) => `"${s.phrase}"[${s.location}]`).join(' | ') || 'none');
+
+check('R4b', 'Words the candidate\'s own resume already uses are not flagged as copied',
+  !recurring.jdEcho.spans.some((s) => /component-driven design system/.test(s.phrase)),
+  'agreement with the posting is not mirroring');
+
+check('R5', 'Frontend engineer relabelled full-stack is caught and questioned',
+  recurring.identity.conflict &&
+    recurring.questions.some((q) => q.type === 'identity_reframe') &&
+    recurring.blocking.some((b) => /^IDENTITY:/.test(b)),
+  `draft="${recurring.identity.draftIdentity}" original="${recurring.identity.originalIdentity}" supported=${recurring.identity.supported}`);
+
+check('R5b', 'A partially-met requirement becomes a gap question, never a relabel',
+  recurring.coverage.partiallyMet.length > 0 || recurring.coverage.missing.includes('Python'),
+  `partial=${JSON.stringify(recurring.coverage.partiallyMet)} missing=${JSON.stringify(recurring.coverage.missing)}`);
+
+check('R6', 'A JD skill with no backing is unevidenced and asked about',
+  recurring.skills.unevidenced.includes('Python') &&
+    recurring.questions.some((q) => /python/i.test(q.term || '')),
+  `unevidenced=${JSON.stringify(recurring.skills.unevidenced)}`);
+
+check('R6b', 'Every surviving skill carries its provenance',
+  recurring.skills.items.every((i) => typeof i.evidence === 'string' && i.evidence.length > 0) &&
+    recurring.skills.items.some((i) => i.evidence.startsWith('original')),
+  recurring.skills.items.map((i) => `${i.skill}=${i.evidence}`).join(', '));
+
+check('R7', 'Four bullets on an eight-year-old role is over its allowance',
+  recurring.tapering.offenders.some((o) => /Nordstrom/.test(o.location)) &&
+    recurring.tapering.offenders.some((o) => /Zulily/.test(o.location)),
+  recurring.tapering.roles.map((r) => `${r.location}=${r.bullets}/${r.max}`).join(' | '));
+
+check('R7b', 'Uniform bullet counts across a long history are flagged on their own',
+  recurring.tapering.uniform,
+  `counts=${recurring.tapering.roles.map((r) => r.bullets).join(',')}`);
+
+check('R7c', 'Recent roles keep the user\'s selected count; older ones taper',
+  (() => {
+    const plan = planRoleShapes(RECURRING_DRAFT.experience, { selected: 5, now: NOW });
+    return plan[0].allowance.max === 5 && plan[1].allowance.max === 5 &&
+      plan[2].allowance.max === 3 && plan[3].allowance.max === 2;
+  })(),
+  planRoleShapes(RECURRING_DRAFT.experience, { selected: 5, now: NOW }).map((r) => `${r.company}=${r.allowance.max}`).join(', '));
+
+check('R7d', 'Bullets are counted from lines when present, sentences otherwise',
+  countBullets('One thing.\nTwo things.\nThree.') === 3 && countBullets('One thing. Two things.') === 2,
+  'both shapes counted');
+
+check('R8', 'A metric emptied of its number is caught as a ghost shape',
+  recurring.metrics.ghostShapes.some((g) => /significantly/i.test(g.phrase)) &&
+    recurring.metrics.ghostShapes.some((g) => /large team/i.test(g.phrase)),
+  recurring.metrics.ghostShapes.map((g) => g.phrase).join(' | '));
+
+check('R9', 'The four recurring classes are separable for the enforcement round',
+  (() => {
+    const hard = hardClassDefects(recurring);
+    return hard.length > 0 && hard.length < recurring.blocking.length &&
+      hard.every((d) => /^(METRICS|REPETITION|BANNED|JD LANGUAGE|SUMMARY|SKILLS|IDENTITY|TAPERING):/.test(d));
+  })(),
+  `${hardClassDefects(recurring).length} hard-class of ${recurring.blocking.length} total`);
+
+check('R10', 'The recurring draft fails overall', recurring.passed === false,
+  `passed=${recurring.passed} blocking=${recurring.blocking.length}`);
+
+check('R11', 'The clean draft still passes every NEW check too',
+  clean.banned.clean && clean.jdEcho.clean && clean.skills.clean &&
+    clean.identity.clean && clean.tapering.clean && clean.metrics.ghostShapes.length === 0,
+  `banned=${clean.banned.hits.length} jdEcho=${clean.jdEcho.spans.length} skills=${JSON.stringify(clean.skills.unevidenced)} identity=${clean.identity.clean} tapering=${clean.tapering.clean}`);
 
 check('17', 'Missing original is a hard error, not a silent pass',
   (() => {

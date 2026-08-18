@@ -22,7 +22,8 @@ const { classifyDepartment } = require('./resume/departmentClassifier');
 const { getDepartmentEnhancementPrompt } = require('./resume/enhancementPrompts');
 const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
 const { buildReviewPrompt } = require('./resume/reviewPrompt');
-const { auditDraft, hasSupport } = require('./resume/draftAudit');
+const { auditDraft, hasSupport, hardClassDefects } = require('./resume/draftAudit');
+const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
   harvestCompounds,
@@ -110,25 +111,41 @@ function serializeProfileAsResumeText(profileData) {
 }
 
 /**
- * The repairs that need no model: joined-word artifacts and skills that cannot
- * be traced to the original. Both are fully decidable in code — a dictionary
- * substitution and an array filter — and neither can introduce a claim, so both
- * are safe to apply unattended.
+ * The repairs that need no model: joined-word artifacts, banned vocabulary, and
+ * skills that cannot be traced to the original. All three are fully decidable in
+ * code — a dictionary substitution, a find-and-replace, and an array filter —
+ * and none of them can introduce a claim, so all three apply unattended.
  *
  * Runs BEFORE the review decision as well as after it. Before, so a draft whose
  * only faults are these does not pay for a 60-second model round to fix what
  * this function fixes anyway; after, because the review rewrites prose and can
- * reintroduce either one. Mutates `draft` in place.
+ * reintroduce any of them. Mutates `draft` in place.
+ *
+ * The banned-word pass is unconditional BY DESIGN. "utilize", "seamless" and
+ * their neighbours kept coming back because they were in the candidate's own
+ * resume, and every rule that asked the model not to carry them over was a rule
+ * about text the model was copying rather than writing. Provenance is not a
+ * defence here: the pass runs over the finished draft and does not care where a
+ * word came from.
  *
  * @param {Object} draft
  * @param {string} originalSourceText - the fabrication baseline
  * @param {Object|null} gapSelections - accepted gaps are exempt from removal
- * @returns {{ removedSkills: string[] }}
+ * @returns {{ removedSkills: string[], bannedReplacements: Array, bannedResidual: string[] }}
  */
 function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
   const compounds = harvestCompounds(originalSourceText);
-  const repair = (s) =>
-    typeof s === 'string' ? repairJoinedCompounds(s, compounds, originalSourceText) : s;
+  const bannedReplacements = [];
+  const bannedResidual = new Set();
+
+  const repair = (s) => {
+    if (typeof s !== 'string') return s;
+    const dehyphenated = repairJoinedCompounds(s, compounds, originalSourceText);
+    const scrubbed = scrubBannedLanguage(dehyphenated);
+    bannedReplacements.push(...scrubbed.replaced);
+    for (const term of scrubbed.residual) bannedResidual.add(term);
+    return scrubbed.text;
+  };
 
   if (draft.summary) draft.summary = repair(draft.summary);
   if (Array.isArray(draft.experience)) {
@@ -146,30 +163,74 @@ function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
     return !t || acceptedLower.has(t.toLowerCase()) || hasSupport(originalSourceText, t);
   };
 
+  // A methodology is not a skill. "Component-driven design" in the skills list
+  // is an unfalsifiable claim sitting where a recruiter expects tools, and it is
+  // also where the phrase collected the extra repetitions that put it over the
+  // frequency limit. Deleting a list entry cannot damage prose, so it happens
+  // here rather than costing a model round.
+  const isMethodologyLabel = (s) => METHODOLOGY_LABEL_RE.test(String(s));
+
   const removedSkills = [];
+  const removedMethodologies = [];
+  const filterSkill = (s) => {
+    const t = String(s).trim();
+    if (!t) return false;
+    if (isMethodologyLabel(t)) { removedMethodologies.push(t); return false; }
+    if (keep(t)) return true;
+    removedSkills.push(t);
+    return false;
+  };
+
   if (Array.isArray(draft.skills)) {
-    draft.skills = draft.skills.map(repair).filter((s) => {
-      if (keep(s)) return true;
-      removedSkills.push(String(s).trim());
-      return false;
-    });
+    draft.skills = draft.skills.map(repair).filter(filterSkill);
   }
   if (draft.skillsGrouped && typeof draft.skillsGrouped === 'object') {
     for (const group of Object.keys(draft.skillsGrouped)) {
-      draft.skillsGrouped[group] = (draft.skillsGrouped[group] || []).map(repair).filter(keep);
+      draft.skillsGrouped[group] = (draft.skillsGrouped[group] || [])
+        .map(repair)
+        .filter((s) => {
+          const t = String(s).trim();
+          if (!t) return false;
+          if (isMethodologyLabel(t)) return false;
+          return keep(t);
+        });
     }
   }
 
+  if (!Array.isArray(draft.changelog)) draft.changelog = [];
+
   if (removedSkills.length) {
     console.log('[ProfilleAI] ⚠️ Removed skills with no support in the original:', removedSkills);
-    if (!Array.isArray(draft.changelog)) draft.changelog = [];
     draft.changelog.push({
       section: 'skills',
       action: 'removed_unsupported',
       detail: `Removed ${removedSkills.join(', ')} — not traceable to the original resume`,
     });
   }
-  return { removedSkills };
+  if (removedMethodologies.length) {
+    console.log('[ProfilleAI] Removed methodology labels from skills:', removedMethodologies);
+    draft.changelog.push({
+      section: 'skills',
+      action: 'removed_methodology',
+      detail: `Removed ${removedMethodologies.join(', ')} from Skills — a methodology is evidenced by a bullet, not listed as a tool`,
+    });
+  }
+  if (bannedReplacements.length) {
+    const summarised = [...new Set(bannedReplacements.map((r) => `${r.from} to ${r.to}`))];
+    console.log(`[ProfilleAI] Banned-language pass made ${bannedReplacements.length} replacement(s):`, summarised.slice(0, 8));
+    draft.changelog.push({
+      section: 'wording',
+      action: 'banned_language_replaced',
+      detail: `Applied the banned-word pass: ${summarised.slice(0, 12).join('; ')}`,
+    });
+  }
+
+  return {
+    removedSkills,
+    removedMethodologies,
+    bannedReplacements,
+    bannedResidual: [...bannedResidual],
+  };
 }
 
 // OpenAI fallback when Claude is unavailable
@@ -1675,7 +1736,8 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         gapContext,
         settingsContext,
         extractedKeywords,
-        expCount
+        expCount,
+        tailorSettings,
       });
 
       console.log(`[ProfilleAI] Step 2: Tailoring resume (${hasUploadedResume ? 'PATH A: uploaded resume' : 'PATH B: profile data'}, role: ${classification.group})...`);
@@ -1909,8 +1971,14 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         originalText: originalSourceText,
         jobDescription,
         jdKeywords: allKeywords,
+        // The required/preferred subset drives the coverage split — which
+        // requirements are demonstrated by a bullet, which are only half-met and
+        // belong in GENUINE GAPS. Soft and domain terms are too loose to judge
+        // an application on.
+        requiredKeywords: allRequiredKeywords,
         acceptedGaps: (gapSelections && gapSelections.acceptedGaps) || [],
         profileData,
+        selectedBullets: tailorSettings && tailorSettings.experienceLines,
       };
 
       applyDeterministicRepairs(tailoredData, originalSourceText, gapSelections);
@@ -1990,6 +2058,11 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
               changelog: reviewed.changelog || [],
             };
 
+            // Repair before scoring. The final scan is going to strip a
+            // reintroduced "utilizing" and an untraceable skill regardless, so
+            // counting them here would discard a genuinely better rewrite over
+            // defects that do not survive to the output.
+            applyDeterministicRepairs(corrected, originalSourceText, gapSelections);
             const nextReport = auditDraft({ draft: corrected, ...auditInput });
 
             // Only accept the correction if it actually reduced the defect
@@ -2024,11 +2097,121 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       }
 
       // ═══════════════════════════════════════════════════════════════
-      // STEP 5: FINAL SCAN — the two bugs that keep coming back
+      // STEP 4b: ENFORCEMENT ROUND — the four failures that always return
       // ═══════════════════════════════════════════════════════════════
-      // Same repairs as before the review, run again because the review pass
-      // rewrites prose and can reintroduce either one. Both are decidable in
-      // code and neither can introduce a claim, so both apply unattended.
+      // Metrics over cap, phrases at 3+, banned wording, and posting language
+      // copied verbatim are not new defects. Each was covered by a written rule,
+      // survived a review pass that was told to fix it, and shipped on three
+      // consecutive runs. "The reviewer saw it once" is exactly the condition
+      // under which they last shipped, so when any of them is still standing
+      // after the general review, they get a round of their own: a narrower
+      // prompt carrying only these defects, so nothing competes for the model's
+      // attention with education entries and date formats.
+      //
+      // Same acceptance gate as the review — the re-audit decides whether the
+      // round happened, not the model's account of it.
+      // The same reserve the review pass uses, not a smaller one. The
+      // enforcement prompt is shorter, but the call it makes is the same kind of
+      // call and can take the same 40 seconds — and the cost of guessing low is
+      // a 524 that loses the entire response, against a cost of guessing high
+      // that is one unfixed round of polish. The defects it would have fixed
+      // still travel to the candidate in the verification block either way.
+      const ENFORCE_RESERVE_MS = 40000;
+      let enforcementRounds = 0;
+      let hardResidual = hardClassDefects(auditReport);
+      if (hardResidual.length > 0) {
+        if (elapsedMs() + ENFORCE_RESERVE_MS >= RESPONSE_BUDGET_MS) {
+          console.warn(
+            `[ProfilleAI] Skipping enforcement round — ${Math.round(elapsedMs() / 1000)}s spent, ` +
+            `${hardResidual.length} hard-class defect(s) returned unresolved.`
+          );
+        } else {
+          try {
+            const enforceConfig = buildReviewPrompt({
+              draft: tailoredData,
+              originalResumeText: originalSourceText,
+              // The enforcement round rewrites four specific things and needs no
+              // sense of the posting beyond tone; the defect list carries every
+              // specific. A short excerpt keeps the slowest call in the request
+              // from getting slower.
+              jobDescription: String(jobDescription || '').slice(0, 1500),
+              auditReport: { ...auditReport, blocking: hardResidual },
+              mode: 'enforce',
+            });
+            const enforceRaw = await callAI({
+              system: enforceConfig.system,
+              prompt: enforceConfig.prompt,
+              temperature: enforceConfig.temperature,
+              max_tokens: enforceConfig.max_tokens,
+              retries: 1,
+            });
+
+            let enforceJson = enforceRaw.trim();
+            if (enforceJson.startsWith('```json')) enforceJson = enforceJson.replace(/^```json\n/, '').replace(/\n```$/, '');
+            else if (enforceJson.startsWith('```')) enforceJson = enforceJson.replace(/^```\n/, '').replace(/\n```$/, '');
+
+            const parsedEnforce = JSON.parse(enforceJson);
+            if (parsedEnforce.resume && typeof parsedEnforce.resume === 'object') {
+              const corrected = {
+                ...tailoredData,
+                ...parsedEnforce.resume,
+                matchAnalysis: {
+                  ...(tailoredData.matchAnalysis || {}),
+                  ...(parsedEnforce.resume.matchAnalysis || {}),
+                },
+                changelog: tailoredData.changelog || [],
+              };
+              // Repair before re-auditing: the enforcement round rewrites prose,
+              // and a rewrite that reintroduces "utilizing" would otherwise be
+              // scored against a draft the final scan is about to clean anyway.
+              applyDeterministicRepairs(corrected, originalSourceText, gapSelections);
+              const nextReport = auditDraft({ draft: corrected, ...auditInput });
+              const nextHard = hardClassDefects(nextReport);
+
+              const hardBefore = hardResidual.length;
+              if (nextHard.length < hardBefore) {
+                enforcementRounds = 1;
+                tailoredData = corrected;
+                auditReport = nextReport;
+                hardResidual = nextHard;
+                for (const q of parsedEnforce.openQuestions || []) reviewMeta.questions.push(q);
+                for (const fix of parsedEnforce.fixes || []) {
+                  tailoredData.changelog.push({
+                    section: fix.location || 'enforcement',
+                    action: 'enforced',
+                    detail: `${fix.defect}: ${fix.action}`,
+                  });
+                }
+                console.log(`[ProfilleAI] Enforcement round: hard-class defects ${hardBefore} to ${nextHard.length}`);
+              } else {
+                console.warn(
+                  `[ProfilleAI] Enforcement round did not reduce hard-class defects ` +
+                  `(${hardBefore} to ${nextHard.length}) — discarding the correction`
+                );
+              }
+            }
+          } catch (enforceError) {
+            console.error('[ProfilleAI] Enforcement round failed:', enforceError.message);
+          }
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // STEP 5: FINAL SCAN — the bugs that keep coming back
+      // ═══════════════════════════════════════════════════════════════
+      // Both AI rounds return `skills` in whatever shape they feel like, and a
+      // grouped object arriving back where the flat array was leaves every
+      // downstream consumer (the PDF renderer, ApplyPilot's diff) reading an
+      // object as a list. Re-normalise before anything else touches it.
+      if (tailoredData.skills && !Array.isArray(tailoredData.skills) && typeof tailoredData.skills === 'object') {
+        tailoredData.skillsGrouped = tailoredData.skills;
+        tailoredData.skills = Object.values(tailoredData.skills).flat();
+      }
+
+      // Same repairs as before the review, run again because the review and
+      // enforcement passes rewrite prose and can reintroduce any of them. All
+      // are decidable in code and none can introduce a claim, so they apply
+      // unattended.
       applyDeterministicRepairs(tailoredData, originalSourceText, gapSelections);
 
       // Re-audit one last time so what ships to the candidate describes the
@@ -2043,7 +2226,15 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // with. They are merged, de-duplicated, and returned with the resume.
       const seenQuestions = new Set();
       const openQuestions = [];
-      for (const q of [...finalReport.questions, ...reviewMeta.questions]) {
+      // Skills the model wanted to add and could not justify. It was told to
+      // route them here instead of into the list; this is the receiving end, so
+      // the instruction has somewhere to land rather than being advice.
+      const skillsToConfirm = ((tailoredData.matchAnalysis || {}).skillsToConfirm || []).map((s) => ({
+        type: 'skill_needs_confirmation',
+        term: typeof s === 'string' ? s : s.skill || String(s),
+        question: `The posting asks for ${typeof s === 'string' ? s : s.skill || s}, and we could not trace it to your resume. Do you have real experience with it we should add, or does it stay a gap?`,
+      }));
+      for (const q of [...finalReport.questions, ...skillsToConfirm, ...reviewMeta.questions]) {
         const key = `${q.type}|${String(q.term || '').toLowerCase()}`;
         if (seenQuestions.has(key)) continue;
         seenQuestions.add(key);
@@ -2051,10 +2242,115 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       }
 
       tailoredData.openQuestions = openQuestions;
+
+      // ── The output contract's VERIFICATION BLOCK ──────────────────────────
+      // Counted over the bytes about to be returned, after every repair and
+      // every rewrite. Each section states its result whether or not it found
+      // anything: the point is to prove the check ran, and a block that only
+      // appears when something is wrong proves nothing on the runs where the
+      // model claims nothing is. `compliant` is the arithmetic, not a verdict —
+      // when it is false the resume still ships, with the failures named.
+      const bannedResidualHits = finalReport.banned.hits.map((h) => `${h.term} [${h.location}]`);
+      tailoredData.verification = {
+        metrics: {
+          count: finalReport.metrics.count,
+          cap: finalReport.metrics.cap,
+          list: finalReport.metrics.items.map((m) => `${m.value} (${m.kind}) [${m.location}]`),
+          repeatedValues: finalReport.metrics.repeatedValues,
+          inSummary: finalReport.metrics.inSummary.map((m) => m.value),
+          emptyMetricShapes: finalReport.metrics.ghostShapes.map((g) => `${g.phrase} [${g.location}]`),
+          compliant:
+            !finalReport.metrics.overCap &&
+            finalReport.metrics.repeatedValues.length === 0 &&
+            finalReport.metrics.inSummary.length === 0 &&
+            finalReport.metrics.ghostShapes.length === 0,
+        },
+        phraseFrequency: {
+          // Rule: reduce anything at 3+ to at most 2. Everything at 2+ is listed
+          // so the count is visible, not just its failures.
+          usedTwiceOrMore: finalReport.repetition.repeatedTwicePlus.map(
+            (p) => `"${p.phrase}" x${p.count} (${p.locations.join(', ')})`
+          ),
+          overLimit: finalReport.repetition.phraseOffenders.map((p) => `"${p.phrase}" x${p.count}`),
+          overusedKeywords: finalReport.repetition.keywordOffenders,
+          methodologyInSkills: finalReport.repetition.methodologyInSkills,
+          compliant: finalReport.repetition.clean,
+        },
+        bannedWords: {
+          scanned: true,
+          residual: bannedResidualHits,
+          compliant: finalReport.banned.clean,
+        },
+        jdLanguage: {
+          rule: 'no run of 4+ consecutive words from the posting',
+          spans: finalReport.jdEcho.spans.map((s) => `"${s.phrase}" [${s.location}]`),
+          compliant: finalReport.jdEcho.clean,
+        },
+        skills: {
+          provenance: finalReport.skills.items.map((i) => `${i.skill}: ${i.evidence}`),
+          needsConfirmation: [...finalReport.skills.unevidenced, ...finalReport.skills.bulletOnly],
+          compliant: finalReport.skills.clean,
+        },
+        identity: {
+          summaryIdentity: finalReport.identity.draftIdentity,
+          originalIdentity: finalReport.identity.originalIdentity,
+          shifted: finalReport.identity.shifted,
+          supportedByExperience: finalReport.identity.supported,
+          compliant: finalReport.identity.clean,
+        },
+        roleTapering: {
+          roles: finalReport.tapering.roles.map(
+            (r) => `${r.location}: ${r.bullets} bullet(s), allowance ${r.max}${r.ageYears === null ? '' : `, ended ${r.ageYears}y ago`}`
+          ),
+          overAllowance: finalReport.tapering.offenders,
+          uniformAcrossHistory: finalReport.tapering.uniform,
+          compliant: finalReport.tapering.clean,
+        },
+        summary: {
+          sentences: finalReport.summary.sentenceCount,
+          max: finalReport.summary.maxSentences,
+          copiedFromJd: finalReport.summary.copiedSpans,
+          compliant: finalReport.summary.clean,
+        },
+        compliant: finalReport.passed,
+      };
+
+      // ── The output contract's GENUINE GAPS ────────────────────────────────
+      // Requirements the real experience cannot carry, in one list, so the
+      // candidate knows exactly what the cover letter has to do. Nothing here is
+      // ever resolved by relabelling: a partially-met requirement is a real
+      // requirement the bullets do not demonstrate, and it stays visible.
+      const gapSeen = new Set();
+      const genuineGaps = [];
+      const pushGap = (requirement, status, note) => {
+        const key = String(requirement).toLowerCase().trim();
+        if (!key || gapSeen.has(key)) return;
+        gapSeen.add(key);
+        genuineGaps.push({ requirement, status, note });
+      };
+      for (const g of (tailoredData.matchAnalysis && tailoredData.matchAnalysis.gaps) || []) {
+        pushGap(g, 'not evidenced', 'No support anywhere in the original resume.');
+      }
+      for (const term of finalReport.coverage.missing) {
+        pushGap(term, 'not evidenced', 'Required by the posting, absent from the original resume.');
+      }
+      for (const term of finalReport.coverage.partiallyMet) {
+        pushGap(term, 'partially met', 'Present in the background but not demonstrated by any bullet in this resume — address it in the cover letter.');
+      }
+      if (finalReport.identity.conflict) {
+        pushGap(
+          finalReport.identity.jdIdentity || finalReport.identity.qualifier,
+          'partially met',
+          `The posting reads as ${finalReport.identity.jdIdentity || finalReport.identity.qualifier}; the resume honestly reads as ${finalReport.identity.originalIdentity}. Kept the honest label rather than relabelling.`
+        );
+      }
+      tailoredData.genuineGaps = genuineGaps;
+
       tailoredData.reviewReport = {
         passed: finalReport.passed,
         basis: originalSourceBasis,
         rounds: reviewMeta.rounds,
+        enforcementRounds,
         // True when the draft was returned without its AI review because the
         // request ran out of clock. The defects are still listed in
         // `unresolved` — they were found, just not fixed.
@@ -2064,6 +2360,11 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         metrics: finalReport.metrics.items,
         repeatedPhrases: finalReport.repetition.phraseOffenders,
         overusedKeywords: finalReport.repetition.keywordOffenders,
+        bannedWordsResidual: bannedResidualHits,
+        jdEchoSpans: finalReport.jdEcho.spans,
+        skillsProvenance: finalReport.skills.items,
+        identity: finalReport.identity,
+        tapering: finalReport.tapering,
         summarySentences: finalReport.summary.sentenceCount,
         copiedFromJd: finalReport.summary.copiedSpans,
         titleMismatches: finalReport.consistency.titleMismatches,
@@ -2077,16 +2378,29 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         unresolved: finalReport.blocking,
       };
 
+      // The verification block, in the log as well as in the payload. When a run
+      // is reported as bad, this is the line that says which check let it
+      // through — the previous three runs were diagnosed from the output alone,
+      // with no record of what had been counted.
+      console.log(
+        `[ProfilleAI] Verification: metrics=${finalReport.metrics.count}/${finalReport.metrics.cap} ` +
+        `[${finalReport.metrics.items.map((m) => m.value).join(', ') || 'none'}] · ` +
+        `phrases@2+=${finalReport.repetition.repeatedTwicePlus.length} (over limit: ${finalReport.repetition.phraseOffenders.length}) · ` +
+        `banned residual=${finalReport.banned.hits.length} · ` +
+        `jd 4-gram echoes=${finalReport.jdEcho.spans.length} · ` +
+        `skills needing confirmation=${finalReport.skills.unevidenced.length + finalReport.skills.bulletOnly.length}`
+      );
       if (!finalReport.passed) {
         console.warn(`[ProfilleAI] ⚠️ Returning draft with ${finalReport.blocking.length} unresolved defect(s):`, finalReport.blocking.slice(0, 5));
       } else {
-        console.log(`[ProfilleAI] ✅ Review passed: ${finalReport.metrics.count} metric(s), 0 repeated phrases, 0 untraceable terms`);
+        console.log('[ProfilleAI] ✅ All enforced checks compliant');
       }
       // The number to watch. Anything approaching 100s is a request Cloudflare
       // will cut off before the candidate ever sees it.
       console.log(
         `[ProfilleAI] Timing: tailor-for-job total ${Math.round(elapsedMs() / 1000)}s ` +
-        `(review rounds: ${reviewMeta.rounds}${!roomForReview ? ', skipped for budget' : ''})`
+        `(review rounds: ${reviewMeta.rounds}${!roomForReview ? ', skipped for budget' : ''}, ` +
+        `enforcement rounds: ${enforcementRounds})`
       );
 
       // Sanitize text fields — strip characters that ATS platforms (Workday etc.) reject

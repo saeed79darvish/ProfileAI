@@ -36,9 +36,11 @@ Your single hard limit: you may not add anything to the resume that is not in th
  * @param {string} opts.originalResumeText - REQUIRED source of truth
  * @param {string} opts.jobDescription
  * @param {Object} opts.auditReport - From auditDraft()
+ * @param {'review'|'enforce'} [opts.mode] - 'enforce' is the narrow second round
+ *   that runs when the four recurring defect classes survive the general review.
  * @returns {{system: string, prompt: string, temperature: number, max_tokens: number}}
  */
-function buildReviewPrompt({ draft, originalResumeText, jobDescription, auditReport }) {
+function buildReviewPrompt({ draft, originalResumeText, jobDescription, auditReport, mode = 'review' }) {
   if (!originalResumeText || !String(originalResumeText).trim()) {
     throw new Error('buildReviewPrompt requires originalResumeText — the review pass cannot verify traceability without it');
   }
@@ -62,7 +64,23 @@ function buildReviewPrompt({ draft, originalResumeText, jobDescription, auditRep
       ? `${String(jobDescription).slice(0, 4000)}\n[…posting truncated — the defect list below carries every specific you need…]`
       : jobDescription;
 
-  const prompt = `═══ THE CANDIDATE'S ORIGINAL RESUME (the only source of truth) ═══
+  // The enforcement round is handed defects that have ALREADY been through a
+  // review pass told to fix them. Saying so matters: the failure mode being
+  // corrected is a model that reads a defect list, judges the text acceptable,
+  // and returns it unchanged with a note explaining why.
+  const enforceHeader = mode === 'enforce' ? `
+═══ THIS IS A SECOND, NARROWER PASS ═══
+Every defect below was already listed for a review pass, and every one of them
+survived it. They are the four failures this product has shipped on three
+consecutive runs: metrics copied through wholesale, a phrase used three or more
+times, banned vocabulary, and posting language pasted in verbatim.
+
+Do not evaluate whether they are worth fixing. They are counted facts about the
+text, the counting has been done, and the only acceptable response is edited
+text. Change nothing that is not on the list.
+` : '';
+
+  const prompt = `${enforceHeader}═══ THE CANDIDATE'S ORIGINAL RESUME (the only source of truth) ═══
 ${originalResumeText}
 
 ═══ TARGET JOB DESCRIPTION (context only, excerpted) ═══
@@ -93,11 +111,42 @@ METRICS
   least relevant roles first.
 
 REPETITION
-- Keep the single most specific instance of the phrase. Rewrite the others to
-  describe what actually happened in THAT role — different system, different
-  scope, different words. Do not swap in a synonym of the same stock phrase;
-  "modular component architecture" is the same defect as "component-driven
-  design" wearing a hat.
+- Reduce the phrase to AT MOST TWO uses. Keep the two most specific instances and
+  rewrite the rest to describe what actually happened in THAT role — different
+  system, different scope, different words. Do not swap in a synonym of the same
+  stock phrase; "modular component architecture" is the same defect as
+  "component-driven design" wearing a hat.
+- A methodology never goes in the Skills list. If a phrase was removed from
+  Skills, the bullet that demonstrates the practice is the evidence for it.
+
+BANNED
+- Rewrite the sentence with the plain word for what happened. Do not reach for a
+  different impressive word; "leveraged" becoming "harnessed" is the same defect.
+- These words are usually in the candidate's original resume. That is not a
+  reason to keep them: the original is the source of truth for FACTS — what the
+  candidate did, where, and with what — never for wording.
+- For an abstract closing clause, delete it and end the bullet at its last
+  factual word. Do not replace it with a different unfalsifiable clause.
+
+JD LANGUAGE
+- A run of four or more consecutive words shared with the posting must go,
+  anywhere in the resume. Express the same qualification in the candidate's own
+  words, anchored to something they actually did.
+- If the only honest way to say it is to copy the posting, the candidate does not
+  have that qualification in the form the posting wants it. Remove the claim and
+  record the question.
+
+IDENTITY
+- The professional identity in the summary may only move as far as the bullets
+  support. If the original reads "Frontend engineer" and no bullet shows backend
+  ownership, the summary says "Frontend engineer" — the posting does not get to
+  relabel the candidate.
+- Never resolve a shortfall by widening the label. The bullets carry whatever
+  partial support exists; the shortfall goes to the candidate as a gap.
+
+TAPERING
+- Cut bullets from the role named, starting with the least JD-relevant. Never add
+  bullets to another role to even out the shape.
 
 FABRICATION
 - Remove the term. Do not soften it, hedge it, or replace it with a vaguer
