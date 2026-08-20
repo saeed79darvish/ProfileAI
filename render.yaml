@@ -134,6 +134,17 @@ services:
         value: "false"
       - key: RUN_SWEEPS_INLINE
         value: "false"
+      # Drives the default feed window AND the ranking freshness horizon on this
+      # service; the cron worker uses the same key for the retention sweep.
+      #
+      # It MUST be set in both places and kept equal. These were three separate
+      # numbers once and drifted — the window was 60 days while the freshness
+      # term saturated at 30, so everything older than 30 days tied at zero
+      # freshness and a 59-day-old posting could lead the feed. Setting it only
+      # on the worker would recreate exactly that drift the first time anyone
+      # tuned it, because this service would silently stay on the code default.
+      - key: JOBS_MAX_AGE_DAYS
+        value: "30"
       # ───────── Secrets (set these in the Render dashboard) ─────────
       - key: JWT_SECRET
         generateValue: true   # Render generates a strong random value once
