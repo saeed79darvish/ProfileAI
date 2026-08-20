@@ -540,6 +540,11 @@ const CandidateJobs = () => {
   // re-apply if the candidate clears it (otherwise their "remote-anywhere"
   // intent is silently overridden on every render).
   const locationAutoAppliedRef = useRef(false);
+  // Set once the candidate has overridden a profile-derived filter — by
+  // clearing it, resetting the filters, or having the auto-relax widen it.
+  // Sent to the API as `seed=0` so the server stops re-applying the seed it
+  // would otherwise fill in on every request with an empty query.
+  const seedOptOutRef = useRef(false);
 
   // Disclosure banner state (Fix 6.1). When the page auto-applies a role
   // or location from the candidate's profile we surface a one-line
@@ -575,19 +580,11 @@ const CandidateJobs = () => {
     try { sessionStorage.removeItem(AUTO_SEED_DISMISS_KEY); } catch {}
   }, []);
 
-  // First-fetch gate. Authenticated users with a clean (filter-less) URL get
-  // their role/location/experience pre-seeded from their profile AFTER an
-  // async getMyProfile() call. Firing the jobs fetch on mount (before seeding)
-  // wastes a slow unfiltered "recommended" request and then immediately
-  // re-fetches once the seeds land. We instead hold the initial fetch until
-  // `seedSettled` flips true (in the profile fetch's .finally). Anonymous
-  // users, deep-links (URL already has a query), and dismissed-personalization
-  // users bypass the gate and fetch immediately. See the fetch effect below.
-  const initialUrlHasQueryRef = useRef(
-    ['search', 'location', 'locationType', 'datePosted', 'experienceLevel', 'company', 'department', 'employmentType', 'salary', 'skills', 'startup']
-      .some(k => searchParams.get(k))
-  );
-  const [seedSettled, setSeedSettled] = useState(false);
+  // The profile fetch below still runs — the page needs the candidate's skills
+  // for the gap analysis — but nothing waits on it any more. Role and location
+  // seeding moved to the server (see the appliedSeeds handler in
+  // fetchExternalJobs), so the jobs list no longer sits behind a round-trip
+  // for the largest JSON payload the API serves.
 
   // Fetch user skills + role once on mount
   useEffect(() => {
@@ -621,6 +618,9 @@ const CandidateJobs = () => {
       //        "Product Manager" → "Product Manager"
       //      This keeps results fresh (more matches) while still
       //      preserving the candidate's specialty.
+      // Kept for the "showing X roles" chip copy only. The RANKING hint is
+      // derived server-side now; setting it here too would send a redundant
+      // roleHint param and re-fire the fetch for no change in result.
       const role = deriveRoleQuery(res.data?.title || res.data?.headline);
       if (role) {
         // NOTE: the role is NOT typed into the search box. It goes to the API
@@ -631,19 +631,6 @@ const CandidateJobs = () => {
         // "engineer" in the title, only 4 had "frontend", and 1 had both. The
         // page looked empty and stale even though the corpus was healthy.
         setDetectedRole(role);
-        // Set the hint synchronously HERE (rather than deferring to an effect)
-        // so the very first jobs fetch already carries it. Combined with the
-        // seedSettled gate, this keeps the initial load to a single request.
-        if (
-          !roleAutoAppliedRef.current &&
-          !autoSeedDismissedRef.current &&
-          !searchParams.get('search') &&
-          !searchQuery
-        ) {
-          roleAutoAppliedRef.current = true;
-          setRoleHint(role);
-          setAutoSeeded(prev => ({ ...prev, role }));
-        }
       }
 
       // Auto-seed the LOCATION filter from the candidate's profile so the
@@ -658,25 +645,11 @@ const CandidateJobs = () => {
       // jobs labelled "San Francisco Bay Area", "San Francisco, USA",
       // "Remote – San Francisco", etc. Country / region get dropped to
       // avoid over-restricting.
-      const profileLocationRaw = String(res.data?.location || '').trim();
-      if (
-        profileLocationRaw &&
-        !locationAutoAppliedRef.current &&
-        !autoSeedDismissedRef.current &&
-        !searchParams.get('location') &&
-        !searchParams.get('locationType')
-      ) {
-        const seededLocation = profileLocationRaw.split(',')[0].trim();
-        if (seededLocation) {
-          locationAutoAppliedRef.current = true;
-          setLocationInput(seededLocation);
-          setFilters(prev => ({ ...prev, location: seededLocation }));
-          setDebouncedFilters(prev => ({ ...prev, location: seededLocation }));
-          setAutoSeeded(prev => ({ ...prev, location: seededLocation }));
-          // eslint-disable-next-line no-console
-          console.debug('[Jobs] Auto-applied profile location to filter:', seededLocation);
-        }
-      }
+      // Location seeding moved to the server. Applying it here meant the jobs
+      // request had to wait for this profile fetch before it could run — the
+      // waterfall that made the page feel slow. The API now seeds it from the
+      // profile row it already caches and tells us what it did, so the chip is
+      // set from the list response instead of from here.
 
       // NOTE: we deliberately do NOT auto-seed the EXPERIENCE filter.
       // Role + location already narrow the feed; adding seniority as a third
@@ -685,14 +658,7 @@ const CandidateJobs = () => {
       // path scores level fit (see jobRelevanceService.inferExperienceLevel),
       // so senior candidates still see senior roles first. The filter stays
       // available as an explicit user choice in the chip row.
-    }).catch(() => {}).finally(() => {
-      // Release the first-fetch gate once profile seeding has settled (or
-      // failed). For authenticated users with a clean URL this guarantees the
-      // initial fetch runs exactly once, with the seeded role/location/
-      // experience already in place. See the seedSettled gate on the fetch
-      // effect below.
-      setSeedSettled(true);
-    });
+    }).catch(() => {});
   }, [isAuthenticated]);
 
   // Auto-seed the search box with the detected role on first load.
@@ -981,6 +947,13 @@ const CandidateJobs = () => {
       if (debouncedFilters.skills) params.skills = debouncedFilters.skills;
       if (debouncedFilters.startup) params.startup = 'true';
       if (debouncedFilters.hideStale) params.hideStale = 'true';
+      // The server fills in role + location from the profile unless we opt out.
+      // We opt out once the user has dismissed personalization or cleared a
+      // seeded filter themselves — otherwise the seed would come straight back
+      // on the next fetch. Sending an explicit empty `location` is not enough:
+      // the server distinguishes "not supplied" from "supplied as empty", and
+      // an untouched page supplies nothing.
+      if (autoSeedDismissedRef.current || seedOptOutRef.current) params.seed = '0';
       // Always send sort to the backend so the user's choice (incl. the new
       // default 'recent') is honored. Backend defaults to 'recommended' if
       // the param is missing, so we'd otherwise silently fall back.
@@ -1020,6 +993,30 @@ const CandidateJobs = () => {
       }
       setExternalJobsPagination(response.data.pagination || { total: 0, page: 1, pages: 1 });
 
+      // Reflect the filters the SERVER applied from the candidate's profile.
+      // These are real, active filters — the candidate has to be able to see
+      // and remove them — so the chips are set from the response rather than
+      // from a separate profile fetch the list used to wait on.
+      const seeds = response.data.appliedSeeds;
+      if (seeds && !append) {
+        if (seeds.roleHint && !roleAutoAppliedRef.current) {
+          roleAutoAppliedRef.current = true;
+          setRoleHint(seeds.roleHint);
+          setAutoSeeded(prev => ({ ...prev, role: seeds.roleHint }));
+        }
+        if (seeds.location && !locationAutoAppliedRef.current) {
+          locationAutoAppliedRef.current = true;
+          setLocationInput(seeds.location);
+          // `filters` only — NOT `debouncedFilters`. Writing the seed into the
+          // value the fetch reads would make this look like a user-changed
+          // filter and immediately re-fire the request we just answered, which
+          // is the exact double-fetch removing the gate was meant to avoid.
+          // The server already applied it; the chip just has to show it.
+          setFilters(prev => (prev.location ? prev : { ...prev, location: seeds.location }));
+          setAutoSeeded(prev => ({ ...prev, location: seeds.location }));
+        }
+      }
+
       // --- Auto-relax: never show an empty feed built from OUR guesses ---
       // The role and location seeds come from the candidate's profile, not
       // from anything they typed, and both are hard AND-filters server-side.
@@ -1033,9 +1030,15 @@ const CandidateJobs = () => {
       const seeded = autoSeededRef.current;
       const isEmptyFirstPage =
         !append && page === 1 && (response.data.pagination?.total || 0) === 0;
-      if (isEmptyFirstPage && seeded.location && debouncedFilters.location === seeded.location) {
+      // The location seed is applied by the SERVER now, so widening means
+      // telling it to stop seeding (seed=0) rather than clearing a local
+      // filter value — the filter was never ours to clear. Flipping the ref
+      // and clearing the chip is enough to make the next fetch unseeded.
+      if (isEmptyFirstPage && seeded.location && !seedOptOutRef.current) {
         // eslint-disable-next-line no-console
         console.debug('[Jobs] Seeded location produced 0 results — widening:', seeded.location);
+        seedOptOutRef.current = true;
+        locationAutoAppliedRef.current = false;
         setAutoSeeded(prev => ({ ...prev, location: null }));
         setSeedRelaxNotice({ kind: 'location', value: seeded.location });
         setLocationInput('');
@@ -1046,9 +1049,11 @@ const CandidateJobs = () => {
       // The role is a ranking hint, not a filter, so it can no longer empty
       // the feed on its own — but drop it anyway if we somehow land on zero,
       // so the user is never left staring at nothing we caused.
-      if (isEmptyFirstPage && seeded.role && roleHint === seeded.role) {
+      if (isEmptyFirstPage && seeded.role && !seedOptOutRef.current) {
         // eslint-disable-next-line no-console
         console.debug('[Jobs] Widening: dropping seeded role hint', seeded.role);
+        seedOptOutRef.current = true;
+        roleAutoAppliedRef.current = false;
         setAutoSeeded(prev => ({ ...prev, role: null }));
         setSeedRelaxNotice({ kind: 'role', value: seeded.role });
         setRoleHint('');
@@ -1122,17 +1127,20 @@ const CandidateJobs = () => {
 
   useEffect(() => {
     if (activeTab !== 'external') return;
-    // Hold the initial fetch only for the case where profile seeding WILL
-    // change the query params (authenticated + clean URL + not dismissed).
-    // Everyone else fetches immediately. Once seeding settles, seedSettled
-    // flips and this effect re-runs once with the seeded params in place.
-    const gateOpen =
-      !isAuthenticated ||
-      initialUrlHasQueryRef.current ||
-      autoSeedDismissedRef.current ||
-      seedSettled;
-    if (gateOpen) fetchExternalJobs();
-  }, [activeTab, fetchExternalJobs, isAuthenticated, seedSettled]);
+    // No gate. The jobs request used to wait for getMyProfile() so the page
+    // could read the candidate's title and location, reduce the title to a
+    // role, and only then ask for jobs — putting a full profile round-trip
+    // (experience, skills, projects, summary: the largest JSON the API serves)
+    // in front of every jobs page load, with checkSaved/checkApplied queued
+    // behind the list for a third hop.
+    //
+    // The server now derives both seeds itself from the profile row it already
+    // caches for ranking, and reports what it applied as `appliedSeeds` on the
+    // response. So the first paint costs one request instead of two round
+    // trips, and the chips still show the candidate exactly which filters are
+    // on. See the appliedSeeds handler in fetchExternalJobs.
+    fetchExternalJobs();
+  }, [activeTab, fetchExternalJobs]);
 
   // Tracks whether the user has narrowed the list themselves; used by the
   // empty-state branch and any future surfaces that need to know "is this a
@@ -1526,6 +1534,11 @@ const CandidateJobs = () => {
     // State change only — the centralized state→URL sync effect above
     // writes the new value into the address bar (with the boolean
     // `startup` toggle serialized as 'true' / removed when off).
+    // Touching a filter the server seeded means the candidate is overriding our
+    // guess. Opt out of seeding so it isn't silently re-applied on the next
+    // request — without this, clearing the location chip would put it straight
+    // back, which is the behaviour the client-side version was careful to avoid.
+    if (key === 'location' || key === 'locationType') seedOptOutRef.current = true;
     setFilters(prev => ({ ...prev, [key]: value }));
     setOpenDropdown(null);
     // The candidate is steering now; the auto-widen explanation is stale.
@@ -1538,6 +1551,8 @@ const CandidateJobs = () => {
     // the Discover tab so a reset from Saved/Applied lands them on a
     // populated surface rather than an empty user-scoped list. The URL
     // sync effect picks all of this up and strips every owned param.
+    // A reset is an explicit "show me everything", so profile seeding stops too.
+    seedOptOutRef.current = true;
     const empty = { locationType: '', location: '', datePosted: '', experienceLevel: '', company: '', department: '', employmentType: '', salary: '', skills: '', startup: false, hideStale: false };
     setFilters(empty);
     setDebouncedFilters(empty);
@@ -2554,7 +2569,7 @@ const CandidateJobs = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setRoleHint(''); setAutoSeeded(prev => ({ ...prev, role: null })); }}
+                    onClick={() => { seedOptOutRef.current = true; setRoleHint(''); setAutoSeeded(prev => ({ ...prev, role: null })); }}
                     aria-label="Stop ranking by my role"
                     style={{
                       background: 'none', border: 'none', padding: 0,
@@ -2703,11 +2718,11 @@ const CandidateJobs = () => {
                     )}
                   </div>
 
-                  {/* Sort chip removed — jobs are always ordered by the
-                      profile-aware "Recommended" ranking (relevance band +
-                      latest-posted within the band). sortMode stays
-                      'recommended' by default; there's no user-facing toggle
-                      so the candidate's latest, most-relevant jobs lead. */}
+                  {/* The sort control lives in the results header below, not
+                      in this chip row — it reports on the list rather than
+                      filtering it. "Best match" now genuinely is banded
+                      (relevance band, newest first within the band), which this
+                      comment claimed long before the SQL did it. */}
 
                   {/* Experience */}
                   <div style={{ position: 'relative' }}>
@@ -2856,10 +2871,7 @@ const CandidateJobs = () => {
                     </span>
                   </div>
                 )}
-                {/* Result count header. Sort dropdown removed — the page
-                    always shows the best matches that were posted most
-                    recently (backend 'recommended' mode = match × recency).
-                    Power users can still override via ?sort= URL param. */}
+                {/* Result count header, plus the sort toggle. */}
                 {externalJobsPagination.total > 0 && (
                   <div style={{
                     display: 'flex',
@@ -2878,17 +2890,17 @@ const CandidateJobs = () => {
                         {externalJobsPagination.total.toLocaleString()}
                       </strong>{' '}jobs
                     </div>
-                    {/* Real control, not a caption. This used to be static text
-                        reading "Freshest matches first", which was simply untrue:
-                        the default ranking is dominated by profile fit
-                        (0.8 relevance + 0.2 freshness), so the list is ordered by
-                        match and dates legitimately go 2d, 4d, 3d. Claiming date
-                        order made correct behaviour look broken, and gave no way
-                        to actually get date order — which is a reasonable thing
-                        to want. Both orderings are now one click apart. */}
+                    {/* Real control, not a caption. "Best match" is banded:
+                        relevance decides the band, and within a band the newest
+                        job is on top, so dates descend as you scan instead of
+                        interleaving. Before banding this ordering was a single
+                        continuous score where freshness could contribute at most
+                        0.2, so dates genuinely went 2d, 4d, 3d and correct
+                        behaviour read as broken sorting. "Newest" remains strict
+                        date order for anyone who wants only that. */}
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                       {[
-                        { key: 'recommended', label: 'Best match', title: 'Ordered by how well each job fits your profile, with newer roles favoured among similar matches' },
+                        { key: 'recommended', label: 'Best match', title: 'Grouped by how well each job fits your profile, newest first within each group' },
                         { key: 'recent', label: 'Newest', title: 'Ordered strictly by posting date, newest first' },
                       ].map(opt => (
                         <button

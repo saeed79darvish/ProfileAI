@@ -12,6 +12,7 @@ const { searchSimilarJobs, generateProfileQueryEmbedding, loadProfileForJobsRank
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
+const { deriveRoleQuery } = require('../utils/roleQuery');
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
 
@@ -119,6 +120,10 @@ function buildJobsListCacheKey(userId, q) {
     src: q.source || '',
     st: String(q.startup || '').toLowerCase() === 'true' ? '1' : '',
     hs: String(q.hideStale || '').toLowerCase() === 'true' ? '1' : '',
+    // Seeding opt-out. Two requests from the same user with an otherwise
+    // identical (empty) query return DIFFERENT lists depending on whether the
+    // server filled in their profile role/location, so it has to key the entry.
+    sd: String(q.seed || '') === '0' ? '0' : '',
   };
   return `external_jobs:list:${Object.entries(norm).map(([k, v]) => `${k}=${v}`).join('|')}`;
 }
@@ -315,6 +320,11 @@ router.get('/', optionalAuth, async (req, res) => {
     }
     res.set('X-Cache', 'MISS');
 
+    // Profile-derived filters applied below. Declared before the res.json
+    // wrapper that reads it, so no exit path can reach the closure while the
+    // binding is still in its temporal dead zone.
+    const appliedSeeds = {};
+
     // Wrap res.json once so every successful exit path through this handler
     // populates the cache without us having to touch each return statement.
     const originalJson = res.json.bind(res);
@@ -325,6 +335,13 @@ router.get('/', optionalAuth, async (req, res) => {
       // interception point and the server-side cache holds the small shape
       // rather than ~160KB of full job text per entry.
       const payload = truncateListDescriptions(rawPayload);
+      // Report any profile-derived filters the server applied, so the page can
+      // render the same chips it used to set for itself. Attached here — the
+      // one place every exit path funnels through — rather than at each of the
+      // three `return res.json(...)` sites.
+      if (payload && Array.isArray(payload.jobs) && Object.keys(appliedSeeds).length > 0) {
+        payload.appliedSeeds = appliedSeeds;
+      }
       // Don't cache error envelopes — only well-formed list responses.
       if (payload && Array.isArray(payload.jobs)) {
         cache.set(cacheKey, payload, 90 * 1000);
@@ -361,7 +378,7 @@ router.get('/', optionalAuth, async (req, res) => {
       // "Software Engineer". A term the user actually TYPED keeps its strict
       // filter semantics — that is them asking a precise question.
       roleHint: rawRoleHint,
-      location,
+      location: rawLocation,
       locationType,
       employmentType,
       experienceLevel,
@@ -398,9 +415,58 @@ router.get('/', optionalAuth, async (req, res) => {
       : '');
 
     const search = sanitizeQueryText(rawSearch, 200);
+    // Mutable: may be filled in from the candidate's profile below.
+    let location = rawLocation;
     // Ignored entirely when the user typed a real query — an explicit search
     // must never be diluted by our guess about their role.
-    const roleHint = search ? '' : sanitizeQueryText(rawRoleHint, 80);
+    let roleHint = search ? '' : sanitizeQueryText(rawRoleHint, 80);
+
+    // Derive the role hint SERVER-SIDE when the client didn't send one.
+    //
+    // The page used to hold this request behind getMyProfile() so it could read
+    // the candidate's title, reduce it to a role, and only then ask for jobs —
+    // adding the profile round-trip to the front of every jobs page load, with
+    // checkSaved/checkApplied queued behind the list for a third hop.
+    //
+    // The profile is already cached here for ranking, so the server can answer
+    // the same question without the browser making the trip. The client may
+    // still send ?roleHint= (a deep link, or a user who cleared the chip and
+    // wants it back) and an explicitly empty roleHint= is still respected as
+    // "show me everything" — this only fills in a hint that was never supplied.
+    //
+    // The same applies to the LOCATION seed, which the page also derived from
+    // the profile client-side. Whatever the server seeds is reported back as
+    // `appliedSeeds` so the UI can render the chips it would have set itself —
+    // the candidate still sees exactly which filters are active and can clear
+    // them. `seed=0` opts out entirely, which is what the client sends once the
+    // user has dismissed personalization or cleared a seeded filter.
+    const seedingAllowed = String(req.query.seed || '') !== '0';
+
+    if (seedingAllowed && req.user?.id && (rawRoleHint === undefined || location === undefined)) {
+      try {
+        const cachedProfile = await loadProfileForJobsRanking(req.user.id);
+        if (!search && rawRoleHint === undefined && cachedProfile?.roleTitle) {
+          const derived = sanitizeQueryText(deriveRoleQuery(cachedProfile.roleTitle), 80);
+          if (derived) {
+            roleHint = derived;
+            appliedSeeds.roleHint = derived;
+          }
+        }
+        if (location === undefined && !locationType && cachedProfile?.profileLocation) {
+          // First comma-separated chunk only: "San Francisco, CA" -> "San
+          // Francisco", so the metro expansion can do its work. Country/region
+          // would over-restrict.
+          const seeded = String(cachedProfile.profileLocation).split(',')[0].trim();
+          if (seeded) {
+            location = seeded;
+            appliedSeeds.location = seeded;
+          }
+        }
+      } catch (e) {
+        // A missing seed costs ordering quality, never the response.
+        console.warn('[ExternalJobs] could not derive profile seeds:', e.message);
+      }
+    }
 
     const where = { isActive: true };
     // Replacements bag for any literal() clauses below — Sequelize escapes
@@ -519,7 +585,18 @@ router.get('/', optionalAuth, async (req, res) => {
     // (or any value not in dateMap, e.g. '6months') to widen; the UI's date
     // options ('3months' = 90d) already widen past this default. Set
     // JOBS_DEFAULT_MAX_AGE_DAYS=0 to disable entirely.
-    const defaultMaxAgeDays = parseInt(process.env.JOBS_DEFAULT_MAX_AGE_DAYS || '60', 10);
+    //
+    // Defaults to the RETENTION window (JOBS_MAX_AGE_DAYS), because the two
+    // describe the same intent and drifting apart caused a real ordering bug:
+    // this window was 60 days while the ranking's freshness term saturated at
+    // 30, so every posting between 30 and 60 days old scored identical zero
+    // freshness and age stopped breaking ties — which is how a 59-day-old
+    // listing reached position one. One knob now drives retention, this filter,
+    // and the freshness horizon in searchSimilarJobs.
+    const defaultMaxAgeDays = parseInt(
+      process.env.JOBS_DEFAULT_MAX_AGE_DAYS || process.env.JOBS_MAX_AGE_DAYS || '30',
+      10
+    );
     if (!datePosted && defaultMaxAgeDays > 0) {
       const cutoff = new Date(Date.now() - defaultMaxAgeDays * 24 * 60 * 60 * 1000);
       whereReplacements.defaultDateCutoff = cutoff.toISOString();
@@ -792,14 +869,41 @@ router.get('/', optionalAuth, async (req, res) => {
         where: { userId: req.user.id },
         attributes: ['id', 'userId', 'title', 'headline', 'location', 'skills', 'experience', 'summary']
       });
-      const POOL_SIZE = 200;
+      // This path runs for every signed-in candidate whose profile has no
+      // embedding yet — the majority of them, so it is not the rare path its
+      // "fallback" name suggests and it cannot stay a 200-row window.
+      //
+      // 200 rows of a corpus this size is roughly TWELVE HOURS of ingest, and
+      // because the pool doubles as the pagination total the page then told the
+      // candidate there were "200 jobs" in a corpus of tens of thousands. Worse,
+      // the window is chosen by pure recency, so for a frontend engineer the top
+      // of it was Internal Audit, Absence Management and Propulsion Technician —
+      // whatever happened to sync last.
+      //
+      // Two changes: pool wide enough to rank against (matching the semantic
+      // path's pool), and — when we know the candidate's role — a lexical arm so
+      // role-matching postings are in the pool wherever they sit in the recency
+      // ordering. Same reasoning as searchSimilarJobs' relevance arm.
+      const POOL_SIZE = parseInt(process.env.JOBS_KEYWORD_POOL || '2000', 10);
+      const keywordRankTsq = buildJobSearchTsquery(search || roleHint || '');
+      if (keywordRankTsq) {
+        whereReplacements.keywordRankTsq = keywordRankTsq;
+      }
       const allJobs = await ExternalJob.findAll({
         where,
         replacements: whereReplacements,
         // COALESCE so Greenhouse jobs (postedAt = NULL) sort by when we
         // first saw them, intermixed with other-source jobs by their real
         // postedAt — produces a true chronological order across sources.
-        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
+        // Role-matching rows first when we have a role, then by recency. This
+        // is only about WHICH rows enter the pool — rankJobs decides the order
+        // the candidate actually sees.
+        order: keywordRankTsq
+          ? [
+            literal(`("ExternalJob"."searchTsvAB" @@ to_tsquery('english', :keywordRankTsq)) DESC`),
+            literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST'),
+          ]
+          : [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
         limit: POOL_SIZE,
         // raw+nest instead of Sequelize model instances. This is the keyword
         // FALLBACK path, which is exactly the path that runs when Postgres is
@@ -826,7 +930,13 @@ router.get('/', optionalAuth, async (req, res) => {
       });
 
       const ranked = rankJobs(allJobs, profileForKeyword, { sortMode });
-      const total = ranked.length;
+      // `ranked.length` was reported as the pagination total, so the page
+      // announced "200 jobs" against a corpus of tens of thousands. The pool is
+      // genuinely all this path can paginate through, so the honest number is
+      // the smaller of the two — and the corpus count is now what limits it in
+      // the common case rather than an arbitrary window.
+      const matchingTotal = await ExternalJob.count({ where, replacements: whereReplacements });
+      const total = Math.min(matchingTotal, ranked.length);
       const offset = (pageNum - 1) * limitNum;
       const paginatedJobs = ranked.slice(offset, offset + limitNum);
       bumpCounter('keywordFallbacks');
@@ -932,6 +1042,23 @@ router.get('/', optionalAuth, async (req, res) => {
  */
 router.get('/stats', optionalAuth, async (req, res) => {
   try {
+    // Cached like every other corpus aggregate on this router.
+    //
+    // This route was the only one with no cache at all, and the jobs page calls
+    // it on every mount — five full-corpus aggregates including a
+    // COUNT(DISTINCT company), run concurrently with the ranked list query and
+    // whatever the sync happens to be writing. The page uses the result for one
+    // thing: telling an empty result set caused by a broken corpus apart from
+    // one caused by the user's own filters. That answer changes when the sync
+    // runs, not when someone opens the page.
+    const statsCacheKey = 'external_jobs:stats';
+    const cachedStats = cache.get(statsCacheKey);
+    if (cachedStats) {
+      res.set('X-Cache', 'HIT');
+      return res.json(cachedStats);
+    }
+    res.set('X-Cache', 'MISS');
+
     const totalJobs = await ExternalJob.count({ where: { isActive: true } });
 
     const bySource = await ExternalJob.findAll({
@@ -962,13 +1089,15 @@ router.get('/stats', optionalAuth, async (req, res) => {
 
     const activeBoards = await ATSBoard.count({ where: { isActive: true } });
 
-    res.json({
+    const payload = {
       totalJobs,
       totalCompanies,
       activeBoards,
       bySource,
       byLocationType
-    });
+    };
+    cache.set(statsCacheKey, payload, 10 * 60 * 1000);
+    res.json(payload);
   } catch (error) {
     console.error('Error fetching external job stats:', error);
     res.status(500).json({ message: 'Server error' });
@@ -986,6 +1115,15 @@ router.get('/stats', optionalAuth, async (req, res) => {
  */
 router.get('/companies', optionalAuth, async (req, res) => {
   try {
+    // Grouped by COMPANY, server-side, and capped.
+    //
+    // This used to group by (company, source, boardToken) and return every row
+    // — 930 of them, ~81KB of JSON — on every jobs page mount, after which the
+    // browser folded them back down to one entry per company to populate a
+    // dropdown. The extra dimensions were never used by the caller and the tail
+    // is unusable in a picker anyway, so both the query and the payload were
+    // paying for detail nobody reads.
+    const limit = Math.min(parseInt(req.query.limit, 10) || 300, 1000);
     const cacheKey = 'external_jobs:companies';
     let companies = cache.get(cacheKey);
     if (!companies) {
@@ -993,18 +1131,17 @@ router.get('/companies', optionalAuth, async (req, res) => {
         where: { isActive: true },
         attributes: [
           'company',
-          'source',
-          'boardToken',
           [ExternalJob.sequelize.fn('COUNT', ExternalJob.sequelize.col('id')), 'jobCount']
         ],
-        group: ['company', 'source', 'boardToken'],
+        group: ['company'],
         order: [[ExternalJob.sequelize.fn('COUNT', ExternalJob.sequelize.col('id')), 'DESC']],
+        having: literal(`"company" IS NOT NULL AND "company" <> ''`),
         raw: true
       });
       cache.set(cacheKey, companies, 10 * 60 * 1000);
     }
 
-    res.json({ companies });
+    res.json({ companies: companies.slice(0, limit) });
   } catch (error) {
     console.error('Error fetching companies:', error);
     res.status(500).json({ message: 'Server error' });

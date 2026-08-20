@@ -7,14 +7,18 @@
  * and how much AI resume tailoring would lift their score — then drive them
  * back to ProfilleAI to tailor & apply.
  *
- * Matching reuses the same keyword ranking the live /external-jobs feed uses
- * (jobRelevanceService.rankJobs), so the email and the site agree on scores.
+ * The candidate pool is selected the same way the signed-in /external-jobs
+ * feed selects it — semantic where a profile embedding exists, role-filtered
+ * keyword otherwise — so the email and the site draw from the same well and a
+ * job that leads one is a job that leads the other. See loadCandidatePool.
  */
 
 const crypto = require('crypto');
 const { Op, literal } = require('sequelize');
 const { User, Profile, ExternalJob, Company } = require('../models');
-const { rankJobs } = require('./jobRelevanceService');
+const { rankJobs, inferExperienceLevel, computeYearsOfExperience } = require('./jobRelevanceService');
+const { deriveRoleQuery } = require('../utils/roleQuery');
+const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const emailService = require('./emailService');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -26,6 +30,8 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const MIN_RELEVANCE = 50;
 const MIN_TITLE_MATCH = 12; // out of 45 — requires genuine role/title overlap
 const MAX_JOBS = 10;
+// Ceiling per employer, so one large board can't fill the whole email.
+const MAX_PER_COMPANY = 3;
 // How far back to pull the candidate pool from (days).
 const POOL_WINDOW_DAYS = 30;
 const POOL_SIZE = 400;
@@ -135,6 +141,100 @@ function estimateTailoredScore(nowScore, missingCount) {
 }
 
 /**
+ * Load the jobs this candidate will be ranked against.
+ *
+ * This used to be "the newest POOL_SIZE jobs in the corpus", which is the
+ * single biggest reason the daily email sent off-target roles. That pool is
+ * chosen by global recency and has nothing to do with the reader: measured on
+ * the corpus, the newest 400 rows spanned under 13 hours of ingest, were drawn
+ * from a handful of large boards, and contained exactly ONE frontend title out
+ * of 400 — against 7,067 jobs eligible in the window. A frontend engineer's
+ * email had to fill ten slots from a pool with one frontend job in it, so it
+ * was off-target by construction and no amount of scoring could fix it.
+ *
+ * Now the pool is selected BY RELEVANCE, in the same order of preference the
+ * jobs page uses, so the email and the site draw from the same well:
+ *
+ *   1. The semantic path, when the profile has an embedding — the exact query
+ *      the signed-in feed runs, including the lexical title arm that guarantees
+ *      role-matching postings are candidates wherever they sit in the corpus.
+ *   2. A role-filtered keyword pool, when it doesn't — every job whose title
+ *      matches the candidate's role, newest first.
+ *   3. The old global-recency pool, only when we can't derive a role at all.
+ *      A profile with no title tells us nothing to select on, and sending the
+ *      freshest jobs is a more honest default than sending nothing.
+ */
+async function loadCandidatePool(profile, roleQuery, since) {
+  const poolInclude = [{
+    model: Company,
+    as: 'companyInfo',
+    attributes: ['id', 'name', 'slug', 'domain', 'logoUrl'],
+  }];
+  const poolAttributes = { exclude: ['descriptionHtml', 'metadata', 'embedding'] };
+
+  // 1. Semantic, when we have a profile vector.
+  if (roleQuery) {
+    try {
+      const { loadProfileForJobsRanking, searchSimilarJobs } = require('./jobEmbeddingService');
+      const cached = await loadProfileForJobsRanking(profile.userId);
+      if (cached?.profileEmbedding) {
+        const { rows } = await searchSimilarJobs(cached.profileEmbedding, {
+          limit: POOL_SIZE,
+          offset: 0,
+          rankText: roleQuery,
+          // Rank on fit alone. The digest applies its own freshness framing in
+          // the copy, and mixing a recency term in here would reintroduce the
+          // "newest, not best" selection this function exists to remove.
+          sortMode: 'match',
+          location: profile.location ? String(profile.location).split(',')[0].trim() : null,
+          defaultMaxAgeDays: POOL_WINDOW_DAYS,
+        });
+        if (rows.length > 0) return rows;
+      }
+    } catch (err) {
+      console.warn('[JobDigest] semantic pool failed, falling back to keyword:', err.message);
+    }
+  }
+
+  // 2. Role-filtered keyword pool.
+  if (roleQuery) {
+    const tsQuery = buildJobSearchTsquery(roleQuery);
+    if (tsQuery) {
+      const rows = await ExternalJob.findAll({
+        where: {
+          isActive: true,
+          [Op.and]: [
+            literal(`"ExternalJob"."effectivePostedAt" >= :digestSince`),
+            literal(`"ExternalJob"."searchTsvAB" @@ to_tsquery('english', :digestTsQuery)`),
+          ],
+        },
+        replacements: { digestSince: since.toISOString(), digestTsQuery: tsQuery },
+        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
+        limit: POOL_SIZE,
+        attributes: poolAttributes,
+        include: poolInclude,
+      });
+      if (rows.length > 0) return rows;
+    }
+  }
+
+  // 3. No usable role — fall back to global recency.
+  return ExternalJob.findAll({
+    where: {
+      isActive: true,
+      [Op.or]: [
+        { postedAt: { [Op.gte]: since } },
+        { postedAt: null, createdAt: { [Op.gte]: since } },
+      ],
+    },
+    order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
+    limit: POOL_SIZE,
+    attributes: poolAttributes,
+    include: poolInclude,
+  });
+}
+
+/**
  * Build the matched-jobs payload for a single profile.
  * Returns { matches, jobsScanned }.
  */
@@ -151,31 +251,54 @@ async function buildMatchesForProfile(profile) {
     },
   });
 
-  const pool = await ExternalJob.findAll({
-    where: {
-      isActive: true,
-      [Op.or]: [
-        { postedAt: { [Op.gte]: since } },
-        { postedAt: null, createdAt: { [Op.gte]: since } },
-      ],
-    },
-    order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
-    limit: POOL_SIZE,
-    attributes: { exclude: ['descriptionHtml', 'metadata', 'embedding'] },
-    include: [{
-      model: Company,
-      as: 'companyInfo',
-      attributes: ['id', 'name', 'slug', 'domain', 'logoUrl'],
-    }],
-  });
+  // The candidate's role, reduced the same way the jobs page reduces it.
+  // "Senior Frontend Full-Stack Software Engineer" -> "Frontend Engineer".
+  const roleQuery = deriveRoleQuery(profile.title || profile.headline);
 
+  const pool = await loadCandidatePool(profile, roleQuery, since);
   if (pool.length === 0) return { matches: [], jobsScanned };
 
   const ranked = rankJobs(pool, profile, { sortMode: 'match' });
   const profileSkills = extractProfileSkillSet(profile);
 
+  // Seniority sanity. Level inference is sparse (most postings carry no
+  // structured level at all), so scoreJob can only weight it lightly — which
+  // let an "AI Builder Intern" reach a senior engineer's email on title and
+  // skill overlap. Where the posting DOES declare a junior level and the
+  // candidate is clearly not junior, that is not a close call worth ranking:
+  // it is wrong, and one obviously wrong row discredits the other nine.
+  const candidateLevel = inferExperienceLevel(computeYearsOfExperience(profile), profile.title);
+  const seniorCandidate = ['senior', 'lead', 'executive'].includes(candidateLevel);
+  const levelMismatch = (job) => {
+    // An internship or new-grad posting is wrong for anyone who is not
+    // entry-level, whatever else it scores. Checked on the title rather than the
+    // structured level because that field is null on most postings — which is
+    // exactly why scoreJob can only weight it lightly and why an "AI Builder
+    // Intern" scored 51 against a senior engineer's profile.
+    if (candidateLevel !== 'entry'
+      && /\b(intern|internship|apprentice|new\s*grad|entry[-\s]level)\b/i.test(job.title || '')) {
+      return true;
+    }
+    return seniorCandidate && job.experienceLevel === 'entry';
+  };
+
+  // At most N per employer. The pool is drawn from whichever boards are largest,
+  // so without this one company takes the whole email — a measured run sent six
+  // of ten from a single employer. A digest of one company reads like a job
+  // alert for that company, not a match for the candidate.
+  const perCompany = new Map();
+  const withinCompanyCap = (job) => {
+    const key = String(job.company || '').toLowerCase().trim();
+    const n = perCompany.get(key) || 0;
+    if (n >= MAX_PER_COMPANY) return false;
+    perCompany.set(key, n + 1);
+    return true;
+  };
+
   const matches = ranked
     .filter(j => (j.relevanceScore || 0) >= MIN_RELEVANCE && (j.titleMatch || 0) >= MIN_TITLE_MATCH)
+    .filter(j => !levelMismatch(j))
+    .filter(withinCompanyCap)
     .slice(0, MAX_JOBS)
     .map(job => {
       const jobSkills = Array.isArray(job.skills)

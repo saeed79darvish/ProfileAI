@@ -214,6 +214,31 @@ services:
         value: "true"
       - key: ENABLE_JOB_DIGEST_CRON
         value: "true"
+      # Retention: retire postings past JOBS_MAX_AGE_DAYS (deactivate only —
+      # pruneStaleInactiveJobs does the deletion later, and skips anything a
+      # user saved or applied to).
+      #
+      # SHIPPED OFF ON PURPOSE. The code default is on, and on a corpus where
+      # most postings are older than the window this retires the majority of the
+      # active feed within a few hours. That is the intended behaviour, but it
+      # should be started deliberately and watched, not as a side effect of a
+      # deploy that also changes ranking, the digest and caching — otherwise a
+      # feed that looks wrong afterwards has four possible causes.
+      #
+      # To enable: flip to "true" and watch GET /api/external-jobs/health.
+      # Retirement is reversible (set isActive back) for PRUNE_INACTIVE_DAYS.
+      - key: ENABLE_JOB_RETENTION
+        value: "false"
+      # Drives retention, the default feed window, AND the ranking freshness
+      # horizon. These were three separate numbers and drifted apart (window 60
+      # vs horizon 30), which let a 59-day-old posting lead the feed.
+      - key: JOBS_MAX_AGE_DAYS
+        value: "30"
+      # Backfills Profile.openaiEmbedding. Without a profile vector a candidate
+      # silently drops to the weaker keyword ranking path; embeddings were only
+      # ever created lazily on save, so older profiles never got one.
+      - key: ENABLE_PROFILE_EMBED_BACKFILL
+        value: "true"
       - key: JOB_DIGEST_CRON
         value: "0 8 * * *"
       - key: FRONTEND_URL

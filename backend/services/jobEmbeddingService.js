@@ -157,7 +157,11 @@ async function loadProfileForJobsRanking(userId) {
   const { Profile } = require('../models');
   const row = await Profile.findOne({
     where: { userId },
-    attributes: ['id', 'skills', 'openaiEmbedding'],
+    // title/headline ride along so GET /external-jobs can derive the role hint
+    // without the browser first fetching the profile itself — that round-trip
+    // used to gate the whole jobs list request. Two small text columns on a row
+    // we were already reading.
+    attributes: ['id', 'skills', 'openaiEmbedding', 'title', 'headline', 'location'],
   });
   if (!row) {
     return null;
@@ -166,6 +170,10 @@ async function loadProfileForJobsRanking(userId) {
     profileId: row.id,
     profileEmbedding: _parseEmbeddingValue(row.openaiEmbedding),
     skillSet: _buildSkillSet(row.skills),
+    // Raw, unreduced. Callers apply deriveRoleQuery themselves so this cache
+    // doesn't have to be invalidated if that reduction ever changes.
+    roleTitle: row.title || row.headline || null,
+    profileLocation: row.location || null,
   };
   if (profileForJobsCache.size >= PROFILE_FOR_JOBS_CACHE_MAX) {
     const oldest = profileForJobsCache.keys().next().value;
@@ -577,6 +585,64 @@ async function generateProfileQueryEmbedding(profile, userId) {
  * Errors are caught and logged — never thrown — because this runs from a
  * hook and must not block the user's profile save.
  */
+/**
+ * Backfill missing Profile.openaiEmbedding rows.
+ *
+ * Without a profile vector a signed-in candidate cannot take the semantic
+ * ranking path at all — GET /external-jobs drops them to the keyword fallback,
+ * which pools by recency and is much weaker at telling one engineering role
+ * from another. Measured on this database, only 9 of 70 profiles had an
+ * embedding, so the good path was serving a small minority of users while
+ * everyone else got the degraded one and no signal that anything was wrong.
+ *
+ * Embeddings were only ever generated lazily: on profile save, or opportunistically
+ * when a legacy user happened to load the jobs page. Anyone who built a profile
+ * before that existed, or whose generation call failed once, stayed without one
+ * permanently. This sweeps them the same way job embeddings are swept — small
+ * batches, single-flight, gentle on the OpenAI rate limit.
+ *
+ * @param {Object} opts
+ * @param {number} opts.limit - max profiles per run (default 25)
+ * @returns {Promise<{success:number, failed:number, picked:number, skipped?:string}>}
+ */
+let _profileBackfillInFlight = false;
+async function backfillMissingProfileEmbeddings({ limit = 25 } = {}) {
+  if (!process.env.OPENAI_API_KEY) return { success: 0, failed: 0, picked: 0, skipped: 'no-key' };
+  if (_profileBackfillInFlight) return { success: 0, failed: 0, picked: 0, skipped: 'in-flight' };
+  _profileBackfillInFlight = true;
+  try {
+    const { Profile } = require('../models');
+    const rows = await Profile.findAll({
+      where: { openaiEmbedding: null },
+      // Newest first: an active candidate benefits from ranking today, whereas
+      // a long-dormant profile can wait for a later tick.
+      order: [['updatedAt', 'DESC']],
+      limit,
+    });
+    if (!rows.length) return { success: 0, failed: 0, picked: 0 };
+
+    let success = 0;
+    let failed = 0;
+    for (const profile of rows) {
+      try {
+        const result = await regenerateProfileOpenAIEmbedding(profile);
+        if (result) {
+          success++;
+          invalidateProfileForJobsCache(profile.userId);
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        failed++;
+        console.warn(`[ProfileEmbedBackfill] ${profile.id} failed:`, err.message);
+      }
+    }
+    return { success, failed, picked: rows.length };
+  } finally {
+    _profileBackfillInFlight = false;
+  }
+}
+
 async function regenerateProfileOpenAIEmbedding(profile) {
   if (!profile || !profile.id) return null;
   if (!process.env.OPENAI_API_KEY) return null;
@@ -1071,31 +1137,55 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     ? `LEAST(1.0, ts_rank_cd(ej."searchTsvAB", to_tsquery('english', $${rankTsqBindIdx})) / 0.5)`
     : null;
 
-  // Un-embedded rows. New jobs are embedded asynchronously after ingest, and a
-  // large share of the freshest listings have no vector yet, so this value
-  // decides whether "not yet scored" beats "scored and genuinely relevant".
-  // It must sit LOW: at the previous mid-band 0.3 an unscored day-old job
-  // outranked most real matches purely by being new. Low-but-nonzero keeps
-  // them visible in the body of the list until the embedding sweep catches up.
-  const NEUTRAL_REL_NORM = parseFloat(process.env.JOBS_REL_NEUTRAL || '0.15');
-  // Profile fit still carries the semantic load — it recognises a relevant job
-  // whose title lacks the keyword — but the lexical term decides the top of the
-  // list, because it is the signal that actually discriminates. The profile
-  // embedding is read from the row we already store, so unlike the old query
-  // embedding it costs no API call at request time.
-  const vecRelExpr = `COALESCE(${normalizeRel(profileCosExpr)}, ${NEUTRAL_REL_NORM})`;
-  const orderingRelevanceExpr = lexNormExpr
-    ? `(0.6 * ${lexNormExpr} + 0.4 * ${vecRelExpr})`
-    : vecRelExpr;
+  // Profile fit carries the semantic load — it recognises a relevant job whose
+  // title lacks the keyword — but the lexical term decides the top of the list,
+  // because it is the signal that actually discriminates. The profile embedding
+  // is read from the row we already store, so unlike the old query embedding it
+  // costs no API call at request time.
+  const vecRelExpr = normalizeRel(profileCosExpr);
 
-  // Freshness, normalised to 0..1 over a 30-day horizon rather than used as a
-  // multiplier. Weighted well below relevance so it breaks ties among
+  // Un-embedded rows: RENORMALIZE onto the lexical term rather than blending in
+  // a constant.
+  //
+  // Jobs are embedded asynchronously after ingest, so the newest listings are
+  // exactly the ones without a vector — measured on this corpus, only ~12% of
+  // the rows in the recency-bounded pool had one. Substituting a fixed neutral
+  // value (previously 0.15) for the missing cosine made "has an embedding"
+  // worth more than actual fit: an off-target job WITH a vector scored
+  // 0.4*0.30 = 0.120 against an off-target job WITHOUT one at 0.4*0.15 = 0.060,
+  // and that 0.06 gap outweighs roughly a week of freshness. The result was a
+  // feed whose ordering tracked the backfill queue instead of relevance —
+  // dates arriving 4d, 2d, 5d, 2h with no visible reason.
+  //
+  // Renormalizing removes the phantom signal entirely: when there is no cosine,
+  // the lexical rank is simply scored on its own scale, so an unembedded job is
+  // judged on the evidence we actually have about it and competes on equal
+  // terms. Rows with neither signal fall to 0 and are ordered by freshness,
+  // which is the honest answer for "we know nothing about this yet".
+  const orderingRelevanceExpr = lexNormExpr
+    ? `CASE WHEN ej.embedding IS NULL
+             THEN ${lexNormExpr}
+             ELSE (0.6 * ${lexNormExpr} + 0.4 * ${vecRelExpr}) END`
+    : `COALESCE(${vecRelExpr}, 0.0)`;
+
+  // Freshness, normalised to 0..1 over the retention horizon rather than used
+  // as a multiplier. Weighted well below relevance so it breaks ties among
   // comparable matches instead of overriding fit.
+  //
+  // The horizon MUST match the window the feed actually shows. It was pinned at
+  // 30 days while the default window was 60, so everything older than 30 days
+  // saturated at zero freshness and tied — age stopped discriminating over the
+  // whole back half of the visible corpus, which is how a 59-day-old posting
+  // led the list. Both now derive from JOBS_MAX_AGE_DAYS.
+  const FRESH_HORIZON_DAYS = Math.max(
+    1,
+    parseInt(process.env.JOBS_DEFAULT_MAX_AGE_DAYS || process.env.JOBS_MAX_AGE_DAYS || '30', 10) || 30
+  );
   const freshnessNormExpr = `
     GREATEST(0.0, 1.0 - LEAST(
       EXTRACT(EPOCH FROM (NOW() - ej."effectivePostedAt")) / 86400.0,
-      30.0
-    ) / 30.0)`;
+      ${FRESH_HORIZON_DAYS}.0
+    ) / ${FRESH_HORIZON_DAYS}.0)`;
   const REL_WEIGHT = parseFloat(process.env.JOBS_RANK_REL_WEIGHT || '0.8');
   const FRESH_WEIGHT = Math.max(0, 1 - REL_WEIGHT);
   // Ghost-job demotion. A listing nobody is actually hiring for is worse than a
@@ -1115,38 +1205,45 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const recommendedRankExpr =
     `(${REL_WEIGHT} * ej._rel + ${FRESH_WEIGHT} * (${freshnessNormExpr}) - ${ghostPenaltyExpr})`;
 
-  // Badge percentage. Deliberately the SAME normalised scale the ordering uses,
-  // so the number a candidate reads agrees with the position they see it in.
-  // Raw cosine was previously shown directly, which meant a sales role sat at
-  // ~46% and a strong frontend match at ~60% — close enough that the UI called
-  // both a "Good match". On the normalised scale those become ~15% and ~85%.
-  // Rows with no embedding yet report 0 rather than the neutral ordering value,
-  // because "we have not scored this" should not render as a confident number.
-  const scoreExpr = lexNormExpr
-    ? `ROUND((0.6 * ${lexNormExpr} + 0.4 * COALESCE(${normalizeRel(profileCosExpr)}, 0)) * 100)`
-    : `ROUND(COALESCE(${normalizeRel(profileCosExpr)}, 0) * 100)`;
+  // ── Relevance BANDING for the default ordering ─────────────────────────────
+  // The continuous rank above is a good ordering and a bad reading experience.
+  // Freshness contributes at most FRESH_WEIGHT (0.2) across the entire horizon,
+  // so any relevance difference above ~0.04 outranks a full month of recency and
+  // dates interleave everywhere: users saw 4d, then 2d, then 5d, then 2h and
+  // reasonably read it as broken sorting. The page's own comment already
+  // described the intended behaviour as "relevance band + latest-posted within
+  // the band" — that banding was simply never implemented.
+  //
+  // Quantising relevance into fixed-width bands restores it. Fit still decides
+  // which band a job lands in, so a strong match never sinks below a weak one;
+  // within a band — jobs that are, as far as we can tell, comparably good — the
+  // newest is on top and the dates descend monotonically as the user scans.
+  //
+  // Band width is the one tuning knob: too wide and relevance stops mattering,
+  // too narrow and the interleaving comes back. 0.1 gives ~10 bands over the
+  // normalised range, which is coarser than the noise floor of the underlying
+  // cosine (whose useful spread is only ~0.2 raw) and finer than the gap between
+  // a real role match and a generic one.
+  const BAND_WIDTH = parseFloat(process.env.JOBS_RANK_BAND_WIDTH || '0.1');
+  const bandExpr = BAND_WIDTH > 0
+    ? `FLOOR(GREATEST(0.0, ${REL_WEIGHT} * ej._rel - ${ghostPenaltyExpr}) / ${BAND_WIDTH})`
+    : null;
+  // Materialised as `_band` in the scored CTE so the ORDER BY and the company
+  // interleave below can both reference it without recomputing the cosine.
+  const bandedRankExpr = bandExpr ? 'ej._band' : null;
 
-  // ORDER BY differs by sort mode:
-  //   recommended → latest posted first, exact score tiebreak
-  //   match       → match score, recency tiebreak
-  //   recent      → recency, match tiebreak
-  let orderExpr;
-  if (sortMode === 'match') {
-    orderExpr = `ej._score DESC, ${recencyOrderExpr}`;
-  } else if (sortMode === 'recent') {
-    orderExpr = `${recencyOrderExpr}, ej._score DESC`;
-  } else {
-    // recommended (default): rank the freshest matching jobs by how well they
-    // fit the candidate, decayed by age — NOT by pure recency.
-    //
-    // This mode previously ordered by `recencyOrderExpr` alone, which made it
-    // byte-for-byte identical to 'recent' and meant the top of a signed-in
-    // candidate's feed was simply whichever board the crawler happened to sync
-    // last. Personalization was effectively off, which is why unrelated roles
-    // led the list. Ordering by relevance × freshness restores it while
-    // keeping fresh listings ahead of stale-but-similar ones.
-    orderExpr = `${recommendedRankExpr} DESC, ${recencyOrderExpr}`;
-  }
+  // Badge percentage is now derived from `_rel` in the outer SELECT rather than
+  // being its own expression — see SELECT_COLS below.
+  //
+  // It used to be a SECOND, subtly different formula, and the two disagreed
+  // exactly where it was most visible. The badge substituted 0 for a missing
+  // cosine while the ordering substituted something else, so an un-embedded job
+  // with a perfect title match ranked as 1.0 but displayed 60%, and a Stripe
+  // "React Native Engineer" displaying 100% sat three rows BELOW it. A user
+  // reading a match percentage next to a position has every right to expect
+  // them to be the same judgement; deriving one from the other makes that
+  // structural instead of aspirational, and evaluates the expensive expression
+  // (a ts_rank_cd plus a 512-dimension cosine) once per row instead of twice.
 
   // ── Two-stage retrieval for vector-ranked sort modes ──
   // The HNSW index on ExternalJobs.embedding can only be used when ORDER BY
@@ -1188,15 +1285,62 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const RECOMMENDED_POOL_MAX = 4000;
   const recommendedPoolExpr = `LEAST(GREATEST(2000, ($2::int + $3::int) * 5), ${RECOMMENDED_POOL_MAX})`;
 
+  // A RELEVANCE ARM on the recency pool.
+  //
+  // The pool is "the newest N matching jobs", which quietly assumes ingest is
+  // spread evenly across boards. It is not. Greenhouse — three quarters of the
+  // corpus — exposes no first-published date, so we store its `updated_at`, and
+  // any sync that touches a requisition re-stamps it as new. One large board
+  // therefore lands thousands of simultaneously-"fresh" rows. Measured here,
+  // the newest 2,000 rows came from just EIGHT companies.
+  //
+  // That is upstream of every relevance complaint about this feed: a frontend
+  // engineer cannot be shown a frontend job if the eligible set is eight
+  // employers deep and none of them posted one. The end-of-query diversity cap
+  // can only choose well among what the pool already contains.
+  //
+  // So when we have a role/query to match on, the pool gets a second arm: the
+  // newest jobs whose TITLE actually matches, regardless of where they sit in
+  // the global recency ordering. A role-matching posting anywhere in the
+  // retention window is now always a candidate.
+  //
+  // Preferred over a per-company ceiling on the recency arm, which was the
+  // other obvious fix and measurably worse: capping each company to its newest
+  // K rows excluded a big board's genuinely relevant jobs whenever they weren't
+  // among its most recently re-stamped, and cost ~800ms on the window function.
+  // This arm is a GIN-indexed `@@` over the same tsvector the search filter
+  // already uses, so it is cheap and it targets the actual failure.
+  const lexPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 2000)`;
+
   const candidateCte = isRecommended
-    ? `
+    ? (rankTsqBindIdx
+      ? `
+    WITH ann_candidates AS (
+      (
+        SELECT ej.id
+        FROM "ExternalJobs" ej
+        WHERE ${whereClause}
+        ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
+        LIMIT ${recommendedPoolExpr}
+      )
+      UNION
+      (
+        SELECT ej.id
+        FROM "ExternalJobs" ej
+        WHERE ${whereClause}
+          AND ej."searchTsvAB" @@ to_tsquery('english', $${rankTsqBindIdx})
+        ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
+        LIMIT ${lexPoolExpr}
+      )
+    )`
+      : `
     WITH ann_candidates AS (
       SELECT ej.id
       FROM "ExternalJobs" ej
       WHERE ${whereClause}
       ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
       LIMIT ${recommendedPoolExpr}
-    )`
+    )`)
     : `
     WITH ann_candidates AS (
       SELECT ej.id
@@ -1241,16 +1385,94 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     ? `FROM "ExternalJobs" ej JOIN ann_candidates ac ON ac.id = ej.id`
     : `FROM "ExternalJobs" ej WHERE ${whereClause}`;
 
+  // ── Per-company interleave ─────────────────────────────────────────────────
+  // Nothing limited how many results one employer could contribute, and the big
+  // ATS boards are enormous relative to everyone else: in the measured San
+  // Francisco pool Stripe had 62 postings, Neuralink 55, Databricks 46 — and a
+  // real candidate's first page came back 11 of 20 Stripe. A feed that is mostly
+  // one company is useless even when every row on it is individually relevant.
+  //
+  // This ROTATES employers instead of truncating them. Each job gets its
+  // position within (relevance band, company), and the list is ordered by band,
+  // then by that position, then by recency — so every company's best job in a
+  // band comes before any company's second, and the page spreads across
+  // employers without a single row being removed.
+  //
+  // Truncating was the obvious alternative and measurably wrong: capping at
+  // three per company cut a browsable feed from 7,021 jobs to 24, because the
+  // pool is only about eight distinct employers deep (Greenhouse re-stamps
+  // `updated_at` on edit, so one board's whole catalogue looks freshly posted at
+  // once). Diversity is a property the ORDERING should have, not a reason to
+  // hide inventory the candidate could otherwise page through.
+  //
+  // Skipped when the user filtered BY company — they asked for that employer, so
+  // rotating away from it would be perverse — and on the unbounded 'recent' path
+  // where a window function would force materialising every matching row.
+  const diversifyByCompany = usesCandidateCte && bandedRankExpr
+    && process.env.JOBS_COMPANY_INTERLEAVE !== 'false' && !company;
+
+  // Ceiling per company PER BAND, on top of the rotation.
+  //
+  // Rotation alone degenerates where one employer dominates a band: every
+  // company's best job comes first, and then the largest board simply fills the
+  // rest of the band — a measured page still came back 8 of 20 Stripe. This
+  // bounds that tail.
+  //
+  // Deliberately generous, and per band rather than per query. A flat cap of 3
+  // across the whole result was tried first and cut a browsable feed from 7,021
+  // jobs to 24, because the pool is only about eight employers deep. At this
+  // value only a company with more than N comparable jobs in a single band
+  // loses anything, so inventory is essentially preserved while the first pages
+  // stay mixed. Set JOBS_MAX_PER_COMPANY_PER_BAND=0 to keep rotation only.
+  const COMPANY_BAND_CAP = parseInt(process.env.JOBS_MAX_PER_COMPANY_PER_BAND || '5', 10);
+
+  // ORDER BY differs by sort mode:
+  //   recommended → relevance band, then company rotation, then newest
+  //   match       → match score, recency tiebreak
+  //   recent      → recency, match tiebreak
+  //
+  // Built HERE, not beside the scoring expressions, because it depends on
+  // `diversifyByCompany` and `usesCandidateCte`, which are decided further down.
+  // Referencing them from the earlier position put a `const` in its temporal
+  // dead zone: the semantic query threw a ReferenceError on every request and
+  // the route quietly caught it and served the keyword fallback instead — a
+  // silent, total loss of semantic ranking that looked like bad relevance
+  // rather than an error.
+  let orderExpr;
+  if (sortMode === 'match') {
+    orderExpr = `ej._rel DESC, ${recencyOrderExpr}`;
+  } else if (sortMode === 'recent') {
+    orderExpr = `${recencyOrderExpr}, ej._rel DESC`;
+  } else if (bandedRankExpr) {
+    orderExpr = diversifyByCompany
+      ? `${bandedRankExpr} DESC, ej._company_slot ASC, ${recencyOrderExpr}`
+      : `${bandedRankExpr} DESC, ${recencyOrderExpr}`;
+  } else {
+    // Banding disabled (JOBS_RANK_BAND_WIDTH=0) — fall back to the continuous
+    // relevance × freshness score.
+    orderExpr = `${recommendedRankExpr} DESC, ${recencyOrderExpr}`;
+  }
+
   const query = `
     ${usesCandidateCte ? `${candidateCte},` : 'WITH'}
     scored AS (
       SELECT ${SELECT_COLS},
-             ${orderingRelevanceExpr} AS _rel,
-             ${scoreExpr} AS _score
+             ${orderingRelevanceExpr} AS _rel
       ${scoredSource}
-    )
+    )${bandExpr ? `,
+    banded AS (
+      SELECT ej.*, ${bandExpr} AS _band FROM scored ej
+    )` : ''}${diversifyByCompany ? `,
+    diversified AS (
+      SELECT ej.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY ej._band, LOWER(COALESCE(ej.company, ''))
+               ORDER BY ${recencyOrderExpr}, ej.id DESC
+             ) AS _company_slot
+      FROM banded ej
+    )` : ''}
     SELECT ${SELECT_COLS},
-      ej._score as "relevanceScore",
+      ROUND(GREATEST(0.0, LEAST(1.0, ej._rel)) * 100) as "relevanceScore",
       json_build_object(
         'id', c.id, 'name', c.name, 'slug', c.slug, 'domain', c.domain,
         'logoUrl', c."logoUrl", 'website', c.website, 'industry', c.industry,
@@ -1258,8 +1480,9 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
         'fundingStage', c."fundingStage", 'headquarters', c.headquarters,
         'linkedinUrl', c."linkedinUrl"
       ) as "companyInfo"
-    FROM scored ej
+    FROM ${diversifyByCompany ? 'diversified' : (bandExpr ? 'banded' : 'scored')} ej
     LEFT JOIN "Companies" c ON ej."companyId" = c.id
+    ${diversifyByCompany && COMPANY_BAND_CAP > 0 ? `WHERE ej._company_slot <= ${COMPANY_BAND_CAP}` : ''}
     ORDER BY ${orderExpr}, ej."createdAt" DESC, ej.id DESC
     LIMIT $2 OFFSET $3
   `;
@@ -1291,7 +1514,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     }
 
     return {
-      rows: results.map(row => ({
+      rows: results.map(({ _band, _company_slot, ...row }) => ({
         ...row,
         relevanceScore: Math.max(0, Math.min(100, parseInt(row.relevanceScore) || 0)),
         companyInfo: row.companyInfo?.id ? row.companyInfo : null
@@ -1324,6 +1547,7 @@ module.exports = {
   generateProfileQueryEmbedding,
   generateSearchQueryEmbedding,
   regenerateProfileOpenAIEmbedding,
+  backfillMissingProfileEmbeddings,
   searchSimilarJobs,
   invalidateJobsCountCache,
   loadProfileForJobsRanking,

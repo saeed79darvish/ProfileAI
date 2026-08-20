@@ -1990,7 +1990,10 @@ async function syncBoard(atsBoard) {
     if (created > 0 || updated > 0 || (deactivated[0] || 0) > 0) {
       try {
         const cache = require('./simpleCache');
-        cache.invalidatePrefix('external_jobs:');
+        // Coalesced: a sweep touches hundreds of boards and each one used to
+        // wipe the caches outright, so they never survived long enough to be
+        // read. See simpleCache.invalidatePrefixDebounced.
+        cache.invalidatePrefixDebounced('external_jobs:');
       } catch { /* cache module is optional, never fail sync because of it */ }
       // Also clear the per-filter count cache inside jobEmbeddingService.
       // It's a separate Map (not the simpleCache prefix space) so it
@@ -2062,7 +2065,7 @@ async function syncBoard(atsBoard) {
         { where: { source: atsBoard.platform, boardToken: atsBoard.boardToken, isActive: true } }
       );
       console.warn(`[ExternalJobs] ⚰️  ${atsBoard.name}: board gone (404 x${failures}) — retired, ${deactivated || 0} job(s) deactivated`);
-      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./simpleCache').invalidatePrefixDebounced('external_jobs:'); } catch { /* optional */ }
       try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
       return { success: false, error: error.message, retired: true, ghostsDeactivated: deactivated || 0 };
     }
@@ -2085,7 +2088,7 @@ async function syncBoard(atsBoard) {
           console.warn(`[ExternalJobs] ⚰️  ${atsBoard.name}: dead board (${failures} consecutive failures) — deactivated ${ghostsDeactivated} ghost jobs`);
           // Corpus changed → drop the aggregation/count caches so the ghosts
           // disappear from the live list immediately instead of on TTL expiry.
-          try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+          try { require('./simpleCache').invalidatePrefixDebounced('external_jobs:'); } catch { /* optional */ }
           try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
         }
       } catch (deErr) {
@@ -2580,18 +2583,101 @@ function sleep(ms) {
 }
 
 /**
+ * Retire postings older than the retention window.
+ *
+ * We ingest new jobs continuously, so a posting that has neither been
+ * republished nor re-dated in JOBS_MAX_AGE_DAYS is almost certainly filled or
+ * abandoned. Keeping it costs twice: it dilutes the feed a candidate reads,
+ * and — because every ranked query pools by recency — it consumes pool slots
+ * that a live posting should have had.
+ *
+ * This DEACTIVATES rather than deletes. Deactivation is reversible, takes
+ * effect immediately (every read path filters isActive), and hands the row to
+ * the existing pruneStaleInactiveJobs sweep, which does the irreversible part
+ * later and knows how to skip rows a user still references. Splitting it this
+ * way means an over-aggressive retention window can be corrected by flipping
+ * the flag back for PRUNE_INACTIVE_DAYS, instead of being a data loss.
+ *
+ * Age is measured on effectivePostedAt, which is the same date the feed sorts
+ * and filters on and the same one the card shows. For sources that re-stamp a
+ * posting when it is edited (Greenhouse, the bulk of the corpus), a genuinely
+ * refreshed requisition therefore keeps its place — "posted or reposted",
+ * which is the intent.
+ *
+ * @param {Object} opts
+ * @param {number} opts.days  - retention window (default JOBS_MAX_AGE_DAYS or 30)
+ * @param {number} opts.limit - max rows per run (default 1000)
+ * @returns {Promise<{deactivated:number, skipped?:string}>}
+ */
+let _retireInFlight = false;
+async function deactivateExpiredJobs({ days = null, limit = 1000 } = {}) {
+  if (_retireInFlight) return { deactivated: 0, skipped: 'in-flight' };
+  const windowDays = parseInt(days ?? process.env.JOBS_MAX_AGE_DAYS ?? '30', 10);
+  // A zero/negative window would deactivate the entire corpus. Treat it as
+  // "retention disabled" rather than as an instruction to empty the feed.
+  if (!Number.isFinite(windowDays) || windowDays <= 0) {
+    return { deactivated: 0, skipped: 'disabled' };
+  }
+  _retireInFlight = true;
+  const timeoutMs = parseInt(process.env.SYNC_WRITE_TIMEOUT_MS || '120000', 10);
+  try {
+    const deactivated = await ExternalJob.sequelize.transaction(async (t) => {
+      await ExternalJob.sequelize.query(
+        `SET LOCAL statement_timeout = ${timeoutMs}`,
+        { transaction: t }
+      );
+      const [rows] = await ExternalJob.sequelize.query(
+        `WITH expired AS (
+           SELECT ej.id
+             FROM "ExternalJobs" ej
+            WHERE ej."isActive" = true
+              AND ej."effectivePostedAt" < NOW() - ($1 || ' days')::interval
+            ORDER BY ej."effectivePostedAt" ASC
+            LIMIT $2
+         )
+         UPDATE "ExternalJobs" ej
+            SET "isActive" = false
+           FROM expired e
+          WHERE ej.id = e.id
+         RETURNING ej.id`,
+        { bind: [String(windowDays), limit], transaction: t }
+      );
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+    if (deactivated > 0) {
+      // The corpus shrank — drop the cached lists/aggregates/counts so the
+      // retired postings leave the feed now rather than on TTL expiry.
+      try { require('./simpleCache').invalidatePrefixDebounced('external_jobs:'); } catch { /* optional */ }
+      try { require('./jobEmbeddingService').invalidateJobsCountCache({ force: true }); } catch { /* optional */ }
+    }
+    return { deactivated };
+  } finally {
+    _retireInFlight = false;
+  }
+}
+
+/**
  * Prune long-inactive ExternalJobs to reclaim disk.
  *
  * A job is deactivated (isActive=false) by syncBoard when it drops out of its
- * board's fetch. Deactivated jobs are never shown again (every read filters
+ * board's fetch, or by deactivateExpiredJobs once it ages past the retention
+ * window. Deactivated jobs are never shown again (every read filters
  * isActive=true) yet still occupy a row plus a 1536-dim embedding and entries
  * in the HNSW / GIN / b-tree indexes. Nothing ever removed them, so they
  * accumulate forever and bloat disk — a direct contributor to the DB filling
  * up. This deletes inactive jobs untouched for `days`, in bounded batches,
- * while SKIPPING any row still referenced by a SavedJob or ApplyPilotApplication
- * (both FK ExternalJobs.id) so a user's saved job / application is never
- * orphaned. Single-flight; the DELETE runs in a txn with a raised
- * statement_timeout (index maintenance on delete can exceed the 15s read cap).
+ * while SKIPPING any row a user still has a relationship with — a SavedJob,
+ * an ApplyPilotApplication, or a click-tracked ExternalApplication.
+ *
+ * All three FKs are ON DELETE SET NULL, so a delete would not error — it would
+ * quietly sever the link and leave the user's own record pointing at nothing.
+ * ExternalApplications was missing from this guard, which meant a job the user
+ * had actually applied to could have its link nulled once the posting aged out.
+ * Being referenced is the signal that the row is still someone's history, not
+ * just corpus.
+ *
+ * Single-flight; the DELETE runs in a txn with a raised statement_timeout
+ * (index maintenance on delete can exceed the 15s read cap).
  *
  * @param {Object} opts
  * @param {number} opts.days  - inactivity age threshold (default 14)
@@ -2620,6 +2706,8 @@ async function pruneStaleInactiveJobs({ days = 14, limit = 500 } = {}) {
                 SELECT 1 FROM "SavedJobs" s WHERE s."externalJobId" = ej.id)
               AND NOT EXISTS (
                 SELECT 1 FROM "ApplyPilotApplications" a WHERE a."externalJobId" = ej.id)
+              AND NOT EXISTS (
+                SELECT 1 FROM "ExternalApplications" x WHERE x."externalJobId" = ej.id)
             LIMIT $2
          )
          DELETE FROM "ExternalJobs" ej
@@ -2782,7 +2870,7 @@ async function enforceActiveBoardCap({ maxBoards = 750, limit = 25 } = {}) {
 
     if (retired > 0) {
       console.log(`[ExternalJobs] ⚖️  Board cap: retired ${retired} weakest board(s) (${activeBoards} active > cap ${maxBoards})`);
-      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./simpleCache').invalidatePrefixDebounced('external_jobs:'); } catch { /* optional */ }
       try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
     }
 
@@ -2853,7 +2941,7 @@ async function deactivateAggregatorDuplicates({ limit = 500 } = {}) {
       return Array.isArray(rows) ? rows.length : 0;
     });
     if (deactivated > 0) {
-      try { require('./simpleCache').invalidatePrefix('external_jobs:'); } catch { /* optional */ }
+      try { require('./simpleCache').invalidatePrefixDebounced('external_jobs:'); } catch { /* optional */ }
       try { require('./jobEmbeddingService').invalidateJobsCountCache(); } catch { /* optional */ }
     }
     return { deactivated };
@@ -2880,6 +2968,7 @@ module.exports = {
   startDateResync,
   getDateResyncStatus,
   ensureCorpusFresh,
+  deactivateExpiredJobs,
   pruneStaleInactiveJobs,
   compactOldJobRows,
   deactivateAggregatorDuplicates,

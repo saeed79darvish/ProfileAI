@@ -5,6 +5,8 @@
  * No AI calls — fast enough to run on every page load.
  */
 
+const { splitTitleTokens } = require('../utils/roleQuery');
+
 /**
  * Curated list of common tech skill tokens used as a fallback when a
  * profile's structured `skills` field is empty (e.g. only category buckets
@@ -167,24 +169,41 @@ function computeYearsOfExperience(profile) {
  * fall back to the title-derived level.
  */
 function inferExperienceLevel(years, profileTitle = '') {
-  // Strong title signals override a 0-years-of-experience reading, which
-  // is usually a sign that experience entry dates didn't parse — not that
-  // the candidate is actually entry-level.
-  if (!years || years <= 0) {
+  const LEVELS = ['entry', 'mid', 'senior', 'lead', 'executive'];
+
+  const fromTitle = (() => {
     const t = String(profileTitle || '').toLowerCase();
     if (/\b(staff|principal|distinguished|fellow)\b/.test(t)) return 'lead';
     if (/\b(lead|head of|director|vp|vice president|chief)\b/.test(t)) return 'lead';
     if (/\b(senior|sr\.?|sr\b|architect)\b/.test(t)) return 'senior';
     if (/\b(mid|intermediate)\b/.test(t)) return 'mid';
     if (/\b(junior|jr\.?|entry|intern)\b/.test(t)) return 'entry';
-    // Title doesn't reveal a level — stay conservative.
-    return 'mid';
+    return null;
+  })();
+
+  const fromYears = (() => {
+    if (!years || years <= 0) return null;
+    if (years <= 2) return 'entry';
+    if (years <= 5) return 'mid';
+    if (years <= 10) return 'senior';
+    if (years <= 15) return 'lead';
+    return 'executive';
+  })();
+
+  // Take the HIGHER of the two readings rather than letting years win.
+  //
+  // computeYearsOfExperience only counts entries whose start AND end dates both
+  // parse, so a missing end date, an imported profile, or a gap silently
+  // undercounts a career. A candidate titled "Senior Frontend Engineer" was
+  // being read as 'mid' off four countable years — which then let entry-level
+  // and internship postings score as near-matches and reach their daily email.
+  // The title is self-reported and explicit; it should not be overridden by an
+  // arithmetic that is known to lose data, only raised by it.
+  if (fromTitle && fromYears) {
+    return LEVELS[Math.max(LEVELS.indexOf(fromTitle), LEVELS.indexOf(fromYears))];
   }
-  if (years <= 2) return 'entry';
-  if (years <= 5) return 'mid';
-  if (years <= 10) return 'senior';
-  if (years <= 15) return 'lead';
-  return 'executive';
+  // Neither signal — stay conservative.
+  return fromTitle || fromYears || 'mid';
 }
 
 /**
@@ -263,23 +282,62 @@ function scoreJob(job, profileData) {
   const jobTitleTokens = tokenize(job.title);
   const jobTitleLower = (job.title || '').toLowerCase();
 
+  // Token overlap, WEIGHTED by how much each token actually identifies a role.
+  //
+  // The unweighted version counted every shared word equally, which made the
+  // three commonest words in the corpus — senior, software, engineer — worth
+  // most of the score. Measured against a profile titled "Senior Frontend
+  // Full-Stack Software Engineer", the job "Senior Software Engineer, Radar"
+  // scored 27 of 45 without sharing a single word about what the job IS, and
+  // sailed past the digest's title floor of 12. That one flaw explains the bulk
+  // of the off-target roles in the daily email: radar, embedded, QA, scientific,
+  // systems and backend roles all clear the bar on seniority words alone.
+  //
+  // Specialty tokens (frontend, radar, embedded, security…) are what separate
+  // one engineering role from another, so they carry the score. Generic tokens
+  // still count for a little — a shared "engineer" is weak evidence, not zero
+  // evidence — but they can no longer manufacture a match on their own.
+  const SPECIALTY_WEIGHT = 1.0;
+  const GENERIC_WEIGHT = 0.15;
+
+  const weightedTitleOverlap = (candidateTitle) => {
+    const { specialty, generic } = splitTitleTokens(candidateTitle);
+    const hit = (t) => jobTitleTokens.includes(t) || jobTitleLower.includes(t);
+    const possible = specialty.length * SPECIALTY_WEIGHT + generic.length * GENERIC_WEIGHT;
+    if (possible <= 0) return 0;
+    const earned = specialty.filter(hit).length * SPECIALTY_WEIGHT
+      + generic.filter(hit).length * GENERIC_WEIGHT;
+    let ratio = earned / possible;
+    if (specialty.length === 0) {
+      // The CANDIDATE's title is itself all generic words ("Software Engineer",
+      // "Senior Developer"). It identifies no specialty, so a perfect match
+      // against it is still weak evidence and must not be able to award full
+      // marks. This is the leak that survived the first pass at weighting:
+      // profile titles were being capped correctly, but a generic PAST title
+      // matched any generic job at ratio 1.0 through the experience arm — worth
+      // 23 of 45 — which is how "Senior Software Engineer, Ads" reached a title
+      // score of 28 for an Android engineer, and with it the synergy bonus.
+      ratio = Math.min(ratio, 0.35);
+    } else if (!specialty.some(hit)) {
+      // Shares the craft words but nothing about the specialty. Cap it low
+      // enough that the digest's title floor is not cleared by seniority alone.
+      ratio = Math.min(ratio, 0.25);
+    }
+    return ratio;
+  };
+
   let titleScore = 0;
 
   // Compare with profile title (0-22)
   if (profileTitle) {
-    const profileTitleTokens = tokenize(profileTitle);
-    const titleOverlap = profileTitleTokens.filter(t => jobTitleTokens.includes(t) || jobTitleLower.includes(t));
-    titleScore += Math.min(22, (titleOverlap.length / Math.max(profileTitleTokens.length, 1)) * 22);
+    titleScore += weightedTitleOverlap(profileTitle) * 22;
   }
 
   // Compare with experience titles (0-23) — take the best-matching past role
   if (experienceTitles.length > 0) {
     let bestTitleMatch = 0;
     for (const expTitle of experienceTitles) {
-      const expTokens = tokenize(expTitle);
-      const overlap = expTokens.filter(t => jobTitleTokens.includes(t) || jobTitleLower.includes(t));
-      const matchRatio = overlap.length / Math.max(expTokens.length, 1);
-      bestTitleMatch = Math.max(bestTitleMatch, matchRatio);
+      bestTitleMatch = Math.max(bestTitleMatch, weightedTitleOverlap(expTitle));
     }
     titleScore += bestTitleMatch * 23;
   }
@@ -333,7 +391,17 @@ function scoreJob(job, profileData) {
   // cap around 70-75% and never clear realistic thresholds. We only
   // award this when both signals are strong, so it can't lift weak
   // matches.
-  if (matchDetails.titleMatch >= 28 && matchDetails.locationMatch >= 12) {
+  // Gated on a SPECIALTY hit, not just a title score. The threshold alone was
+  // reachable by stacking generic words — a job scoring exactly 28 on
+  // seniority/craft overlap collected the bonus and jumped a genuinely
+  // on-specialty role — which inverted the ranking it was meant to reinforce.
+  // "The role type is right" has to mean the specialty matched.
+  const jobTitleHasSpecialty = (() => {
+    const { specialty } = splitTitleTokens(profileTitle || '');
+    if (specialty.length === 0) return false;
+    return specialty.some(t => jobTitleTokens.includes(t) || jobTitleLower.includes(t));
+  })();
+  if (jobTitleHasSpecialty && matchDetails.titleMatch >= 28 && matchDetails.locationMatch >= 12) {
     matchDetails.synergyBonus = 10;
     score += 10;
   } else {

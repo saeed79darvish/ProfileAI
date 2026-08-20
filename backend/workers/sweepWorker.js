@@ -120,6 +120,55 @@ function startSweeps() {
     console.log('[GhostScan] disabled');
   }
 
+  // Profile-embedding backfill. A candidate with no profile vector cannot take
+  // the semantic ranking path at all and silently gets the weaker keyword
+  // fallback instead — so this is a relevance fix, not housekeeping. Embeddings
+  // were only ever created lazily on save, leaving every older profile without
+  // one. Disable with ENABLE_PROFILE_EMBED_BACKFILL=false.
+  if (process.env.OPENAI_API_KEY && process.env.ENABLE_PROFILE_EMBED_BACKFILL !== 'false') {
+    const { backfillMissingProfileEmbeddings } = require('../services/jobEmbeddingService');
+    const pBatch = parseInt(process.env.PROFILE_EMBED_BACKFILL_BATCH || '25', 10);
+    const pIntervalMs = parseInt(process.env.PROFILE_EMBED_BACKFILL_INTERVAL_MS || '300000', 10);
+    const pTick = serialize(() => backfillMissingProfileEmbeddings({ limit: pBatch })
+      .then(r => {
+        if (r.success || r.failed) {
+          console.log(`[ProfileEmbedBackfill] embedded ${r.success}, failed ${r.failed} (picked ${r.picked})`);
+        }
+      })
+      .catch(err => console.warn('[ProfileEmbedBackfill] error:', err.message)));
+    setTimeout(pTick, 45000);
+    setInterval(pTick, pIntervalMs);
+    console.log(`[ProfileEmbedBackfill] ✓ enabled (batch=${pBatch}, every ${Math.round(pIntervalMs / 1000)}s)`);
+  } else {
+    console.log('[ProfileEmbedBackfill] disabled');
+  }
+
+  // Retention: retire postings past the age window. We add jobs every day, so
+  // a posting neither republished nor re-dated within JOBS_MAX_AGE_DAYS is
+  // almost certainly filled — and it is still consuming slots in the
+  // recency-bounded pool every ranked query builds. Deactivation only; the
+  // prune tick below does the irreversible half once the row has sat inactive,
+  // so an over-tight window is recoverable rather than destructive. Disable
+  // with ENABLE_JOB_RETENTION=false.
+  if (process.env.ENABLE_JOB_RETENTION !== 'false') {
+    const { deactivateExpiredJobs } = require('../services/externalJobService');
+    const retireDays = parseInt(process.env.JOBS_MAX_AGE_DAYS || '30', 10);
+    const retireBatch = parseInt(process.env.JOB_RETENTION_BATCH || '1000', 10);
+    const retireIntervalMs = parseInt(process.env.JOB_RETENTION_INTERVAL_MS || '900000', 10);
+    const retireTick = serialize(() => deactivateExpiredJobs({ days: retireDays, limit: retireBatch })
+      .then(r => {
+        if (r.deactivated) console.log(`[JobRetention] retired ${r.deactivated} postings older than ${retireDays}d`);
+      })
+      .catch(err => console.warn('[JobRetention] error:', err.message)));
+    // Runs before the prune tick's 90s offset so a retired row is already
+    // inactive by the time the prune sweep next looks at it.
+    setTimeout(retireTick, 60000);
+    setInterval(retireTick, retireIntervalMs);
+    console.log(`[JobRetention] ✓ enabled (>${retireDays}d, batch=${retireBatch}, every ${Math.round(retireIntervalMs / 1000)}s)`);
+  } else {
+    console.log('[JobRetention] disabled');
+  }
+
   // Disk-reclaim: prune long-inactive ExternalJobs. Deactivated jobs (no
   // longer in any board's fetch) are never shown again but keep a row +
   // 1536-dim embedding + index entries forever, steadily bloating the DB
