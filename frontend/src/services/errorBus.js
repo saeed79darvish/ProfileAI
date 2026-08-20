@@ -6,7 +6,7 @@
 // the boot-time burst of calls (auth/me, notifications, usage) fires while
 // React is still mounting the tree.
 
-import { describeApiError } from '../utils/apiErrorMessage';
+import { describeApiError, isCancelledRequest } from '../utils/apiErrorMessage';
 
 const listeners = new Set();
 const pending = [];
@@ -52,6 +52,12 @@ export function subscribeApiErrors(listener) {
 export function publishApiError(error) {
   const meta = error?.config?.meta || {};
   if (meta.silent) return null;
+
+  // An aborted request is work the app threw away on purpose, not a failure.
+  // Guarded here as well as in the classifier because `meta.announceError`
+  // below can force a banner past the classifier's own decision, and no caller
+  // should be able to put a cancellation in front of a user.
+  if (isCancelledRequest(error)) return null;
 
   const described = describeApiError(error);
   if (!described.announce && !meta.announceError) return null;

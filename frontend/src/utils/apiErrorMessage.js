@@ -14,6 +14,9 @@ export const API_ERROR_KIND = {
   RATE_LIMIT: 'rate_limit',
   AUTH: 'auth',
   CLIENT: 'client',
+  // Aborted by us. Carries copy so nothing downstream crashes looking it up,
+  // but never announces — see KIND_COPY below.
+  CANCELLED: 'cancelled',
 };
 
 // announce: show the global banner for this kind.
@@ -65,13 +68,43 @@ const KIND_COPY = {
     duration: 8000,
     canReload: false,
   },
+  // The app cancelled this itself. There is nothing for anyone to act on, so
+  // it never reaches the banner.
+  [API_ERROR_KIND.CANCELLED]: {
+    message: '',
+    announce: false,
+    duration: 0,
+    canReload: false,
+  },
 };
 
-const TIMEOUT_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ERR_CANCELED']);
+// A request the SERVER gave up on. ERR_CANCELED is deliberately not here: axios
+// reports both a timeout and an AbortController abort through the same failure
+// path, but they are opposite events. A timeout is something going wrong; an
+// abort is the app cancelling work it no longer needs, which is a normal part
+// of a screen that refetches — every jobs-page keystroke aborts the in-flight
+// search by design.
+//
+// Classifying aborts as timeouts put "That request took too long and was
+// cancelled" in front of users doing nothing more unusual than typing into the
+// search box, on a request the app itself had thrown away.
+const TIMEOUT_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT']);
+
+// Codes that mean "we cancelled this on purpose". Never user-facing.
+const CANCELLED_CODES = new Set(['ERR_CANCELED']);
+
+export function isCancelledRequest(error) {
+  return CANCELLED_CODES.has(error?.code) || error?.name === 'CanceledError';
+}
 
 export function classifyApiError(error) {
   const status = error?.response?.status ?? null;
   const code = error?.code || null;
+
+  // Checked before everything else, including the offline branch — an abort
+  // that happens to land while the tab is offline is still an abort, and
+  // reporting it as "You're offline" would be just as wrong.
+  if (isCancelledRequest(error)) return API_ERROR_KIND.CANCELLED;
 
   // No response at all: DNS failure, connection refused, a CORS preflight the
   // browser rejected, or the tab going offline mid-flight. The browser hides
