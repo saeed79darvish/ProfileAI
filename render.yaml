@@ -54,7 +54,28 @@ services:
     plan: starter            # 512MB, $7/mo — does not sleep
     region: oregon           # change to ohio/frankfurt/singapore as needed
     rootDir: backend
-    buildCommand: npm ci
+    # Drop any INCOMPLETE Chromium install from the build cache before npm ci.
+    #
+    # Render caches /opt/render/.cache/puppeteer between builds, and a build
+    # interrupted mid-download leaves the version directory in place without
+    # the binary inside it. Puppeteer's installer treats "directory exists" as
+    # "already installed", so it neither reuses nor repairs it — it just fails:
+    #
+    #   The browser folder (.../chrome/linux-131.0.6778.204) exists but the
+    #   executable (.../chrome-linux64/chrome) is missing
+    #
+    # and every subsequent build fails the same way, because the bad directory
+    # is itself cached. Clearing the cache by hand fixes it once; this fixes it
+    # permanently. Only directories missing their executable are removed, so a
+    # healthy cache still makes the build fast.
+    #
+    # PUPPETEER_SKIP_DOWNLOAD stays "false" here on purpose — see the note on
+    # that variable below. This service genuinely needs Chromium.
+    buildCommand: >-
+      if [ -d /opt/render/.cache/puppeteer/chrome ]; then
+      for d in /opt/render/.cache/puppeteer/chrome/*/; do
+      [ -x "$d/chrome-linux64/chrome" ] || rm -rf "$d";
+      done; fi; npm ci
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
