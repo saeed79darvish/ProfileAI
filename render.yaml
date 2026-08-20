@@ -14,10 +14,19 @@
 
 databases:
   - name: profileai-db
-    plan: basic-256mb        # $6/mo, pgvector supported. Scale up via dashboard.
+    # MUST match the live instance type. This had drifted: production is on
+    # basic-1gb (1GB RAM / 0.5 CPU / 30GB), while this file still said
+    # basic-256mb — so the first Blueprint sync that actually succeeded would
+    # have tried to DOWNGRADE the database under a running application.
+    plan: basic-1gb
     databaseName: profileai
     user: profileai
-    postgresMajorVersion: "16"
+    # The live database is on 18. Declaring 16 is what made every Blueprint sync
+    # fail with "cannot downgrade Postgres major version" — and while the sync
+    # was failing, NOTHING in this file reached production. The services ran on
+    # dashboard values plus code defaults, which is exactly how
+    # ENABLE_JOB_RETENTION=false was committed here and never applied.
+    postgresMajorVersion: "18"
     ipAllowList: []          # internal-network only; no public access
 
 services:
@@ -114,8 +123,16 @@ services:
         value: "false"
       - key: ENABLE_FEED
         value: "false"
+      # Live in production: /mcp answers 400 (bad request), not 404, and the
+      # route is only mounted when this is true. This file said "false", so the
+      # first successful sync would have unmounted the Claude connector and its
+      # OAuth endpoints and broken every already-connected client.
+      #
+      # ENABLE_FEED and ENABLE_RECRUITER_SURFACE were checked the same way and
+      # are genuinely off in production (/api/posts, /api/smart-match and
+      # /api/recruiter-profiles all 404), so those two are left as they are.
       - key: ENABLE_CLAUDE_CONNECTOR
-        value: "false"
+        value: "true"
       # AI cost controls
       - key: OPENAI_JOB_MODEL
         value: gpt-4o-mini
