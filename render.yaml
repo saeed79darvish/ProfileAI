@@ -71,10 +71,23 @@ services:
     #
     # PUPPETEER_SKIP_DOWNLOAD stays "false" here on purpose — see the note on
     # that variable below. This service genuinely needs Chromium.
+    # Matches ANY browser, by looking for an executable rather than a known
+    # path. Puppeteer installs two (chrome and chrome-headless-shell), each with
+    # its own directory and its own differently-named binary:
+    #
+    #   .../puppeteer/chrome/<ver>/chrome-linux64/chrome
+    #   .../puppeteer/chrome-headless-shell/<ver>/chrome-headless-shell-linux64/chrome-headless-shell
+    #
+    # A first attempt at this checked only the chrome path, repaired that one,
+    # and then failed on chrome-headless-shell. Encoding the layout per browser
+    # is what made it fragile — and it would break again whenever puppeteer adds
+    # a browser or renames a folder. "A version directory containing no
+    # executable is a failed download" holds regardless of layout.
     buildCommand: >-
-      if [ -d /opt/render/.cache/puppeteer/chrome ]; then
-      for d in /opt/render/.cache/puppeteer/chrome/*/; do
-      [ -x "$d/chrome-linux64/chrome" ] || rm -rf "$d";
+      if [ -d /opt/render/.cache/puppeteer ]; then
+      for d in /opt/render/.cache/puppeteer/*/*/; do
+      [ -d "$d" ] || continue;
+      [ -n "$(find "$d" -type f -perm -u+x 2>/dev/null | head -1)" ] || rm -rf "$d";
       done; fi; npm ci
     startCommand: npm start
     healthCheckPath: /health
