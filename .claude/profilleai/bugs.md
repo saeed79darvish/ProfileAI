@@ -86,11 +86,16 @@ left-most `X-Forwarded-For` entry. All three limiters now key on it via
 `ipKeyGenerator`, which collapses IPv6 to a /56 so a rotating client cannot
 mint fresh buckets. Applied to `guestRateLimiter` and both audit sites too.
 
-**Residual risk:** a caller reaching the Render origin directly, bypassing
-Cloudflare, can set either header freely — exactly as it could already set
-`X-Forwarded-For`, so this is not a new exposure. Closing it means restricting
-the origin to Cloudflare's IP ranges at the platform level. Until then treat
-these values as an abuse signal, not proof of identity.
+**Residual risk — narrower than expected.** Cloudflare *rejects* any request
+that arrives already carrying a `CF-Connecting-IP` header: verified 2026-08-27,
+the edge answers **403** and the request never reaches the origin. So the header
+cannot be forged through the proxy at all.
+
+What remains is traffic reaching the Render origin directly, bypassing
+Cloudflare, which could set either header freely — already true of
+`X-Forwarded-For`, so not a new hole. Closing it means restricting the origin
+to Cloudflare's IP ranges at the platform level. Until then treat these values
+as an abuse signal, not proof of identity.
 
 ---
 

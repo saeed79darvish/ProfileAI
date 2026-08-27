@@ -22,12 +22,14 @@
  * hop-counting to interpret. Prefer it, then the left-most `X-Forwarded-For`
  * entry, then whatever Express worked out.
  *
- * SPOOFING: a caller that reaches the Render origin directly, bypassing
- * Cloudflare, can set either header freely — exactly as it could already set
- * `X-Forwarded-For` today, so this is not a new exposure. Closing it properly
- * means restricting the origin to Cloudflare's IP ranges at the platform
- * level; until then treat these values as a spam/abuse signal, not as proof of
- * identity.
+ * SPOOFING: Cloudflare rejects any request that arrives carrying its own
+ * `CF-Connecting-IP` header — verified 2026-08-27, the edge answers 403 and the
+ * request never reaches the origin — so the header cannot be forged through the
+ * proxy. The residual exposure is traffic that reaches the Render origin
+ * directly, bypassing Cloudflare, which could set either header freely; that
+ * was already true of `X-Forwarded-For`, so this is not a new hole. Closing it
+ * means restricting the origin to Cloudflare's IP ranges at the platform level.
+ * Until then treat these values as a spam/abuse signal, not proof of identity.
  */
 
 function clientIp(req) {
