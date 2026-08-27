@@ -22,7 +22,10 @@
     "backfill-slugs": "node scripts/backfillUserSlugs.js",
     "send-job-digest": "node scripts/send-job-digest.js",
     "seed-aggregators": "node scripts/seedAggregatorBoards.js",
-    "smoke": "node scripts/smokeTest.js"
+    "smoke": "node scripts/smokeTest.js",
+    "loadtest": "node scripts/loadTest.js",
+    "loadtest:seed": "node scripts/seedLoadTestUsers.js",
+    "loadtest:cleanup": "node scripts/seedLoadTestUsers.js --cleanup"
   },
   "keywords": [
     "profile",
