@@ -30,6 +30,7 @@ const {
   TERMS_VERSION
 } = require('../services/invitationService');
 const { CandidateInvitation, CandidateImport, Job } = require('../models');
+const { clientIp } = require('../utils/clientIp');
 
 /**
  * @route   POST /api/invitations/import/:importId/create
@@ -377,7 +378,7 @@ router.post('/:token/accept', [
       phone,
       consentToTerms: consentToTerms === true || consentToTerms === 'true',
       consentToScreening: consentToScreening === true || consentToScreening === 'true',
-      ipAddress: req.ip,
+      ipAddress: clientIp(req),
       userAgent: req.get('User-Agent')
     });
     

@@ -24,6 +24,7 @@ const {
   User
 } = require('../models');
 const resumeParser = require('../services/resumeParserService');
+const { clientIp } = require('../utils/clientIp');
 
 // Configure multer for resume upload (memory storage, no auth needed)
 const upload = multer({
@@ -336,7 +337,7 @@ router.post('/:token/submit', upload.single('resume'), [
       consentToScreening: consentToScreening === 'true',
       consentToTerms: consentToTerms === 'true',
       timestamp: new Date().toISOString(),
-      ipAddress: req.ip,
+      ipAddress: clientIp(req),
       userAgent: req.get('User-Agent'),
       submissionType: 'guest_screening'
     };

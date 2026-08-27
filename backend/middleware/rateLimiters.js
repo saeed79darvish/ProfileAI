@@ -1,5 +1,6 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const crypto = require('crypto');
+const { clientIp } = require('../utils/clientIp');
 
 /**
  * Centralized rate limiters.
@@ -11,7 +12,25 @@ const crypto = require('crypto');
  * `ai`     — for endpoints that hit OpenAI or other paid AI providers. The
  *            per-feature `aiRateLimiter` middleware still enforces business
  *            limits; this is just a cheap edge filter.
+ *
+ * All three bucket by the CALLER's address rather than `req.ip`. Behind
+ * Cloudflare + Render, `req.ip` is an intermediate address that rotates per
+ * request, so the counters never accumulated and none of these limiters did
+ * anything. See utils/clientIp.js for the measurement and the spoofing
+ * caveat.
  */
+
+// `ipKeyGenerator` collapses an IPv6 address to its /56 subnet. Without it a
+// single IPv6 client gets a fresh bucket per address it rotates through, which
+// would reproduce the same "limiter never accumulates" bug this fix exists to
+// remove. express-rate-limit v8 requires it for custom IP-based keys.
+const keyByClientIp = (req) => ipKeyGenerator(clientIp(req));
+
+// The key no longer comes from `req.ip`, so express-rate-limit's check that
+// `trust proxy` agrees with the X-Forwarded-For header is measuring something
+// this file doesn't rely on. Left on, it emits a permanent startup warning
+// about a setting that is now irrelevant to bucketing.
+const validate = { xForwardedForHeader: false };
 
 /**
  * Load-test escape hatch.
@@ -49,6 +68,8 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please slow down.' },
+  keyGenerator: keyByClientIp,
+  validate,
   // Don't rate-limit the Stripe webhook (mounted before this anyway) or health.
   skip: (req) => req.path === '/health' || isLoadTestClient(req),
 });
@@ -59,6 +80,8 @@ const strictLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests on this endpoint, please wait and retry.' },
+  keyGenerator: keyByClientIp,
+  validate,
   skip: isLoadTestClient,
 });
 
@@ -68,6 +91,8 @@ const aiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'AI request rate exceeded. Please wait a moment.' },
+  keyGenerator: keyByClientIp,
+  validate,
   skip: isLoadTestClient,
 });
 

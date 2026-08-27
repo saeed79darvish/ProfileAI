@@ -57,7 +57,12 @@ coverage/
 backend/uploads/
 
 # Misc
-.claude/
+# Claude Code's local config (settings.local.json, run locks) stays out of
+# git, but .claude/profilleai/ is a shared knowledge base and is tracked.
+# Git cannot re-include a path whose parent DIRECTORY is excluded, so this
+# excludes the contents of .claude/ rather than the directory itself.
+.claude/*
+!.claude/profilleai/
 
 # wrangler files
 .wrangler

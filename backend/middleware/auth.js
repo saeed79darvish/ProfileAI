@@ -1,5 +1,32 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
+const logger = require('../utils/logger');
+
+/**
+ * A rejected token and an unreachable database are different failures, and
+ * conflating them is a user-visible bug.
+ *
+ * Both paths used to land in one `catch` that answered 401 "Token is not
+ * valid" and logged nothing. So whenever the database struggled — a pool
+ * timeout, a dropped connection, a statement timeout — every signed-in user
+ * was told their session was invalid, and the frontend logged them out. The
+ * silence made it invisible in the logs too.
+ *
+ * Load testing on 2026-08-27 reproduced this exactly: a lock-table exhaustion
+ * in Postgres surfaced as 100% spurious 401s at a concurrency of 20, with
+ * nothing at all in the application log to explain it.
+ *
+ * jsonwebtoken raises a small, known set of errors for a genuinely bad token.
+ * Anything else is our problem, not the caller's, and deserves a 503 the
+ * client can retry rather than a logout.
+ */
+const TOKEN_ERROR_NAMES = new Set([
+  'JsonWebTokenError',   // malformed, bad signature, wrong audience
+  'TokenExpiredError',   // exp in the past
+  'NotBeforeError',      // nbf in the future
+]);
+
+const isTokenError = (err) => TOKEN_ERROR_NAMES.has(err?.name);
 
 const AUTH_MIDDLEWARE_SAFE_USER_FIELDS = [
   'id',
@@ -65,7 +92,13 @@ const authMiddleware = async (req, res, next) => {
     req.userId = user.id;
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Token is not valid' });
+    if (isTokenError(error)) {
+      return res.status(401).json({ error: 'Token is not valid' });
+    }
+    // Infrastructure failure. Say so — a 503 keeps the session intact and
+    // tells the client this is worth retrying.
+    logger.error({ err: error, path: req.originalUrl }, '[auth] token verification failed for a non-token reason');
+    res.status(503).json({ error: 'Service temporarily unavailable, please retry.' });
   }
 };
 
@@ -89,7 +122,13 @@ const optionalAuth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    // Token invalid, but continue without user
+    // Auth is optional here, so continuing anonymously is the right call
+    // either way — but a database failure still needs to be visible. Left
+    // unlogged, a struggling database silently downgrades every signed-in
+    // visitor to the anonymous experience with no trace of why.
+    if (!isTokenError(error)) {
+      logger.error({ err: error, path: req.originalUrl }, '[optionalAuth] falling back to anonymous after a non-token error');
+    }
     next();
   }
 };

@@ -20,6 +20,7 @@
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const { GuestAIUsage } = require('../models');
+const { clientIp } = require('../utils/clientIp');
 
 // Defaults are intentionally generous. The goal isn't to squeeze every last
 // free analysis, it's to stop abuse (a script hammering 500 profiles). Real
@@ -85,7 +86,7 @@ const guestAnalysisLimiter = (opts = {}) => {
     // the guest flow and doesn't want to burn caps with every reload. Never
     // set this in prod — it turns off all abuse protection.
     if (process.env.GUEST_ANALYZER_DISABLE_LIMITS === 'true') {
-      const rawIp = req.ip || 'unknown';
+      const rawIp = clientIp(req);
       req.guestContext = {
         ipHash: hashIp(rawIp),
         profileUrlKey: normalizeProfileUrl(getProfileUrl(req)),
@@ -98,7 +99,9 @@ const guestAnalysisLimiter = (opts = {}) => {
       return next();
     }
     try {
-      const rawIp = req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+      // req.ip is an intermediate proxy address behind Cloudflare + Render, so
+      // hashing it bucketed every guest together under one rotating key.
+      const rawIp = clientIp(req);
       const ipHash = hashIp(rawIp);
       const profileUrlKey = normalizeProfileUrl(getProfileUrl(req));
 
