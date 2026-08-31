@@ -32,7 +32,7 @@ const ForgotPassword = lazyWithReload(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazyWithReload(() => import('./pages/ResetPassword'));
 const Dashboard = lazyWithReload(() => import('./pages/Dashboard'));
 const ProfileForm = lazyWithReload(() => import('./pages/ProfileForm'));
-const ProfileCreation = lazyWithReload(() => import('./pages/ProfileCreation'));
+const ProfileCoach = lazyWithReload(() => import('./pages/ProfileCoach'));
 const BrowseProfiles = lazyWithReload(() => import('./pages/BrowseProfiles'));
 const PublicProfile = lazyWithReload(() => import('./pages/PublicProfile'));
 const RecruiterTools = lazyWithReload(() => import('./pages/RecruiterTools'));
@@ -77,7 +77,6 @@ const AdminPromos = lazyWithReload(() => import('./pages/AdminPromos'));
 const AdminSupport = lazyWithReload(() => import('./pages/AdminSupport'));
 const CandidateOnboarding = lazyWithReload(() => import('./pages/CandidateOnboarding'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
-const JobPreferencesWizard = lazyWithReload(() => import('./pages/JobPreferencesWizard'));
 const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
 const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
@@ -491,17 +490,16 @@ function AppContent() {
               path="/profile/create"
               element={
                 <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
-                  <ProfileCreation />
+                  <ProfileCoach />
                 </PrivateRoute>
               }
             />
+            {/* The step wizard was replaced by the conversational builder.
+                Kept as a redirect rather than deleted: it is linked from the
+                welcome modal and from users' own bookmarks. */}
             <Route
               path="/profile/preferences"
-              element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
-                  <JobPreferencesWizard />
-                </PrivateRoute>
-              }
+              element={<Navigate to="/profile/create" replace />}
             />
             <Route
               path="/profile/create-form"

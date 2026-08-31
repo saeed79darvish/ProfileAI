@@ -571,7 +571,18 @@ const ProfileForm = () => {
     // (categorized skills object, not a flat array) — set directly instead
     // of going through the resume-shape mapping below.
     if (location.state && location.state.guestDraft) {
-      setFormData(prev => ({ ...prev, ...location.state.guestDraft }));
+      const guestDraft = location.state.guestDraft;
+      setFormData(prev => ({
+        ...prev,
+        ...guestDraft,
+        // Drafts arrive in two shapes: this editor writes skills as a
+        // categorised object, while the coach (and any resume-shaped source)
+        // produces a flat array. Accept both rather than silently dropping
+        // every skill a coach-built draft collected.
+        skills: Array.isArray(guestDraft.skills)
+          ? categorizeSkillsHelper(guestDraft.skills)
+          : (guestDraft.skills || prev.skills),
+      }));
       setInitialLoading(false);
       setInitialFormLoaded(true);
       setHasResumeData(false);
@@ -597,12 +608,18 @@ const ProfileForm = () => {
       setInitialFormLoaded(true);
       // Wizard-originated drafts are not actually parsed resumes — don't expose
       // the "Clear Resume" affordance and use copy that matches the source.
-      const fromWizard = location.state?.source === 'wizard';
-      setHasResumeData(!fromWizard);
+      // 'wizard' is the retired step wizard, 'coach' the conversational
+      // builder that replaced it. Neither is a parsed resume, so neither
+      // should expose the "Clear Resume" affordance.
+      const source = location.state?.source;
+      const fromBuilder = source === 'wizard' || source === 'coach';
+      setHasResumeData(!fromBuilder);
       setSuccess(
-        fromWizard
-          ? 'Profile draft created from your preferences. Add more details to stand out.'
-          : 'Resume parsed successfully! Review and edit the information below before saving.'
+        source === 'coach'
+          ? 'Here is what your coach put together. Review it, add anything missing, then save.'
+          : fromBuilder
+            ? 'Profile draft created from your preferences. Add more details to stand out.'
+            : 'Resume parsed successfully! Review and edit the information below before saving.'
       );
     } else {
       loadExistingProfile();
@@ -868,11 +885,17 @@ const ProfileForm = () => {
         isPublic: true
       });
 
-      const fromWizard = location.state?.source === 'wizard';
+      // NOTE: this duplicates the resumeData branch in the mount effect above
+      // and runs after it, so whatever it sets here is what the user actually
+      // sees. Keep the two in sync until they are merged.
+      const source = location.state?.source;
+      const fromBuilder = source === 'wizard' || source === 'coach';
       setSuccess(
-        fromWizard
-          ? 'Profile draft created from your preferences. Add more details to stand out.'
-          : 'Resume parsed successfully! Review and edit the information below before saving.'
+        source === 'coach'
+          ? 'Here is what your coach put together. Review it, add anything missing, then save.'
+          : fromBuilder
+            ? 'Profile draft created from your preferences. Add more details to stand out.'
+            : 'Resume parsed successfully! Review and edit the information below before saving.'
       );
     }
   }, [location.state]);

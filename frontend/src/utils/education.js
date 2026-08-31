@@ -1,4 +1,6 @@
-import { isPresentValue } from './dateRange';
+// Explicit extension so `node --test` can load this module directly, the
+// same way Vite does — coachLogic.test.js reaches it through ProfileCoach.
+import { isPresentValue } from './dateRange.js';
 
 /**
  * Canonicalise education rows onto the keys the profile editor reads and writes.

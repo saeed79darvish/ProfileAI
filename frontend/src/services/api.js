@@ -264,6 +264,20 @@ export const profileAPI = {
     }
     return { data: await response.json() };
   },
+  /* ─── Profile Coach (the conversational builder) ─────────────────
+     Only free-text answers hit these. Chip taps never leave the client,
+     so the guest ladder costs nothing and needs no session. */
+
+  // Parse one typed/spoken answer into the fields its step asks for.
+  // `stepId` must match a key in the server's STEP_SCHEMAS.
+  coachInterpret: ({ stepId, question, answer, context }) =>
+    api.post('/profiles/coach/interpret', { stepId, question, answer, context }),
+  // Rewrite a freeform description of a role into resume bullets.
+  coachBullets: ({ title, company, answer }) =>
+    api.post('/profiles/coach/bullets', { title, company, answer }),
+  // Write the profile summary from the finished conversation draft.
+  coachSummary: (draft) => api.post('/profiles/coach/summary', { draft }),
+
   // LinkedIn import — check which options the server has enabled
   // ({ urlImportAvailable, oauthAvailable }) so the UI can hide dead-end cards.
   getLinkedInImportStatus: () => api.get('/profiles/import-linkedin/status'),
