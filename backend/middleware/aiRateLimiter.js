@@ -388,6 +388,7 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
   const featureTypes = [
     'resume_parse',
     'profile_enhance',
+    'profile_coach',
     'tailor_profile',
     'cover_letter',
     'post_enhance',

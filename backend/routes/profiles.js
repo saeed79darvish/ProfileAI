@@ -9,6 +9,7 @@ const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlFo
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
+const profileCoachService = require('../services/profileCoachService');
 const linkedinAnalyzerCache = require('../services/linkedinAnalyzerCache');
 const { buildTeaser: buildLinkedInTeaser } = require('../services/linkedinAnalyzerTeaser');
 const emailService = require('../services/emailService');
@@ -481,6 +482,85 @@ router.delete('/delete-image', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error deleting profile image:', error);
     res.status(500).json({ error: 'Error deleting image' });
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   Profile Coach — the conversational builder at /profile/create.
+
+   Only free-text answers reach these endpoints. Tapping a chip is
+   resolved entirely on the client, costs nothing, and works signed
+   out — which is what lets a guest walk the whole ladder before we
+   ask them to register. See frontend/src/pages/ProfileCoach.
+   ───────────────────────────────────────────────────────────────── */
+
+// @route   POST /api/profiles/coach/interpret
+// @desc    Turn one free-text/voice answer into structured profile fields
+// @access  Private
+router.post('/coach/interpret', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+  try {
+    const { stepId, question, answer, context } = req.body || {};
+    if (!answer || !String(answer).trim()) {
+      return res.status(400).json({ error: 'Answer is required' });
+    }
+
+    const result = await profileCoachService.interpretAnswer({
+      stepId,
+      question,
+      answer,
+      context: context && typeof context === 'object' ? context : {},
+    });
+
+    await recordAIUsage(req.user.id, 'profile_coach');
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (error.code === 'unknown_step') {
+      return res.status(400).json({ error: 'Unknown coach step' });
+    }
+    console.error('Error interpreting coach answer:', error);
+    res.status(500).json({ error: 'Could not read that answer' });
+  }
+});
+
+// @route   POST /api/profiles/coach/bullets
+// @desc    Rewrite what someone said about a role into resume bullets
+// @access  Private
+router.post('/coach/bullets', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+  try {
+    const { title, company, answer } = req.body || {};
+    if (!answer || !String(answer).trim()) {
+      return res.status(400).json({ error: 'Answer is required' });
+    }
+
+    const bullets = await profileCoachService.writeBullets({ title, company, rawAnswer: answer });
+
+    await recordAIUsage(req.user.id, 'profile_coach');
+    // An empty array is a valid outcome, not an error — the client keeps the
+    // person's own wording as the description rather than showing a failure.
+    res.json({ success: true, bullets });
+  } catch (error) {
+    console.error('Error writing coach bullets:', error);
+    res.status(500).json({ error: 'Could not write those bullets' });
+  }
+});
+
+// @route   POST /api/profiles/coach/summary
+// @desc    Write the profile summary from the finished conversation draft
+// @access  Private
+router.post('/coach/summary', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+  try {
+    const { draft } = req.body || {};
+    if (!draft || typeof draft !== 'object') {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+
+    const summary = await profileCoachService.writeSummary(draft);
+
+    await recordAIUsage(req.user.id, 'profile_coach');
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error writing coach summary:', error);
+    res.status(500).json({ error: 'Could not write your summary' });
   }
 });
 

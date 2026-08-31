@@ -46,6 +46,7 @@ const AI_LIMITS = {
       cover_letter:       { lifetime: 2,  weekly: -1 }, // two taste tests
       post_enhance:       { lifetime: 0,  weekly: 0  }, // not during onboarding
       career_suggestions: { lifetime: 10, weekly: -1 }, // guide them through
+      profile_coach:      { lifetime: 80, weekly: -1 }, // the coach IS onboarding
       interview_prep:     { lifetime: 0,  weekly: 0  }, // Pro feature
     },
     // ── FREE (post-onboarding) ──────────────────────────────────────────
@@ -56,6 +57,7 @@ const AI_LIMITS = {
       cover_letter:       { monthly: 5,  weekly: -1 },
       post_enhance:       { weekly: 0,   monthly: 0 }, // disabled
       career_suggestions: { monthly: 10, weekly: -1 },
+      profile_coach:      { monthly: 30, weekly: -1 },
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro+ only
     },
     // ── STARTER ($6.99/month) ──────────────────────────────────────────
@@ -66,6 +68,7 @@ const AI_LIMITS = {
       cover_letter:       { monthly: 20, weekly: -1 },
       post_enhance:       { weekly: 0,   monthly: 0 }, // disabled
       career_suggestions: { monthly: -1, weekly: -1 }, // unlimited
+      profile_coach:      { monthly: 100, weekly: -1 },
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro only
     },
     // ── PRO ($14.99/month) ─────────────────────────────────────────────
@@ -76,6 +79,7 @@ const AI_LIMITS = {
       cover_letter:       { monthly: 75, weekly: -1 },
       post_enhance:       { monthly: 20, weekly: -1 }, // enabled for Pro
       career_suggestions: { monthly: -1, weekly: -1 },
+      profile_coach:      { monthly: -1, weekly: -1 },
       interview_prep:     { monthly: 3,  weekly: -1 },
     },
     // ── PRO+ ($29.99/month) ────────────────────────────────────────────
@@ -87,6 +91,7 @@ const AI_LIMITS = {
       cover_letter:       { monthly: 150, weekly: -1 }, // was 200 — capped
       post_enhance:       { monthly: -1,  weekly: -1 }, // unlimited
       career_suggestions: { monthly: -1,  weekly: -1 },
+      profile_coach:      { monthly: -1,  weekly: -1 },
       interview_prep:     { monthly: 10,  weekly: -1 },
     },
     // ── ENTERPRISE (legacy) ────────────────────────────────────────────
@@ -98,6 +103,7 @@ const AI_LIMITS = {
       cover_letter:       { monthly: -1, weekly: -1 },
       post_enhance:       { weekly: 0,   monthly: 0 },
       career_suggestions: { monthly: -1, weekly: -1 },
+      profile_coach:      { monthly: -1, weekly: -1 },
       interview_prep:     { monthly: -1, weekly: -1 },
     }
   },
@@ -106,6 +112,7 @@ const AI_LIMITS = {
     free: {
       resume_parse: { weekly: 0, monthly: 0 },
       profile_enhance: { weekly: 0, monthly: 0 },
+      profile_coach: { weekly: 0, monthly: 0 },
       tailor_profile: { weekly: 0, monthly: 0 },
       cover_letter: { weekly: 0, monthly: 0 },
       post_enhance: { weekly: 10, monthly: -1 },
@@ -114,6 +121,7 @@ const AI_LIMITS = {
     pro: {
       resume_parse: { weekly: 0, monthly: 0 },
       profile_enhance: { weekly: 0, monthly: 0 },
+      profile_coach: { weekly: 0, monthly: 0 },
       tailor_profile: { weekly: 0, monthly: 0 },
       cover_letter: { weekly: 0, monthly: 0 },
       post_enhance: { weekly: -1, monthly: -1 },
@@ -122,6 +130,7 @@ const AI_LIMITS = {
     enterprise: {
       resume_parse: { weekly: 0, monthly: 0 },
       profile_enhance: { weekly: 0, monthly: 0 },
+      profile_coach: { weekly: 0, monthly: 0 },
       tailor_profile: { weekly: 0, monthly: 0 },
       cover_letter: { weekly: 0, monthly: 0 },
       post_enhance: { weekly: -1, monthly: -1 },
@@ -134,6 +143,7 @@ const AI_LIMITS = {
 const FEATURE_NAMES = {
   resume_parse: 'Resume Parsing',
   profile_enhance: 'Profile Enhancement',
+  profile_coach: 'Profile Coach',
   tailor_profile: 'Resume Tailoring',
   cover_letter: 'AI Cover Letter',
   post_enhance: 'Post Enhancement',
@@ -150,6 +160,7 @@ const FEATURE_NAMES = {
 const ESTIMATED_COSTS = {
   resume_parse: 0.024,       // Sonnet — quality-critical
   profile_enhance: 0.051,    // Sonnet — quality-critical (4 parallel calls)
+  profile_coach: 0.002,      // Haiku  — one short extraction per conversation turn
   tailor_profile: 0.026,     // Sonnet — quality-critical
   cover_letter: 0.005,       // Haiku  — ~73% cheaper than Sonnet ($0.018)
   post_enhance: 0.004,       // Haiku  — ~73% cheaper than Sonnet ($0.015)
@@ -167,6 +178,7 @@ const ESTIMATED_COSTS = {
  */
 const FEATURE_MODELS = {
   cover_letter: 'haiku',
+  profile_coach: 'haiku',
   post_enhance: 'haiku',
   career_suggestions: 'haiku',
   job_enhance: 'haiku',

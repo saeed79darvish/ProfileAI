@@ -197,6 +197,9 @@ Return ONLY a single valid JSON object with EXACTLY this shape (no prose, no cod
 };
 
 module.exports = {
+  // Exported so the profile coach writes with the same banned-word list
+  // instead of growing a second copy that drifts out of sync.
+  VOICE_AND_TONE,
   enhancedSummaryPrompt,
   identifyStrengthsPrompt,
   recruiterInsightsPrompt,
