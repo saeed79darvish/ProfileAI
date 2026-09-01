@@ -628,7 +628,7 @@ router.post('/coach/review', coachGuard, async (req, res) => {
 // @access  Public (guests metered by IP)
 router.post('/coach/target', coachGuard, async (req, res) => {
   try {
-    const { profile, target, location } = req.body || {};
+    const { profile, target, location, workStyle } = req.body || {};
     if (!profile || typeof profile !== 'object') {
       return res.status(400).json({ error: 'Profile is required' });
     }
@@ -640,6 +640,7 @@ router.post('/coach/target', coachGuard, async (req, res) => {
       profile,
       target: String(target).trim().slice(0, 120),
       location,
+      workStyle,
     });
 
     await recordCoachUsage(req);

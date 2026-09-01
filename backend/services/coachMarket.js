@@ -62,6 +62,10 @@ function titleTerms(title) {
  * @param {object} p
  * @param {string} p.title     the candidate's target role
  * @param {string} [p.location] free-text location, matched loosely
+ * @param {string} [p.workStyle] 'remote' | 'hybrid' | 'onsite' | 'flexible'.
+ *        Decides what "nearby" even means: counting remote postings as near
+ *        someone who told us they want on-site inflates the number with jobs
+ *        they do not want.
  * @returns {Promise<{total: number|null, nearby: number|null, terms: string[], samples: string[]}>}
  *          Nulls mean "not measured", never "zero". `total` is null when the
  *          title had no distinctive word to match on ("Manager"), and `nearby`
@@ -69,9 +73,11 @@ function titleTerms(title) {
  *          into "there is nothing out there" — that would be a discouraging
  *          claim invented out of missing data.
  */
-async function countOpenings({ title, location } = {}) {
+async function countOpenings({ title, location, workStyle } = {}) {
   const terms = titleTerms(title);
-  if (!terms.length) return { total: null, nearby: null, terms: [], samples: [] };
+  if (!terms.length) {
+    return { total: null, nearby: null, nearbyKind: null, terms: [], samples: [] };
+  }
 
   const live = [
     { isActive: true },
@@ -83,23 +89,38 @@ async function countOpenings({ title, location } = {}) {
 
   const total = await ExternalJob.count({ where: { [Op.and]: [...live, ...titleMatch] } });
 
-  let nearby = null;
+  // What "nearby" counts depends on what they said they want.
+  //   remote  → remote postings, wherever they are; a city is irrelevant
+  //   onsite  → their city only, because a remote listing is not a commute
+  //   else    → either, which is what hybrid and flexible actually mean
+  const style = String(workStyle || '').toLowerCase();
   const place = String(location || '').trim();
-  if (place) {
-    // Match on the city, not the whole "Berlin, Germany" string — boards
-    // spell the country half a dozen ways.
-    const city = place.split(',')[0].trim().toLowerCase();
+  // Match on the city, not the whole "Berlin, Germany" string — boards spell
+  // the country half a dozen ways.
+  const city = place ? place.split(',')[0].trim().toLowerCase() : '';
+  const inCity = () => sqlWhere(fn('LOWER', col('location')), { [Op.like]: `%${city}%` });
+
+  let nearby = null;
+  let nearbyKind = null;
+
+  if (style === 'remote') {
+    nearbyKind = 'remote';
+    nearby = await ExternalJob.count({
+      where: { [Op.and]: [...live, ...titleMatch, { locationType: 'remote' }] },
+    });
+  } else if (city && style === 'onsite') {
+    nearbyKind = 'local';
+    nearby = await ExternalJob.count({
+      where: { [Op.and]: [...live, ...titleMatch, inCity()] },
+    });
+  } else if (city) {
+    nearbyKind = 'either';
     nearby = await ExternalJob.count({
       where: {
         [Op.and]: [
           ...live,
           ...titleMatch,
-          {
-            [Op.or]: [
-              sqlWhere(fn('LOWER', col('location')), { [Op.like]: `%${city}%` }),
-              { locationType: 'remote' },
-            ],
-          },
+          { [Op.or]: [inCity(), { locationType: 'remote' }] },
         ],
       },
     });
@@ -115,6 +136,9 @@ async function countOpenings({ title, location } = {}) {
   return {
     total,
     nearby,
+    // Lets the UI label the number honestly instead of always saying
+    // "near you or remote", which is wrong for three of the four answers.
+    nearbyKind,
     terms,
     samples: samples.map((j) => [j.title, j.company].filter(Boolean).join(' · ')),
   };

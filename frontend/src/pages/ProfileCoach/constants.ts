@@ -124,7 +124,18 @@ export const COACH_TEXT = {
   ASSESS_WHY: 'Why',
   ASSESS_CLOSES: 'What closes the gap',
   ASSESS_OPENINGS: (n: number) => `${n} live ${n === 1 ? 'opening' : 'openings'} in our job data right now`,
-  ASSESS_NEARBY: (n: number) => `${n} of them near you or remote`,
+  // Labelled by what was actually counted. Saying "near you or remote" to
+  // someone who asked for on-site describes a number we did not measure.
+  ASSESS_NEARBY: (n: number, kind?: string | null) => {
+    if (n === 0) {
+      if (kind === 'remote') return 'none of them remote';
+      if (kind === 'local') return 'none in your area';
+      return 'none near you';
+    }
+    if (kind === 'remote') return `${n} of them remote`;
+    if (kind === 'local') return `${n} of them in your area`;
+    return `${n} of them near you or remote`;
+  },
   EFFORT: { quick: 'Quick win', weeks: 'A few weeks', months: 'Longer play' },
 
   BUILD_THINKING: 'Putting it together.',

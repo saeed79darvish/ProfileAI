@@ -281,8 +281,8 @@ export const profileAPI = {
   // them interviews, and what to ask them next.
   coachReview: ({ profile, sector }) => api.post('/profiles/coach/review', { profile, sector }),
   // How far the target role is, grounded in live postings from our own corpus.
-  coachTarget: ({ profile, target, location }) =>
-    api.post('/profiles/coach/target', { profile, target, location }),
+  coachTarget: ({ profile, target, location, workStyle }) =>
+    api.post('/profiles/coach/target', { profile, target, location, workStyle }),
 
   // LinkedIn import — check which options the server has enabled
   // ({ urlImportAvailable, oauthAvailable }) so the UI can hide dead-end cards.

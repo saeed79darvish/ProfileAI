@@ -16,6 +16,7 @@ import {
   shouldSkip,
   nextStepIndex,
   isAlreadyAnswered,
+  applyToDraft,
   mergeInterpreted,
   attachBullets,
   seedFromImport,
@@ -429,4 +430,21 @@ test('canAnswer tracks the step for every ordinary question', () => {
   // And nothing blows up before the first question arrives.
   assert.equal(canAnswer(undefined, false), false);
   assert.equal(canAnswer(null, true), true);
+});
+
+test('work style offers Flexible, for people who genuinely do not mind', () => {
+  const chips = getChips(step('workStyle'), emptyDraft());
+  const labels = chips.map((c) => c.label);
+  assert.deepEqual(labels, ['Remote', 'Hybrid', 'On-site', 'Flexible']);
+  // The id is what reaches the market query, which branches on it.
+  assert.deepEqual(chips.map((c) => c.id), ['remote', 'hybrid', 'onsite', 'flexible']);
+});
+
+test('picking a work style records it on the draft', () => {
+  const step_ = step('workStyle');
+  assert.equal(step_.assign, 'workStyle');
+  const out = applyToDraft(emptyDraft(), { [step_.assign]: 'flexible' });
+  assert.equal(out.workStyle, 'flexible');
+  // And the panel counts it as an answer to "looking for".
+  assert.equal(panelState(out, []).lookingFor, true);
 });

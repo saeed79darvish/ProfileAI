@@ -482,6 +482,8 @@ const ProfileCoach = () => {
         profile: draftToProfileShape(draftRef.current),
         target: draftRef.current.target,
         location: draftRef.current.location,
+        // Decides whether "nearby" means their city, remote postings, or both.
+        workStyle: draftRef.current.workStyle,
       });
       const assessment = data?.assessment;
       setTyping(false);
@@ -863,8 +865,13 @@ const ProfileCoach = () => {
           {typeof market?.total === 'number' && market.total > 0 && (
             <MarketNote>
               {COACH_TEXT.ASSESS_OPENINGS(market.total)}
-              {typeof market.nearby === 'number' && market.nearby > 0
-                ? `, ${COACH_TEXT.ASSESS_NEARBY(market.nearby)}`
+              {/* A measured zero is shown. For someone who asked for on-site,
+                  "none in your area" is the single most useful fact we have,
+                  and hiding it would leave them with only the flattering
+                  headline number. A null still shows nothing — that one means
+                  we did not measure, which is not the same as none. */}
+              {typeof market.nearby === 'number'
+                ? `, ${COACH_TEXT.ASSESS_NEARBY(market.nearby, market.nearbyKind)}`
                 : ''}
             </MarketNote>
           )}

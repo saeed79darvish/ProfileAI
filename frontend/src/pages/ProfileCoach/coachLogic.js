@@ -50,6 +50,9 @@ export const WORK_STYLES = [
   { id: 'remote', label: 'Remote' },
   { id: 'hybrid', label: 'Hybrid' },
   { id: 'onsite', label: 'On-site' },
+  // "I don't mind" is a real answer, and forcing a preference someone does
+  // not have narrows their job matches for no reason.
+  { id: 'flexible', label: 'Flexible' },
 ];
 
 export const IMPORT_CHOICES = [
@@ -152,7 +155,7 @@ export const LADDER = [
   {
     id: 'workStyle',
     question: 'Remote, hybrid, or on-site?',
-    hint: '',
+    hint: 'Pick Flexible if you are open to any of them.',
     kind: 'chips',
     chipSet: 'workStyles',
     freeText: false,

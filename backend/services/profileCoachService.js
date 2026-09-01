@@ -335,12 +335,12 @@ async function reviewProfile({ profile, sector } = {}) {
  *
  * @returns {Promise<{verdict: string, headline: string, why: string[], closes: object[], market: object}>}
  */
-async function assessTarget({ profile, target, location } = {}) {
+async function assessTarget({ profile, target, location, workStyle } = {}) {
   const inspection = inspectProfile(profile || {});
 
-  let market = { total: null, nearby: null, terms: [], samples: [] };
+  let market = { total: null, nearby: null, nearbyKind: null, terms: [], samples: [] };
   try {
-    market = await countOpenings({ title: target, location });
+    market = await countOpenings({ title: target, location, workStyle });
   } catch (err) {
     // A market number is a bonus, not a prerequisite — never fail the
     // assessment because a count query did.
