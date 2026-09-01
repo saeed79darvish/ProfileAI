@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { Profile, User, GuestAIUsage, GuestAnalysisCache, GuestLead, AnalyticsEvent } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
 const { isUuid } = require('../utils/slug');
 const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
 const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlForLimit } = require('../middleware/guestRateLimiter');
@@ -486,18 +487,56 @@ router.delete('/delete-image', authMiddleware, async (req, res) => {
 });
 
 /* ─────────────────────────────────────────────────────────────────
-   Profile Coach — the conversational builder at /profile/create.
+   Profile Coach — the conversational career agent at /profile/create.
 
-   Only free-text answers reach these endpoints. Tapping a chip is
-   resolved entirely on the client, costs nothing, and works signed
-   out — which is what lets a guest walk the whole ladder before we
-   ask them to register. See frontend/src/pages/ProfileCoach.
+   Signed-out visitors reach these. That is the product decision: the
+   coach reviews your resume, works out your target and builds the
+   profile, and only THEN asks you to create an account — value first,
+   signup after. It also means the per-user quota machinery in
+   config/aiLimits.js does not apply, because there is no user to meter.
+
+   So guests are metered by hashed IP instead. A full conversation is
+   roughly 15 model calls, so the daily cap is set at four conversations
+   — invisible to a real person, and the only thing standing between a
+   public POST that returns model output and someone's script.
    ───────────────────────────────────────────────────────────────── */
+
+const COACH_GUEST_CALLS_PER_DAY = 60;
+const guestCoachLimiter = guestAnalysisLimiter({
+  perIpPerDay: COACH_GUEST_CALLS_PER_DAY,
+  // There is no profile URL in a coach turn; the per-URL cap is a LinkedIn
+  // analyzer concept. Set high so only the IP cap is doing the work.
+  perUrlPerDay: 1000000,
+});
+
+/**
+ * Signed in, spend their quota. Signed out, spend the IP's.
+ *
+ * Written as one guard rather than two route variants so the two paths can
+ * never drift apart — a new coach endpoint gets both meters by construction.
+ */
+function coachGuard(req, res, next) {
+  optionalAuth(req, res, () => {
+    if (req.userId) return aiRateLimiter('profile_coach')(req, res, next);
+    return guestCoachLimiter(req, res, next);
+  });
+}
+
+/** Record usage only for signed-in users — guests have no ledger to write to. */
+async function recordCoachUsage(req) {
+  if (!req.userId) return;
+  try {
+    await recordAIUsage(req.userId, 'profile_coach');
+  } catch (err) {
+    // Metering must never fail the turn the user is waiting on.
+    console.error('[coach] usage record failed:', err.message);
+  }
+}
 
 // @route   POST /api/profiles/coach/interpret
 // @desc    Turn one free-text/voice answer into structured profile fields
-// @access  Private
-router.post('/coach/interpret', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+// @access  Public (guests metered by IP)
+router.post('/coach/interpret', coachGuard, async (req, res) => {
   try {
     const { stepId, question, answer, context } = req.body || {};
     if (!answer || !String(answer).trim()) {
@@ -511,7 +550,7 @@ router.post('/coach/interpret', authMiddleware, aiRateLimiter('profile_coach'), 
       context: context && typeof context === 'object' ? context : {},
     });
 
-    await recordAIUsage(req.user.id, 'profile_coach');
+    await recordCoachUsage(req);
     res.json({ success: true, ...result });
   } catch (error) {
     if (error.code === 'unknown_step') {
@@ -524,8 +563,8 @@ router.post('/coach/interpret', authMiddleware, aiRateLimiter('profile_coach'), 
 
 // @route   POST /api/profiles/coach/bullets
 // @desc    Rewrite what someone said about a role into resume bullets
-// @access  Private
-router.post('/coach/bullets', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+// @access  Public (guests metered by IP)
+router.post('/coach/bullets', coachGuard, async (req, res) => {
   try {
     const { title, company, answer } = req.body || {};
     if (!answer || !String(answer).trim()) {
@@ -534,7 +573,7 @@ router.post('/coach/bullets', authMiddleware, aiRateLimiter('profile_coach'), as
 
     const bullets = await profileCoachService.writeBullets({ title, company, rawAnswer: answer });
 
-    await recordAIUsage(req.user.id, 'profile_coach');
+    await recordCoachUsage(req);
     // An empty array is a valid outcome, not an error — the client keeps the
     // person's own wording as the description rather than showing a failure.
     res.json({ success: true, bullets });
@@ -546,8 +585,8 @@ router.post('/coach/bullets', authMiddleware, aiRateLimiter('profile_coach'), as
 
 // @route   POST /api/profiles/coach/summary
 // @desc    Write the profile summary from the finished conversation draft
-// @access  Private
-router.post('/coach/summary', authMiddleware, aiRateLimiter('profile_coach'), async (req, res) => {
+// @access  Public (guests metered by IP)
+router.post('/coach/summary', coachGuard, async (req, res) => {
   try {
     const { draft } = req.body || {};
     if (!draft || typeof draft !== 'object') {
@@ -556,11 +595,58 @@ router.post('/coach/summary', authMiddleware, aiRateLimiter('profile_coach'), as
 
     const summary = await profileCoachService.writeSummary(draft);
 
-    await recordAIUsage(req.user.id, 'profile_coach');
+    await recordCoachUsage(req);
     res.json({ success: true, summary });
   } catch (error) {
     console.error('Error writing coach summary:', error);
     res.status(500).json({ error: 'Could not write your summary' });
+  }
+});
+
+// @route   POST /api/profiles/coach/review
+// @desc    The coach reads a resume and says what it actually sees
+// @access  Public (guests metered by IP)
+router.post('/coach/review', coachGuard, async (req, res) => {
+  try {
+    const { profile, sector } = req.body || {};
+    if (!profile || typeof profile !== 'object') {
+      return res.status(400).json({ error: 'Profile is required' });
+    }
+
+    const review = await profileCoachService.reviewProfile({ profile, sector });
+
+    await recordCoachUsage(req);
+    res.json({ success: true, review });
+  } catch (error) {
+    console.error('Error reviewing profile for coach:', error);
+    res.status(500).json({ error: 'Could not read that profile' });
+  }
+});
+
+// @route   POST /api/profiles/coach/target
+// @desc    How far the target role is, grounded in live postings we hold
+// @access  Public (guests metered by IP)
+router.post('/coach/target', coachGuard, async (req, res) => {
+  try {
+    const { profile, target, location } = req.body || {};
+    if (!profile || typeof profile !== 'object') {
+      return res.status(400).json({ error: 'Profile is required' });
+    }
+    if (!target || !String(target).trim()) {
+      return res.status(400).json({ error: 'Target role is required' });
+    }
+
+    const assessment = await profileCoachService.assessTarget({
+      profile,
+      target: String(target).trim().slice(0, 120),
+      location,
+    });
+
+    await recordCoachUsage(req);
+    res.json({ success: true, assessment });
+  } catch (error) {
+    console.error('Error assessing coach target:', error);
+    res.status(500).json({ error: 'Could not assess that target' });
   }
 });
 

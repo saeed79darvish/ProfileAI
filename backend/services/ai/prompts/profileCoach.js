@@ -131,8 +131,103 @@ RULES:
 
 Return only the summary text.`;
 
+/**
+ * reviewProfilePrompt — the coach's read on a resume it has just been handed.
+ *
+ * The findings are supplied, not requested: coachInspect.js counted them.
+ * Asking a model to both find and explain problems produces generic advice
+ * plus the occasional confident claim about something that isn't in the
+ * document. Handing it counted facts and asking only for the explanation
+ * keeps every criticism traceable to something real.
+ *
+ * @param {object} p
+ * @param {object} p.profile   the parsed profile
+ * @param {object} p.inspection output of inspectProfile()
+ * @param {string} [p.sector]  what field they said they are in
+ */
+const reviewProfilePrompt = ({ profile, inspection, sector }) => `You are a career coach who has just read this person's resume. Give them your honest read.
+
+${VOICE_AND_TONE}
+
+═══ THEIR PROFILE ═══
+${JSON.stringify({
+  title: profile.title,
+  summary: profile.summary,
+  experience: profile.experience,
+  skills: profile.skills,
+  education: profile.education,
+  projects: profile.projects,
+}, null, 2)}
+
+═══ WHAT A CHECKER COUNTED (facts, not opinions — do not dispute them) ═══
+${JSON.stringify(inspection, null, 2)}
+
+${sector ? `They work in: ${sector}\n` : ''}
+═══ WHAT TO RETURN ═══
+{
+  "opening": "2-3 sentences, spoken to them directly. Lead with the single most useful true thing you noticed. Never open with praise you cannot justify from the profile.",
+  "working": ["1-3 things that genuinely help them, each tied to something actually in the profile"],
+  "fix": [{"what": "the problem, in their terms", "why": "what a recruiter does because of it", "how": "the concrete next step"}],
+  "probes": ["1-3 questions whose answers would let you fix the biggest gaps. Ask about work they did, never about what they want the resume to say."]
+}
+
+RULES:
+- Every claim traces to the profile or the counted findings. If it is not in there, you do not know it.
+- Order "fix" by what costs them interviews first. Blockers before polish.
+- Do not pad "working" to look encouraging. One honest strength beats three invented ones. An empty list is allowed.
+- Probes must be answerable from memory in a sentence. "What was the team size?" not "What are your career goals?"
+- Talk to them, not about them. "Your dispatch role has no bullets" — not "the candidate's role lacks detail".
+- NEVER use the word "banned". It appears above because these are instructions to you; to the reader it is meaningless jargon about a checker they cannot see. Same for "finding", "severity" and "checker". Speak as if you noticed everything yourself, and quote the actual phrase you object to: not "starts with a banned opener" but "starts with 'Responsible for', which tells a recruiter nothing".
+- No preamble, no sign-off, no markdown. Return only the JSON object.`;
+
+/**
+ * targetAssessmentPrompt — how hard is the target, and what closes the gap.
+ *
+ * `market` comes from coachMarket.countOpenings and may contain nulls, which
+ * mean "not measured" and never "zero". The prompt is explicit about that
+ * because inventing "there are no jobs for you" out of a missing number is
+ * the single most damaging thing this feature could do to someone.
+ */
+const targetAssessmentPrompt = ({ profile, inspection, target, market }) => `You are a career coach. This person wants a specific kind of role next. Tell them honestly how far away it is and what closes the gap.
+
+${VOICE_AND_TONE}
+
+═══ WHERE THEY ARE ═══
+${JSON.stringify({
+  title: profile.title,
+  experience: profile.experience,
+  skills: profile.skills,
+  education: profile.education,
+  counts: inspection.counts,
+}, null, 2)}
+
+═══ WHERE THEY WANT TO BE ═══
+${target}
+
+═══ LIVE POSTINGS IN OUR JOB DATA ═══
+${JSON.stringify(market, null, 2)}
+A null total or nearby means WE DID NOT MEASURE IT. It does NOT mean zero.
+Never say or imply there are no jobs when the number is null — say nothing
+about volume at all in that case.
+
+═══ WHAT TO RETURN ═══
+{
+  "verdict": "within reach" | "a stretch" | "a big jump",
+  "headline": "one sentence telling them where they stand. Direct, not brutal, not falsely upbeat.",
+  "why": ["1-3 specific reasons for that verdict, each grounded in their actual history"],
+  "closes": [{"what": "the concrete thing that moves them closer", "effort": "quick" | "weeks" | "months"}]
+}
+
+RULES:
+- Judge the gap from their real history. Do not assume experience they have not listed.
+- "closes" items must be things they can actually do: a project to build, a skill to evidence, a number to dig up, a way to reframe work they already did. Not "network more".
+- If they are already qualified, say so plainly and make "closes" about how they present it, not about becoming someone else.
+- No preamble, no markdown. Return only the JSON object.`;
+
 module.exports = {
   interpretAnswerPrompt,
+  reviewProfilePrompt,
+  targetAssessmentPrompt,
   clarifyPrompt,
   writeBulletsPrompt,
   writeSummaryPrompt,

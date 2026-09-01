@@ -16,7 +16,11 @@ const {
   clarifyPrompt,
   writeBulletsPrompt,
   writeSummaryPrompt,
+  reviewProfilePrompt,
+  targetAssessmentPrompt,
 } = require('./ai/prompts/profileCoach');
+const { inspectProfile } = require('./resume/coachInspect');
+const { countOpenings } = require('./coachMarket');
 
 // Free-text answers are short and the extraction target is tiny, so Haiku
 // is the right tier here — a conversation is ~10 of these calls and using
@@ -79,6 +83,18 @@ const STEP_SCHEMAS = {
     question: 'Where are you based?',
     expects: { location: 'city and country or region' },
     required: ['location'],
+  },
+  // The coach's own follow-up questions after reading a resume ("what reports
+  // do you build, and who reads them?"). Deliberately loose: a good probe
+  // answer is a story, and what we want out of it is whatever it evidences —
+  // work worth a bullet, tools worth listing, or both.
+  probe: {
+    question: 'Tell me more about that.',
+    expects: {
+      bullets: 'array of resume bullet points describing concrete work they did, in their own words',
+      skills: 'array of tools, systems or software they named',
+    },
+    required: [],
   },
   lookingFor: {
     question: 'What kind of role are you looking for?',
@@ -247,8 +263,127 @@ async function writeSummary(draft) {
   return (response.choices[0].message.content || '').trim();
 }
 
+/* ================================================================
+   The coaching pass — review, and the target assessment
+   ================================================================ */
+
+/** Keep a model-returned list of strings sane before it reaches the UI. */
+function stringList(value, max) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v) => typeof v === 'string' && v.trim())
+    .map((v) => v.trim())
+    .slice(0, max);
+}
+
+/**
+ * reviewProfile — the coach reads a resume and says what it sees.
+ *
+ * The defects are counted first by inspectProfile and handed to the model to
+ * explain, so every criticism traces to something actually in the document.
+ * The raw inspection travels back with the response: the client uses the same
+ * findings to decide what to ask about next, and the counts drive the
+ * readiness meter, so there is one source for both.
+ *
+ * Runs on the default (Sonnet) tier. This is the moment the product either
+ * feels like a career coach or like a spellchecker, and it happens once.
+ *
+ * @returns {Promise<{opening: string, working: string[], fix: object[], probes: string[], inspection: object}>}
+ */
+async function reviewProfile({ profile, sector } = {}) {
+  const inspection = inspectProfile(profile || {});
+
+  const response = await callAI({
+    max_tokens: 1600,
+    temperature: 0.4,
+    messages: [{
+      role: 'user',
+      content: reviewProfilePrompt({ profile: profile || {}, inspection, sector }),
+    }],
+  });
+
+  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+
+  const fix = Array.isArray(parsed.fix)
+    ? parsed.fix
+      .filter((f) => f && typeof f === 'object' && typeof f.what === 'string' && f.what.trim())
+      .map((f) => ({
+        what: String(f.what).trim(),
+        why: typeof f.why === 'string' ? f.why.trim() : '',
+        how: typeof f.how === 'string' ? f.how.trim() : '',
+      }))
+      .slice(0, 5)
+    : [];
+
+  return {
+    opening: typeof parsed.opening === 'string' ? parsed.opening.trim() : '',
+    working: stringList(parsed.working, 3),
+    fix,
+    probes: stringList(parsed.probes, 3),
+    // Counted, not judged — the client renders these directly.
+    inspection,
+  };
+}
+
+/**
+ * assessTarget — how far the target role is, and what closes the gap.
+ *
+ * The opening counts come from our own job corpus rather than the model, so
+ * the number quoted matches what the candidate will find when they go looking.
+ * A failed or empty market lookup degrades to nulls, which the prompt is
+ * explicitly told never to read as "no jobs exist".
+ *
+ * @returns {Promise<{verdict: string, headline: string, why: string[], closes: object[], market: object}>}
+ */
+async function assessTarget({ profile, target, location } = {}) {
+  const inspection = inspectProfile(profile || {});
+
+  let market = { total: null, nearby: null, terms: [], samples: [] };
+  try {
+    market = await countOpenings({ title: target, location });
+  } catch (err) {
+    // A market number is a bonus, not a prerequisite — never fail the
+    // assessment because a count query did.
+    console.error('[coach] market lookup failed:', err.message);
+  }
+
+  const response = await callAI({
+    max_tokens: 1200,
+    temperature: 0.4,
+    messages: [{
+      role: 'user',
+      content: targetAssessmentPrompt({ profile: profile || {}, inspection, target, market }),
+    }],
+  });
+
+  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+
+  const VERDICTS = new Set(['within reach', 'a stretch', 'a big jump']);
+  const verdict = VERDICTS.has(parsed.verdict) ? parsed.verdict : 'a stretch';
+
+  const closes = Array.isArray(parsed.closes)
+    ? parsed.closes
+      .filter((c) => c && typeof c === 'object' && typeof c.what === 'string' && c.what.trim())
+      .map((c) => ({
+        what: String(c.what).trim(),
+        effort: ['quick', 'weeks', 'months'].includes(c.effort) ? c.effort : 'weeks',
+      }))
+      .slice(0, 4)
+    : [];
+
+  return {
+    verdict,
+    headline: typeof parsed.headline === 'string' ? parsed.headline.trim() : '',
+    why: stringList(parsed.why, 3),
+    closes,
+    market,
+  };
+}
+
 module.exports = {
   STEP_SCHEMAS,
+  reviewProfile,
+  assessTarget,
   PLACEHOLDER_RE,
   interpretAnswer,
   writeBullets,
