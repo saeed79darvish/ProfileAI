@@ -5,6 +5,10 @@ import {
   Mic as MicIcon,
   Send as SendIcon,
   VolumeUp as VoiceIcon,
+  Tune as TuneIcon,
+  Extension as ExtensionIcon,
+  MailOutline as MailIcon,
+  Public as PublicIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -20,6 +24,8 @@ import {
   LADDER,
   ROUTES,
   TEXT,
+  COACH_TEXT,
+  TOUR_CARDS,
   TIMING,
   PANEL_ITEMS,
   ALLOWED_FILE_TYPES,
@@ -39,6 +45,8 @@ import {
   draftToResumeData,
   draftToProfileShape,
   panelState,
+  resumeSections,
+  isPresentable,
 } from './coachLogic';
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
@@ -48,7 +56,27 @@ import {
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody,
   MobileStrip, StripBar, StripLabel, MobilePanel,
+  Card, CardLabel, CardList, Finding,
+  VerdictRow, Verdict, MarketNote, Headline, EffortTag,
+  ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
+  TourGrid, TourCard, TourIcon,
+  ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
 } from './styled';
+
+const TOUR_ICONS = {
+  tune: TuneIcon,
+  extension: ExtensionIcon,
+  mail: MailIcon,
+  public: PublicIcon,
+};
+
+// Which colour the target verdict wears. Kept out of the component so the
+// three strings the service can return are visible in one place.
+const VERDICT_TONE = {
+  'within reach': 'near',
+  'a stretch': 'mid',
+  'a big jump': 'far',
+};
 
 /**
  * ProfileCoach — the conversational profile builder.
@@ -90,6 +118,11 @@ const ProfileCoach = () => {
   // Set to a step's aiStep while its clarifying question is outstanding, so
   // the answer completes the row that turn started instead of adding another.
   const [followUpFor, setFollowUpFor] = useState(null);
+  // True while one of the review's own follow-up questions is on screen. The
+  // review step declares freeText:false — it asks nothing itself — so without
+  // this the composer would be disabled exactly when the coach just asked
+  // something.
+  const [probing, setProbing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [linkedinOpen, setLinkedinOpen] = useState(false);
   const [linkedinStatus, setLinkedinStatus] = useState({
@@ -104,6 +137,12 @@ const ProfileCoach = () => {
   // still sees the draft the previous answer produced.
   const draftRef = useRef(draft);
   useEffect(() => { draftRef.current = draft; }, [draft]);
+
+  // askStep dispatches run steps, run steps call advance, and advance calls
+  // askStep. Refs are what let those three be defined in a readable order
+  // without a circular useCallback dependency.
+  const advanceRef = useRef(() => {});
+  const runnersRef = useRef({});
 
   // Clear pending "typing" timers on unmount — otherwise a fast navigate
   // away leaves a setState firing into an unmounted tree.
@@ -134,6 +173,35 @@ const ProfileCoach = () => {
   const askStep = useCallback((index, currentDraft) => {
     const step = LADDER[index];
     if (!step) return;
+
+    // Steps that do work rather than ask: they announce themselves, then the
+    // runner takes over and calls advance when it is done.
+    if (step.kind === 'run') {
+      pushCoach(step.question);
+      later(() => {
+        const run = runnersRef.current[step.runs];
+        if (run) run(index);
+        else advanceRef.current(index, currentDraft);
+      }, TIMING.ACK_MS);
+      return;
+    }
+
+    // The closing cards carry their own content. The tour offers a continue
+    // chip so the person reads it at their own pace; the sign-up card is the
+    // end of the line and waits on its own buttons.
+    if (step.kind === 'tour' || step.kind === 'convert') {
+      setTyping(true);
+      later(() => {
+        setTyping(false);
+        pushCoach(step.question, {
+          [step.kind]: true,
+          stepId: step.id,
+          continues: step.kind === 'tour',
+        });
+      }, TIMING.TYPING_MS);
+      return;
+    }
+
     setTyping(true);
     later(() => {
       setTyping(false);
@@ -214,18 +282,18 @@ const ProfileCoach = () => {
 
   const advance = useCallback((fromIndex, nextDraft) => {
     const next = nextStepIndex(fromIndex, nextDraft);
+    // The ladder now ends on the sign-up card, which waits for a click. There
+    // is nothing to navigate to on its own — leaving the person on the
+    // finished profile they just watched being built is the point.
     if (next === -1) {
-      setTyping(true);
-      later(() => {
-        setTyping(false);
-        pushCoach(TEXT.FINISH_TITLE, { hint: TEXT.FINISH_SUB });
-        finish(nextDraft);
-      }, TIMING.TYPING_MS);
+      setStepIndex(-1);
       return;
     }
     setStepIndex(next);
     askStep(next, nextDraft);
-  }, [askStep, finish, later, pushCoach]);
+  }, [askStep]);
+
+  useEffect(() => { advanceRef.current = advance; }, [advance]);
 
   const commit = useCallback((patch, fromIndex) => {
     setFollowUpFor(null);
@@ -289,16 +357,124 @@ const ProfileCoach = () => {
     }
   }, [advance, applyImport, isAuthenticated, pushCoach]);
 
-  /* ─── The AI gate ──────────────────────────────────────────── */
+  /* ─── Run steps: the coach does work and reports back ──────── */
 
-  // Called when a guest types something only the model can read. Their work
-  // is persisted first, so registering picks the draft straight back up
-  // (Register.jsx → claimGuestDraftFor).
-  const gateGuest = useCallback(() => {
-    saveGuestProfileDraft(draftToResumeData(draftRef.current));
-    trackEvent('coach_ai_gate_shown', {});
-    setGateOpen(true);
-  }, []);
+  // Queue of the coach's own follow-up questions, drained one at a time after
+  // the review. Kept in a ref because the drain happens inside timers that
+  // would otherwise close over a stale array.
+  const probeQueueRef = useRef([]);
+
+  /**
+   * Ask the next probe the review produced, or move on when they run out.
+   * Probes are answered like any other free-text step, but they route through
+   * the 'probe' schema, which takes whatever the answer evidences — a bullet,
+   * a tool, or nothing.
+   */
+  const nextProbe = useCallback((fromIndex) => {
+    const question = probeQueueRef.current.shift();
+    if (!question) {
+      setProbing(false);
+      advanceRef.current(fromIndex, draftRef.current);
+      return;
+    }
+    setTyping(true);
+    later(() => {
+      setTyping(false);
+      setProbing(true);
+      pushCoach(question, { stepId: 'review', probe: true });
+    }, TIMING.TYPING_MS);
+  }, [later, pushCoach]);
+
+  const runReview = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachReview({
+        profile: draftToProfileShape(draftRef.current),
+        sector: draftRef.current.sector,
+      });
+      const review = data?.review;
+      setTyping(false);
+      setBusy(false);
+      if (!review) throw new Error('empty review');
+
+      const nextDraft = { ...draftRef.current, review };
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
+
+      pushCoach(review.opening || TEXT.ACK_DEFAULT, { review });
+      probeQueueRef.current = (review.probes || []).slice(0, 2);
+      if (probeQueueRef.current.length) {
+        later(() => pushCoach(COACH_TEXT.REVIEW_PROBE_INTRO), TIMING.ACK_MS);
+        later(() => nextProbe(index), TIMING.ACK_MS + TIMING.TYPING_MS);
+      } else {
+        advanceRef.current(index, nextDraft);
+      }
+    } catch {
+      setTyping(false);
+      setBusy(false);
+      // A failed review must not strand someone mid-conversation — the rest
+      // of the build still works without it.
+      advanceRef.current(index, draftRef.current);
+    }
+  }, [later, nextProbe, pushCoach]);
+
+  const runAssess = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachTarget({
+        profile: draftToProfileShape(draftRef.current),
+        target: draftRef.current.target,
+        location: draftRef.current.location,
+      });
+      const assessment = data?.assessment;
+      setTyping(false);
+      setBusy(false);
+      if (!assessment) throw new Error('empty assessment');
+
+      const nextDraft = { ...draftRef.current, assessment };
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
+      pushCoach(assessment.headline || '', { assessment });
+      advanceRef.current(index, nextDraft);
+    } catch {
+      setTyping(false);
+      setBusy(false);
+      advanceRef.current(index, draftRef.current);
+    }
+  }, [pushCoach]);
+
+  const runBuild = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    let built = draftRef.current;
+
+    // The summary is the last thing written, so it can draw on everything the
+    // conversation surfaced rather than only what was known at the start.
+    if (!built.summary) {
+      try {
+        const { data } = await profileAPI.coachSummary(built);
+        if (data?.summary) built = { ...built, summary: data.summary };
+      } catch {
+        // A profile without a summary is still a profile.
+      }
+    }
+
+    draftRef.current = built;
+    setDraft(built);
+    setTyping(false);
+    setBusy(false);
+
+    const ready = isPresentable(built);
+    pushCoach(ready ? COACH_TEXT.BUILD_DONE : COACH_TEXT.BUILD_INCOMPLETE, { resume: built });
+    trackEvent('coach_profile_built', { presentable: ready, imported: built.importedFrom || 'none' });
+    advanceRef.current(index, built);
+  }, [pushCoach]);
+
+  useEffect(() => {
+    runnersRef.current = { review: runReview, assess: runAssess, build: runBuild };
+  }, [runReview, runAssess, runBuild]);
 
   /* ─── Answering ────────────────────────────────────────────── */
 
@@ -363,6 +539,13 @@ const ProfileCoach = () => {
     }
   }, [busy, commit, pushMine, spendChips]);
 
+  /** Move on from a card that was shown rather than asked. */
+  const continueFrom = useCallback((message) => {
+    if (message.spent) return;
+    spendChips(message.id);
+    advanceRef.current(LADDER.findIndex((s) => s.id === message.stepId), draftRef.current);
+  }, [spendChips]);
+
   const skipStep = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent) return;
@@ -387,16 +570,39 @@ const ProfileCoach = () => {
 
     const index = stepIndex;
     const current = draftRef.current;
-    const usesAI = needsAI(step, text, current);
 
-    // A guest who types something only the model can read gets the sign-up
-    // prompt — and the step's chips stay live behind it, so dismissing the
-    // prompt drops them back into a conversation they can still finish by
-    // tapping. Spending the chips here would strand them.
-    if (usesAI && !isAuthenticated) {
-      gateGuest();
+    // A probe answer is prose about their work by definition — there is no
+    // chip that could express it, so it always goes to the model.
+    if (probing) {
+      if (liveMessage) spendChips(liveMessage.id);
+      setBusy(true);
+      setTyping(true);
+      try {
+        const { data } = await profileAPI.coachInterpret({
+          stepId: 'probe',
+          question: liveMessage ? liveMessage.text : step.question,
+          answer: text,
+          context: { title: current.title, sector: current.sector },
+        });
+        const nextDraft = mergeInterpreted(current, 'probe', data?.fields || {});
+        draftRef.current = nextDraft;
+        setDraft(nextDraft);
+      } catch {
+        // Losing one probe answer is not worth stopping the conversation for.
+        setError(TEXT.ERROR_GENERIC);
+      } finally {
+        setTyping(false);
+        setBusy(false);
+      }
+      nextProbe(index);
       return;
     }
+
+    // Guests reach the model too. The conversation is the product demo, so it
+    // runs end to end and the account is asked for at the close, once there is
+    // a finished profile to save. The server meters anonymous callers by IP
+    // (coachGuard in routes/profiles.js) since there is no user to meter.
+    const usesAI = needsAI(step, text, current);
 
     if (liveMessage) spendChips(liveMessage.id);
 
@@ -478,7 +684,44 @@ const ProfileCoach = () => {
       setFollowUpFor(null);
       advance(index, current);
     }
-  }, [advance, busy, commit, followUpFor, gateGuest, input, isAuthenticated, messages, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, busy, commit, followUpFor, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+
+  /* ─── Converting ───────────────────────────────────────────── */
+
+  /**
+   * The end of the conversation. Two different people arrive here:
+   *
+   * A signed-in user already has somewhere to put this, so it is saved and
+   * they land on their portfolio. A guest's profile only exists in this tab,
+   * so it is stashed and registration publishes it — the draft is marked
+   * autoPublish because they have just watched it being built and reviewed it
+   * on screen. Dropping them back into the editor to approve it again would
+   * be asking twice.
+   */
+  const handleConvert = useCallback(async (mode) => {
+    const finalDraft = draftRef.current;
+    const resumeData = draftToResumeData(finalDraft);
+
+    if (!isAuthenticated) {
+      saveGuestProfileDraft(resumeData, { source: 'coach', autoPublish: true });
+      trackEvent('coach_convert_clicked', { mode, imported: finalDraft.importedFrom || 'none' });
+      navigate(mode === 'signin' ? ROUTES.LOGIN : `${ROUTES.REGISTER}?role=candidate`);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await profileAPI.createOrUpdateProfile(resumeData);
+      trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
+      navigate(ROUTES.PORTFOLIO);
+    } catch {
+      // Saving failed, so do not pretend it worked — hand them to the editor,
+      // which has the full save path and can surface the real error.
+      setBusy(false);
+      setError(TEXT.ERROR_GENERIC);
+      navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
+    }
+  }, [isAuthenticated, navigate]);
 
   /* ─── Derived view state ───────────────────────────────────── */
 
@@ -516,7 +759,158 @@ const ProfileCoach = () => {
   }, [draft]);
 
   const currentStep = LADDER[stepIndex];
-  const canType = !!currentStep?.freeText && !busy;
+  const canType = (probing || !!currentStep?.freeText) && !busy;
+
+  /* ─── Card renderers ───────────────────────────────────────── */
+
+  const renderReview = (review) => (
+    <Card>
+      {!!review.working?.length && (
+        <>
+          <CardLabel>{COACH_TEXT.REVIEW_WORKING}</CardLabel>
+          <CardList>
+            {review.working.map((item, i) => (
+              <Finding key={`w${i}`} $tone="good"><b>{item}</b></Finding>
+            ))}
+          </CardList>
+        </>
+      )}
+      {!!review.fix?.length && (
+        <>
+          <CardLabel style={{ marginTop: review.working?.length ? 20 : 0 }}>
+            {COACH_TEXT.REVIEW_FIX}
+          </CardLabel>
+          <CardList>
+            {review.fix.map((item, i) => (
+              <Finding key={`f${i}`} $tone="warn">
+                <b>{item.what}</b>
+                {item.why && <span>{item.why}</span>}
+                {item.how && <i>{item.how}</i>}
+              </Finding>
+            ))}
+          </CardList>
+        </>
+      )}
+    </Card>
+  );
+
+  const renderAssessment = (assessment) => {
+    const { market } = assessment;
+    return (
+      <Card>
+        <CardLabel>{COACH_TEXT.ASSESS_TITLE}</CardLabel>
+        <VerdictRow>
+          <Verdict $tone={VERDICT_TONE[assessment.verdict]}>{assessment.verdict}</Verdict>
+          {/* A null total means we did not measure it, which is not the same
+              as zero — saying nothing is the only honest option there. */}
+          {typeof market?.total === 'number' && market.total > 0 && (
+            <MarketNote>
+              {COACH_TEXT.ASSESS_OPENINGS(market.total)}
+              {typeof market.nearby === 'number' && market.nearby > 0
+                ? `, ${COACH_TEXT.ASSESS_NEARBY(market.nearby)}`
+                : ''}
+            </MarketNote>
+          )}
+        </VerdictRow>
+
+        {!!assessment.why?.length && (
+          <>
+            <CardLabel>{COACH_TEXT.ASSESS_WHY}</CardLabel>
+            <CardList>
+              {assessment.why.map((w, i) => (
+                <Finding key={`y${i}`} $tone="good"><b>{w}</b></Finding>
+              ))}
+            </CardList>
+          </>
+        )}
+
+        {!!assessment.closes?.length && (
+          <>
+            <CardLabel style={{ marginTop: 20 }}>{COACH_TEXT.ASSESS_CLOSES}</CardLabel>
+            <CardList>
+              {assessment.closes.map((c, i) => (
+                <Finding key={`c${i}`} $tone="warn">
+                  <b>
+                    {c.what}
+                    <EffortTag>{COACH_TEXT.EFFORT[c.effort] || c.effort}</EffortTag>
+                  </b>
+                </Finding>
+              ))}
+            </CardList>
+          </>
+        )}
+      </Card>
+    );
+  };
+
+  const renderResume = (built) => {
+    const sections = resumeSections(built);
+    const shape = draftToProfileShape(built);
+    return (
+      <Card>
+        <CardLabel>{COACH_TEXT.RESUME_CARD_TITLE}</CardLabel>
+        <ResumeSheet>
+          <ResumeName>{shape.title || 'Your profile'}</ResumeName>
+          <ResumeMeta>{[built.location, built.target && `Targeting ${built.target}`].filter(Boolean).join(' · ')}</ResumeMeta>
+
+          {sections.map((section) => (
+            <ResumeSection key={section.key}>
+              <h4>{section.label}</h4>
+              {section.kind === 'text' && <p>{section.body}</p>}
+              {section.kind === 'chips' && (
+                <ResumeSkills>
+                  {section.items.map((skill) => <span key={skill}>{skill}</span>)}
+                </ResumeSkills>
+              )}
+              {section.kind === 'entries' && section.items.map((entry, i) => (
+                <ResumeEntry key={`${section.key}${i}`}>
+                  <strong>{entry.heading}</strong>
+                  {entry.meta && <em>{entry.meta}</em>}
+                  {!!entry.lines.length && (
+                    <ul>{entry.lines.map((line, j) => <li key={j}>{line}</li>)}</ul>
+                  )}
+                </ResumeEntry>
+              ))}
+            </ResumeSection>
+          ))}
+        </ResumeSheet>
+      </Card>
+    );
+  };
+
+  const renderTour = () => (
+    <Card>
+      <TourGrid>
+        {TOUR_CARDS.map((card) => {
+          const Icon = TOUR_ICONS[card.icon];
+          return (
+            <TourCard key={card.id}>
+              <TourIcon>{Icon ? <Icon fontSize="small" /> : null}</TourIcon>
+              <h5>{card.title}</h5>
+              <p>{card.body}</p>
+            </TourCard>
+          );
+        })}
+      </TourGrid>
+      <BubbleHint style={{ marginTop: 16 }}>{COACH_TEXT.TOUR_OUTRO}</BubbleHint>
+    </Card>
+  );
+
+  const renderConvert = () => (
+    <ConvertCard>
+      <h4>{COACH_TEXT.CONVERT_TITLE}</h4>
+      <p>{COACH_TEXT.CONVERT_BODY}</p>
+      <ConvertActions>
+        <ConvertPrimary type="button" onClick={() => handleConvert('register')} disabled={busy}>
+          {COACH_TEXT.CONVERT_CTA}
+        </ConvertPrimary>
+        <ConvertSecondary type="button" onClick={() => handleConvert('signin')} disabled={busy}>
+          {COACH_TEXT.CONVERT_SIGNIN}
+        </ConvertSecondary>
+      </ConvertActions>
+      <ConvertNote>{COACH_TEXT.CONVERT_NOTE}</ConvertNote>
+    </ConvertCard>
+  );
 
   const renderPanelItems = () => PANEL_ITEMS.map((item) => {
     const done = !!panel[item.key];
@@ -572,6 +966,19 @@ const ProfileCoach = () => {
                       {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
                     </Bubble>
                   </Row>
+
+                  {message.review && renderReview(message.review)}
+                  {message.assessment && renderAssessment(message.assessment)}
+                  {message.resume && renderResume(message.resume)}
+                  {message.tour && renderTour()}
+                  {message.continues && !message.spent && (
+                    <ChipRow>
+                      <Chip type="button" onClick={() => continueFrom(message)}>
+                        {COACH_TEXT.TOUR_CONTINUE}
+                      </Chip>
+                    </ChipRow>
+                  )}
+                  {message.convert && renderConvert()}
 
                   {!!message.chips?.length && (
                     <ChipRow>
@@ -705,10 +1112,10 @@ const ProfileCoach = () => {
         onClose={() => setGateOpen(false)}
         onConfirm={() => navigate(`${ROUTES.REGISTER}?role=candidate`)}
         variant="info"
-        title={TEXT.AI_GATE_TITLE}
-        message={TEXT.AI_GATE_BODY}
-        confirmText={TEXT.AI_GATE_CONFIRM}
-        cancelText={TEXT.AI_GATE_CANCEL}
+        title={TEXT.LINKEDIN_GATE_TITLE}
+        message={TEXT.LINKEDIN_GATE_BODY}
+        confirmText={TEXT.LINKEDIN_GATE_CONFIRM}
+        cancelText={TEXT.LINKEDIN_GATE_CANCEL}
       />
     </PageContainer>
   );

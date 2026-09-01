@@ -10,11 +10,19 @@
 const GUEST_PROFILE_DRAFT_KEY = 'profileai_guest_profile_draft';
 const DRAFT_VERSION = 1;
 
-export function saveGuestProfileDraft(formData) {
+/**
+ * @param {object} formData the draft itself
+ * @param {object} [meta] how it was built. `{ source: 'coach', autoPublish: true }`
+ *   marks a draft the coach already walked the person through and showed them,
+ *   so registration can publish it and land them on their portfolio instead of
+ *   re-opening the editor on work they have already reviewed.
+ */
+export function saveGuestProfileDraft(formData, meta = {}) {
   try {
     localStorage.setItem(GUEST_PROFILE_DRAFT_KEY, JSON.stringify({
       version: DRAFT_VERSION,
       formData,
+      meta,
       savedAt: new Date().toISOString(),
     }));
     return true;
@@ -38,6 +46,23 @@ export function loadGuestProfileDraft() {
     return parsed.formData;
   } catch {
     return null;
+  }
+}
+
+/**
+ * How the stored draft was built. Separate from loadGuestProfileDraft so that
+ * function's return shape stays exactly what its existing callers expect.
+ * Drafts saved before meta existed return {}.
+ */
+export function loadGuestDraftMeta() {
+  try {
+    const raw = localStorage.getItem(GUEST_PROFILE_DRAFT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== DRAFT_VERSION) return {};
+    return parsed.meta && typeof parsed.meta === 'object' ? parsed.meta : {};
+  } catch {
+    return {};
   }
 }
 

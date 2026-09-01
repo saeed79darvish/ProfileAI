@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   LADDER,
   emptyDraft,
+  resumeSections,
+  isPresentable,
   getChips,
   matchSector,
   matchChip,
@@ -27,21 +29,38 @@ const step = (id) => LADDER.find((s) => s.id === id);
 
 // ── Ladder integrity ────────────────────────────────────────────────────────
 
+// Steps that put a question to the person. The rest ('run', 'tour',
+// 'convert') do work or show something and move on by themselves, so the
+// answerability rules below do not apply to them.
+const ASKING_KINDS = new Set(['chips', 'multi', 'text', 'branch']);
+const asking = LADDER.filter((s) => ASKING_KINDS.has(s.kind));
+
 test('every ladder step declares the fields the page dispatches on', () => {
   for (const s of LADDER) {
     assert.ok(s.id, 'step needs an id');
     assert.ok(s.question, `${s.id} needs a question`);
-    assert.ok(['chips', 'multi', 'text', 'branch'].includes(s.kind), `${s.id} has kind ${s.kind}`);
-    // A step must be answerable somehow, or the conversation dead-ends.
+    assert.ok(
+      [...ASKING_KINDS, 'run', 'tour', 'convert'].includes(s.kind),
+      `${s.id} has unknown kind ${s.kind}`
+    );
+    // A 'run' step must say what it runs, or the page has nothing to dispatch.
+    if (s.kind === 'run') assert.ok(s.runs, `${s.id} is a run step with no runs field`);
+  }
+});
+
+test('every question step is answerable', () => {
+  for (const s of asking) {
     assert.ok(s.chipSet || s.freeText, `${s.id} accepts neither chips nor text`);
   }
 });
 
-test('no ladder step can strand a signed-out visitor', () => {
-  // Typing prose costs an AI call, which guests do not have. Every step must
-  // therefore offer chips, a free-text path that needs no model, or a skip —
-  // otherwise a guest reaches it and the conversation dead-ends.
-  const stuck = LADDER.filter((s) => {
+test('every question step can be answered without typing', () => {
+  // Guests can type now (the account is asked for at the end), so this is no
+  // longer about access — it is that a conversation which can only be
+  // advanced by composing prose is miserable on a phone, and one unskippable
+  // essay question is where people quit. Chips, a local free-text path, or a
+  // skip: every step needs one of the three.
+  const stuck = asking.filter((s) => {
     const hasChips = !!s.chipSet;
     const localText = s.freeText && !s.aiStep;
     return !hasChips && !localText && !s.optional;
@@ -285,4 +304,108 @@ test('an empty draft scores 0 and hands off without throwing', () => {
   const out = draftToResumeData(emptyDraft());
   assert.deepEqual(out.skills, []);
   assert.deepEqual(out.experience, []);
+});
+
+// ── The coaching phases ─────────────────────────────────────────────────────
+
+test('the review only runs when there is a document to react to', () => {
+  const chatOnly = { ...emptyDraft(), title: 'PM' };
+  assert.equal(shouldSkip(step('review'), chatOnly), true, 'nothing imported, nothing to review');
+  assert.equal(shouldSkip(step('review'), { ...chatOnly, importedFrom: 'resume' }), false);
+});
+
+test('the target assessment is skipped rather than inventing a goal', () => {
+  assert.equal(shouldSkip(step('assess'), emptyDraft()), true);
+  assert.equal(shouldSkip(step('assess'), { ...emptyDraft(), target: 'Product Manager' }), false);
+  // A whitespace answer is not a target.
+  assert.equal(shouldSkip(step('assess'), { ...emptyDraft(), target: '   ' }), true);
+});
+
+test('target chips never offer the job they already have', () => {
+  const chips = getChips(step('target'), { sector: 'tech', title: 'Frontend Developer' });
+  assert.ok(chips.length > 0);
+  assert.equal(chips.some((c) => c.label === 'Frontend Developer'), false);
+});
+
+test('the closing steps run in order and end the conversation', () => {
+  const ids = LADDER.map((s) => s.id);
+  const order = ['target', 'assess', 'build', 'tour', 'convert'];
+  const positions = order.map((id) => ids.indexOf(id));
+  positions.forEach((pos, i) => {
+    assert.ok(pos > -1, `${order[i]} is missing from the ladder`);
+    if (i > 0) assert.ok(pos > positions[i - 1], `${order[i]} must come after ${order[i - 1]}`);
+  });
+  assert.equal(ids[ids.length - 1], 'convert', 'the sign-up ask is the last thing that happens');
+});
+
+test('a probe answer lands on the role it was about, and keeps what was there', () => {
+  const draft = {
+    ...emptyDraft(),
+    skills: ['Excel'],
+    experience: [{ title: 'Ops', company: 'Acme', description: '• Ran dispatch' }],
+  };
+  const out = mergeInterpreted(draft, 'probe', {
+    bullets: ['Rebuilt the weekly rota'],
+    skills: ['sql'],
+  });
+  const lines = out.experience[0].description.split('\n');
+  assert.equal(lines.length, 2, 'the existing bullet survives');
+  assert.match(lines[1], /Rebuilt the weekly rota/);
+  // Skills come back in the taxonomy's spelling, not as typed.
+  assert.deepEqual(out.skills, ['Excel', 'SQL']);
+});
+
+test('a probe that evidences nothing changes nothing', () => {
+  const draft = { ...emptyDraft(), experience: [{ title: 'Ops', description: '• Ran dispatch' }] };
+  assert.deepEqual(mergeInterpreted(draft, 'probe', {}), draft);
+});
+
+test('a probe with no role to attach to still captures the skills', () => {
+  const out = mergeInterpreted(emptyDraft(), 'probe', { bullets: ['Did a thing'], skills: ['figma'] });
+  assert.deepEqual(out.experience, [], 'no role invented to hang the bullet on');
+  assert.deepEqual(out.skills, ['Figma']);
+});
+
+test('normalizeSkill restores the taxonomy spelling before guessing', () => {
+  assert.equal(normalizeSkill('sql'), 'SQL');
+  assert.equal(normalizeSkill('postgresql'), 'PostgreSQL');
+  assert.equal(normalizeSkill('a/b testing'), 'A/B Testing');
+});
+
+// ── The resume shown in the chat ────────────────────────────────────────────
+
+test('resumeSections mirrors the real resume order and strips bullet marks', () => {
+  const draft = {
+    ...emptyDraft(),
+    summary: 'Operations manager.',
+    skills: ['Excel'],
+    experience: [{ title: 'Ops', company: 'Acme', startDate: '2022', endDate: 'Present', description: '• Cut errors 30%\n• Led 12 people' }],
+    education: [{ institution: 'TU Delft', degree: 'BSc', fieldOfStudy: 'Supply Chain' }],
+  };
+  const sections = resumeSections(draft);
+  assert.deepEqual(sections.map((s) => s.key), ['summary', 'skills', 'experience', 'education']);
+  assert.deepEqual(sections[2].items[0].lines, ['Cut errors 30%', 'Led 12 people']);
+  // Formatted the way every other surface in the app formats a date range.
+  assert.equal(sections[2].items[0].meta, '2022 \u2013 Present');
+});
+
+test('resumeSections omits sections with nothing in them', () => {
+  assert.deepEqual(resumeSections(emptyDraft()), []);
+  // A half-empty row is not a section worth rendering.
+  assert.deepEqual(resumeSections({ ...emptyDraft(), experience: [{}] }), []);
+});
+
+test('isPresentable refuses to call a thin profile finished', () => {
+  const thin = { ...emptyDraft(), title: 'PM', skills: ['Excel'] };
+  assert.equal(isPresentable(thin), false, 'one skill and no evidence is not ready');
+  assert.equal(isPresentable({ ...thin, skills: ['a', 'b', 'c'] }), false, 'still nothing evidencing them');
+  assert.equal(
+    isPresentable({ ...thin, skills: ['a', 'b', 'c'], experience: [{ title: 'Ops' }] }),
+    true
+  );
+  // A project counts as evidence when there is no work history.
+  assert.equal(
+    isPresentable({ ...thin, skills: ['a', 'b', 'c'], projects: [{ title: 'Thing' }] }),
+    true
+  );
 });

@@ -526,3 +526,311 @@ export const MobilePanel = styled.div`
     display: ${({ $open }) => ($open ? 'block' : 'none')};
   }
 `;
+
+/* ═══════════════════════════════════════════════
+   COACHING CARDS
+
+   The review, the target read, the finished resume, the tour and the
+   sign-up all render inside the transcript rather than in modals, so
+   the conversation stays the single place everything happens. They
+   share Card so they read as one family of things the coach hands over.
+   ═══════════════════════════════════════════════ */
+
+export const Card = styled.div`
+  width: 100%;
+  max-width: min(600px, 92%);
+  margin-left: 50px;
+  background: #fff;
+  border: 1px solid #ececf3;
+  border-radius: 16px;
+  padding: 20px 22px;
+  box-shadow: 0 2px 12px rgba(26, 26, 46, 0.06);
+  animation: ${bubbleIn} 300ms ease both;
+
+  @media (max-width: 480px) {
+    margin-left: 0;
+    max-width: 100%;
+    padding: 16px;
+  }
+`;
+
+export const CardLabel = styled.div`
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #9a9ab0;
+  margin-bottom: 10px;
+`;
+
+export const CardList = styled.ul`
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+// A single point of feedback. The left rule is the only ornament — it
+// separates items faster than spacing alone when several stack up.
+// Direct-child selectors, not descendants. A plain `span {}` here is
+// specificity (0,1,1) and silently beats the (0,1,0) class of any styled
+// component nested inside — which is how EffortTag, an inline-block pill,
+// rendered as a full-width block bar.
+export const Finding = styled.li`
+  border-left: 3px solid ${({ $tone }) => ($tone === 'good' ? '#22c55e' : '#f59e0b')};
+  padding-left: 12px;
+
+  > b {
+    display: block;
+    font-size: 0.98rem;
+    font-weight: 650;
+    color: #1a1a2e;
+    line-height: 1.4;
+  }
+
+  > span {
+    display: block;
+    margin-top: 3px;
+    font-size: 0.92rem;
+    color: #6c6c86;
+    line-height: 1.45;
+  }
+
+  > i {
+    display: block;
+    margin-top: 5px;
+    font-style: normal;
+    font-size: 0.92rem;
+    color: #4c51bf;
+    line-height: 1.45;
+  }
+`;
+
+/* ─── Target assessment ───────────────────────────────────────── */
+
+export const VerdictRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+`;
+
+export const Verdict = styled.span`
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  background: ${({ $tone }) => ({ near: '#dcfce7', mid: '#fef3c7', far: '#fee2e2' }[$tone] || '#eef0ff')};
+  color: ${({ $tone }) => ({ near: '#15803d', mid: '#b45309', far: '#b91c1c' }[$tone] || '#4c51bf')};
+`;
+
+export const MarketNote = styled.span`
+  font-size: 0.9rem;
+  color: #6c6c86;
+`;
+
+export const Headline = styled.p`
+  margin: 0 0 14px;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: #1a1a2e;
+`;
+
+export const EffortTag = styled.span`
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: #f1f1f8;
+  color: #6c6c86;
+  vertical-align: middle;
+`;
+
+/* ─── The resume, rendered in the chat ────────────────────────── */
+
+export const ResumeSheet = styled.div`
+  background: #fff;
+  border: 1px solid #e6e6ef;
+  border-radius: 12px;
+  padding: 26px 28px;
+  /* Deliberately a document, not a UI panel: serif headings and generous
+     leading are what make someone recognise it as their resume. */
+  font-family: Georgia, 'Times New Roman', serif;
+
+  @media (max-width: 480px) {
+    padding: 18px 16px;
+  }
+`;
+
+export const ResumeName = styled.div`
+  font-size: 1.42rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  line-height: 1.2;
+`;
+
+export const ResumeMeta = styled.div`
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #6c6c86;
+  font-family: system-ui, -apple-system, sans-serif;
+`;
+
+export const ResumeSection = styled.section`
+  margin-top: 20px;
+
+  h4 {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: #6366f1;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid #eeeef6;
+    padding-bottom: 5px;
+  }
+
+  p { margin: 0; font-size: 0.98rem; line-height: 1.55; color: #2a2a40; }
+`;
+
+export const ResumeEntry = styled.div`
+  margin-bottom: 14px;
+
+  &:last-child { margin-bottom: 0; }
+
+  strong { font-size: 1rem; color: #1a1a2e; font-weight: 700; }
+
+  em {
+    display: block;
+    font-style: normal;
+    font-size: 0.86rem;
+    color: #8a8aa2;
+    margin-top: 1px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  ul { margin: 7px 0 0; padding-left: 18px; }
+  li { font-size: 0.96rem; line-height: 1.5; color: #2a2a40; margin-bottom: 3px; }
+`;
+
+export const ResumeSkills = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: system-ui, -apple-system, sans-serif;
+
+  span {
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #f4f4fb;
+    font-size: 0.86rem;
+    color: #4a4a63;
+  }
+`;
+
+/* ─── Product tour ────────────────────────────────────────────── */
+
+export const TourGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+export const TourCard = styled.div`
+  border: 1px solid #ececf3;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fbfbfe;
+
+  h5 {
+    margin: 10px 0 5px;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: #6c6c86;
+  }
+`;
+
+export const TourIcon = styled.div`
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #eef0ff;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  svg { width: 19px; height: 19px; }
+`;
+
+/* ─── Sign-up ─────────────────────────────────────────────────── */
+
+export const ConvertCard = styled(Card)`
+  background: linear-gradient(135deg, #6366f1, #7c85f5);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.3);
+
+  h4 { margin: 0 0 8px; font-size: 1.18rem; font-weight: 700; }
+  p  { margin: 0 0 16px; font-size: 0.98rem; line-height: 1.55; opacity: 0.94; }
+`;
+
+export const ConvertActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+export const ConvertPrimary = styled.button`
+  padding: 12px 22px;
+  border-radius: 11px;
+  border: none;
+  background: #fff;
+  color: #4c51bf;
+  font-family: inherit;
+  font-size: 0.98rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); }
+`;
+
+export const ConvertSecondary = styled.button`
+  padding: 12px 6px;
+  border: none;
+  background: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.94rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.9;
+  text-decoration: underline;
+
+  &:hover { opacity: 1; }
+`;
+
+export const ConvertNote = styled.div`
+  margin-top: 12px;
+  font-size: 0.84rem;
+  opacity: 0.8;
+`;

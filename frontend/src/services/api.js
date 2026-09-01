@@ -277,6 +277,12 @@ export const profileAPI = {
     api.post('/profiles/coach/bullets', { title, company, answer }),
   // Write the profile summary from the finished conversation draft.
   coachSummary: (draft) => api.post('/profiles/coach/summary', { draft }),
+  // The coach's read on a resume it was just handed: what works, what costs
+  // them interviews, and what to ask them next.
+  coachReview: ({ profile, sector }) => api.post('/profiles/coach/review', { profile, sector }),
+  // How far the target role is, grounded in live postings from our own corpus.
+  coachTarget: ({ profile, target, location }) =>
+    api.post('/profiles/coach/target', { profile, target, location }),
 
   // LinkedIn import — check which options the server has enabled
   // ({ urlImportAvailable, oauthAvailable }) so the UI can hide dead-end cards.

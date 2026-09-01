@@ -25,11 +25,11 @@ import GoogleAuthButton from '@/components/GoogleAuthButton';
 import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import TermsConsentDialog from '@/components/TermsConsentDialog';
 import { useAuth } from '@/contexts/AuthContext';
-import { authAPI, referralAPI } from '@/services/api';
+import { authAPI, referralAPI, profileAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { trackEvent } from '@/utils/analytics';
-import { loadGuestProfileDraft, clearGuestProfileDraft } from '@/utils/guestDraft';
+import { loadGuestProfileDraft, loadGuestDraftMeta, clearGuestProfileDraft } from '@/utils/guestDraft';
 import {
   RoleToggleWrapper,
   RoleOption,
@@ -131,9 +131,37 @@ const Register = () => {
     if (authUser?.role !== 'candidate' || authUser?.hasProfile) return null;
     const draft = loadGuestProfileDraft();
     if (!draft) return null;
+    const meta = loadGuestDraftMeta();
     clearGuestProfileDraft();
-    trackEvent('guest_draft_claimed', { role: authUser.role });
-    return draft;
+    trackEvent('guest_draft_claimed', { role: authUser.role, source: meta.source || 'builder' });
+    return { draft, meta };
+  };
+
+  /**
+   * Where a claimed draft sends them, and whether it is saved on the way.
+   *
+   * A draft the coach built was already reviewed on screen at the end of the
+   * conversation, so it is published here and they land on the portfolio it
+   * describes. Any other draft goes to the editor for the approval step it
+   * has not had yet.
+   *
+   * A failed save falls back to the editor rather than dropping the draft —
+   * losing the profile someone just spent two minutes building is the one
+   * outcome worth writing extra code to avoid.
+   */
+  const landAfterClaim = async (claimed) => {
+    const { draft, meta } = claimed;
+    if (meta?.source === 'coach' && meta?.autoPublish) {
+      try {
+        await profileAPI.createOrUpdateProfile(draft);
+        trackEvent('coach_profile_published', {});
+        navigate('/profile');
+        return;
+      } catch {
+        // fall through to the editor
+      }
+    }
+    navigate('/profile/create-form', { state: { guestDraft: draft } });
   };
 
   // Redirect if already authenticated
@@ -215,7 +243,7 @@ const Register = () => {
       if (fromExtension) {
         await handleExtensionAuthSuccess(token, user, navigate, dest);
       } else if (guestDraft) {
-        navigate('/profile/create-form', { state: { guestDraft } });
+        await landAfterClaim(guestDraft);
       } else {
         navigate(dest);
       }
@@ -266,7 +294,7 @@ const Register = () => {
       if (fromExtension) {
         await handleExtensionAuthSuccess(token, user, navigate, dest);
       } else if (guestDraft) {
-        navigate('/profile/create-form', { state: { guestDraft } });
+        await landAfterClaim(guestDraft);
       } else {
         navigate(dest);
       }
@@ -330,7 +358,7 @@ const Register = () => {
       if (fromExtension) {
         await handleExtensionAuthSuccess(result.token, result.user, navigate, dest);
       } else if (guestDraft) {
-        navigate('/profile/create-form', { state: { guestDraft } });
+        await landAfterClaim(guestDraft);
       } else {
         navigate(dest);
       }

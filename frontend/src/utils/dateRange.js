@@ -42,15 +42,23 @@ export const toIsoMonth = (value) => {
 export const formatMonthYear = (value) => {
   if (!value) return '';
   if (isPresentValue(value)) return 'Present';
+
+  // A bare year stays a bare year. This check has to come BEFORE toIsoMonth,
+  // which maps "2022" to "2022-01" so that <input type="month"> has something
+  // to show — correct for an input, wrong for display, because it renders as
+  // "Jan 2022" and puts a month on the person's resume that they never gave.
+  // (The unreachable copy of this check below the toIsoMonth call is what this
+  // was originally trying to do.)
+  const trimmed = String(value).trim();
+  if (/^\d{4}$/.test(trimmed)) return trimmed;
+
   const iso = toIsoMonth(value);
   if (iso) {
     const [y, m] = iso.split('-');
     const idx = parseInt(m, 10) - 1;
     if (idx >= 0 && idx < 12) return `${MONTH_NAMES[idx]} ${y}`;
   }
-  // Already a year
-  if (/^\d{4}$/.test(String(value).trim())) return String(value).trim();
-  return String(value).trim();
+  return trimmed;
 };
 
 /**

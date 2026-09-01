@@ -15,6 +15,9 @@ export const ROUTES = {
   LOGIN: '/login',
   REGISTER: '/register',
   CREATE_FORM: '/profile/create-form',
+  // Where a finished profile lands. This is the candidate's own portfolio
+  // view, which is the thing the whole conversation was building toward.
+  PORTFOLIO: '/profile',
 } as const;
 
 export const LOCALSTORAGE_KEY = 'profileai_coach_conversation' as const;
@@ -79,11 +82,15 @@ export const TEXT = {
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 
-  AI_GATE_TITLE: 'Create a free account to keep typing',
-  AI_GATE_BODY:
-    'Tapping the suggestions is always free. Understanding answers you type takes AI, so that part needs an account — it takes a few seconds and your answers so far are saved.',
-  AI_GATE_CONFIRM: 'Create free account',
-  AI_GATE_CANCEL: 'Keep tapping instead',
+  // The whole conversation is free and needs no account — the ask comes at
+  // the end, once there is a finished profile to save. This prompt is only
+  // for LinkedIn URL import, which is a paid external lookup per call and so
+  // genuinely cannot be handed to anonymous visitors.
+  LINKEDIN_GATE_TITLE: 'That one needs an account',
+  LINKEDIN_GATE_BODY:
+    'Pulling your profile straight from LinkedIn uses a paid lookup, so it needs a real account. The "Save to PDF" option in the same window is free and imports just as much.',
+  LINKEDIN_GATE_CONFIRM: 'Create free account',
+  LINKEDIN_GATE_CANCEL: 'Use the PDF option',
 
   ERROR_GENERIC: 'Something went wrong on my end. Try that again?',
   ERROR_FILE_TYPE: 'Please upload a PDF or DOCX file',
@@ -99,6 +106,75 @@ export const PANEL_ITEMS = [
   { key: 'skills', label: 'SKILLS', hint: 'What recruiters search on' },
   { key: 'exp', label: 'EXPERIENCE', hint: 'Your recent role, in bullets' },
   { key: 'edu', label: 'EDUCATION', hint: 'Degree, bootcamp or certs' },
+] as const;
+
+/* ─── The closing sequence ───────────────────────────────────────
+   Copy for the review, the target read, the finished resume, the
+   product tour and the sign-up ask. */
+
+export const COACH_TEXT = {
+  REVIEW_THINKING: 'Reading it properly, give me a second.',
+  REVIEW_WORKING: 'What is working',
+  REVIEW_FIX: 'What I would fix',
+  REVIEW_PROBE_INTRO: 'Two quick questions and I can fix most of that.',
+
+  ASSESS_THINKING: 'Checking what is actually out there for that.',
+  ASSESS_TITLE: 'Your target',
+  ASSESS_WHY: 'Why',
+  ASSESS_CLOSES: 'What closes the gap',
+  ASSESS_OPENINGS: (n: number) => `${n} live ${n === 1 ? 'opening' : 'openings'} in our job data right now`,
+  ASSESS_NEARBY: (n: number) => `${n} of them near you or remote`,
+  EFFORT: { quick: 'Quick win', weeks: 'A few weeks', months: 'Longer play' },
+
+  BUILD_THINKING: 'Putting it together.',
+  BUILD_DONE: 'Done. This is your profile.',
+  BUILD_INCOMPLETE:
+    'This is what we have so far. It is a real start, but it is thin — the gaps below are what to fill in next.',
+  RESUME_CARD_TITLE: 'Your profile',
+
+  TOUR_INTRO: 'That is yours now. Here is what you can do with it.',
+  TOUR_CONTINUE: 'Got it, what now?',
+  TOUR_OUTRO:
+    'All of it runs off the profile you just built. The more of it is true and specific, the better everything above works.',
+
+  CONVERT_TITLE: 'Save it to your account',
+  CONVERT_BODY:
+    'Your profile lives in this browser right now, so it disappears if you close the tab. Creating a free account saves it, publishes your portfolio, and turns on the tools above.',
+  CONVERT_CTA: 'Create my free account',
+  CONVERT_SIGNIN: 'I already have an account',
+  CONVERT_NOTE: 'Free. No card. Takes about twenty seconds.',
+} as const;
+
+// The product tour shown in the chat once the profile is built. Every claim
+// here maps to a feature that actually ships — see COMPARE_FEATURES in
+// pages/Pricing/constants.ts. Do not add aspirational entries: this is the
+// first thing a new user is told the product does, and it sets what they
+// then go looking for.
+export const TOUR_CARDS = [
+  {
+    id: 'tailor',
+    icon: 'tune',
+    title: 'Tailor it to any job',
+    body: 'Paste a posting and your resume gets rewritten for that specific role, using only what is already true about you. Most people send the same resume everywhere; this is the part that changes replies.',
+  },
+  {
+    id: 'extension',
+    icon: 'extension',
+    title: 'The browser extension',
+    body: 'On a job page it reads the posting, shows how well your profile matches it, and fills the application from what you just built. You stop retyping the same details into every form.',
+  },
+  {
+    id: 'letter',
+    icon: 'mail',
+    title: 'Cover letters that are not generic',
+    body: 'Drafted from your profile and the posting together, so it references your actual work rather than restating the job description back at them.',
+  },
+  {
+    id: 'portfolio',
+    icon: 'public',
+    title: 'A portfolio recruiters can find',
+    body: 'Your profile becomes a public page you can send anyone, and recruiters searching for your skills can find it. It works while you are not applying.',
+  },
 ] as const;
 
 export const ALLOWED_FILE_TYPES = [

@@ -23,6 +23,11 @@ import {
   mapWizardProjectToEditor,
 } from '../JobPreferencesWizard/handoff.js';
 import { normalizeEducationRows } from '../../utils/education.js';
+// The same formatter ProfileForm, the dashboard and the public profile use, so
+// a date reads identically wherever the person sees it.
+import { formatDateRange } from '../../utils/dateRange.js';
+
+const norm = (s) => String(s || '').toLowerCase().trim();
 
 export const LIMITS = {
   SKILL_CHIPS: 24,
@@ -120,6 +125,21 @@ export const LADDER = [
     assign: null,
   },
   {
+    id: 'review',
+    question: 'Give me a second, I am reading it properly.',
+    hint: '',
+    // A "run" step performs work and reports back instead of asking anything.
+    kind: 'run',
+    runs: 'review',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    // Only worth doing when there is a document to react to. Reviewing a
+    // profile the person has not built yet is just describing an empty page.
+    skipIf: 'noImport',
+  },
+  {
     id: 'lookingFor',
     question: 'What kind of work are you looking for?',
     hint: 'Pick as many as apply.',
@@ -210,6 +230,60 @@ export const LADDER = [
     assign: null,
     optional: true,
   },
+  {
+    id: 'target',
+    question: 'Now the part that actually matters — what are you aiming for next?',
+    hint: 'Pick the closest, or tell me in your own words. I will tell you honestly how far it is.',
+    kind: 'chips',
+    chipSet: 'targets',
+    freeText: true,
+    // Whatever they type IS the target; no extraction needed.
+    aiStep: null,
+    assign: 'target',
+  },
+  {
+    id: 'assess',
+    question: 'Let me look at what is actually out there for that.',
+    hint: '',
+    kind: 'run',
+    runs: 'assess',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noTarget',
+  },
+  {
+    id: 'build',
+    question: 'Right. Let me put your profile together.',
+    hint: '',
+    kind: 'run',
+    runs: 'build',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+  },
+  {
+    id: 'tour',
+    question: 'That is your profile. Here is what it unlocks.',
+    hint: '',
+    kind: 'tour',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+  },
+  {
+    id: 'convert',
+    question: 'One last thing.',
+    hint: '',
+    kind: 'convert',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+  },
 ];
 
 /** A fresh, empty draft. Every key the ladder can write is declared here so
@@ -233,6 +307,10 @@ export const emptyDraft = () => ({
   // Set when a resume or LinkedIn import seeded the draft — the coach then
   // asks only about what the import left empty.
   importedFrom: null,
+  // What they want next, and the coach's read on how far away it is.
+  target: '',
+  assessment: null,
+  review: null,
 });
 
 /* ─── Chips ──────────────────────────────────────────────────── */
@@ -269,6 +347,14 @@ export const getChips = (step, draft = {}) => {
         .slice(0, LIMITS.SKILL_CHIPS)
         .map((s) => ({ id: s, label: s }));
     }
+    case 'targets': {
+      // Their own sector's titles, minus the one they already hold — offering
+      // someone their current job as a target reads as not having listened.
+      const titles = (SECTOR_TITLES[draft.sector] || []).filter(
+        (t) => norm(t) !== norm(draft.title)
+      );
+      return titles.slice(0, LIMITS.TITLE_CHIPS).map((t) => ({ id: t, label: t }));
+    }
     case 'importChoices':
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
     default:
@@ -277,8 +363,6 @@ export const getChips = (step, draft = {}) => {
 };
 
 /* ─── Local answer matching (the no-AI path) ─────────────────── */
-
-const norm = (s) => String(s || '').toLowerCase().trim();
 
 /**
  * Try to resolve free text to a sector without calling the model.
@@ -323,15 +407,35 @@ export const matchChip = (text, chips) => {
 };
 
 /**
+ * Every skill the taxonomy knows, indexed by its lowercase form, so a typed
+ * or transcribed skill can be restored to the spelling the chips use.
+ * Guessing casing from shape does not work — "wms" wants WMS but "git" wants
+ * Git, and no rule separates them. A lookup does.
+ */
+const CANONICAL_SKILLS = (() => {
+  const index = new Map();
+  const add = (name) => {
+    const key = String(name).toLowerCase();
+    if (!index.has(key)) index.set(key, name);
+  };
+  Object.values(SECTOR_SKILLS).forEach((groups) => Object.values(groups).flat().forEach(add));
+  Object.values(ALL_SKILLS).flat().forEach(add);
+  return index;
+})();
+
+/**
  * Tidy the casing of a skill without mangling the ones that carry their own.
  *
  * People type "excel, route planning"; the chip vocabulary and every recruiter
- * filter show "Excel", "Route Planning". Only all-lowercase values are touched,
- * so "iOS", "PostgreSQL" and ".NET" survive exactly as written.
+ * filter show "Excel", "Route Planning". Three passes, most reliable first:
+ * a known skill takes the taxonomy's spelling, anything already mixed-case is
+ * left alone ("iOS", "PostgreSQL", ".NET"), and the rest gets title case.
  */
 export const normalizeSkill = (raw) => {
   const value = String(raw || '').trim();
   if (!value) return '';
+  const known = CANONICAL_SKILLS.get(value.toLowerCase());
+  if (known) return known;
   if (value !== value.toLowerCase()) return value;
   return value.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 };
@@ -379,6 +483,11 @@ const SKIP_PREDICATES = {
   // name. The editor still lets them add one later.
   noWorkHistory: (draft) =>
     draft.careerStage === 'new_grad' || draft.careerStage === 'student',
+  // Nothing was imported, so there is no document to react to.
+  noImport: (draft) => !draft.importedFrom,
+  // They skipped the target question; assessing an unstated goal would mean
+  // inventing one for them.
+  noTarget: (draft) => !String(draft.target || '').trim(),
 };
 
 export const shouldSkip = (step, draft = {}) => {
@@ -499,6 +608,23 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
       ]);
       break;
     }
+    // A probe answer is a story about their work. Whatever it evidences gets
+    // used: bullets land on the role they were just talking about, tools join
+    // the skills list. Either may be empty and that is fine.
+    case 'probe': {
+      const newBullets = (fields.bullets || []).filter(Boolean);
+      if (newBullets.length && (draft.experience || []).length) {
+        const [head, ...rest] = draft.experience;
+        const existing = String(head.description || '').trim();
+        const added = newBullets.map((b) => `• ${b}`).join('\n');
+        next.experience = [{ ...head, description: existing ? `${existing}\n${added}` : added }, ...rest];
+      }
+      const probeSkills = (fields.skills || []).map(normalizeSkill).filter(Boolean);
+      if (probeSkills.length) {
+        next.skills = Array.from(new Set([...(draft.skills || []), ...probeSkills]));
+      }
+      break;
+    }
     case 'skills': {
       const merged = new Set([
         ...(draft.skills || []),
@@ -556,6 +682,84 @@ export const seedFromImport = (draft, parsed = {}, source = 'resume') => ({
   projects: (draft.projects || []).length ? draft.projects : (parsed.projects || []),
   importedFrom: source,
 });
+
+
+/* ─── The closing sequence ───────────────────────────────────── */
+
+/**
+ * Rows for the resume card rendered in the chat. The point of showing it is
+ * that the person recognises their own working life in it, so this deliberately
+ * mirrors the real resume's section order rather than the draft's key order.
+ */
+export const resumeSections = (draft = {}) => {
+  const sections = [];
+  const summary = String(draft.summary || '').trim();
+  if (summary) sections.push({ key: 'summary', label: 'Summary', kind: 'text', body: summary });
+
+  const skills = draft.skills || [];
+  if (skills.length) sections.push({ key: 'skills', label: 'Skills', kind: 'chips', items: skills });
+
+  const experience = (draft.experience || []).filter((r) => r && (r.title || r.company));
+  if (experience.length) {
+    sections.push({
+      key: 'experience',
+      label: 'Experience',
+      kind: 'entries',
+      items: experience.map((r) => ({
+        heading: [r.title, r.company].filter(Boolean).join(' · '),
+        meta: formatDateRange(r.startDate, r.endDate),
+        lines: String(r.description || '')
+          .split('\n')
+          .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
+          .filter(Boolean),
+      })),
+    });
+  }
+
+  const projects = (draft.projects || []).filter((p) => p && p.title);
+  if (projects.length) {
+    sections.push({
+      key: 'projects',
+      label: 'Projects',
+      kind: 'entries',
+      items: projects.map((p) => ({
+        heading: p.title,
+        meta: p.role || '',
+        lines: [String(p.description || '').trim()].filter(Boolean),
+      })),
+    });
+  }
+
+  const education = (draft.education || []).filter((e) => e && (e.institution || e.degree));
+  if (education.length) {
+    sections.push({
+      key: 'education',
+      label: 'Education',
+      kind: 'entries',
+      items: education.map((e) => ({
+        heading: [e.degree, e.fieldOfStudy].filter(Boolean).join(', ') || e.institution,
+        meta: [e.institution, e.endDate].filter(Boolean).join(' · '),
+        lines: [],
+      })),
+    });
+  }
+
+  return sections;
+};
+
+/**
+ * Whether the draft is worth showing off yet.
+ *
+ * Used to decide whether the build phase presents the profile as finished or
+ * as "here is what is still missing". Telling someone their profile is ready
+ * when it has one role and no skills is the kind of thing that costs trust the
+ * first time they show it to anyone.
+ */
+export const isPresentable = (draft = {}) => {
+  const skills = draft.skills || [];
+  const hasEvidence = (draft.experience || []).length > 0 || (draft.projects || []).length > 0;
+  return !!(String(draft.title || '').trim() && skills.length >= 3 && hasEvidence);
+};
 
 /* ─── Handoff to the editor ──────────────────────────────────── */
 
