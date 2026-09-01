@@ -78,6 +78,7 @@ export const TEXT = {
   UPLOAD_PROMPT: 'Great — pick your resume file and I will read it.',
   UPLOAD_DONE: 'Read it. I filled in what I found — let me just check the gaps.',
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
+  UPLOAD_UNREADABLE: 'Could not read this one',
   UPLOAD_CANCELLED: 'No problem. Pick another option above, or we can keep chatting.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
@@ -176,6 +177,20 @@ export const TOUR_CARDS = [
     body: 'Your profile becomes a public page you can send anyone, and recruiters searching for your skills can find it. It works while you are not applying.',
   },
 ] as const;
+
+// Narration while the resume is parsed. Parsing takes several seconds and a
+// typing indicator alone reads as the page having stalled — people re-click
+// the upload button. Each line names something the parser is genuinely doing,
+// in order, so the wait is legible rather than decorative.
+export const UPLOAD_STEPS = [
+  'Reading the file',
+  'Pulling out your roles',
+  'Finding your skills',
+  'Checking the dates',
+  'Almost there',
+] as const;
+
+export const UPLOAD_STEP_MS = 1400;
 
 export const ALLOWED_FILE_TYPES = [
   'application/pdf',

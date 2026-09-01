@@ -9,6 +9,9 @@ import {
   Extension as ExtensionIcon,
   MailOutline as MailIcon,
   Public as PublicIcon,
+  DescriptionOutlined as FileIcon,
+  CheckCircle as DoneIcon,
+  ErrorOutline as FailedIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +33,8 @@ import {
   PANEL_ITEMS,
   ALLOWED_FILE_TYPES,
   VALIDATION,
+  UPLOAD_STEPS,
+  UPLOAD_STEP_MS,
 } from './constants';
 import {
   emptyDraft,
@@ -47,6 +52,7 @@ import {
   panelState,
   resumeSections,
   isPresentable,
+  canAnswer,
 } from './coachLogic';
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
@@ -61,6 +67,7 @@ import {
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
   TourGrid, TourCard, TourIcon,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
+  UploadCard, UploadIcon, UploadBody, UploadTrack,
 } from './styled';
 
 const TOUR_ICONS = {
@@ -102,6 +109,44 @@ const VERDICT_TONE = {
 
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
+
+
+/**
+ * Narrated progress while a resume is parsed.
+ *
+ * Owns its own timer rather than storing a tick on the message: the parse
+ * takes several seconds, and re-rendering the entire transcript five times to
+ * advance a label is wasteful. The bar creeps toward 90% and only completes
+ * when the parse actually returns, so it never claims to be finished before
+ * it is.
+ */
+const UploadProgress = ({ fileName, done, failed }) => {
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    if (done || failed) return undefined;
+    const id = setInterval(
+      () => setStepIdx((i) => Math.min(i + 1, UPLOAD_STEPS.length - 1)),
+      UPLOAD_STEP_MS
+    );
+    return () => clearInterval(id);
+  }, [done]);
+
+  const pct = failed ? 100 : done ? 100 : Math.min(90, 12 + stepIdx * 20);
+
+  return (
+    <UploadCard>
+      <UploadIcon>
+        {failed ? <FailedIcon htmlColor="#dc2626" /> : done ? <DoneIcon htmlColor="#22c55e" /> : <FileIcon />}
+      </UploadIcon>
+      <UploadBody>
+        <b>{fileName}</b>
+        <span>{failed ? TEXT.UPLOAD_UNREADABLE : done ? 'Read it.' : UPLOAD_STEPS[stepIdx]}</span>
+        <UploadTrack $pct={pct} $done={done} $failed={failed}><i /></UploadTrack>
+      </UploadBody>
+    </UploadCard>
+  );
+};
 
 const ProfileCoach = () => {
   const navigate = useNavigate();
@@ -333,7 +378,19 @@ const ProfileCoach = () => {
 
     setError('');
     setBusy(true);
-    setTyping(true);
+
+    // Their side of the exchange is the file itself, then a card that narrates
+    // the parse. A typing indicator alone reads as a stalled page on a wait
+    // this long, which is what had people re-clicking upload.
+    pushMine(file.name);
+    const progressId = nextId();
+    setMessages((prev) => [...prev, {
+      id: progressId, role: 'coach', text: '', uploading: true, fileName: file.name,
+    }]);
+    const finishProgress = (ok) => setMessages((prev) => prev.map(
+      (m) => (m.id === progressId ? { ...m, uploadDone: ok, uploadFailed: !ok } : m)
+    ));
+
     try {
       const formData = new FormData();
       formData.append('resume', file);
@@ -343,19 +400,17 @@ const ProfileCoach = () => {
         ? await profileAPI.uploadResume(formData)
         : await profileAPI.guestUploadResume(formData);
 
-      setTyping(false);
-      if (data?.success && data?.data) {
-        applyImport(data.data, 'resume');
-      } else {
-        pushCoach(TEXT.UPLOAD_FAILED);
-      }
+      const ok = !!(data?.success && data?.data);
+      finishProgress(ok);
+      if (ok) applyImport(data.data, 'resume');
+      else pushCoach(TEXT.UPLOAD_FAILED);
     } catch {
-      setTyping(false);
+      finishProgress(false);
       pushCoach(TEXT.UPLOAD_FAILED);
     } finally {
       setBusy(false);
     }
-  }, [advance, applyImport, isAuthenticated, pushCoach]);
+  }, [applyImport, isAuthenticated, pushCoach, pushMine]);
 
   /* ─── Run steps: the coach does work and reports back ──────── */
 
@@ -560,7 +615,9 @@ const ProfileCoach = () => {
     const text = input.trim();
     const step = LADDER[stepIndex];
     if (!text || !step || busy) return;
-    if (!step.freeText) return;
+    // canAnswer, not step.freeText: a probe question belongs to the review
+    // step, which asks nothing itself and so declares freeText: false.
+    if (!canAnswer(step, probing)) return;
 
     const liveMessage = [...messages].reverse().find((m) => m.stepId === step.id && !m.spent);
 
@@ -759,7 +816,7 @@ const ProfileCoach = () => {
   }, [draft]);
 
   const currentStep = LADDER[stepIndex];
-  const canType = (probing || !!currentStep?.freeText) && !busy;
+  const canType = canAnswer(currentStep, probing) && !busy;
 
   /* ─── Card renderers ───────────────────────────────────────── */
 
@@ -957,16 +1014,28 @@ const ProfileCoach = () => {
             <Thread>
               {messages.map((message) => (
                 <React.Fragment key={message.id}>
-                  <Row $mine={message.role === 'me'}>
-                    {message.role === 'coach' && (
-                      <CoachAvatar aria-hidden="true"><CoachIcon htmlColor="#fff" /></CoachAvatar>
-                    )}
-                    <Bubble $mine={message.role === 'me'}>
-                      {message.text}
-                      {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
-                    </Bubble>
-                  </Row>
+                  {/* Cards that carry their own heading (the upload progress)
+                      have no bubble text, and an empty bubble is just a grey
+                      rectangle floating above them. */}
+                  {!!message.text && (
+                    <Row $mine={message.role === 'me'}>
+                      {message.role === 'coach' && (
+                        <CoachAvatar aria-hidden="true"><CoachIcon htmlColor="#fff" /></CoachAvatar>
+                      )}
+                      <Bubble $mine={message.role === 'me'}>
+                        {message.text}
+                        {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
+                      </Bubble>
+                    </Row>
+                  )}
 
+                  {message.uploading && (
+                    <UploadProgress
+                      fileName={message.fileName}
+                      done={!!message.uploadDone}
+                      failed={!!message.uploadFailed}
+                    />
+                  )}
                   {message.review && renderReview(message.review)}
                   {message.assessment && renderAssessment(message.assessment)}
                   {message.resume && renderResume(message.resume)}

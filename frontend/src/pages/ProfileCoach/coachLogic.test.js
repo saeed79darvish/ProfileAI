@@ -6,6 +6,7 @@ import {
   emptyDraft,
   resumeSections,
   isPresentable,
+  canAnswer,
   getChips,
   matchSector,
   matchChip,
@@ -408,4 +409,24 @@ test('isPresentable refuses to call a thin profile finished', () => {
     isPresentable({ ...thin, skills: ['a', 'b', 'c'], projects: [{ title: 'Thing' }] }),
     true
   );
+});
+
+test('a probe question accepts typing even though its step does not', () => {
+  const review = step('review');
+  // The review step asks nothing itself, so on its own it takes no input...
+  assert.equal(canAnswer(review, false), false);
+  // ...but its follow-up questions are the one thing that must be typed.
+  // The composer and the submit guard disagreeing here meant the send button
+  // and Enter both silently did nothing.
+  assert.equal(canAnswer(review, true), true);
+});
+
+test('canAnswer tracks the step for every ordinary question', () => {
+  assert.equal(canAnswer(step('currentRole'), false), true);
+  assert.equal(canAnswer(step('sector'), false), true);
+  // Chip-only steps take no typing.
+  assert.equal(canAnswer(step('workStyle'), false), false);
+  // And nothing blows up before the first question arrives.
+  assert.equal(canAnswer(undefined, false), false);
+  assert.equal(canAnswer(null, true), true);
 });

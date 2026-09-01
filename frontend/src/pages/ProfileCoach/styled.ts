@@ -834,3 +834,63 @@ export const ConvertNote = styled.div`
   font-size: 0.84rem;
   opacity: 0.8;
 `;
+
+/* ─── Resume upload progress ──────────────────────────────────── */
+
+export const UploadCard = styled(Card)`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+`;
+
+export const UploadIcon = styled.div`
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #eef0ff;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+`;
+
+export const UploadBody = styled.div`
+  flex: 1;
+  min-width: 0;
+
+  b {
+    display: block;
+    font-size: 0.96rem;
+    font-weight: 650;
+    color: #1a1a2e;
+    /* A long filename must not push the card wider than the thread. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.9rem;
+    color: #6c6c86;
+  }
+`;
+
+export const UploadTrack = styled.div`
+  margin-top: 9px;
+  height: 5px;
+  border-radius: 999px;
+  background: #eeeef6;
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: ${({ $done, $failed }) => ($failed ? '#dc2626' : $done ? '#22c55e' : '#6366f1')};
+    width: ${({ $pct }) => `${$pct}%`};
+    transition: width 420ms ease, background 220ms ease;
+  }
+`;

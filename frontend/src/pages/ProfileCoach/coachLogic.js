@@ -684,6 +684,17 @@ export const seedFromImport = (draft, parsed = {}, source = 'resume') => ({
 });
 
 
+/**
+ * Whether typed input is accepted right now.
+ *
+ * The composer's enabled state and the submit handler's guard both call this.
+ * They used to compute it separately and drifted: a probe question belongs to
+ * the `review` step, which asks nothing itself and so declares
+ * freeText: false — so the input accepted text while the send button silently
+ * did nothing. One predicate, both callers.
+ */
+export const canAnswer = (step, probing) => !!probing || !!step?.freeText;
+
 /* ─── The closing sequence ───────────────────────────────────── */
 
 /**
