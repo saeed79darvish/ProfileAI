@@ -67,7 +67,29 @@ const DEFAULT_LEVELS = [
   L('consultant', 'Freelance / Consultant'),
 ];
 
+/* Tech and its neighbours are the sectors where the senior individual
+   contributor track is a real, named ladder rather than a consolation for
+   not managing — Staff and Principal sit above Senior and beside Manager,
+   not below it. Offering them matters: a Staff Engineer who has to answer
+   "Senior" or "Manager" is misfiled either way. */
+const IC_TRACK_LEVELS = [
+  L('entry', 'Junior / Entry level', { prefix: 'Junior' }),
+  L('ic', 'Mid-level'),
+  L('senior', 'Senior', { prefix: 'Senior' }),
+  L('staff', 'Staff', { prefix: 'Staff' }),
+  L('principal', 'Principal', { prefix: 'Principal' }),
+  L('lead', 'Team Lead', { prefix: 'Lead' }),
+  L('manager', 'Manager', { suffix: 'Manager' }),
+  L('director', 'Director', { suffix: 'Director' }),
+  L('head', 'Head of Department'),
+  L('consultant', 'Freelance / Consultant'),
+];
+
 const LEVELS_BY_SECTOR = {
+  tech: IC_TRACK_LEVELS,
+  data: IC_TRACK_LEVELS,
+  design: IC_TRACK_LEVELS,
+  product: IC_TRACK_LEVELS,
   trades: [
     L('entry', 'Apprentice', { prefix: 'Apprentice' }),
     L('ic', 'Qualified tradesperson'),
@@ -120,7 +142,9 @@ const LEVELS_BY_SECTOR = {
     L('entry', 'Junior engineer', { prefix: 'Junior' }),
     L('ic', 'Engineer'),
     L('senior', 'Senior engineer', { prefix: 'Senior' }),
-    L('lead', 'Lead / Principal', { prefix: 'Lead' }),
+    L('staff', 'Staff engineer', { prefix: 'Staff' }),
+    L('principal', 'Principal engineer', { prefix: 'Principal' }),
+    L('lead', 'Lead engineer', { prefix: 'Lead' }),
     L('manager', 'Engineering manager', { suffix: 'Manager' }),
     L('consultant', 'Consultant'),
   ],

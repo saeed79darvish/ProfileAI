@@ -521,7 +521,20 @@ test('every sector offers rungs, and the trades are not given an org chart', () 
   );
 });
 
+test('the senior IC track is offered where it actually exists', () => {
+  const tech = levelsFor('tech').map((l) => l.label);
+  assert.ok(tech.includes('Staff') && tech.includes('Principal'));
+  // Staff sits above Senior and before the management rungs.
+  assert.ok(tech.indexOf('Staff') > tech.indexOf('Senior'));
+  assert.ok(tech.indexOf('Principal') < tech.indexOf('Manager'));
+  // ...and nowhere it does not: a Staff Barista is not a thing.
+  const hospitality = levelsFor('hospitality').map((l) => l.label);
+  assert.ok(!hospitality.some((l) => /staff|principal/i.test(l)));
+});
+
 test('a rung joins the title the way its own sector says it', () => {
+  assert.equal(buildTitle({ sector: 'tech', level: 'staff', title: 'Software Engineer' }), 'Staff Software Engineer');
+  assert.equal(buildTitle({ sector: 'data', level: 'principal', title: 'Data Scientist' }), 'Principal Data Scientist');
   assert.equal(buildTitle({ sector: 'trades', level: 'senior', title: 'Electrician' }), 'Master Electrician');
   assert.equal(buildTitle({ sector: 'trades', level: 'entry', title: 'Electrician' }), 'Apprentice Electrician');
   assert.equal(buildTitle({ sector: 'tech', level: 'senior', title: 'Frontend Developer' }), 'Senior Frontend Developer');
