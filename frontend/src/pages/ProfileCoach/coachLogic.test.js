@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   levelsFor,
+  visiblePanelItems,
   parseLinks,
   targetChips,
   normalizeTitle,
@@ -747,4 +748,26 @@ test('a clarifier about the earlier job does not rewrite the current one', () =>
   assert.equal(merged.experience[0].title, 'Staff Engineer');
   assert.equal(merged.experience[1].title, 'Engineer');
   assert.equal(merged.experience[1].startDate, '2018');
+});
+
+/* ─── The checklist ───────────────────────────────────────────
+   It has to agree with what the conversation asked. */
+
+test('a described project ticks a box that exists', () => {
+  const draft = { ...emptyDraft(), projects: [{ title: 'Bus tracker', description: 'Live arrivals board' }] };
+  const rubric = computeProfileCompletion(draftToProfileShape(draft));
+  assert.equal(panelState(draft, rubric.items).proj, true);
+});
+
+test('the projects row is shown to whoever gets asked, and nobody else', () => {
+  const items = [{ key: 'exp' }, { key: 'proj' }];
+  // No job to name: the coach asks, so the row is there to tick.
+  assert.ok(visiblePanelItems({ experience: [] }, items).some((i) => i.key === 'proj'));
+  // Already named a job: never asked, so it is not a box left unticked.
+  assert.ok(!visiblePanelItems({ experience: [{ company: 'Acme' }] }, items).some((i) => i.key === 'proj'));
+  // Unless they described one anyway, via an import.
+  assert.ok(visiblePanelItems(
+    { experience: [{ company: 'Acme' }], projects: [{ title: 'Thing' }] },
+    items
+  ).some((i) => i.key === 'proj'));
 });

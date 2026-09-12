@@ -1416,6 +1416,22 @@ export const panelState = (draft = {}, rubricItems = []) => {
     lookingFor: !!(draft.roleTypes || []).length || !!draft.workStyle,
     skills: !!byKey.skills,
     exp: !!byKey.exp,
+    proj: !!byKey.proj,
     edu: !!byKey.edu,
   };
+};
+
+/**
+ * Which rows of the checklist to show this person.
+ *
+ * Projects only appear for the people the conversation actually asks: someone
+ * with no job to name, or anyone who has already described one. Showing the
+ * row to everyone would list a box the coach never offers to tick, and
+ * hiding it from a new grad was worse — they answered the projects question
+ * and watched nothing light up, with EXPERIENCE greyed out above it for a job
+ * they have not had yet.
+ */
+export const visiblePanelItems = (draft = {}, items = []) => {
+  const asked = !!(draft.projects || []).length || !(draft.experience || []).length;
+  return items.filter((item) => item.key !== 'proj' || asked);
 };

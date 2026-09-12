@@ -59,6 +59,7 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  visiblePanelItems,
   normalizeTitle,
   parseLinks,
   sectorChips,
@@ -1113,7 +1114,7 @@ const ProfileCoach = () => {
     </ConvertCard>
   );
 
-  const renderPanelItems = () => PANEL_ITEMS.map((item) => {
+  const renderPanelItems = () => visiblePanelItems(draft, PANEL_ITEMS).map((item) => {
     const done = !!panel[item.key];
     const value = done ? panelValue(item.key) : '';
     return (

@@ -110,6 +110,8 @@ export const PANEL_ITEMS = [
   { key: 'lookingFor', label: 'LOOKING FOR', hint: 'Role type and work style' },
   { key: 'skills', label: 'SKILLS', hint: 'What recruiters search on' },
   { key: 'exp', label: 'EXPERIENCE', hint: 'Your recent role, in bullets' },
+  // Shown to whoever the coach asks — see visiblePanelItems.
+  { key: 'proj', label: 'PROJECTS', hint: 'Work you can point at' },
   { key: 'edu', label: 'EDUCATION', hint: 'Degree, bootcamp or certs' },
 ] as const;
 
