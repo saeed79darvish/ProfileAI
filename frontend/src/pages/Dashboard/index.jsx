@@ -589,18 +589,10 @@ const Dashboard = () => {
         } catch (draftErr) {
           // ignore draft check errors
         }
-        // If the user has already seen the onboarding intro, send them
-        // straight to the create-profile screen instead of looping back
-        // through the intro slides on every visit.
-        try {
-          if (localStorage.getItem('profileai_seen_onboarding') === '1') {
-            navigate('/profile/create');
-            return;
-          }
-        } catch (flagErr) {
-          // ignore localStorage read errors
-        }
-        navigate('/onboarding');
+        // The intro is part of the coach conversation now, and shows itself
+        // only on a first visit — so there is no longer a second destination
+        // to choose between here.
+        navigate('/profile/create');
       } else {
         // Keep the error object, not just its message: LoadFailure reads the
         // status/code off it to tell "you're offline" apart from "we broke".

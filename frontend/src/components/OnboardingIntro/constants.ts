@@ -49,4 +49,9 @@ export const INTRO_TEXT = {
 
 // Set once the intro has been seen, so a returning visitor drops straight
 // into the first question instead of tapping through the slides again.
-export const SEEN_INTRO_KEY = 'profileai_seen_onboarding' as const;
+//
+// Deliberately NOT the old page's `profileai_seen_onboarding`: that flag was
+// written by the standalone /onboarding page, so reusing it would mark every
+// existing user as having already seen an intro that did not exist yet, and
+// they would never be shown this one.
+export const SEEN_INTRO_KEY = 'profileai_seen_coach_intro' as const;

@@ -297,7 +297,7 @@ export const AuthProvider = ({ children }) => {
           key.startsWith('profileai_draft_') ||
           key === 'profileai_job_preferences' ||
           key === 'profileai_recent_searches' ||
-          key === 'profileai_seen_onboarding'
+          key === 'profileai_seen_coach_intro'
         ) {
           keysToRemove.push(key);
         }
