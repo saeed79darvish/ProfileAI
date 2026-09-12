@@ -1005,7 +1005,7 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
       break;
     }
     case 'projects': {
-      const name = String(fields.name || '').trim();
+      const name = String(fields.projectName || fields.name || '').trim();
       if (!name) break;
       const row = {
         title: name,

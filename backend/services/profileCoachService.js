@@ -96,7 +96,11 @@ const STEP_SCHEMAS = {
   projects: {
     question: 'Tell me about something you built, ran or organised.',
     expects: {
-      name: 'short name for the project',
+      // Not `name`: the clarify prompt is handed the missing field keys, so a
+      // field called "name" asked "What's your name?" — which anyone would
+      // answer with their own. The key is part of the question the person
+      // reads, whether or not we meant it to be.
+      projectName: 'what the project is called',
       description: 'what it was and what they did on it, one or two sentences in their own words',
       technologies: 'array of tools, materials, systems or methods they used',
       url: 'link to it, if they gave one',
@@ -104,7 +108,7 @@ const STEP_SCHEMAS = {
     },
     // A project with no name is not a row anyone can render. Everything else
     // can be filled in later in the editor.
-    required: ['name'],
+    required: ['projectName'],
   },
   // The coach's own follow-up questions after reading a resume ("what reports
   // do you build, and who reads them?"). Deliberately loose: a good probe
