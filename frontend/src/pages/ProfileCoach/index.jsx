@@ -61,6 +61,7 @@ import {
   canAnswer,
   sectorChips,
   MORE_SECTORS_CHIP,
+  CUSTOM_ANSWER_CHIP,
 } from './coachLogic';
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
@@ -154,6 +155,7 @@ const ProfileCoach = () => {
 
   const fileInputRef = useRef(null);
   const listEndRef = useRef(null);
+  const composerRef = useRef(null);
   // Set for the one render after an in-place message update that must not
   // scroll the transcript (see the scroll effect below).
   const keepScrollRef = useRef(false);
@@ -595,6 +597,15 @@ const ProfileCoach = () => {
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
+
+    // "Type my own" is not an answer either — it hands over the keyboard.
+    // The chips stay live: someone who opens the keyboard and then spots the
+    // title they wanted must still be able to tap it.
+    if (chip.id === CUSTOM_ANSWER_CHIP.id) {
+      composerRef.current?.focus();
+      trackEvent('coach_custom_answer_opened', { step: step.id });
+      return;
+    }
 
     // "More fields" is not an answer: it reveals the rest of the sectors on
     // the question already asked, so nothing is spent and nothing advances.
@@ -1152,6 +1163,7 @@ const ProfileCoach = () => {
                           type="button"
                           disabled={message.spent || busy}
                           $spent={message.spent}
+                          $ghost={String(chip.id).startsWith('__')}
                           $selected={message.selected?.includes(chip.id)}
                           onClick={() => answerChip(message, chip)}
                         >
@@ -1206,6 +1218,7 @@ const ProfileCoach = () => {
 
             <Composer onSubmit={submitText}>
               <ComposerInput
+                ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={TEXT.INPUT_PLACEHOLDER}

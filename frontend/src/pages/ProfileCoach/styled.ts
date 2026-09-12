@@ -237,6 +237,23 @@ export const Chip = styled.button`
 
   &:disabled { box-shadow: none; }
 
+  /* Control chips ("Type my own", "More fields") are not answers, and
+     dressing them like answers invites a tap that looks like one. Dashed and
+     quiet: obviously a door rather than a choice. */
+  ${({ $ghost }) => $ghost && css`
+    border-style: dashed;
+    border-color: #d8d8e4;
+    background: transparent;
+    color: #6c6c86;
+    box-shadow: none;
+
+    &:hover:not(:disabled) {
+      border-color: #6366f1;
+      color: #4c51bf;
+      background: #f7f7fd;
+    }
+  `}
+
   @media (max-width: 480px) {
     padding: 10px 14px;
     font-size: 0.92rem;

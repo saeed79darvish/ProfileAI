@@ -32,7 +32,9 @@ const norm = (s) => String(s || '').toLowerCase().trim();
 
 export const LIMITS = {
   SKILL_CHIPS: 24,
-  TITLE_CHIPS: 8,
+  // Deliberately short. These are a shortcut for the common case, not a
+  // catalogue — nine rows of near-identical titles is worse than typing.
+  TITLE_CHIPS: 6,
   MAX_ANSWER_CHARS: 2000,
 };
 
@@ -232,6 +234,10 @@ export const WORK_STYLES = [
   // not have narrows their job matches for no reason.
   { id: 'flexible', label: 'Flexible' },
 ];
+
+// Not an answer either: it hands the person the keyboard. The chip row is a
+// shortcut, never the whole answer space — most job titles are not on it.
+export const CUSTOM_ANSWER_CHIP = { id: '__custom', label: 'Type my own' };
 
 // Not an answer: tapping it re-renders the same question with every sector.
 // The `__` prefix is what keeps it out of local answer matching.
@@ -519,6 +525,42 @@ export const emptyDraft = () => ({
  *
  * @returns {{id: string, label: string}[]}
  */
+/* A job title and a rank are two different answers, and the level question
+   just took the rank. Offering "Senior Frontend Engineer" to someone who has
+   already said Senior asks them to say it twice, and then buildTitle() would
+   say it a third time. So the chips are stripped back to the role itself and
+   de-duplicated — "Senior Backend Engineer" and "Backend Developer" collapse
+   to the two distinct roles they actually are.
+
+   What stays is ordered by the rank they gave: a Director is shown the
+   leadership titles first, an IC the hands-on ones. Both lists stay complete
+   underneath, because a Team Lead's title really can still be "Backend
+   Developer" — and anything not on the list is one tap away on the keyboard
+   via CUSTOM_ANSWER_CHIP. */
+
+const RANK_PREFIX = /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|associate)\s+/i;
+const LEADERSHIP = /(manager|director|head of|vp of|chief|president|partner|supervisor|foreman|principal investigator|broker)/i;
+const MANAGING_LEVELS = new Set(['lead', 'manager', 'director', 'head', 'owner']);
+
+export const titleChips = (sector, level) => {
+  const seen = new Set();
+  const roles = [];
+
+  for (const title of SECTOR_TITLES[sector] || []) {
+    const base = title.replace(RANK_PREFIX, '').trim();
+    const key = norm(base);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    roles.push({ label: base, leadership: LEADERSHIP.test(base) });
+  }
+
+  // Stable sort: the sector's own ordering survives inside each group.
+  const wantsLeadership = MANAGING_LEVELS.has(level);
+  roles.sort((a, b) => Number(b.leadership === wantsLeadership) - Number(a.leadership === wantsLeadership));
+
+  return roles.slice(0, LIMITS.TITLE_CHIPS).map((r) => ({ id: r.label, label: r.label }));
+};
+
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {
@@ -526,10 +568,8 @@ export const getChips = (step, draft = {}) => {
       return sectorChips(false);
     case 'levels':
       return levelsFor(draft.sector).map((l) => ({ id: l.id, label: l.label }));
-    case 'titles': {
-      const titles = SECTOR_TITLES[draft.sector] || [];
-      return titles.slice(0, LIMITS.TITLE_CHIPS).map((t) => ({ id: t, label: t }));
-    }
+    case 'titles':
+      return [...titleChips(draft.sector, draft.level), { ...CUSTOM_ANSWER_CHIP }];
     case 'employmentTypes':
       return EMPLOYMENT_TYPES.map((t) => ({ id: t.id, label: t.label }));
     case 'workStyles':
@@ -544,14 +584,13 @@ export const getChips = (step, draft = {}) => {
         .slice(0, LIMITS.SKILL_CHIPS)
         .map((s) => ({ id: s, label: s }));
     }
-    case 'targets': {
+    case 'targets':
       // Their own sector's titles, minus the one they already hold — offering
       // someone their current job as a target reads as not having listened.
-      const titles = (SECTOR_TITLES[draft.sector] || []).filter(
-        (t) => norm(t) !== norm(draft.title)
-      );
-      return titles.slice(0, LIMITS.TITLE_CHIPS).map((t) => ({ id: t, label: t }));
-    }
+      return [
+        ...titleChips(draft.sector, draft.level).filter((c) => norm(c.id) !== norm(draft.title)),
+        { ...CUSTOM_ANSWER_CHIP },
+      ];
     case 'importChoices':
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
     default:

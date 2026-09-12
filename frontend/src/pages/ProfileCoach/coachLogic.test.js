@@ -10,6 +10,8 @@ import {
 import {
   LADDER,
   levelsFor,
+  titleChips,
+  CUSTOM_ANSWER_CHIP,
   sectorChips,
   MORE_SECTORS_CHIP,
   emptyDraft,
@@ -542,4 +544,35 @@ test('a rung joins the title the way its own sector says it', () => {
   assert.equal(buildTitle({ sector: 'tech', level: 'ic', title: 'Software Engineer' }), 'Software Engineer');
   // Never say it twice.
   assert.equal(buildTitle({ sector: 'tech', level: 'senior', title: 'Senior Backend Engineer' }), 'Senior Backend Engineer');
+});
+
+/* ─── Title chips ─────────────────────────────────────────────
+   The rank was the previous question. Repeating it here makes the person
+   answer twice and buildTitle() say it three times. */
+
+test('title chips drop the rank the level question already took', () => {
+  const labels = titleChips('tech', 'senior').map((c) => c.label);
+  assert.ok(!labels.some((l) => /^senior /i.test(l)), `still ranked: ${labels.join(', ')}`);
+  assert.ok(labels.includes('Frontend Developer'));
+  // "Senior Frontend Engineer" collapsed onto the role, not a second chip.
+  assert.equal(new Set(labels.map((l) => l.toLowerCase())).size, labels.length);
+});
+
+test('the rank they gave decides what is offered first', () => {
+  const managing = titleChips('tech', 'director').map((c) => c.label);
+  assert.ok(/manager|director|head of/i.test(managing[0]), `got ${managing[0]}`);
+  const ic = titleChips('tech', 'senior').map((c) => c.label);
+  assert.ok(!/manager|director|head of/i.test(ic[0]), `got ${ic[0]}`);
+  // Both keep the full list underneath — a team lead can still be a developer.
+  assert.ok(managing.length > 1);
+});
+
+test('there is always a way to answer something not on the list', () => {
+  const step = (id) => LADDER.find((s) => s.id === id);
+  for (const stepId of ['title', 'target']) {
+    const chipStep = step(stepId);
+    if (!chipStep) continue;
+    const chips = getChips(chipStep, { sector: 'tech', level: 'senior', title: 'Software Engineer' });
+    assert.equal(chips.at(-1).id, CUSTOM_ANSWER_CHIP.id, `${stepId} needs a keyboard door`);
+  }
 });
