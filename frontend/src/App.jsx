@@ -75,7 +75,6 @@ const AdminDashboard = lazyWithReload(() => import('./pages/AdminDashboard'));
 const AdminUsers = lazyWithReload(() => import('./pages/AdminUsers'));
 const AdminPromos = lazyWithReload(() => import('./pages/AdminPromos'));
 const AdminSupport = lazyWithReload(() => import('./pages/AdminSupport'));
-const CandidateOnboarding = lazyWithReload(() => import('./pages/CandidateOnboarding'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
 const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
@@ -124,6 +123,12 @@ const OAUTH_CALLBACK_ROUTE = /^\/auth\/[^/]+\/callback\/?$/;
 // so they don't land on a route that 404s every API call. Signed-out
 // visitors see the LandingPage standalone — the marketing hero is
 // the entire page for them.
+/** The welcome intro moved into the coach; /onboarding just forwards. */
+function OnboardingRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/profile/create${search}`} replace />;
+}
+
 function ApplyPilotGateway() {
   const { user, isAuthenticated, loading } = useAuth();
   if (loading) return LazyFallback;
@@ -218,11 +223,11 @@ function AppContent() {
               <Route path="/signup" element={<Register />} />
               <Route path="/check-email" element={<CheckEmail />} />
               <Route path="/verify-email/:token" element={<VerifyEmail />} />
-              <Route path="/onboarding" element={
-                <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
-                  <CandidateOnboarding />
-                </PrivateRoute>
-              } />
+              {/* The welcome intro is no longer a page of its own — it is the
+                  first few messages of the coach conversation. Kept as a
+                  redirect because the navbar, the emails and the extension all
+                  still link here. Query preserved (?from=extension). */}
+              <Route path="/onboarding" element={<OnboardingRedirect />} />
               <Route path="/recruiter/onboarding" element={
                 <PrivateRoute allowedRoles={['recruiter']}>
                   <RecruiterOnboarding />

@@ -22,6 +22,13 @@ import { trackEvent } from '../../utils/analytics';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
+import {
+  IntroSlideCard,
+  BuildProfileCard,
+  INTRO_TEXT,
+  SLIDES,
+  SEEN_INTRO_KEY,
+} from '../../components/OnboardingIntro';
 
 import {
   LADDER,
@@ -109,6 +116,17 @@ const VERDICT_TONE = {
 
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
+
+/* The welcome intro that used to be the standalone /onboarding page now runs
+   as the first few messages of this conversation — see components/
+   OnboardingIntro. It is shown once: a returning visitor lands straight on
+   the first question rather than tapping through the slides again. */
+const hasSeenIntro = () => {
+  try { return localStorage.getItem(SEEN_INTRO_KEY) === '1'; } catch { return false; }
+};
+const markIntroSeen = () => {
+  try { localStorage.setItem(SEEN_INTRO_KEY, '1'); } catch { /* private mode — worst case the intro repeats */ }
+};
 
 
 /**
@@ -263,14 +281,76 @@ const ProfileCoach = () => {
 
   /* ─── Opening ──────────────────────────────────────────────── */
 
-  useEffect(() => {
-    pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
+  /** Greet and ask the first ladder question. The end of the intro, or the
+      whole opening for someone who has already seen it. */
+  const startLadder = useCallback((from) => {
+    markIntroSeen();
     setStepIndex(0);
+    pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
     askStep(0, emptyDraft());
-    trackEvent('coach_started', {});
+    trackEvent('coach_started', { intro: from });
+  }, [askStep, pushCoach]);
+
+  useEffect(() => {
+    if (hasSeenIntro()) {
+      startLadder('seen-before');
+      return;
+    }
+    pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
+    pushCoach('', { introSlide: 0 });
+    trackEvent('coach_intro_started', {});
     // Intentionally once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ─── The intro ────────────────────────────────────────────── */
+
+  const showBuildCard = useCallback(() => {
+    setTyping(true);
+    later(() => {
+      setTyping(false);
+      pushCoach(INTRO_TEXT.START_BUBBLE, { hint: INTRO_TEXT.START_HINT, introBuild: true });
+    }, TIMING.ACK_MS);
+  }, [later, pushCoach]);
+
+  const introContinue = useCallback((message) => {
+    if (message.spent) return;
+    spendChips(message.id);
+    const next = message.introSlide + 1;
+    if (next < SLIDES.length) {
+      setTyping(true);
+      later(() => {
+        setTyping(false);
+        pushCoach('', { introSlide: next });
+      }, TIMING.ACK_MS);
+      return;
+    }
+    showBuildCard();
+  }, [later, pushCoach, showBuildCard, spendChips]);
+
+  const introSkip = useCallback(() => {
+    // Retire every slide at once: skipping from slide 1 must not leave the
+    // later ones live above the card it jumped to.
+    setMessages((prev) => prev.map((m) => (m.introSlide != null ? { ...m, spent: true } : m)));
+    trackEvent('coach_intro_skipped', {});
+    showBuildCard();
+  }, [showBuildCard]);
+
+  const introStart = useCallback((message) => {
+    if (message.spent) return;
+    spendChips(message.id);
+    pushMine(INTRO_TEXT.BUILD_BUTTON);
+    startLadder('completed');
+  }, [pushMine, spendChips, startLadder]);
+
+  /** Top-bar "Skip for now" while the intro is still on screen. */
+  const introSkipToQuestions = useCallback(() => {
+    setMessages((prev) => prev.map((m) => (
+      (m.introSlide != null || m.introBuild) ? { ...m, spent: true } : m
+    )));
+    trackEvent('coach_intro_skipped', { to: 'questions' });
+    startLadder('skipped');
+  }, [startLadder]);
 
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ block: 'end' });
@@ -1003,7 +1083,13 @@ const ProfileCoach = () => {
             <VoiceIcon fontSize="small" />
             <span className="label">{TEXT.VOICE_ON}</span>
           </TopButton>
-          <TopButton type="button" onClick={() => finish(draft)} disabled={busy}>
+          {/* During the intro "skip" means skip the intro — bailing to the
+              editor from here would hand over a completely empty draft. */}
+          <TopButton
+            type="button"
+            onClick={() => (stepIndex < 0 ? introSkipToQuestions() : finish(draft))}
+            disabled={busy}
+          >
             {TEXT.SKIP}
           </TopButton>
         </TopActions>
@@ -1034,6 +1120,21 @@ const ProfileCoach = () => {
                         {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
                       </Bubble>
                     </Row>
+                  )}
+
+                  {message.introSlide != null && (
+                    <IntroSlideCard
+                      index={message.introSlide}
+                      spent={message.spent}
+                      onContinue={() => introContinue(message)}
+                      onSkip={introSkip}
+                    />
+                  )}
+                  {message.introBuild && (
+                    <BuildProfileCard
+                      spent={message.spent}
+                      onStart={() => introStart(message)}
+                    />
                   )}
 
                   {message.uploading && (
