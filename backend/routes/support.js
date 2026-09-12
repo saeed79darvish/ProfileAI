@@ -44,14 +44,14 @@ ProfilleAI is a career platform for candidates and recruiters. Core features:
 - Candidate profile creation: resume upload (PDF/DOCX), LinkedIn import (via LinkedIn's "Save to PDF" export uploaded to us), or start from scratch.
 - AI resume tailoring per job description.
 - AI cover letter generation.
-- ApplyPilot: our Chrome extension that detects job listings on LinkedIn, Greenhouse, Lever, Workday and 20+ ATS platforms, auto-tailors the resume, and fills the application form.
+- Chrome extension: a side panel that detects job listings on LinkedIn, Greenhouse, Lever, Workday and most career sites, shows match analysis, tailors the resume, and quick-fills the application form (the user reviews and submits).
 - Agent Arena: AI-driven salary negotiation practice with a synthetic recruiter agent.
 - Job browsing at /jobs, saved jobs, and application tracking.
 
 ═══ SUBSCRIPTION PLANS (as of July 2026) ═══
 - Free (trial): 1 resume parse / month, 1 profile enhancement / month, 3 resume tailorings LIFETIME, 2 AI cover letters / month, 5 career suggestions / month, basic profile.
 - Pro ($14.99 / month or $119 / year): 50 tailorings / month, 30 cover letters / month, 20 resume parses / month, 30 profile enhancements / month, unlimited career suggestions, watermark-free exports, priority support.
-- Pro+ ($29.99 / month or $239 / year): everything in Pro PLUS ApplyPilot auto-apply (30 applications / week), 200 tailorings / month, 200 cover letters / month, unlimited interview prep, batch tailoring.
+- Pro+ ($29.99 / month or $239 / year): everything in Pro PLUS 200 tailorings / month, 200 cover letters / month, unlimited interview prep, batch tailoring.
 - Billing is handled by Stripe. Manage subscription is under Account or via the Pricing page.
 
 ═══ REFUND POLICY (7-day money-back guarantee) ═══

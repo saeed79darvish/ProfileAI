@@ -243,12 +243,11 @@ const Pricing = () => {
       type: 'pro_plus',
       icon: <AutoAwesomeIcon />,
       price: { monthly: 29.99, yearly: 239.00 },
-      description: 'Hands-off auto-apply',
+      description: 'For high-volume job searches',
       popular: false,
       buttonText: 'Upgrade to Pro+',
       featuresHeader: 'Everything in Pro, plus',
       features: [
-        'ApplyPilot Auto-Apply (30/week)',
         '200 Resume Tailorings / month',
         '200 AI Cover Letters / month',
         'Unlimited Interview Prep',
@@ -352,9 +351,9 @@ const Pricing = () => {
     <PageContainer>
       <SEO
         title="Pricing — Free, Pro & Enterprise Plans"
-        description="Simple, transparent pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for unlimited tailoring, ApplyPilot auto-apply, and AI negotiation coaching."
+        description="Simple, transparent pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching."
         path="/pricing"
-        keywords="ProfilleAI pricing, AI resume builder cost, ApplyPilot pricing, AI career copilot subscription"
+        keywords="ProfilleAI pricing, AI resume builder cost, AI cover letter pricing, AI career copilot subscription"
       />
       <ScrollToTop />
 

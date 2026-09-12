@@ -292,12 +292,12 @@ export default function MyJobs() {
           <EmptyIcon>📋</EmptyIcon>
           <EmptyTitle>No applications yet</EmptyTitle>
           <EmptyText>
-            Install the ApplyPilot Chrome extension and every job you apply to will automatically appear here. 
+            Install the ProfilleAI Chrome extension and every job you apply to will automatically appear here.
             You can also add applications manually.
           </EmptyText>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <CTAButton onClick={() => navigate('/applypilot')}>
-              <RocketIcon /> Get ApplyPilot
+            <CTAButton onClick={() => navigate('/extension')}>
+              <RocketIcon /> Get the extension
             </CTAButton>
             <CTAButton
               onClick={() => setAddDialog(true)}
@@ -318,7 +318,7 @@ export default function MyJobs() {
         <HeaderTop>
           <HeaderTitle>
             <h1><WorkIcon /> My Jobs</h1>
-            <p>Track every job you've applied to with ApplyPilot</p>
+            <p>Track every job you've applied to</p>
           </HeaderTitle>
           <StatsRow>
             <StatPill>

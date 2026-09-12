@@ -4,16 +4,13 @@ import {
   Box, Container, Grid, Typography, Chip, Button, Card, Link, Divider,
 } from '@mui/material';
 import {
-  AutoAwesome as SparkleIcon, Extension as ExtensionIcon,
-  Psychology as BrainIcon, ArrowForward as ArrowIcon,
-  Shield as ShieldIcon, ElectricBolt as BoltIcon, Check as CheckIcon,
-  Download as DownloadIcon, Groups as GroupsIcon, Search as SearchIcon,
+  AutoAwesome as SparkleIcon, Check as CheckIcon,
+  Shield as ShieldIcon, Groups as GroupsIcon, Search as SearchIcon,
   TrendingUp as TrendingIcon, Star as StarIcon, ChevronRight,
   CloudUpload as UploadIcon, SmartToy as AIIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { featureFlags } from '../../config/featureFlags';
-import { extensionConfig } from '../../config/extension';
 import SEO from '../../components/SEO';
 import BrandLogo from '../../components/BrandLogo';
 import * as S from './styled';
@@ -21,10 +18,10 @@ import {
   STATS, HERO_CHIP_LABEL, HERO_TITLE_PARTS, HERO_SUBTITLE, HERO_BUTTONS,
   TRUST_INDICATORS, HERO_PROFILE_CARD, HERO_AI_INSIGHT, HERO_JOB_CARD,
   HERO_STATS_MINI, STATS_LABELS, COMPANY_NAMES, COMPANIES_LABEL,
-  FEATURE_SECTION, FEATURE_TABS_DATA, TAILOR_DEMO, EXTENSION_DEMO,
+  FEATURE_SECTION, FEATURE_TABS_DATA, TAILOR_DEMO, MATCHING_DEMO,
   ARENA_DEMO, HOW_IT_WORKS, HOW_IT_WORKS_STEPS,
-  AUDIENCE_SECTION, CANDIDATE, RECRUITER, APPLYPILOT_CTA, APPLYPILOT_BULLETS,
-  PLATFORM_CHIPS, BROWSER_DEMO, MORE_FEATURES_SECTION, MORE_FEATURES_DATA,
+  AUDIENCE_SECTION, CANDIDATE, RECRUITER, HERO_MAIN_CARD,
+  MORE_FEATURES_SECTION, MORE_FEATURES_DATA,
   FINAL_CTA, FOOTER_DESC, FOOTER_SOCIAL, FOOTER_COLUMNS, FOOTER_BOTTOM_LINKS,
 } from './constants';
 // ── Section Wrapper with reveal animation ──
@@ -91,8 +88,7 @@ function useCounter(target, duration = 2000) {
 // Icon mapping for feature tabs (JSX cannot live in constants.ts)
 const FEATURE_TAB_ICONS = {
   tailor: <SparkleIcon />,
-  extension: <ExtensionIcon />,
-
+  matching: <SearchIcon />,
 };
 
 // Icon mapping for "How It Works" steps
@@ -124,9 +120,9 @@ const Home = () => {
     <Box sx={S.pageContainerSx}>
       <SEO
         title="ProfilleAI — AI Resume Tailoring, Auto-Apply & Negotiation Coach"
-        description="Tailor your resume to any job in seconds, auto-apply with the ApplyPilot Chrome extension, and practice salary negotiation with AI agents — all from your single ProfilleAI profile."
+        description="Tailor your resume to any job in seconds, find jobs matched to your profile, and practice salary negotiation with AI agents — all from your single ProfilleAI profile."
         path="/"
-        keywords="AI resume builder, resume tailoring, AI auto apply, ApplyPilot, AI cover letter, salary negotiation AI, AI recruiter matching, ATS resume optimizer, career copilot"
+        keywords="AI resume builder, resume tailoring, AI job matching, AI cover letter, salary negotiation AI, AI recruiter matching, ATS resume optimizer, career copilot"
         jsonLd={[
           {
             '@context': 'https://schema.org',
@@ -134,7 +130,7 @@ const Home = () => {
             name: 'ProfilleAI — AI Career Copilot',
             url: 'https://www.profilleai.com/',
             description:
-              'AI-powered career platform for resume tailoring, auto-apply, and salary negotiation training.',
+              'AI-powered career platform for resume tailoring, AI job matching, and salary negotiation training.',
           },
           {
             '@context': 'https://schema.org',
@@ -145,7 +141,7 @@ const Home = () => {
                 name: 'What is ProfilleAI?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'ProfilleAI is an AI career copilot that tailors your resume to any job in seconds, auto-applies on your behalf through the ApplyPilot Chrome extension, and trains you to negotiate offers with AI agents.',
+                  text: 'ProfilleAI is an AI career copilot that tailors your resume to any job in seconds, matches you to jobs that fit your profile, and trains you to negotiate offers with AI agents.',
                 },
               },
               {
@@ -161,15 +157,15 @@ const Home = () => {
                 name: 'Is ProfilleAI free?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Enterprise plans unlock unlimited tailoring, ApplyPilot auto-apply, AI negotiation coaching, and recruiter matching.',
+                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Enterprise plans unlock higher tailoring limits, AI negotiation coaching, and recruiter matching.',
                 },
               },
               {
                 '@type': 'Question',
-                name: 'What is ApplyPilot?',
+                name: 'How does ProfilleAI match me to jobs?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'ApplyPilot is the ProfilleAI Chrome extension that automatically fills out and submits job applications on your behalf across LinkedIn, Indeed, Greenhouse, Lever, Workday and most ATS platforms.',
+                  text: 'ProfilleAI scores every job in its feed against your profile — skills, seniority, and role history — and flags listings that look like ghost jobs, so the roles you see are the ones you actually fit.',
                 },
               },
             ],
@@ -268,18 +264,18 @@ const Home = () => {
                   <Typography sx={S.aiInsightTextSx}>{HERO_AI_INSIGHT.text}</Typography>
                 </Box>
 
-                {/* Main ApplyPilot card */}
+                {/* Main job match card */}
                 <Box sx={S.mainCardSx}>
                   <Box sx={S.mainCardHeaderSx}>
                     <Box sx={S.mainCardIconBoxSx}>
-                      <ExtensionIcon sx={{ color: '#fff', fontSize: 18 }} />
+                      <AIIcon sx={{ color: '#fff', fontSize: 18 }} />
                     </Box>
                     <Box sx={{ flex: 1 }}>
                       <Box sx={S.mainCardTitleRowSx}>
-                        <Typography sx={S.mainCardTitleSx}>{APPLYPILOT_CTA.brandTitle}</Typography>
+                        <Typography sx={S.mainCardTitleSx}>{HERO_MAIN_CARD.title}</Typography>
                         <Box sx={S.mainCardDotSx} />
                       </Box>
-                      <Typography sx={S.mainCardSubtitleSx}>Auto-tailor & apply</Typography>
+                      <Typography sx={S.mainCardSubtitleSx}>{HERO_MAIN_CARD.subtitle}</Typography>
                     </Box>
                     <Typography sx={S.mainCardDotsSx}>•••</Typography>
                   </Box>
@@ -311,7 +307,7 @@ const Home = () => {
                     </Box>
                     <Box sx={S.oneClickBtnSx}>
                       <Typography sx={S.oneClickTextSx}>
-                        <ExtensionIcon sx={{ fontSize: 16 }} /> 1-Click Apply
+                        <CheckIcon sx={{ fontSize: 16 }} /> Cover Letter
                       </Typography>
                     </Box>
                   </Box>
@@ -405,27 +401,27 @@ const Home = () => {
                         </Box>
                       </Box>
                     )}
-                    {activeTab === 'extension' && (
-                      <Box sx={S.extensionDemoPanelSx}>
-                        <Box sx={S.extensionScanLineSx} />
+                    {activeTab === 'matching' && (
+                      <Box sx={S.matchDemoPanelSx}>
+                        <Box sx={S.matchScanLineSx} />
                         <Box sx={S.demoHeaderSx}>
-                          <Box sx={S.extensionIconBoxSx}>
-                            <ExtensionIcon sx={{ color: '#fff', fontSize: 16 }} />
+                          <Box sx={S.matchIconBoxSx}>
+                            <SearchIcon sx={{ color: '#fff', fontSize: 16 }} />
                           </Box>
-                          <Typography sx={S.demoTitleSx}>{EXTENSION_DEMO.label}</Typography>
-                          <Chip label={EXTENSION_DEMO.activeLabel} size="small" sx={S.extensionActiveChipSx} />
+                          <Typography sx={S.demoTitleSx}>{MATCHING_DEMO.label}</Typography>
+                          <Chip label={MATCHING_DEMO.freshLabel} size="small" sx={S.matchFreshChipSx} />
                         </Box>
-                        <Box sx={S.extensionDetectedBoxSx}>
-                          <Typography sx={S.extensionDetectedLabelSx}>{EXTENSION_DEMO.detected}</Typography>
-                          <Typography sx={S.extensionJobTitleSx}>{EXTENSION_DEMO.jobTitle}</Typography>
-                          <Typography sx={S.extensionMatchTextSx}>{EXTENSION_DEMO.matchLabel}<Box component="span" sx={S.extensionMatchScoreSx}>{EXTENSION_DEMO.matchScore}</Box></Typography>
+                        <Box sx={S.matchDetectedBoxSx}>
+                          <Typography sx={S.matchDetectedLabelSx}>{MATCHING_DEMO.detected}</Typography>
+                          <Typography sx={S.matchJobTitleSx}>{MATCHING_DEMO.jobTitle}</Typography>
+                          <Typography sx={S.matchMatchTextSx}>{MATCHING_DEMO.matchLabel}<Box component="span" sx={S.matchMatchScoreSx}>{MATCHING_DEMO.matchScore}</Box></Typography>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Box sx={S.extensionTailorBtnSx}>
-                            <Typography sx={S.extensionTailorTextSx}>{EXTENSION_DEMO.tailorBtn}</Typography>
+                          <Box sx={S.matchTailorBtnSx}>
+                            <Typography sx={S.matchTailorTextSx}>{MATCHING_DEMO.tailorBtn}</Typography>
                           </Box>
-                          <Box sx={S.extensionAutoFillBtnSx}>
-                            <Typography sx={S.extensionAutoFillTextSx}>{EXTENSION_DEMO.autoFillBtn}</Typography>
+                          <Box sx={S.matchCoverBtnSx}>
+                            <Typography sx={S.matchCoverTextSx}>{MATCHING_DEMO.coverBtn}</Typography>
                           </Box>
                         </Box>
                       </Box>
@@ -436,125 +432,6 @@ const Home = () => {
               </Grid>
             </Card>
           )}
-        </Container>
-      </RevealSection>
-
-      {/* ══════════════════════════════════════════
-          APPLYPILOT CHROME EXTENSION CTA
-          ══════════════════════════════════════════ */}
-      <RevealSection sx={S.applyPilotSectionSx}>
-        <Container maxWidth="lg">
-          <Card elevation={0} sx={S.applyPilotCardSx}>
-            <Box sx={S.applyPilotOrb1Sx} />
-            <Box sx={S.applyPilotOrb2Sx} />
-            <Grid container sx={S.applyPilotContentSx}>
-              <Grid item xs={12} md={6} sx={S.applyPilotTextPanelSx}>
-                <Box sx={S.applyPilotBrandSx}>
-                  <Box sx={S.applyPilotBrandIconSx}>
-                    <ExtensionIcon sx={{ color: '#fff', fontSize: 26 }} />
-                  </Box>
-                  <Box>
-                    <Typography sx={S.applyPilotBrandTitleSx}>{APPLYPILOT_CTA.brandTitle}</Typography>
-                    <Typography sx={S.applyPilotBrandSubSx}>{APPLYPILOT_CTA.brandSub}</Typography>
-                  </Box>
-                </Box>
-                <Typography variant="h4" sx={S.applyPilotHeadingSx}>
-                  {APPLYPILOT_CTA.headingPrefix}
-                  <Box component="span" sx={S.applyPilotGradientTextSx}>{APPLYPILOT_CTA.headingHighlight}</Box>
-                </Typography>
-                <Typography sx={S.applyPilotDescSx}>{APPLYPILOT_CTA.desc}</Typography>
-                <Box sx={S.applyPilotBulletWrapperSx}>
-                  {APPLYPILOT_BULLETS.map((item) => (
-                    <Box key={item.text} sx={S.applyPilotBulletItemSx}>
-                      <Typography sx={S.applyPilotBulletIconSx}>{item.icon}</Typography>
-                      <Typography sx={S.applyPilotBulletTextSx}>{item.text}</Typography>
-                    </Box>
-                  ))}
-                </Box>
-                <Box sx={S.applyPilotBtnWrapperSx}>
-                  <Button variant="contained" size="large" startIcon={<DownloadIcon />}
-                    onClick={() => {
-                      if (extensionConfig.isPublished && extensionConfig.storeUrl) {
-                        window.open(extensionConfig.storeUrl, '_blank', 'noopener,noreferrer');
-                      } else {
-                        navigate('/extension'); window.scrollTo(0, 0);
-                      }
-                    }}
-                    sx={S.applyPilotPrimaryBtnSx}>
-                    {APPLYPILOT_CTA.primaryBtn}
-                  </Button>
-                  <Button variant="outlined" size="large"
-                    onClick={() => { navigate('/extension'); window.scrollTo(0, 0); }}
-                    endIcon={<ChevronRight />} sx={S.applyPilotOutlinedBtnSx}>
-                    {APPLYPILOT_CTA.secondaryBtn}
-                  </Button>
-                </Box>
-                <Box sx={S.platformChipsWrapperSx}>
-                  {PLATFORM_CHIPS.map((p) => (
-                    <Chip key={p} label={p} size="small" sx={S.platformChipSx} />
-                  ))}
-                </Box>
-              </Grid>
-
-              {/* Browser mockup */}
-              <Grid item xs={12} md={6} sx={S.browserMockupWrapperSx}>
-                <Box sx={S.browserMockupContainerSx}>
-                  <Box sx={S.browserFrameSx}>
-                    <Box sx={S.browserBarSx}>
-                      <Box sx={S.browserDotsSx}>
-                        <Box sx={S.browserDotRedSx} /><Box sx={S.browserDotYellowSx} /><Box sx={S.browserDotGreenSx} />
-                      </Box>
-                      <Box sx={S.browserUrlBarSx}>
-                        <Typography sx={S.browserUrlTextSx}>{BROWSER_DEMO.url}</Typography>
-                      </Box>
-                      <Box sx={S.browserExtIconSx}>
-                        <ExtensionIcon sx={{ color: '#fff', fontSize: 14 }} />
-                      </Box>
-                    </Box>
-                    <Box sx={S.browserContentSx}>
-                      <Box sx={S.browserJobSx}>
-                        <Typography sx={S.browserJobLabelSx}>{BROWSER_DEMO.jobLabel}</Typography>
-                        <Typography sx={S.browserJobTitleSx}>{BROWSER_DEMO.jobTitle}</Typography>
-                        <Typography sx={S.browserJobCompanySx}>{BROWSER_DEMO.jobCompany}</Typography>
-                      </Box>
-                      <Box sx={S.browserPopupSx}>
-                        <Box sx={S.browserPopupHeaderSx}>
-                          <Box sx={S.browserPopupIconSx}>
-                            <ExtensionIcon sx={{ color: '#fff', fontSize: 12 }} />
-                          </Box>
-                          <Typography sx={S.browserPopupTitleSx}>{APPLYPILOT_CTA.brandTitle}</Typography>
-                          <Chip label={BROWSER_DEMO.detectedLabel} size="small" sx={S.browserDetectedChipSx} />
-                        </Box>
-                        <Box sx={{ mb: 2 }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                            <Typography sx={S.browserMatchLabelSx}>{BROWSER_DEMO.matchLabel}</Typography>
-                            <Typography sx={S.browserMatchScoreSx}>{BROWSER_DEMO.matchScore}</Typography>
-                          </Box>
-                          <Box sx={S.browserMatchBarBgSx}><Box sx={S.browserMatchBarFillSx} /></Box>
-                        </Box>
-                        <Box sx={S.browserSkillsWrapperSx}>
-                          {BROWSER_DEMO.skills.map((s) => (
-                            <Chip key={s} label={s} size="small" sx={S.getBrowserSkillChipSx(s.startsWith('✅'))} />
-                          ))}
-                        </Box>
-                        <Box sx={S.browserActionsSx}>
-                          <Box sx={S.browserTailorBtnSx}>
-                            <Typography sx={S.browserTailorTextSx}>{BROWSER_DEMO.tailorBtn}</Typography>
-                          </Box>
-                          <Box sx={S.browserCoverBtnSx}>
-                            <Typography sx={S.browserCoverTextSx}>{BROWSER_DEMO.coverBtn}</Typography>
-                          </Box>
-                        </Box>
-                      </Box>
-                    </Box>
-                  </Box>
-                  <Box sx={S.browserFloatingNoteSx}>
-                    <Typography sx={S.browserFloatingNoteTextSx}>{BROWSER_DEMO.floatingNote}</Typography>
-                  </Box>
-                </Box>
-              </Grid>
-            </Grid>
-          </Card>
         </Container>
       </RevealSection>
 

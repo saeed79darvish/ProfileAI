@@ -69,7 +69,7 @@ export const PLANS = {
     highlights: [
       { strong: '50 enhancements', rest: ' a month, up from {from}' },
       { strong: '150 résumé tailorings', rest: ' + 150 cover letters' },
-      { rest: 'ApplyPilot auto-apply and unlimited interview prep' },
+      { rest: 'Batch tailoring and unlimited interview prep' },
     ],
     limits: {
       resume_parse: 50,

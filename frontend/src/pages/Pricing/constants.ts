@@ -53,7 +53,6 @@ export const COMPARE_FEATURES = [
   { name: 'Resume Tailoring',       free: '3 lifetime', pro: '50/month', proPlus: '200/month' },
   { name: 'AI Cover Letter',        free: '2/month',   pro: '30/month',  proPlus: '200/month' },
   { name: 'Career Suggestions',     free: '5/month',   pro: 'Unlimited', proPlus: 'Unlimited' },
-  { name: 'ApplyPilot Auto-Apply',  free: false,        pro: false,      proPlus: '30/week' },
   { name: 'Interview Prep',         free: false,        pro: true,       proPlus: 'Unlimited' },
   { name: 'Watermark-free Exports', free: false,        pro: true,       proPlus: true },
   { name: 'Advanced Analytics',     free: false,        pro: true,       proPlus: true },
@@ -62,7 +61,7 @@ export const COMPARE_FEATURES = [
 
 export const FAQS = [
   { question: 'How does the Free plan work?', answer: 'Free includes 3 lifetime resume tailorings, 1 resume parse and 1 profile enhancement per month, and 2 cover letters per month. It\'s designed as a trial — once you\'ve used your 3 tailorings, upgrade to Pro or buy an Apply credit pack to keep going.' },
-  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo) gives you 50 tailored resumes and 30 cover letters per month — plenty for an active job search. Pro+ ($29.99/mo) adds ApplyPilot auto-apply (up to 30 applications per week, fully automated), batch tailoring, and unlimited interview prep.' },
+  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo) gives you 50 tailored resumes and 30 cover letters per month — plenty for an active job search. Pro+ ($29.99/mo) raises that to 200 tailored resumes and 200 cover letters a month, and adds batch tailoring and unlimited interview prep.' },
   { question: 'What are credit packs?', answer: 'One-time purchases that give you extra application credits (1 tailored resume + 1 cover letter each). Credits never expire and are used automatically when your subscription limits are reached. Useful if you\'re between jobs but don\'t want a recurring plan.' },
   { question: 'Can I change plans later?', answer: 'Yes, you can upgrade or downgrade your plan at any time. Changes will be reflected in your next billing cycle.' },
   { question: 'What payment methods do you accept?', answer: 'We accept all major credit cards via Stripe, plus PayPal.' },

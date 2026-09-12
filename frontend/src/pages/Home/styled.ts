@@ -396,45 +396,45 @@ export const getSkillMatchChipSx = (isMatch: boolean) => ({
   color: isMatch ? '#34d399' : '#fbbf24', fontSize: 11, height: 24, fontWeight: 600,
 });
 
-// Extension demo
-export const extensionDemoPanelSx = {
+// Job match demo
+export const matchDemoPanelSx = {
   ...demoPanelSx, position: 'relative', overflow: 'hidden',
 } as const;
-export const extensionScanLineSx = {
+export const matchScanLineSx = {
   position: 'absolute', left: 0, right: 0, height: '3px',
   background: 'linear-gradient(90deg, transparent, #a78bfa, transparent)',
   animation: `${scanLine} 3s ease-in-out infinite`,
   borderRadius: 2, pointerEvents: 'none',
 } as const;
-export const extensionIconBoxSx = {
+export const matchIconBoxSx = {
   width: 28, height: 28, borderRadius: RADIUS.SMALL,
   background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 } as const;
-export const extensionActiveChipSx = {
+export const matchFreshChipSx = {
   bgcolor: 'rgba(16,185,129,0.15)', color: '#34d399',
   fontSize: 10, height: 20, fontWeight: 700, ml: 'auto',
 } as const;
-export const extensionDetectedBoxSx = {
+export const matchDetectedBoxSx = {
   bgcolor: `rgba(102,126,234,0.1)`, border: `1px solid rgba(102,126,234,0.2)`,
   borderRadius: '10px', p: 2, mb: 2, animation: `${slideIn} 0.5s ease-out`,
 } as const;
-export const extensionDetectedLabelSx = { color: '#a78bfa', fontSize: 12, fontWeight: 600, mb: 0.5 } as const;
-export const extensionJobTitleSx = { color: COLORS.TEXT_WHITE, fontSize: 13, fontWeight: 600 } as const;
-export const extensionMatchTextSx = { color: 'rgba(255,255,255,0.4)', fontSize: 11, mt: 0.5 } as const;
-export const extensionMatchScoreSx = { color: '#34d399', fontWeight: 700 } as const;
-export const extensionTailorBtnSx = {
+export const matchDetectedLabelSx = { color: '#a78bfa', fontSize: 12, fontWeight: 600, mb: 0.5 } as const;
+export const matchJobTitleSx = { color: COLORS.TEXT_WHITE, fontSize: 13, fontWeight: 600 } as const;
+export const matchMatchTextSx = { color: 'rgba(255,255,255,0.4)', fontSize: 11, mt: 0.5 } as const;
+export const matchMatchScoreSx = { color: '#34d399', fontWeight: 700 } as const;
+export const matchTailorBtnSx = {
   flex: 1, bgcolor: 'rgba(102,126,234,0.15)', borderRadius: RADIUS.SMALL,
   p: 1.5, textAlign: 'center', cursor: 'pointer',
   transition: TRANSITIONS.FAST, '&:hover': { bgcolor: 'rgba(102,126,234,0.25)' },
 } as const;
-export const extensionTailorTextSx = { color: '#a78bfa', fontSize: 11, fontWeight: 700 } as const;
-export const extensionAutoFillBtnSx = {
+export const matchTailorTextSx = { color: '#a78bfa', fontSize: 11, fontWeight: 700 } as const;
+export const matchCoverBtnSx = {
   flex: 1, bgcolor: 'rgba(16,185,129,0.15)', borderRadius: RADIUS.SMALL,
   p: 1.5, textAlign: 'center', cursor: 'pointer',
   transition: TRANSITIONS.FAST, '&:hover': { bgcolor: 'rgba(16,185,129,0.25)' },
 } as const;
-export const extensionAutoFillTextSx = { color: '#34d399', fontSize: 11, fontWeight: 700 } as const;
+export const matchCoverTextSx = { color: '#34d399', fontSize: 11, fontWeight: 700 } as const;
 
 // Arena demo
 export const arenaRecruiterBoxSx = {
@@ -527,159 +527,6 @@ export const recruiterComingSoonBtnSx = {
   textTransform: 'none', fontWeight: 700, borderRadius: RADIUS.LARGE,
   px: 3, py: 1.2, opacity: '0.5 !important', color: `${COLORS.TEXT_WHITE} !important`,
 } as const;
-
-// ── ApplyPilot CTA ──────────────────────────────────────────────────
-
-export const applyPilotSectionSx = { py: { xs: 4, md: 8 }, bgcolor: DARK_BASE } as const;
-export const applyPilotCardSx = {
-  borderRadius: '24px', overflow: 'hidden',
-  background: `linear-gradient(160deg, ${SURFACE_DARK} 0%, #1a1040 40%, ${COLORS.BG_DARK} 100%)`,
-  color: COLORS.TEXT_WHITE, position: 'relative',
-} as const;
-export const applyPilotOrb1Sx = {
-  position: 'absolute', width: 400, height: 400, borderRadius: RADIUS.CIRCLE,
-  background: 'radial-gradient(circle, rgba(167,139,250,0.12), transparent 70%)',
-  top: -120, right: -80, pointerEvents: 'none',
-} as const;
-export const applyPilotOrb2Sx = {
-  position: 'absolute', width: 300, height: 300, borderRadius: RADIUS.CIRCLE,
-  background: 'radial-gradient(circle, rgba(102,126,234,0.1), transparent 70%)',
-  bottom: -100, left: -60, pointerEvents: 'none',
-} as const;
-export const applyPilotContentSx = { position: 'relative', zIndex: 1 } as const;
-export const applyPilotTextPanelSx = {
-  p: { xs: 4, md: 6 }, display: 'flex', flexDirection: 'column', justifyContent: 'center',
-} as const;
-export const applyPilotBrandSx = { display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 } as const;
-export const applyPilotBrandIconSx = {
-  width: 48, height: 48, borderRadius: '14px',
-  background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  boxShadow: '0 4px 16px rgba(167,139,250,0.3)',
-} as const;
-export const applyPilotBrandTitleSx = { fontWeight: 800, fontSize: '1.1rem', letterSpacing: '-0.3px' } as const;
-export const applyPilotBrandSubSx = {
-  fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)',
-  fontWeight: 500, letterSpacing: '1px', textTransform: 'uppercase',
-} as const;
-export const applyPilotHeadingSx = {
-  fontWeight: 800, mb: 2, fontSize: { xs: '1.5rem', md: '2rem' }, lineHeight: 1.2,
-} as const;
-export const applyPilotGradientTextSx = {
-  background: `linear-gradient(135deg, #a78bfa, ${COLORS.PRIMARY})`,
-  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-} as const;
-export const applyPilotDescSx = { color: 'rgba(255,255,255,0.6)', mb: 3, lineHeight: 1.7, maxWidth: 440 } as const;
-export const applyPilotBulletWrapperSx = { display: 'flex', flexDirection: 'column', gap: 1.5, mb: 4 } as const;
-export const applyPilotBulletItemSx = { display: 'flex', alignItems: 'center', gap: 1.5 } as const;
-export const applyPilotBulletIconSx = { fontSize: 16 } as const;
-export const applyPilotBulletTextSx = { fontSize: '0.9rem', color: 'rgba(255,255,255,0.75)' } as const;
-export const applyPilotBtnWrapperSx = { display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3, flexDirection: { xs: 'column', sm: 'row' } } as const;
-export const applyPilotPrimaryBtnSx = {
-  background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
-  px: 4, py: 1.5, borderRadius: RADIUS.LARGE,
-  fontWeight: 700, fontSize: '0.95rem', textTransform: 'none',
-  width: { xs: '100%', sm: 'auto' },
-  boxShadow: '0 4px 24px rgba(167,139,250,0.35)',
-  '&:hover': { boxShadow: '0 8px 32px rgba(167,139,250,0.5)', transform: 'translateY(-1px)' },
-  transition: TRANSITIONS.FAST,
-} as const;
-export const applyPilotOutlinedBtnSx = {
-  borderColor: 'rgba(255,255,255,0.15)', color: COLORS.TEXT_WHITE,
-  px: 4, py: 1.5, borderRadius: RADIUS.LARGE,
-  fontWeight: 700, fontSize: '0.95rem', textTransform: 'none',
-  width: { xs: '100%', sm: 'auto' },
-  '&:hover': { borderColor: 'rgba(255,255,255,0.3)', bgcolor: 'rgba(255,255,255,0.04)' },
-} as const;
-export const platformChipsWrapperSx = { display: 'flex', gap: 1.5, flexWrap: 'wrap' } as const;
-export const platformChipSx = {
-  bgcolor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)',
-  border: '1px solid rgba(255,255,255,0.08)', fontWeight: 500, fontSize: '0.75rem',
-} as const;
-
-// Browser mockup
-export const browserMockupWrapperSx = {
-  p: { xs: 3, md: 5 }, display: 'flex', alignItems: 'center', justifyContent: 'center',
-} as const;
-export const browserMockupContainerSx = { width: '100%', maxWidth: 420, position: 'relative' } as const;
-export const browserFrameSx = {
-  borderRadius: '16px', overflow: 'hidden',
-  border: '1px solid rgba(255,255,255,0.1)',
-  boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-} as const;
-export const browserBarSx = {
-  bgcolor: 'rgba(255,255,255,0.08)', py: 1.2, px: 2,
-  display: 'flex', alignItems: 'center', gap: 1.5,
-  borderBottom: '1px solid rgba(255,255,255,0.06)',
-} as const;
-export const browserDotsSx = { display: 'flex', gap: 0.7 } as const;
-export const browserDotRedSx = { width: 10, height: 10, borderRadius: RADIUS.CIRCLE, bgcolor: '#ff5f57' } as const;
-export const browserDotYellowSx = { width: 10, height: 10, borderRadius: RADIUS.CIRCLE, bgcolor: '#ffbd2e' } as const;
-export const browserDotGreenSx = { width: 10, height: 10, borderRadius: RADIUS.CIRCLE, bgcolor: '#28c840' } as const;
-export const browserUrlBarSx = {
-  flex: 1, bgcolor: 'rgba(255,255,255,0.06)', borderRadius: '6px',
-  px: 2, py: 0.5, display: 'flex', alignItems: 'center', gap: 1,
-} as const;
-export const browserUrlTextSx = { fontSize: 11, color: 'rgba(255,255,255,0.35)' } as const;
-export const browserExtIconSx = {
-  width: 24, height: 24, borderRadius: '6px',
-  background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  animation: `${pulse} 2s ease-in-out infinite`,
-} as const;
-export const browserContentSx = { bgcolor: '#0f0a1a', p: 2.5, minHeight: 280 } as const;
-export const browserJobSx = { bgcolor: 'rgba(255,255,255,0.04)', borderRadius: '10px', p: 2, mb: 2 } as const;
-export const browserJobLabelSx = { color: 'rgba(255,255,255,0.3)', fontSize: 10, mb: 0.5 } as const;
-export const browserJobTitleSx = { color: COLORS.TEXT_WHITE, fontWeight: 700, fontSize: 15 } as const;
-export const browserJobCompanySx = { color: 'rgba(255,255,255,0.5)', fontSize: 12, mt: 0.3 } as const;
-export const browserPopupSx = {
-  bgcolor: 'rgba(26,16,64,0.95)', backdropFilter: 'blur(12px)',
-  border: '1px solid rgba(167,139,250,0.3)', borderRadius: '14px', p: 2.5,
-  animation: `${slideIn} 0.6s ease-out`,
-  boxShadow: '0 8px 32px rgba(102,126,234,0.2)',
-} as const;
-export const browserPopupHeaderSx = { display: 'flex', alignItems: 'center', gap: 1, mb: 2 } as const;
-export const browserPopupIconSx = {
-  width: 22, height: 22, borderRadius: '6px',
-  background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-} as const;
-export const browserPopupTitleSx = { color: COLORS.TEXT_WHITE, fontWeight: 700, fontSize: 13 } as const;
-export const browserDetectedChipSx = {
-  bgcolor: 'rgba(16,185,129,0.12)', color: '#34d399',
-  fontSize: 9, height: 18, fontWeight: 700, ml: 'auto',
-} as const;
-export const browserMatchLabelSx = { fontSize: 11, color: 'rgba(255,255,255,0.5)' } as const;
-export const browserMatchScoreSx = { fontSize: 12, color: '#34d399', fontWeight: 700 } as const;
-export const browserMatchBarBgSx = { height: 5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.08)', overflow: 'hidden' } as const;
-export const browserMatchBarFillSx = {
-  width: '94%', height: '100%', borderRadius: 3,
-  background: `linear-gradient(90deg, ${COLORS.PRIMARY}, #34d399)`,
-  animation: `${typewriter} 1.5s ease-out`,
-} as const;
-export const getBrowserSkillChipSx = (isMatch: boolean) => ({
-  bgcolor: isMatch ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-  color: isMatch ? '#34d399' : '#fbbf24', fontSize: 10, height: 22, fontWeight: 600,
-});
-export const browserSkillsWrapperSx = { display: 'flex', gap: 0.8, flexWrap: 'wrap', mb: 2 } as const;
-export const browserActionsSx = { display: 'flex', gap: 1 } as const;
-export const browserTailorBtnSx = {
-  flex: 1, background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
-  borderRadius: RADIUS.SMALL, p: 1.2, textAlign: 'center', cursor: 'pointer',
-} as const;
-export const browserTailorTextSx = { color: COLORS.TEXT_WHITE, fontSize: 11, fontWeight: 700 } as const;
-export const browserCoverBtnSx = {
-  flex: 1, bgcolor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: RADIUS.SMALL, p: 1.2, textAlign: 'center', cursor: 'pointer',
-} as const;
-export const browserCoverTextSx = { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 700 } as const;
-export const browserFloatingNoteSx = {
-  position: 'absolute', bottom: -16, right: -10,
-  bgcolor: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)',
-  borderRadius: '10px', px: 2, py: 1,
-  animation: `${float} 5s ease-in-out infinite`,
-} as const;
-export const browserFloatingNoteTextSx = { color: '#34d399', fontSize: 11, fontWeight: 700 } as const;
 
 // ── More Features Grid ──────────────────────────────────────────────
 

@@ -39,8 +39,8 @@ const FAQ = [
     a: 'Go to "Create your profile", then choose one of three ways: upload a resume PDF/DOCX, import from LinkedIn (via the "Save to PDF" option on your own LinkedIn profile), or start from scratch. AI extracts and structures the content for you.',
   },
   {
-    q: 'What is ApplyPilot and how do I use it?',
-    a: 'ApplyPilot is our Chrome extension that detects job listings on LinkedIn, Greenhouse, Lever, Workday and 20+ other platforms, then auto-tailors your resume and fills out the application form. Install from the Extension page, sign in with your ProfilleAI account, and it works on any job page.',
+    q: 'What does the Chrome extension do?',
+    a: 'The ProfilleAI Chrome extension opens in a side panel next to any job posting on LinkedIn, Greenhouse, Workday and most career sites. It reads the role, shows your match score and skill gaps, quick-fills the standard application fields from your profile, and tailors your resume to that job. Install it from the Extension page and sign in with your ProfilleAI account.',
   },
   {
     q: 'How does resume tailoring work?',
@@ -48,7 +48,7 @@ const FAQ = [
   },
   {
     q: 'What\u2019s the difference between Free, Pro, and Pro+?',
-    a: 'Free is a trial with 1 resume parse and 1 profile enhancement per month. Pro ($14.99/mo) unlocks 20 parses, 30 enhancements, 50 tailorings, and unlimited career suggestions. Pro+ ($29.99/mo) adds ApplyPilot auto-apply (30/week), 200 tailorings, and batch tailoring.',
+    a: 'Free is a trial with 1 resume parse and 1 profile enhancement per month. Pro ($14.99/mo) unlocks 20 parses, 30 enhancements, 50 tailorings, and unlimited career suggestions. Pro+ ($29.99/mo) adds 200 tailorings, 200 cover letters, and batch tailoring.',
   },
   {
     q: 'How do I cancel or change my subscription?',
@@ -80,7 +80,7 @@ const TICKET_CATEGORIES = [
 // Assistant's opening line every session.
 const CHAT_GREETING = {
   role: 'assistant',
-  content: "Hi! I'm the ProfilleAI support assistant. Ask me anything about profiles, resume tailoring, ApplyPilot, or your subscription. If I can't help, I'll open a ticket for the team.",
+  content: "Hi! I'm the ProfilleAI support assistant. Ask me anything about profiles, resume tailoring, the Chrome extension, or your subscription. If I can't help, I'll open a ticket for the team.",
 };
 
 const HelpCenter = () => {

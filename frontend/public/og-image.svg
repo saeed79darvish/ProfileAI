@@ -41,7 +41,7 @@
 
   <!-- Headline -->
   <text x="80" y="340" font-family="Inter, system-ui, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Tailor resumes.</text>
-  <text x="80" y="418" font-family="Inter, system-ui, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Auto-apply. <tspan fill="url(#accent)">Negotiate.</tspan></text>
+  <text x="80" y="418" font-family="Inter, system-ui, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Match jobs. <tspan fill="url(#accent)">Negotiate.</tspan></text>
 
   <!-- Sub -->
   <text x="80" y="478" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="500" fill="#cbd5e1">One profile. Every job. Powered by AI agents.</text>
@@ -60,7 +60,7 @@
     </g>
     <g transform="translate(555,533)">
       <rect width="170" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>
-      <text x="85" y="23" text-anchor="middle">ApplyPilot</text>
+      <text x="85" y="23" text-anchor="middle">Job Matching</text>
     </g>
     <g transform="translate(740,533)">
       <rect width="210" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>

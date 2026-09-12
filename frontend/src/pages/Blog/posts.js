@@ -41,35 +41,6 @@ export const POSTS = [
 `,
   },
   {
-    slug: 'auto-apply-to-jobs-applypilot',
-    title: 'Auto-Applying to Jobs in 2026: Is It Safe, Smart, and Effective?',
-    description:
-      'How ApplyPilot — the ProfilleAI Chrome extension — auto-applies on your behalf, where it works (LinkedIn, Greenhouse, Lever, Workday), and how to stay in control.',
-    date: '2026-05-12',
-    author: 'ProfilleAI Team',
-    readingMinutes: 6,
-    tags: ['ApplyPilot', 'Auto Apply', 'Chrome Extension'],
-    body: `
-<p>"Auto-apply" tools used to mean spam: a bot blasting your generic resume at 1,000 jobs a day. The result was predictable — recruiters tuned them out, platforms banned them, and candidates burned their reputation.</p>
-
-<h2>The new model: review-and-approve</h2>
-<p>ApplyPilot doesn't fire-and-forget. For every job you queue, it:</p>
-<ul>
-  <li>Tailors your resume + cover letter for that specific role.</li>
-  <li>Fills out the application form (including the soul-crushing 40-field Workday flows).</li>
-  <li>Pauses and shows you a preview. <strong>You approve before submission.</strong></li>
-</ul>
-
-<h2>What platforms it supports</h2>
-<p>LinkedIn Easy Apply, Indeed, Greenhouse, Lever, Workday, iCIMS, Ashby, SmartRecruiters, Workable, and most custom company career sites. If a site has a form, ApplyPilot can usually fill it.</p>
-
-<h2>Why this isn't "spam"</h2>
-<p>Because every application is tailored and human-reviewed, recruiters see the same quality they'd see from a candidate spending 20 minutes per app — except you did it in 30 seconds. That's the leverage.</p>
-
-<p><a href="/apply-pilot">See ApplyPilot in action →</a></p>
-`,
-  },
-  {
     slug: 'salary-negotiation-ai-agent-practice',
     title: 'Practice Salary Negotiation with an AI Agent (Without the Awkwardness)',
     description:
@@ -291,7 +262,7 @@ export const POSTS = [
     date: '2026-08-01',
     author: 'ProfilleAI Team',
     readingMinutes: 7,
-    tags: ['ApplyPilot', 'Job Search', 'Career'],
+    tags: ['Job Search', 'Automation', 'Career'],
     faq: [
       {
         q: 'Is it bad to use an autofill tool for job applications?',
@@ -327,7 +298,7 @@ export const POSTS = [
 <tr><td>Deciding which roles to apply to</td><td>No</td><td>Judgment about fit, not a mechanical task</td></tr>
 </tbody>
 </table>
-<p>This is the design behind ProfilleAI’s Chrome extension and ApplyPilot: it runs on the actual application page, fills in the repetitive form fields from your profile, and prepares your tailored materials — but it stops short of submitting on your behalf by default. You review and hit submit yourself, which keeps you in the loop on the decisions that matter.</p>
+<p>This is the design behind ProfilleAI’s Chrome extension: it runs on the actual application page, fills in the repetitive form fields from your profile, and prepares your tailored materials — but it never submits on your behalf. You review and hit submit yourself, which keeps you in the loop on the decisions that matter.</p>
 
 <h2>How many applications actually move the needle</h2>
 <p>A batch of 15–25 tailored applications a week tends to outperform 80–100 identical blasts, because recruiters and ATS ranking systems both reward relevance. That said, volume still matters at the floor — three applications a week, however well-tailored, is usually too few to generate enough interviews or learn from.</p>
@@ -335,9 +306,9 @@ export const POSTS = [
 <h2>A batching system that actually works</h2>
 <p>Context-switching between researching roles and filling out forms is expensive. Instead, use one sitting for research — pulling 10–15 candidate postings while filtering out likely <a href="/blog/how-to-spot-a-ghost-job-posting">ghost jobs</a>. Use a separate sitting for tailoring, and a separate sitting for submission using autofill for the repetitive fields while reviewing each application before it goes out.</p>
 
-<p>Building your profile and tailoring resumes is free to start, no credit card required. ApplyPilot’s autofill and auto-apply on live application pages is a Pro+ feature, built for people applying at real volume.</p>
+<p>Building your profile and tailoring resumes is free to start, no credit card required. Higher monthly tailoring limits and batch tailoring come with Pro and Pro+, built for people applying at real volume.</p>
 
-<p><a href="/register">Start free</a> &middot; <a href="/applypilot">See ApplyPilot</a></p>
+<p><a href="/register">Start free</a> &middot; <a href="/extension">See the Chrome extension</a></p>
 `,
   },
   {
@@ -443,7 +414,7 @@ export const POSTS = [
     date: '2026-07-22',
     author: 'ProfilleAI Team',
     readingMinutes: 7,
-    tags: ['ApplyPilot', 'Chrome Extension', 'ATS'],
+    tags: ['Chrome Extension', 'Autofill', 'ATS'],
     faq: [
       {
         q: 'Is it safe to use a Chrome extension to autofill job applications?',
@@ -473,7 +444,7 @@ export const POSTS = [
 <tr><td>Full auto-submit</td><td>Extension fills and submits without a review step</td><td>Higher — no human checkpoint before an application goes out</td></tr>
 </tbody>
 </table>
-<p>Fill-and-review is the more defensible default for most job seekers, because it keeps a human check on the last step — catching a wrong resume version or an application about to go to a role you’ve already applied to. ProfilleAI’s ApplyPilot (a Pro+ feature) defaults to fill-and-review for this reason, with auto-submit available as an opt-in rather than the default behavior — while building your profile and generating tailored resumes stays free, no credit card required.</p>
+<p>Fill-and-review is the more defensible default for most job seekers, because it keeps a human check on the last step — catching a wrong resume version or an application about to go to a role you’ve already applied to. ProfilleAI’s Chrome extension is fill-and-review for this reason: it quick-fills the form and prepares your tailored resume, then leaves the submit button to you — and building your profile and generating tailored resumes stays free, no credit card required.</p>
 
 <h2>Where autofill actually saves time (and where it doesn’t)</h2>
 <p>It saves real time on long multi-page ATS forms that repeat your resume as structured fields, EEO/demographic sections, and standard screening questions. It saves little time on short one-page "apply with resume" forms. And it doesn’t help at all with the parts of an application that require judgment — free-text "why do you want to work here" fields, salary negotiation questions, or tailoring your resume to the specific posting.</p>
@@ -481,7 +452,7 @@ export const POSTS = [
 <h2>Safety and credential questions worth asking</h2>
 <p>Before installing any extension in this category: does it need your ATS login credentials, or does it operate on the page while you’re already logged in? Where is your data stored, and is it encrypted? Can you review before submission, or is auto-submit the only mode? And does the extension request permissions beyond what autofill actually needs? Tools that ask you to hand over ATS or email credentials directly carry meaningfully more risk than ones that work within your existing session.</p>
 
-<p><a href="/register">Build your free profile</a> &middot; <a href="/applypilot">See ApplyPilot’s review-before-submit flow</a></p>
+<p><a href="/register">Build your free profile</a> &middot; <a href="/extension">See the extension’s review-before-submit flow</a></p>
 `,
   },
   {
@@ -577,7 +548,7 @@ export const POSTS = [
 
 <h2>Where ProfilleAI fits</h2>
 <p>ProfilleAI is an end-to-end platform: build one master profile, generate a <a href="/blog/how-to-tailor-a-resume-to-a-job-description">Tailored Profile</a> against a specific posting in about 30 seconds, get a resume score run against that same posting rather than a generic benchmark, and optionally use the Chrome extension to autofill the repetitive parts of the application itself. The tradeoff of an end-to-end approach is breadth over hyper-specialization — whether that’s worth it depends on whether you want one system or a stack of point tools.</p>
-<p>The free plan is genuinely free, not a time-limited trial — no credit card to sign up, and it includes 3 lifetime AI-tailored resumes, 2 AI cover letters a month, and 1 resume parse a month to start with. Paid tiers add higher monthly limits and ApplyPilot’s autofill/auto-apply, which sits on the Pro+ plan specifically.</p>
+<p>The free plan is genuinely free, not a time-limited trial — no credit card to sign up, and it includes 3 lifetime AI-tailored resumes, 2 AI cover letters a month, and 1 resume parse a month to start with. Paid tiers add higher monthly limits, and batch tailoring sits on the Pro+ plan specifically.</p>
 
 <h2>A simple way to decide</h2>
 <p>If your bottleneck is writing, look at an AI rewriting tool or an end-to-end platform with strong generation. If your bottleneck is diagnosis — you write fine but don’t know why you’re not getting callbacks — a keyword-matching checker or a scoring feature does the job. If your bottleneck is volume, an end-to-end platform with tailoring plus application support avoids the overhead of juggling five separate tools across dozens of applications.</p>

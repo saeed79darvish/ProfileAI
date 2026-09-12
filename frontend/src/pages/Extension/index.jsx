@@ -398,10 +398,10 @@ export default function ExtensionPage() {
           <Button
             variant="outlined"
             size="large"
-            onClick={() => navigate('/applypilot')}
+            onClick={() => navigate('/jobs')}
             sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 600, px: 5, py: 1.75, textTransform: 'none', fontSize: 17 }}
           >
-            Explore ApplyPilot
+            Browse matched jobs
           </Button>
         </Box>
       </Container>

@@ -19,34 +19,24 @@ const BOT_UA_RE = /(googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou
 // Per-route SEO overrides. Add an entry per indexable public route.
 const ROUTE_META = {
   '/': {
-    title: 'ProfilleAI — AI Resume Tailoring, Auto-Apply & Negotiation Coach',
+    title: 'ProfilleAI — AI Resume Tailoring, Job Matching & Negotiation Coach',
     description:
-      'Tailor your resume to any job in seconds, auto-apply with the ApplyPilot Chrome extension, and practice salary negotiation with AI agents — all from your single ProfilleAI profile.',
+      'Tailor your resume to any job in seconds, find roles matched to your profile, and practice salary negotiation with AI agents — all from your single ProfilleAI profile.',
   },
   '/pricing': {
     title: 'Pricing — Free, Pro & Enterprise Plans | ProfilleAI',
     description:
-      'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for unlimited tailoring, ApplyPilot auto-apply, and AI negotiation coaching.',
-  },
-  '/apply-pilot': {
-    title: 'ApplyPilot — AI Job Auto-Apply Chrome Extension | ProfilleAI',
-    description:
-      'ApplyPilot is the ProfilleAI Chrome extension that auto-applies to 99% of jobs on LinkedIn, Indeed, Greenhouse, Lever, and Workday. You just review and approve.',
+      'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching.',
   },
   '/extension': {
     title: 'ProfilleAI Chrome Extension — Apply to Any Job, Anywhere',
     description:
       'The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page.',
   },
-  '/applypilot': {
-    title: 'ApplyPilot — AI Job Auto-Apply Chrome Extension | ProfilleAI',
-    description:
-      'ApplyPilot is the ProfilleAI Chrome extension that auto-applies to 99% of jobs on LinkedIn, Indeed, Greenhouse, Lever, and Workday.',
-  },
   '/jobs': {
     title: 'Browse Jobs — Curated Roles with AI Matching | ProfilleAI',
     description:
-      'Browse jobs curated for your profile. ProfilleAI ranks every role by fit, surfaces AI-suggested resume edits, and lets you apply in one click with ApplyPilot.',
+      'Browse jobs curated for your profile. ProfilleAI ranks every role by fit, flags likely ghost jobs, and surfaces AI-suggested resume edits before you apply.',
   },
   '/browse-profiles': {
     title: 'Browse Candidate Profiles — AI Recruiter Matching | ProfilleAI',
@@ -61,7 +51,7 @@ const ROUTE_META = {
   '/blog': {
     title: 'Blog — AI Career, Resume & Negotiation Insights | ProfilleAI',
     description:
-      'Guides on AI resume tailoring, auto-applying to jobs, salary negotiation, and how candidates and recruiters win with AI.',
+      'Guides on AI resume tailoring, applying to jobs faster, salary negotiation, and how candidates and recruiters win with AI.',
   },
   '/login': {
     title: 'Log in | ProfilleAI',

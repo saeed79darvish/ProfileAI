@@ -6,7 +6,6 @@ export const ROUTES = {
   BROWSE: '/browse',
   RECRUITER_DASHBOARD: '/recruiter/dashboard',
   PROFILE: '/profile',
-  APPLY_PILOT: '/applypilot',
   FEED: '/feed',
   PRICING: '/pricing',
   PRIVACY: '/privacy',
@@ -62,10 +61,12 @@ export const HERO_PROFILE_CARD = {
   skills: ['React', 'TypeScript'],
 } as const;
 
+export const HERO_MAIN_CARD = { title: 'Job Match', subtitle: 'Tailor & apply' } as const;
+
 export const HERO_AI_INSIGHT = { label: 'AI Insight', text: '"…would increase match by 15%"' } as const;
 
 export const HERO_JOB_CARD = {
-  label: '🚀 Job Detected',
+  label: '🚀 New Match',
   time: 'Just now',
   title: 'Staff Engineer',
   company: 'Vercel • Remote, US',
@@ -103,10 +104,10 @@ export const FEATURE_TABS_DATA = [
     color: COLORS.PRIMARY,
   },
   {
-    id: 'extension', label: 'ApplyPilot',
-    headline: 'Your AI co-pilot for job applications',
-    description: 'ApplyPilot, our Chrome extension, detects job listings on LinkedIn, Greenhouse, Lever, and 20+ platforms. One click to tailor your resume and auto-fill applications, like having a career coach on every tab.',
-    bullets: ['Works on LinkedIn, Greenhouse, Lever, Workday & more', 'One-click resume tailoring', 'Auto-fill job applications', 'Gap analysis before you apply'],
+    id: 'matching', label: 'Job Matching',
+    headline: 'Jobs picked for your profile, not for the algorithm',
+    description: 'We score every listing against your living profile, surface the roles you actually fit, and flag postings that look like ghost jobs so you spend your effort where someone is really hiring.',
+    bullets: ['Match score on every listing', 'Ghost-job likelihood scoring', 'Skills gap analysis before you apply', 'Tailor and send from the same place'],
     color: '#a78bfa',
   },
 ] as const;
@@ -116,11 +117,11 @@ export const TAILOR_DEMO = {
   label: 'Tailored Result', score: '92%', role: 'Senior Frontend Engineer', company: 'at Google',
   skills: ['✅ React', '✅ TypeScript', '✅ System Design', '⚡ AWS'],
 } as const;
-export const EXTENSION_DEMO = {
-  label: 'ApplyPilot', activeLabel: 'Active', detected: '🎯 Job Detected',
+export const MATCHING_DEMO = {
+  label: 'Job Match', freshLabel: 'Verified', detected: '🎯 Strong Match',
   jobTitle: 'Senior Engineer at Stripe',
   matchLabel: 'Match Score: ', matchScore: '94%',
-  tailorBtn: '⚡ Tailor Resume', autoFillBtn: '📝 Auto-fill',
+  tailorBtn: '⚡ Tailor Resume', coverBtn: '📋 Cover Letter',
 } as const;
 export const ARENA_DEMO = {
   label: 'Agent Arena',
@@ -137,7 +138,7 @@ export const HOW_IT_WORKS = {
 export const HOW_IT_WORKS_STEPS = [
   { step: '01', title: 'Upload your resume', desc: 'Drop in your existing resume or fill in your profile. Our AI instantly parses and structures your experience.', color: COLORS.PRIMARY },
   { step: '02', title: 'AI enhances your profile', desc: 'Get an AI-generated summary, extracted keywords, and actionable insights to make your profile stand out.', color: '#a78bfa' },
-  { step: '03', title: 'Tailor & apply anywhere', desc: 'Tailor your resume to specific jobs in one click. Use ApplyPilot to apply directly from any job board.', color: COLORS.SUCCESS },
+  { step: '03', title: 'Tailor & apply', desc: 'Tailor your resume to a specific job in one click, generate a matching cover letter, and track every application in one place.', color: COLORS.SUCCESS },
 ] as const;
 
 // ── Candidates / Recruiters ──
@@ -147,7 +148,7 @@ export const CANDIDATE = {
   desc: 'Build your AI-enhanced profile once, then tailor it to every job. Apply faster, interview smarter, negotiate better.',
   features: [
     'AI profile enhancement & keyword optimization', 'One-click resume tailoring for any job',
-    'ApplyPilot Chrome extension for any job board', 'Agent Arena salary negotiation practice',
+    'AI-matched job feed with ghost-job filtering', 'Agent Arena salary negotiation practice',
     'Skills gap analysis & learning plans', 'Application tracking dashboard',
   ],
   authBtn: 'Go to Profile', unauthBtn: 'Start as Candidate',
@@ -161,33 +162,6 @@ export const RECRUITER = {
     'Interview scheduling & calendar', 'Phone screening with AI insights',
   ],
   comingSoon: 'Coming Soon',
-} as const;
-
-// ── ApplyPilot CTA ──
-export const APPLYPILOT_CTA = {
-  brandTitle: 'ApplyPilot', brandSub: 'Chrome Extension',
-  headingPrefix: 'Your AI co-pilot for ', headingHighlight: 'every job application',
-  desc: 'ApplyPilot lives in your browser, detects job listings on 20+ platforms, and gives you AI-powered tools right where you need them.',
-  primaryBtn: 'Add to Chrome', secondaryBtn: 'Learn More',
-} as const;
-export const APPLYPILOT_BULLETS = [
-  { icon: '🎯', text: 'Auto-detects jobs on LinkedIn, Greenhouse, Lever & more' },
-  { icon: '⚡', text: 'One-click resume tailoring with match score' },
-  { icon: '📝', text: 'Smart auto-fill for application forms' },
-  { icon: '🔍', text: 'Gap analysis before you hit apply' },
-] as const;
-export const PLATFORM_CHIPS = ['LinkedIn', 'Greenhouse', 'Lever', 'Workday', 'Ashby', '+20 more'] as const;
-
-// Browser mockup demo
-export const BROWSER_DEMO = {
-  url: 'linkedin.com/jobs/senior-engineer-stripe',
-  jobLabel: 'LINKEDIN JOB POSTING', jobTitle: 'Senior Frontend Engineer',
-  jobCompany: 'Stripe · San Francisco, CA · $180-220K',
-  matchLabel: 'Your Match Score', matchScore: '94%',
-  skills: ['✅ React', '✅ TypeScript', '✅ System Design', '⚡ AWS'],
-  tailorBtn: '⚡ Tailor & Apply', coverBtn: '📋 Cover Letter',
-  floatingNote: '✨ Works on 20+ job boards',
-  detectedLabel: 'Job Detected',
 } as const;
 
 // ── More Features ──

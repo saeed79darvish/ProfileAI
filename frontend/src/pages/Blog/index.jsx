@@ -13,7 +13,7 @@ const BlogIndex = () => {
         title="Blog — AI Career, Resume & Negotiation Insights"
         description="Guides on AI resume tailoring, auto-applying to jobs, salary negotiation, and how candidates and recruiters win with AI."
         path="/blog"
-        keywords="AI resume blog, job search AI, ATS optimization, salary negotiation tips, ApplyPilot guide"
+        keywords="AI resume blog, job search AI, ATS optimization, salary negotiation tips, job application autofill guide"
         jsonLd={{
           '@context': 'https://schema.org',
           '@type': 'Blog',

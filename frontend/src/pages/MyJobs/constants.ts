@@ -54,10 +54,10 @@ export const LIMITS = {
 export const TEXT = {
   PAGE_TITLE: 'My Jobs',
   SUBTITLE: 'Track every job you\'ve applied to',
-  SUBTITLE_PILOT: 'Track every job you\'ve applied to with ApplyPilot',
+  SUBTITLE_PILOT: 'Track every job you\'ve applied to',
   EMPTY_TITLE: 'No applications yet',
-  EMPTY_DESC: 'Install the ApplyPilot Chrome extension and every job you apply to will automatically appear here. You can also add applications manually.',
-  GET_APPLYPILOT: 'Get ApplyPilot',
+  EMPTY_DESC: 'Install the ProfilleAI Chrome extension and every job you apply to will automatically appear here. You can also add applications manually.',
+  GET_APPLYPILOT: 'Get the extension',
   ADD_MANUALLY: 'Add Manually',
   ADD_APP: 'Add Application',
   EDIT_APP: 'Edit Application',
