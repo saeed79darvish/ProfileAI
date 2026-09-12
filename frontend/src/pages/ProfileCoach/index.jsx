@@ -59,6 +59,8 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  sectorChips,
+  MORE_SECTORS_CHIP,
 } from './coachLogic';
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
@@ -593,6 +595,17 @@ const ProfileCoach = () => {
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
+
+    // "More fields" is not an answer: it reveals the rest of the sectors on
+    // the question already asked, so nothing is spent and nothing advances.
+    if (chip.id === MORE_SECTORS_CHIP.id) {
+      keepScrollRef.current = true;
+      setMessages((prev) => prev.map(
+        (m) => (m.id === message.id ? { ...m, chips: sectorChips(true) } : m)
+      ));
+      trackEvent('coach_sectors_expanded', {});
+      return;
+    }
 
     // Multi-select: accumulate on the message, commit on Continue.
     if (step.kind === 'multi') {

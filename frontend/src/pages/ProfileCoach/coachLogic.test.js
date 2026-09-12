@@ -2,7 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  JOB_SECTORS,
+  SECTOR_TITLES,
+  SECTOR_SKILLS,
+} from '../../data/jobTaxonomy.js';
+
+import {
   LADDER,
+  sectorChips,
+  MORE_SECTORS_CHIP,
   emptyDraft,
   resumeSections,
   isPresentable,
@@ -447,4 +455,48 @@ test('picking a work style records it on the draft', () => {
   assert.equal(out.workStyle, 'flexible');
   // And the panel counts it as an answer to "looking for".
   assert.equal(panelState(out, []).lookingFor, true);
+});
+
+/* ─── Sector coverage ─────────────────────────────────────────
+   The sector list is the first thing anyone sees, so it doubles as a
+   statement about who the product is for. These guard the two ways that
+   breaks: a sector with no titles/skills behind it, and an answer a real
+   person would type falling through to the model. */
+
+test('every sector has titles and skills behind it', () => {
+  const missing = JOB_SECTORS.filter(
+    (s) => !SECTOR_TITLES[s.id]?.length || !SECTOR_SKILLS[s.id]
+  );
+  assert.deepEqual(missing.map((s) => s.id), []);
+});
+
+test('the first sector screen is offered with a way to see the rest', () => {
+  const first = sectorChips(false);
+  const all = sectorChips(true);
+  assert.ok(first.length < all.length, 'the short list must actually be shorter');
+  assert.equal(first.at(-1).id, MORE_SECTORS_CHIP.id);
+  assert.ok(!all.some((c) => c.id === MORE_SECTORS_CHIP.id), 'expanded list is answers only');
+});
+
+test('"More fields" is never resolved as an answer', () => {
+  assert.equal(matchChip('More fields', sectorChips(false)), null);
+});
+
+test('sectors match how people describe their own work, not our labels', () => {
+  const expected = {
+    'I am an electrician': 'trades',
+    'i work in a call center': 'support',
+    'cna at a nursing home': 'healthcare',
+    'I drive a truck': 'logistics',
+    'barista at a coffee shop': 'hospitality',
+    'warehouse associate': 'logistics',
+    'lab technician': 'science',
+    'substitute teacher': 'education',
+    'I am a hairdresser': 'personal',
+    'bookkeeper': 'finance',
+    'security guard': 'publicservice',
+  };
+  for (const [said, sector] of Object.entries(expected)) {
+    assert.equal(matchSector(said)?.sector, sector, `"${said}" should land in ${sector}`);
+  }
 });

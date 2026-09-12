@@ -12,6 +12,7 @@
 
 import {
   JOB_SECTORS,
+  PRIMARY_SECTORS,
   SECTOR_TITLES,
   SECTOR_SKILLS,
   ALL_SKILLS,
@@ -54,6 +55,22 @@ export const WORK_STYLES = [
   // not have narrows their job matches for no reason.
   { id: 'flexible', label: 'Flexible' },
 ];
+
+// Not an answer: tapping it re-renders the same question with every sector.
+// The `__` prefix is what keeps it out of local answer matching.
+export const MORE_SECTORS_CHIP = { id: '__more_sectors', label: 'More fields' };
+
+/**
+ * The sector chips. 26 at once is a wall rather than a question, so the
+ * first screen is the primary set — chosen to span the labour market, not
+ * to rank it — and the rest are one tap behind "More fields".
+ */
+export const sectorChips = (expanded = false) => {
+  const chips = (expanded ? JOB_SECTORS : PRIMARY_SECTORS)
+    .map((s) => ({ id: s.id, label: s.label }));
+  if (!expanded) chips.push({ ...MORE_SECTORS_CHIP });
+  return chips;
+};
 
 export const IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
@@ -329,7 +346,7 @@ export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {
     case 'sectors':
-      return JOB_SECTORS.map((s) => ({ id: s.id, label: s.label }));
+      return sectorChips(false);
     case 'levels':
       return SENIORITY_LEVELS.map((l) => ({ id: l.id, label: l.label }));
     case 'titles': {
@@ -380,15 +397,26 @@ export const matchSector = (text) => {
   const t = norm(text);
   if (!t) return null;
 
+  // Titles first, longest first: "Senior Data Analyst" is better evidence
+  // than the word "data", and the specific title is worth keeping.
+  const titled = Object.entries(SECTOR_TITLES)
+    .flatMap(([sectorId, titles]) => titles.map((title) => ({ sectorId, title })))
+    .sort((a, b) => b.title.length - a.title.length)
+    .find(({ title }) => t.includes(norm(title)));
+  if (titled) return { sector: titled.sectorId, title: titled.title };
+
+  // Then how people actually describe their field — "I'm an electrician",
+  // "I work in a call center" — which is rarely the label we wrote.
+  const aliased = JOB_SECTORS
+    .flatMap((sector) => (sector.aliases || []).map((alias) => ({ sector, alias })))
+    .sort((a, b) => b.alias.length - a.alias.length)
+    .find(({ alias }) => t.includes(norm(alias)));
+  if (aliased) return { sector: aliased.sector.id };
+
   for (const sector of JOB_SECTORS) {
-    // "Tech & Engineering" → ["tech", "engineering"]
+    // "Design & Creative" → ["design", "creative"]
     const words = sector.label.split('&').map((w) => norm(w)).filter(Boolean);
     if (words.some((w) => w.length > 2 && t.includes(w))) return { sector: sector.id };
-  }
-
-  for (const [sectorId, titles] of Object.entries(SECTOR_TITLES)) {
-    const hit = titles.find((title) => t.includes(norm(title)));
-    if (hit) return { sector: sectorId, title: hit };
   }
 
   return null;
@@ -402,6 +430,9 @@ export const matchSector = (text) => {
 export const matchChip = (text, chips) => {
   const t = norm(text);
   if (!t) return null;
+  // Control chips ("More fields") are not answers — typing their label must
+  // not assign one as the person's sector.
+  chips = (chips || []).filter((c) => !String(c.id).startsWith('__'));
   return (
     chips.find((c) => norm(c.label) === t) ||
     chips.find((c) => norm(c.label).includes(t) && t.length > 3) ||
