@@ -83,8 +83,11 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
     const result = await resumeParserService.parseResume(req.file);
 
     if (!result.success) {
-      return res.status(400).json({ 
-        error: result.error || 'Failed to parse resume'
+      return res.status(400).json({
+        error: result.error || 'Failed to parse resume',
+        // Lets the client tell "that is not a resume" apart from "the parser
+        // fell over", which are different sentences to put to someone.
+        code: result.code || undefined,
       });
     }
 
@@ -154,7 +157,8 @@ router.post('/guest/upload-resume', guestAnalysisLimiter({ perIpPerDay: 20 }), u
 
     if (!result.success) {
       return res.status(400).json({
-        error: result.error || 'Failed to parse resume'
+        error: result.error || 'Failed to parse resume',
+        code: result.code || undefined,
       });
     }
 

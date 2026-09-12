@@ -9,6 +9,7 @@
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
+const { classifyDocument, rejectionMessage } = require('./resumeDocumentType');
 // IMPORTANT: pdf-parse@1.1.1's top-level index.js has a debug shim that
 // tries to read a bundled test fixture when `module.parent` is undefined,
 // which is the case under Render's Node 22 runtime. Requiring the inner
@@ -1295,6 +1296,21 @@ Important guidelines:
       }
 
       console.log(`Extracted ${resumeText.length} characters from resume`);
+
+      // Before the model sees it. Asked to parse a resume a model parses
+      // whatever it is handed — a signed consulting agreement came back as a
+      // job title, a skills list and a career's worth of confident nonsense.
+      const docType = classifyDocument(resumeText);
+      if (!docType.isResume) {
+        console.warn(
+          `[Resume] Rejected a ${docType.kind}: resumeScore=${docType.resumeScore} legalScore=${docType.legalScore}`
+        );
+        return {
+          success: false,
+          code: 'not_a_resume',
+          error: rejectionMessage(docType.kind),
+        };
+      }
 
       // Step 2: Parse with AI. The pattern matcher below is a heuristic that
       // splits on commas and picks the first "Word, Word" match in the document

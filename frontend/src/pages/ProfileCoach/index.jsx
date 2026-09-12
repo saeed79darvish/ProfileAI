@@ -502,9 +502,16 @@ const ProfileCoach = () => {
       finishProgress(ok);
       if (ok) applyImport(data.data, 'resume');
       else pushCoach(TEXT.UPLOAD_FAILED);
-    } catch {
+    } catch (err) {
       finishProgress(false);
-      pushCoach(TEXT.UPLOAD_FAILED);
+      // The server can tell a file that is not a resume from a parse that
+      // failed. Saying "I could not read that file" about a contract we read
+      // perfectly well is both wrong and unhelpable.
+      pushCoach(err?.code === 'not_a_resume' && err.userMessage
+        ? err.userMessage
+        : TEXT.UPLOAD_FAILED);
+      // The import chips stay live either way, so the next file is one tap
+      // away rather than a reload.
     } finally {
       setBusy(false);
     }

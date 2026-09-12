@@ -246,7 +246,12 @@ export const profileAPI = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Upload failed' }));
       const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
-      throw new Error(message);
+      const err = new Error(message);
+      // A rejected file is not a broken upload: the caller shows the reason
+      // rather than a generic failure.
+      err.code = error.code;
+      err.userMessage = error.error;
+      throw err;
     }
     return { data: await response.json() };
   },
@@ -260,7 +265,12 @@ export const profileAPI = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Upload failed' }));
       const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
-      throw new Error(message);
+      const err = new Error(message);
+      // A rejected file is not a broken upload: the caller shows the reason
+      // rather than a generic failure.
+      err.code = error.code;
+      err.userMessage = error.error;
+      throw err;
     }
     return { data: await response.json() };
   },
@@ -311,7 +321,12 @@ export const profileAPI = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Upload failed' }));
       const message = error.detail ? `${error.error}: ${error.detail}` : (error.error || 'Upload failed');
-      throw new Error(message);
+      const err = new Error(message);
+      // A rejected file is not a broken upload: the caller shows the reason
+      // rather than a generic failure.
+      err.code = error.code;
+      err.userMessage = error.error;
+      throw err;
     }
     return { data: await response.json() };
   },
