@@ -82,7 +82,7 @@ export const TEXT = {
   UPLOAD_DONE: 'Read it. I filled in what I found — let me just check the gaps.',
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
   UPLOAD_UNREADABLE: 'Could not read this one',
-  UPLOAD_CANCELLED: 'No problem. Pick another option above, or we can keep chatting.',
+  UPLOAD_CANCELLED: 'No problem — pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 

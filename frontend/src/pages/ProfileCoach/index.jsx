@@ -63,6 +63,7 @@ import {
   normalizeTitle,
   parseLinks,
   sectorChips,
+  RETRY_IMPORT_CHOICES,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
 } from './coachLogic';
@@ -460,6 +461,30 @@ const ProfileCoach = () => {
     advance(LADDER.findIndex((s) => s.id === 'importOffer'), nextDraft);
   }, [advance, pushCoach]);
 
+  /**
+   * Put the way forward at the bottom of the conversation.
+   *
+   * The import chips stayed live after a refused file, but by then the
+   * transcript had grown a progress card and two messages, so the only way
+   * out was to scroll back up and find them. A chat that has just told you
+   * no has to say what to do next in the same breath, at the end, where you
+   * are already looking.
+   */
+  const offerImportAgain = useCallback((text) => {
+    setMessages((prev) => [
+      // Retire the older row so there is exactly one live set of these.
+      ...prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)),
+      {
+        id: nextId(),
+        role: 'coach',
+        text,
+        stepId: 'importOffer',
+        chips: RETRY_IMPORT_CHOICES.map((c) => ({ ...c })),
+        selected: [],
+      },
+    ]);
+  }, []);
+
   const handleFile = useCallback(async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -501,21 +526,19 @@ const ProfileCoach = () => {
       const ok = !!(data?.success && data?.data);
       finishProgress(ok);
       if (ok) applyImport(data.data, 'resume');
-      else pushCoach(TEXT.UPLOAD_FAILED);
+      else offerImportAgain(TEXT.UPLOAD_FAILED);
     } catch (err) {
       finishProgress(false);
       // The server can tell a file that is not a resume from a parse that
       // failed. Saying "I could not read that file" about a contract we read
       // perfectly well is both wrong and unhelpable.
-      pushCoach(err?.code === 'not_a_resume' && err.userMessage
+      offerImportAgain(err?.code === 'not_a_resume' && err.userMessage
         ? err.userMessage
         : TEXT.UPLOAD_FAILED);
-      // The import chips stay live either way, so the next file is one tap
-      // away rather than a reload.
     } finally {
       setBusy(false);
     }
-  }, [applyImport, isAuthenticated, pushCoach, pushMine]);
+  }, [applyImport, isAuthenticated, offerImportAgain, pushMine]);
 
   /* ─── Run steps: the coach does work and reports back ──────── */
 
@@ -1339,7 +1362,7 @@ const ProfileCoach = () => {
         onChange={handleFile}
         // Not supported in every browser, which is exactly why the import
         // chips stay live rather than relying on this to unstick the flow.
-        onCancel={() => pushCoach(TEXT.UPLOAD_CANCELLED)}
+        onCancel={() => offerImportAgain(TEXT.UPLOAD_CANCELLED)}
         style={{ display: 'none' }}
       />
 

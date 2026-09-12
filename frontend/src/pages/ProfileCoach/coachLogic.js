@@ -292,6 +292,16 @@ export const IMPORT_CHOICES = [
   { id: 'chat', label: "No, let's just chat" },
 ];
 
+/* The same three, offered again after a file was refused. Same ids, so the
+   answer handling does not care which row a chip came from — only the first
+   label changes, because "upload my resume" is odd advice to someone who just
+   did exactly that. */
+export const RETRY_IMPORT_CHOICES = [
+  { id: 'resume', label: 'Try another file' },
+  { id: 'linkedin', label: 'Import from LinkedIn' },
+  { id: 'chat', label: "No, let's just chat" },
+];
+
 /* ─── The ladder ──────────────────────────────────────────────
 
    Each step declares:
