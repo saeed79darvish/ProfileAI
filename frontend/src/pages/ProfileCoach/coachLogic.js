@@ -402,6 +402,23 @@ export const LADDER = [
     optional: true,
   },
   {
+    id: 'projects',
+    question: 'Then tell me about something you built, ran or organised.',
+    hint: 'A side project, a course project, something at a volunteer job. What it was and what you did.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'projects',
+    assign: null,
+    // Asked of whoever reached here with nothing in their experience: no work
+    // history, or they skipped the role questions. Those people were walking
+    // out with an empty experience section, which is the section recruiters
+    // read first. Not asked of someone who already named a job — the
+    // conversation has to end eventually, and the editor can add more.
+    skipIf: 'hasExperience',
+    optional: true,
+  },
+  {
     id: 'skills',
     question: "What are you good at? Tap everything that fits.",
     hint: 'These are literally what recruiters filter on, so be generous.',
@@ -430,6 +447,19 @@ export const LADDER = [
     chipSet: null,
     freeText: true,
     aiStep: 'location',
+    assign: null,
+    optional: true,
+  },
+  {
+    id: 'links',
+    question: 'Anywhere someone can see your work?',
+    hint: 'LinkedIn, GitHub, a portfolio — paste any of them in one go. Skip if you would rather not.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    // No model needed: a URL is already the answer, and which kind it is can
+    // be read off the domain.
+    aiStep: null,
     assign: null,
     optional: true,
   },
@@ -506,6 +536,7 @@ export const emptyDraft = () => ({
   projects: [],
   linkedinUrl: '',
   githubUrl: '',
+  portfolioUrl: '',
   phone: '',
   // Set when a resume or LinkedIn import seeded the draft — the coach then
   // asks only about what the import left empty.
@@ -575,6 +606,24 @@ const TITLE_SPELLINGS = {
 
 // Words that stay lowercase inside a title, never at the start of one.
 const TITLE_MINOR = new Set(['of', 'at', 'in', 'on', 'and', 'the', 'for', 'to', 'a', 'an']);
+
+/* Links arrive as whatever someone pastes: three URLs on one line, with or
+   without https://, sometimes with a trailing comma. Which field each one
+   belongs in is written on the domain, so this needs no model — and anything
+   we cannot place is kept as the portfolio rather than dropped, because a
+   link someone bothered to paste is never noise. */
+export const parseLinks = (text) => {
+  const found = String(text || '').match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s,;]*)?/gi) || [];
+  const out = {};
+  for (const raw of found) {
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const host = url.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+    if (host.includes('linkedin.')) { out.linkedinUrl = out.linkedinUrl || url; continue; }
+    if (host.includes('github.') || host.includes('gitlab.')) { out.githubUrl = out.githubUrl || url; continue; }
+    out.portfolioUrl = out.portfolioUrl || url;
+  }
+  return out;
+};
 
 export const normalizeTitle = (text) => {
   const words = String(text || '').trim().replace(/\s+/g, ' ').split(' ');
@@ -855,6 +904,9 @@ const SKIP_PREDICATES = {
   // name. The editor still lets them add one later.
   noWorkHistory: (draft) =>
     draft.careerStage === 'new_grad' || draft.careerStage === 'student',
+  // They already named a job, so the profile has something in it. Projects
+  // are for the people whose work does not live at an employer.
+  hasExperience: (draft) => (draft.experience || []).length > 0,
   // Nothing was imported, so there is no document to react to.
   noImport: (draft) => !draft.importedFrom,
   // They skipped the target question; assessing an unstated goal would mean
@@ -950,6 +1002,29 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
       };
       next.experience = [row, ...(draft.experience || [])];
       if (!next.title && fields.title) next.title = fields.title;
+      break;
+    }
+    case 'projects': {
+      const name = String(fields.name || '').trim();
+      if (!name) break;
+      const row = {
+        title: name,
+        role: fields.role || '',
+        description: fields.description || '',
+        url: fields.url || '',
+        technologies: Array.isArray(fields.technologies) ? fields.technologies : [],
+      };
+      if (intoLatest && (draft.projects || []).length) {
+        const [head, ...rest] = draft.projects;
+        next.projects = [{ ...head, ...row, description: row.description || head.description }, ...rest];
+        break;
+      }
+      next.projects = [row, ...(draft.projects || [])];
+      // Tools named while describing a project are skills, and asking for
+      // them again three questions later reads as not having listened.
+      if (row.technologies.length) {
+        next.skills = Array.from(new Set([...(draft.skills || []), ...row.technologies]));
+      }
       break;
     }
     case 'education': {
@@ -1184,6 +1259,7 @@ export const draftToResumeData = (draft = {}) => ({
   phone: draft.phone || '',
   linkedinUrl: draft.linkedinUrl || '',
   githubUrl: draft.githubUrl || '',
+  portfolioUrl: draft.portfolioUrl || '',
   summary: draft.summary || '',
   // Flat array — ProfileForm categorises it on the way in.
   skills: draft.skills || [],

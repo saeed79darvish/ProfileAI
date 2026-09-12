@@ -183,7 +183,7 @@ export const mapWizardProjectToEditor = (p = {}) => {
     description: p.description || '',
     url: routesToSource ? '' : rawUrl,
     githubUrl: routesToSource ? rawUrl : '',
-    technologies: [],
+    technologies: Array.isArray(p.technologies) ? p.technologies : [],
     imageUrl: '',
     startDate: '',
     endDate: '',

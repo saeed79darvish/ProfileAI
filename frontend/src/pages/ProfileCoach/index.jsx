@@ -60,6 +60,7 @@ import {
   isPresentable,
   canAnswer,
   normalizeTitle,
+  parseLinks,
   sectorChips,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
@@ -749,6 +750,18 @@ const ProfileCoach = () => {
       if (step.id === 'sector') {
         const matched = matchSector(text);
         commit(matched.title ? { sector: matched.sector, title: matched.title } : { sector: matched.sector }, index);
+        return;
+      }
+      if (step.id === 'links') {
+        const links = parseLinks(text);
+        if (!Object.keys(links).length) {
+          // Nothing that looks like a link. Say so rather than silently
+          // swallowing it and moving on as though it landed.
+          setError(TEXT.ERROR_NO_LINK);
+          setInput(text);
+          return;
+        }
+        commit(links, index);
         return;
       }
       if (step.id === 'skills') {

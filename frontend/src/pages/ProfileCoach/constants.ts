@@ -96,6 +96,7 @@ export const TEXT = {
   LINKEDIN_GATE_CONFIRM: 'Create free account',
   LINKEDIN_GATE_CANCEL: 'Use the PDF option',
 
+  ERROR_NO_LINK: "That does not look like a link — paste the whole address, or skip this one.",
   ERROR_GENERIC: 'Something went wrong on my end. Try that again?',
   ERROR_FILE_TYPE: 'Please upload a PDF or DOCX file',
   ERROR_FILE_SIZE: 'File size must be less than 5MB',

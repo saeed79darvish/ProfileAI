@@ -84,6 +84,28 @@ const STEP_SCHEMAS = {
     expects: { location: 'city and country or region' },
     required: ['location'],
   },
+  // For the people whose work does not live at an employer: students, new
+  // grads, bootcamp leavers, career changers, and anyone who skipped the
+  // role questions. Without this the coach hands them a profile with an
+  // empty experience section — which is the one section recruiters read.
+  //
+  // `technologies` is deliberately broad. A nurse's project used a triage
+  // protocol, an electrician's used conduit and a permit; insisting on
+  // software tooling here is how a builder tells half its users it was not
+  // written for them.
+  projects: {
+    question: 'Tell me about something you built, ran or organised.',
+    expects: {
+      name: 'short name for the project',
+      description: 'what it was and what they did on it, one or two sentences in their own words',
+      technologies: 'array of tools, materials, systems or methods they used',
+      url: 'link to it, if they gave one',
+      role: 'their role on it, if they said',
+    },
+    // A project with no name is not a row anyone can render. Everything else
+    // can be filled in later in the editor.
+    required: ['name'],
+  },
   // The coach's own follow-up questions after reading a resume ("what reports
   // do you build, and who reads them?"). Deliberately loose: a good probe
   // answer is a story, and what we want out of it is whatever it evidences —

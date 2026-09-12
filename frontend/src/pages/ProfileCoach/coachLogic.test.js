@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   levelsFor,
+  parseLinks,
   targetChips,
   normalizeTitle,
   titleChips,
@@ -177,8 +178,25 @@ test('nextStepIndex walks over skipped steps and ends at -1', () => {
   const draft = { ...emptyDraft(), careerStage: 'new_grad' };
   const roleIdx = LADDER.findIndex((s) => s.id === 'currentRole');
   const next = nextStepIndex(roleIdx - 1, draft);
-  assert.equal(LADDER[next].id, 'skills', 'should jump past currentRole and achievements');
+  // Past the two employer questions, and onto projects — which is the whole
+  // point: a new grad with no job still needs something in the section
+  // recruiters read first.
+  assert.equal(LADDER[next].id, 'projects');
   assert.equal(nextStepIndex(LADDER.length - 1, draft), -1);
+});
+
+test('projects are asked of whoever has nothing else, and nobody else', () => {
+  const projectsIdx = LADDER.findIndex((s) => s.id === 'projects');
+  const employed = {
+    ...emptyDraft(),
+    careerStage: 'experienced',
+    experience: [{ company: 'Acme', title: 'Engineer' }],
+  };
+  assert.equal(shouldSkip(LADDER[projectsIdx], employed), true);
+
+  // Skipping the role questions leaves the same hole a new grad has.
+  const skipped = { ...emptyDraft(), careerStage: 'experienced' };
+  assert.equal(shouldSkip(LADDER[projectsIdx], skipped), false);
 });
 
 test('an import stops the coach re-asking what it already answered', () => {
@@ -642,4 +660,20 @@ test('sideways moves stay inside the same family of work', () => {
   assert.ok(nurse.includes('Nurse Practitioner'));
   // A step down is not an ambition.
   assert.ok(!nurse.includes('Medical Assistant'));
+});
+
+/* ─── Links ───────────────────────────────────────────────────
+   Whatever someone pastes, in whatever shape. */
+
+test('links are filed by their domain, and none are dropped', () => {
+  const links = parseLinks('linkedin.com/in/me, https://github.com/me and mysite.dev');
+  assert.equal(links.linkedinUrl, 'https://linkedin.com/in/me');
+  assert.equal(links.githubUrl, 'https://github.com/me');
+  // Anything we cannot place is kept, not binned: they bothered to paste it.
+  assert.equal(links.portfolioUrl, 'https://mysite.dev');
+});
+
+test('a link answer with no link in it is not silently accepted', () => {
+  assert.deepEqual(parseLinks('i do not have one'), {});
+  assert.deepEqual(parseLinks(''), {});
 });
