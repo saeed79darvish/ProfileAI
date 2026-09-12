@@ -9,6 +9,7 @@ import {
 
 import {
   LADDER,
+  levelsFor,
   sectorChips,
   MORE_SECTORS_CHIP,
   emptyDraft,
@@ -499,4 +500,33 @@ test('sectors match how people describe their own work, not our labels', () => {
   for (const [said, sector] of Object.entries(expected)) {
     assert.equal(matchSector(said)?.sector, sector, `"${said}" should land in ${sector}`);
   }
+});
+
+/* ─── Levels ──────────────────────────────────────────────────
+   The rungs have to be the ones the person's own trade uses, and they have
+   to survive into a headline that reads like a job someone holds. */
+
+test('every sector offers rungs, and the trades are not given an org chart', () => {
+  for (const sector of JOB_SECTORS) {
+    const levels = levelsFor(sector.id);
+    assert.ok(levels.length >= 4, `${sector.id} needs a usable ladder`);
+    const ids = levels.map((l) => l.id);
+    assert.equal(new Set(ids).size, ids.length, `${sector.id} has a duplicate rung`);
+  }
+  const trades = levelsFor('trades').map((l) => l.label);
+  assert.ok(trades.includes('Apprentice'), 'a tradesperson starts as an apprentice');
+  assert.ok(
+    !trades.some((l) => /individual contributor|head of department/i.test(l)),
+    'the office ladder does not belong on a building site'
+  );
+});
+
+test('a rung joins the title the way its own sector says it', () => {
+  assert.equal(buildTitle({ sector: 'trades', level: 'senior', title: 'Electrician' }), 'Master Electrician');
+  assert.equal(buildTitle({ sector: 'trades', level: 'entry', title: 'Electrician' }), 'Apprentice Electrician');
+  assert.equal(buildTitle({ sector: 'tech', level: 'senior', title: 'Frontend Developer' }), 'Senior Frontend Developer');
+  // Standing, not a job: "Mid-level Software Engineer" is not a role.
+  assert.equal(buildTitle({ sector: 'tech', level: 'ic', title: 'Software Engineer' }), 'Software Engineer');
+  // Never say it twice.
+  assert.equal(buildTitle({ sector: 'tech', level: 'senior', title: 'Senior Backend Engineer' }), 'Senior Backend Engineer');
 });

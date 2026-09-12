@@ -38,14 +38,167 @@ export const LIMITS = {
 
 /* ─── Chip sets the ladder refers to by name ──────────────────── */
 
-export const SENIORITY_LEVELS = [
-  { id: 'ic', label: 'Individual Contributor' },
-  { id: 'lead', label: 'Team Lead' },
-  { id: 'manager', label: 'Manager' },
-  { id: 'director', label: 'Director' },
-  { id: 'head', label: 'Head of Department' },
-  { id: 'consultant', label: 'Consultant' },
+/* ─── Levels ──────────────────────────────────────────────────
+
+   What "one rung up" is called depends entirely on the trade. An
+   electrician is an apprentice then a journeyman then a foreman; a nurse is
+   an aide then licensed then charge; a line cook is crew then shift lead.
+   Offering all of them "Individual Contributor / Director / Head of
+   Department" asked them to translate their own career into a software
+   company's org chart, and the honest answer was none of the above.
+
+   Ids stay canonical across every sector — only the labels change — so a
+   stored draft keeps meaning the same thing, and buildTitle() below can
+   reason about rank without knowing the sector. `prefix`/`suffix` are how a
+   rung joins the job title: "Senior Nurse", "Master Electrician",
+   "Product Manager (Manager)" — and a rung with neither is one that does not
+   belong in a headline. */
+
+const L = (id, label, extra = {}) => ({ id, label, ...extra });
+
+const DEFAULT_LEVELS = [
+  L('entry', 'Junior / Entry level', { prefix: 'Junior' }),
+  L('ic', 'Mid-level'),
+  L('senior', 'Senior', { prefix: 'Senior' }),
+  L('lead', 'Team Lead', { prefix: 'Lead' }),
+  L('manager', 'Manager', { suffix: 'Manager' }),
+  L('director', 'Director', { suffix: 'Director' }),
+  L('head', 'Head of Department'),
+  L('consultant', 'Freelance / Consultant'),
 ];
+
+const LEVELS_BY_SECTOR = {
+  trades: [
+    L('entry', 'Apprentice', { prefix: 'Apprentice' }),
+    L('ic', 'Qualified tradesperson'),
+    L('senior', 'Master / Licensed', { prefix: 'Master' }),
+    L('lead', 'Foreman / Crew lead', { prefix: 'Lead' }),
+    L('manager', 'Site / Project manager', { suffix: 'Site Manager' }),
+    L('owner', 'Self-employed / Contractor'),
+  ],
+  healthcare: [
+    L('entry', 'Assistant / Aide'),
+    L('ic', 'Licensed clinician'),
+    L('senior', 'Senior / Specialist', { prefix: 'Senior' }),
+    L('lead', 'Charge / Lead clinician', { prefix: 'Lead' }),
+    L('manager', 'Department manager', { suffix: 'Manager' }),
+    L('director', 'Clinical director', { suffix: 'Director' }),
+    L('consultant', 'Locum / Agency'),
+  ],
+  hospitality: [
+    L('entry', 'Crew / Associate'),
+    L('senior', 'Experienced / Senior', { prefix: 'Senior' }),
+    L('lead', 'Shift lead', { prefix: 'Lead' }),
+    L('manager', 'Assistant manager', { suffix: 'Assistant Manager' }),
+    L('director', 'General manager', { suffix: 'General Manager' }),
+    L('owner', 'Owner / Franchisee'),
+  ],
+  education: [
+    L('entry', 'Assistant / Aide'),
+    L('ic', 'Teacher / Instructor'),
+    L('senior', 'Senior / Lead teacher', { prefix: 'Senior' }),
+    L('lead', 'Department head'),
+    L('manager', 'Principal / Administrator'),
+    L('consultant', 'Tutor / Freelance'),
+  ],
+  logistics: [
+    L('entry', 'Operator / Associate'),
+    L('senior', 'Senior / Certified', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Supervisor', { suffix: 'Supervisor' }),
+    L('director', 'Site / Depot manager', { suffix: 'Site Manager' }),
+    L('owner', 'Owner-operator'),
+  ],
+  manufacturing: [
+    L('entry', 'Operator / Associate'),
+    L('senior', 'Senior / Certified', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Shift supervisor', { suffix: 'Supervisor' }),
+    L('director', 'Plant manager', { suffix: 'Plant Manager' }),
+  ],
+  engineering: [
+    L('entry', 'Junior engineer', { prefix: 'Junior' }),
+    L('ic', 'Engineer'),
+    L('senior', 'Senior engineer', { prefix: 'Senior' }),
+    L('lead', 'Lead / Principal', { prefix: 'Lead' }),
+    L('manager', 'Engineering manager', { suffix: 'Manager' }),
+    L('consultant', 'Consultant'),
+  ],
+  science: [
+    L('entry', 'Technician / Assistant'),
+    L('ic', 'Scientist / Researcher'),
+    L('senior', 'Senior scientist', { prefix: 'Senior' }),
+    L('lead', 'Principal investigator', { prefix: 'Principal' }),
+    L('manager', 'Lab / R&D manager', { suffix: 'Manager' }),
+  ],
+  socialcare: [
+    L('entry', 'Support worker'),
+    L('ic', 'Practitioner / Case manager'),
+    L('senior', 'Senior practitioner', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Service manager', { suffix: 'Manager' }),
+    L('director', 'Program director', { suffix: 'Director' }),
+  ],
+  publicservice: [
+    L('entry', 'Officer / Coordinator'),
+    L('senior', 'Senior officer', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Manager', { suffix: 'Manager' }),
+    L('director', 'Director', { suffix: 'Director' }),
+  ],
+  admin: [
+    L('entry', 'Assistant'),
+    L('ic', 'Coordinator'),
+    L('senior', 'Senior / Executive assistant', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Office manager', { suffix: 'Office Manager' }),
+  ],
+  sales: [
+    L('entry', 'Junior rep', { prefix: 'Junior' }),
+    L('ic', 'Rep / Account executive'),
+    L('senior', 'Senior rep / AE', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Sales manager', { suffix: 'Manager' }),
+    L('director', 'Sales director', { suffix: 'Director' }),
+    L('head', 'VP of Sales'),
+  ],
+  support: [
+    L('entry', 'Agent / Rep'),
+    L('ic', 'Specialist'),
+    L('senior', 'Senior specialist', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Support manager', { suffix: 'Manager' }),
+    L('head', 'Head of Customer Experience'),
+  ],
+  realestate: [
+    L('entry', 'Junior agent', { prefix: 'Junior' }),
+    L('ic', 'Agent'),
+    L('senior', 'Senior agent', { prefix: 'Senior' }),
+    L('lead', 'Team lead', { prefix: 'Lead' }),
+    L('manager', 'Broker / Principal'),
+    L('owner', 'Owner / Self-employed'),
+  ],
+  personal: [
+    L('entry', 'Assistant / Junior', { prefix: 'Junior' }),
+    L('ic', 'Practitioner / Stylist'),
+    L('senior', 'Senior / Master', { prefix: 'Senior' }),
+    L('manager', 'Salon / Studio manager', { suffix: 'Manager' }),
+    L('owner', 'Owner / Self-employed'),
+  ],
+  agriculture: [
+    L('entry', 'Farm worker'),
+    L('senior', 'Experienced / Certified', { prefix: 'Senior' }),
+    L('lead', 'Lead hand', { prefix: 'Lead' }),
+    L('manager', 'Farm / Site manager', { suffix: 'Manager' }),
+    L('owner', 'Owner / Operator'),
+  ],
+};
+
+/** The rungs to offer someone in this sector. */
+export const levelsFor = (sector) => LEVELS_BY_SECTOR[sector] || DEFAULT_LEVELS;
+
+// Kept for the wizard and anything else importing the office-job ladder.
+export const SENIORITY_LEVELS = DEFAULT_LEVELS;
 
 export const WORK_STYLES = [
   { id: 'remote', label: 'Remote' },
@@ -114,8 +267,8 @@ export const LADDER = [
   },
   {
     id: 'level',
-    question: 'Got it. What do you actually do day to day?',
-    hint: 'This becomes your profile headline, so pick the closest match.',
+    question: 'Got it. And what level are you at?',
+    hint: 'Roughly where you sit — it goes into your headline. Your job title is next.',
     kind: 'chips',
     chipSet: 'levels',
     freeText: true,
@@ -348,7 +501,7 @@ export const getChips = (step, draft = {}) => {
     case 'sectors':
       return sectorChips(false);
     case 'levels':
-      return SENIORITY_LEVELS.map((l) => ({ id: l.id, label: l.label }));
+      return levelsFor(draft.sector).map((l) => ({ id: l.id, label: l.label }));
     case 'titles': {
       const titles = SECTOR_TITLES[draft.sector] || [];
       return titles.slice(0, LIMITS.TITLE_CHIPS).map((t) => ({ id: t, label: t }));
@@ -817,16 +970,21 @@ export const isPresentable = (draft = {}) => {
 export const buildTitle = (draft = {}) => {
   const title = String(draft.title || '').trim();
   if (!title) return '';
-  const level = SENIORITY_LEVELS.find((l) => l.id === draft.level);
+  const level = levelsFor(draft.sector).find((l) => l.id === draft.level);
   if (!level) return title;
-  // Only prefix ranks that read naturally in front of a title. "Individual
-  // Contributor Frontend Developer" is not a job anyone has.
-  const PREFIXABLE = { lead: 'Lead', manager: 'Manager', director: 'Director' };
-  const prefix = PREFIXABLE[level.id];
-  if (!prefix) return title;
-  if (norm(title).includes(norm(prefix))) return title;
-  // "Manager" and "Director" read better appended than prefixed.
-  return prefix === 'Lead' ? `${prefix} ${title}` : `${title} (${prefix})`;
+
+  // A rung joins the title the way its own sector says it — "Master
+  // Electrician", not "Senior Electrician"; "Charge Nurse", not "Lead Nurse
+  // (Manager)". Rungs with neither prefix nor suffix ("Mid-level",
+  // "Qualified tradesperson") are descriptions of standing, not of a job:
+  // "Mid-level Frontend Developer" is not a role anyone holds.
+  if (level.prefix) {
+    return norm(title).includes(norm(level.prefix)) ? title : `${level.prefix} ${title}`;
+  }
+  if (level.suffix) {
+    return norm(title).includes(norm(level.suffix)) ? title : `${title} (${level.suffix})`;
+  }
+  return title;
 };
 
 /**
