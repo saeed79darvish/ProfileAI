@@ -550,12 +550,26 @@ test('a rung joins the title the way its own sector says it', () => {
    The rank was the previous question. Repeating it here makes the person
    answer twice and buildTitle() say it three times. */
 
-test('title chips drop the rank the level question already took', () => {
-  const labels = titleChips('tech', 'senior').map((c) => c.label);
-  assert.ok(!labels.some((l) => /^senior /i.test(l)), `still ranked: ${labels.join(', ')}`);
-  assert.ok(labels.includes('Frontend Developer'));
-  // "Senior Frontend Engineer" collapsed onto the role, not a second chip.
-  assert.equal(new Set(labels.map((l) => l.toLowerCase())).size, labels.length);
+test('title chips carry the rank that was just given, exactly once', () => {
+  const staff = titleChips('tech', 'staff').map((c) => c.label);
+  assert.ok(staff.every((l) => /^staff /i.test(l)), `not all ranked: ${staff.join(', ')}`);
+  assert.ok(!staff.some((l) => /staff.*staff/i.test(l)), 'said twice');
+  // No bare/ranked pairs of the same role: that was the original bug.
+  assert.equal(new Set(staff.map((l) => l.toLowerCase())).size, staff.length);
+
+  // Each trade in its own words.
+  assert.ok(titleChips('trades', 'senior').some((c) => c.label === 'Master Electrician'));
+  assert.ok(titleChips('trades', 'entry').some((c) => c.label === 'Apprentice Electrician'));
+});
+
+test('rungs that are standing rather than rank leave the title alone', () => {
+  // "Mid-level Frontend Developer" is not a job anyone holds.
+  assert.deepEqual(
+    titleChips('tech', 'ic').map((c) => c.label).slice(0, 2),
+    ['Frontend Developer', 'Backend Developer']
+  );
+  // A leadership title already states its rank.
+  assert.ok(!titleChips('tech', 'director').some((c) => /staff|senior /i.test(c.label)));
 });
 
 test('the rank they gave decides what is offered first', () => {

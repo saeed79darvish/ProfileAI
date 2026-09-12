@@ -525,18 +525,25 @@ export const emptyDraft = () => ({
  *
  * @returns {{id: string, label: string}[]}
  */
-/* A job title and a rank are two different answers, and the level question
-   just took the rank. Offering "Senior Frontend Engineer" to someone who has
-   already said Senior asks them to say it twice, and then buildTitle() would
-   say it a third time. So the chips are stripped back to the role itself and
-   de-duplicated — "Senior Backend Engineer" and "Backend Developer" collapse
-   to the two distinct roles they actually are.
+/* The title chips have to agree with the rank just given, and there are two
+   ways to get that wrong.
 
-   What stays is ordered by the rank they gave: a Director is shown the
-   leadership titles first, an IC the hands-on ones. Both lists stay complete
-   underneath, because a Team Lead's title really can still be "Backend
-   Developer" — and anything not on the list is one tap away on the keyboard
-   via CUSTOM_ANSWER_CHIP. */
+   Offering "Frontend Developer" next to "Senior Frontend Engineer" is the
+   same role twice, ranked inconsistently, and asks which of the two the
+   person is. Offering only bare roles after they answered "Staff" is worse in
+   a different way: nothing on screen acknowledges the answer, so the
+   conversation reads as having forgotten it.
+
+   So: strip the rank out of the raw list, de-duplicate what that collapses
+   ("Senior Backend Engineer" and "Backend Developer" are two distinct roles,
+   not four), then put the rank they actually gave back on every chip. A Staff
+   engineer is offered Staff titles, a master electrician Master ones, because
+   that is what those people write on a resume.
+
+   Only rungs that read as part of a title get applied. "Mid-level" and
+   "Qualified tradesperson" describe standing, not a job, and rungs like
+   Manager pull their weight through the leadership titles that sort to the
+   front instead. */
 
 const RANK_PREFIX = /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|associate)\s+/i;
 const LEADERSHIP = /(manager|director|head of|vp of|chief|president|partner|supervisor|foreman|principal investigator|broker)/i;
@@ -558,7 +565,19 @@ export const titleChips = (sector, level) => {
   const wantsLeadership = MANAGING_LEVELS.has(level);
   roles.sort((a, b) => Number(b.leadership === wantsLeadership) - Number(a.leadership === wantsLeadership));
 
-  return roles.slice(0, LIMITS.TITLE_CHIPS).map((r) => ({ id: r.label, label: r.label }));
+  const rank = levelsFor(sector).find((l) => l.id === level);
+  const ranked = (label) => {
+    if (!rank?.prefix) return label;
+    // A leadership title carries its own rank — "Staff Engineering Manager"
+    // is not a job, and neither is "Senior Senior Engineer".
+    if (LEADERSHIP.test(label) || norm(label).includes(norm(rank.prefix))) return label;
+    return `${rank.prefix} ${label}`;
+  };
+
+  return roles.slice(0, LIMITS.TITLE_CHIPS).map((r) => {
+    const label = ranked(r.label);
+    return { id: label, label };
+  });
 };
 
 export const getChips = (step, draft = {}) => {
