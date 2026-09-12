@@ -1368,7 +1368,13 @@ const ProfileCoach = () => {
 
       <LinkedInImportModal
         open={linkedinOpen}
-        onClose={() => setLinkedinOpen(false)}
+        onClose={() => {
+          setLinkedinOpen(false);
+          // Closing the window without importing is the same dead end as a
+          // cancelled file dialog: the last thing on screen was a promise to
+          // pull something in, and nothing did.
+          offerImportAgain(TEXT.IMPORT_CANCELLED);
+        }}
         onImported={(data) => {
           setLinkedinOpen(false);
           applyImport(data, 'linkedin');

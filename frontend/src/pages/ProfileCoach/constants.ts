@@ -84,6 +84,7 @@ export const TEXT = {
   UPLOAD_UNREADABLE: 'Could not read this one',
   UPLOAD_CANCELLED: 'No problem — pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
+  IMPORT_CANCELLED: 'No problem — try one of these, or we can just keep talking.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 
   // The whole conversation is free and needs no account — the ask comes at
