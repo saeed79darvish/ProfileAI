@@ -27,7 +27,6 @@ import {
   BuildProfileCard,
   INTRO_TEXT,
   SLIDES,
-  SEEN_INTRO_KEY,
 } from '../../components/OnboardingIntro';
 
 import {
@@ -118,53 +117,11 @@ let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
 
 /* The welcome intro that used to be the standalone /onboarding page now runs
-   as the first few messages of this conversation — see components/
-   OnboardingIntro. It is shown once: a returning visitor lands straight on
-   the first question rather than tapping through the slides again. */
-const hasSeenIntro = () => {
-  try { return localStorage.getItem(SEEN_INTRO_KEY) === '1'; } catch { return false; }
-};
-const markIntroSeen = () => {
-  try { localStorage.setItem(SEEN_INTRO_KEY, '1'); } catch { /* private mode — worst case the intro repeats */ }
-};
-
-
-/**
- * Narrated progress while a resume is parsed.
- *
- * Owns its own timer rather than storing a tick on the message: the parse
- * takes several seconds, and re-rendering the entire transcript five times to
- * advance a label is wasteful. The bar creeps toward 90% and only completes
- * when the parse actually returns, so it never claims to be finished before
- * it is.
- */
-const UploadProgress = ({ fileName, done, failed }) => {
-  const [stepIdx, setStepIdx] = useState(0);
-
-  useEffect(() => {
-    if (done || failed) return undefined;
-    const id = setInterval(
-      () => setStepIdx((i) => Math.min(i + 1, UPLOAD_STEPS.length - 1)),
-      UPLOAD_STEP_MS
-    );
-    return () => clearInterval(id);
-  }, [done]);
-
-  const pct = failed ? 100 : done ? 100 : Math.min(90, 12 + stepIdx * 20);
-
-  return (
-    <UploadCard>
-      <UploadIcon>
-        {failed ? <FailedIcon htmlColor="#dc2626" /> : done ? <DoneIcon htmlColor="#22c55e" /> : <FileIcon />}
-      </UploadIcon>
-      <UploadBody>
-        <b>{fileName}</b>
-        <span>{failed ? TEXT.UPLOAD_UNREADABLE : done ? 'Read it.' : UPLOAD_STEPS[stepIdx]}</span>
-        <UploadTrack $pct={pct} $done={done} $failed={failed}><i /></UploadTrack>
-      </UploadBody>
-    </UploadCard>
-  );
-};
+   as the first messages of this conversation — see components/
+   OnboardingIntro. It plays every time rather than once per browser: this is
+   what "Get started" promises, a returning visitor is one tap from skipping
+   it, and the one-shot version mostly succeeded at hiding itself from the
+   people testing whether it worked. */
 
 const ProfileCoach = () => {
   const navigate = useNavigate();
@@ -284,10 +241,9 @@ const ProfileCoach = () => {
 
   /* ─── Opening ──────────────────────────────────────────────── */
 
-  /** Greet and ask the first ladder question. The end of the intro, or the
-      whole opening for someone who has already seen it. */
+  /** Greet and ask the first ladder question — where every path through the
+      intro (finished, skipped from a slide, skipped from the top bar) ends. */
   const startLadder = useCallback((from) => {
-    markIntroSeen();
     setStepIndex(0);
     pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
     askStep(0, emptyDraft());
@@ -295,10 +251,6 @@ const ProfileCoach = () => {
   }, [askStep, pushCoach]);
 
   useEffect(() => {
-    if (hasSeenIntro()) {
-      startLadder('seen-before');
-      return;
-    }
     pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
     pushCoach('', { introSlide: 0 });
     trackEvent('coach_intro_started', {});

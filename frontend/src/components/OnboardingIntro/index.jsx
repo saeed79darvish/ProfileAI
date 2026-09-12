@@ -251,4 +251,4 @@ export const BuildProfileCard = ({ onStart, spent }) => (
   </ChoiceWrap>
 );
 
-export { INTRO_TEXT, SLIDES, SEEN_INTRO_KEY } from './constants';
+export { INTRO_TEXT, SLIDES } from './constants';
