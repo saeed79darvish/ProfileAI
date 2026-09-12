@@ -35,12 +35,14 @@ export const SLIDES = [
 
 export const INTRO_TEXT = {
   WELCOME: 'Welcome to ProfilleAI!',
-  WELCOME_HINT: 'Here is what I can do for you — about thirty seconds, then we start.',
+  WELCOME_HINT: 'A quick look at what I can do, then we start.',
   HEADING_PREFIX: 'ProfilleAI can help you...',
   CONTINUE: 'Continue',
   SKIP: 'Skip intro',
+  PROGRESS_LABEL: 'Intro progress',
+  STEP_LABEL: (n: number, total: number) => `Step ${n} of ${total}`,
 
-  START_BUBBLE: 'Let us start with your profile.',
+  START_BUBBLE: "Let's start with your profile.",
   START_HINT: 'Everything else runs off it. It takes about two minutes.',
   BUILD_TITLE: 'Build Your AI Profile',
   BUILD_DESCRIPTION: 'Upload your resume or start from scratch, ProfilleAI helps you create a standout profile to use with the Extension and apply for jobs.',

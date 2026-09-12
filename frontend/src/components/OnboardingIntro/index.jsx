@@ -9,11 +9,11 @@ import {
 
 import { INTRO_TEXT, SLIDES } from './constants';
 import {
-  IntroCard, DotsWrapper, Dot, TwoColumn, LeftCol, RightCol,
-  IntroHeading, IntroAccent, IntroBody,
+  IntroCard, SlideStage, TwoColumn, LeftCol, RightCol,
+  Eyebrow, IntroAccent, IntroBody,
   FeatureBox, FeatureBoxIcon, FeatureText,
   MockupCard, MockupHeader, MockLine, MockTag, MockBadge,
-  IntroActions, ContinueBtn, SkipLink,
+  IntroFooter, DotsWrapper, Dot, FooterActions, ContinueBtn, SkipLink,
   ChoiceWrap, ChoiceCard, ChoiceCardVisual, FloatingCard, AiBadge, Blob,
   ChoiceCardBody, ChoiceTitle, ChoiceBody, ChoiceButton,
   MiniTag, MiniBar,
@@ -134,52 +134,61 @@ const MOCKUPS = {
    ═══════════════════════════════════════════════ */
 
 /**
- * One intro slide, rendered as a card in the coach transcript.
+ * The welcome intro: one card that advances in place.
  *
- * `index` drives the progress dots, which count the slides plus the
- * build-profile card at the end — the same run of dots the standalone page
- * showed above its slide stage.
+ * Deliberately not a card per slide. Posting each slide as its own message
+ * stacked three 500px panels in the transcript, all repeating the same
+ * heading, and pushed the conversation the intro exists to start off the
+ * bottom of the screen. The parent owns `index` so the position survives a
+ * re-render of the message list.
  */
-export const IntroSlideCard = ({ index, onContinue, onSkip, spent }) => {
-  const slide = SLIDES[index];
-  if (!slide) return null;
+export const IntroCarousel = ({ index, onNext, onJump, onSkip }) => {
+  const slide = SLIDES[index] || SLIDES[0];
   const Mockup = MOCKUPS[slide.visual];
 
   return (
     <IntroCard>
-      <DotsWrapper>
-        {Array.from({ length: SLIDES.length + 1 }).map((_, i) => (
-          <Dot key={i} $active={i === index} />
-        ))}
-      </DotsWrapper>
+      {/* Keyed on the slide so React remounts it and the swap animation
+          replays — without the key it is one element whose text changes. */}
+      <SlideStage key={slide.id}>
+        <TwoColumn>
+          <LeftCol>
+            <Eyebrow>{INTRO_TEXT.HEADING_PREFIX}</Eyebrow>
+            <IntroAccent>{slide.headline}</IntroAccent>
+            <IntroBody>{slide.description}</IntroBody>
 
-      <TwoColumn>
-        <LeftCol>
-          <IntroHeading>{INTRO_TEXT.HEADING_PREFIX}</IntroHeading>
-          <IntroAccent as="h4">{slide.headline}</IntroAccent>
-          <IntroBody>{slide.description}</IntroBody>
+            <FeatureBox>
+              <FeatureBoxIcon aria-hidden="true">{slide.emoji}</FeatureBoxIcon>
+              <FeatureText>{slide.featureText}</FeatureText>
+            </FeatureBox>
+          </LeftCol>
 
-          <FeatureBox>
-            <FeatureBoxIcon>{slide.emoji}</FeatureBoxIcon>
-            <FeatureText>{slide.featureText}</FeatureText>
-          </FeatureBox>
+          <RightCol>
+            <Mockup />
+          </RightCol>
+        </TwoColumn>
+      </SlideStage>
 
-          {!spent && (
-            <IntroActions>
-              <ContinueBtn type="button" onClick={onContinue}>
-                {INTRO_TEXT.CONTINUE}
-              </ContinueBtn>
-              <SkipLink type="button" onClick={onSkip}>
-                {INTRO_TEXT.SKIP}
-              </SkipLink>
-            </IntroActions>
-          )}
-        </LeftCol>
+      <IntroFooter>
+        <DotsWrapper role="tablist" aria-label={INTRO_TEXT.PROGRESS_LABEL}>
+          {SLIDES.map((s, i) => (
+            <Dot
+              key={s.id}
+              type="button"
+              role="tab"
+              $active={i === index}
+              aria-selected={i === index}
+              aria-label={INTRO_TEXT.STEP_LABEL(i + 1, SLIDES.length)}
+              onClick={() => onJump(i)}
+            />
+          ))}
+        </DotsWrapper>
 
-        <RightCol>
-          <Mockup />
-        </RightCol>
-      </TwoColumn>
+        <FooterActions>
+          <SkipLink type="button" onClick={onSkip}>{INTRO_TEXT.SKIP}</SkipLink>
+          <ContinueBtn type="button" onClick={onNext}>{INTRO_TEXT.CONTINUE}</ContinueBtn>
+        </FooterActions>
+      </IntroFooter>
     </IntroCard>
   );
 };
@@ -193,13 +202,8 @@ export const IntroSlideCard = ({ index, onContinue, onSkip, spent }) => {
  */
 export const BuildProfileCard = ({ onStart, spent }) => (
   <ChoiceWrap>
-    <DotsWrapper>
-      {Array.from({ length: SLIDES.length + 1 }).map((_, i) => (
-        <Dot key={i} $active={i === SLIDES.length} />
-      ))}
-    </DotsWrapper>
-
     <ChoiceCard
+      $spent={spent}
       onClick={spent ? undefined : onStart}
       role="button"
       tabIndex={spent ? -1 : 0}

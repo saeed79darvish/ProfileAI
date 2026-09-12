@@ -23,7 +23,7 @@ import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import {
-  IntroSlideCard,
+  IntroCarousel,
   BuildProfileCard,
   INTRO_TEXT,
   SLIDES,
@@ -195,6 +195,9 @@ const ProfileCoach = () => {
 
   const fileInputRef = useRef(null);
   const listEndRef = useRef(null);
+  // Set for the one render after an in-place message update that must not
+  // scroll the transcript (see the scroll effect below).
+  const keepScrollRef = useRef(false);
   const timersRef = useRef([]);
   // Read inside delayed callbacks so a chip tapped during the typing pause
   // still sees the draft the previous answer produced.
@@ -313,28 +316,40 @@ const ProfileCoach = () => {
     }, TIMING.ACK_MS);
   }, [later, pushCoach]);
 
-  const introContinue = useCallback((message) => {
-    if (message.spent) return;
-    spendChips(message.id);
-    const next = message.introSlide + 1;
-    if (next < SLIDES.length) {
-      setTyping(true);
-      later(() => {
-        setTyping(false);
-        pushCoach('', { introSlide: next });
-      }, TIMING.ACK_MS);
-      return;
-    }
-    showBuildCard();
-  }, [later, pushCoach, showBuildCard, spendChips]);
+  /* The carousel advances inside its own message rather than posting a new
+     one. Three stacked slide cards read as a wall, not a conversation. */
+  const setSlide = useCallback((message, next) => {
+    keepScrollRef.current = true;
+    setMessages((prev) => prev.map(
+      (m) => (m.id === message.id ? { ...m, introSlide: next } : m)
+    ));
+  }, []);
 
-  const introSkip = useCallback(() => {
-    // Retire every slide at once: skipping from slide 1 must not leave the
-    // later ones live above the card it jumped to.
-    setMessages((prev) => prev.map((m) => (m.introSlide != null ? { ...m, spent: true } : m)));
-    trackEvent('coach_intro_skipped', {});
+  /** The intro is over: drop the carousel and offer the build card. */
+  const closeIntro = useCallback((messageId) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
     showBuildCard();
   }, [showBuildCard]);
+
+  const introContinue = useCallback((message) => {
+    const next = message.introSlide + 1;
+    if (next < SLIDES.length) {
+      setSlide(message, next);
+      trackEvent('coach_intro_slide', { slide: next + 1 });
+      return;
+    }
+    closeIntro(message.id);
+  }, [closeIntro, setSlide]);
+
+  const introJump = useCallback((message, to) => {
+    if (to === message.introSlide) return;
+    setSlide(message, to);
+  }, [setSlide]);
+
+  const introSkip = useCallback((message) => {
+    trackEvent('coach_intro_skipped', { at: message.introSlide + 1 });
+    closeIntro(message.id);
+  }, [closeIntro]);
 
   const introStart = useCallback((message) => {
     if (message.spent) return;
@@ -345,14 +360,21 @@ const ProfileCoach = () => {
 
   /** Top-bar "Skip for now" while the intro is still on screen. */
   const introSkipToQuestions = useCallback(() => {
-    setMessages((prev) => prev.map((m) => (
-      (m.introSlide != null || m.introBuild) ? { ...m, spent: true } : m
-    )));
+    setMessages((prev) => prev
+      .filter((m) => m.introSlide == null)
+      .map((m) => (m.introBuild ? { ...m, spent: true } : m)));
     trackEvent('coach_intro_skipped', { to: 'questions' });
     startLadder('skipped');
   }, [startLadder]);
 
   useEffect(() => {
+    // Advancing the intro carousel changes a message in place. Scrolling to
+    // the bottom there would drag the card the person is reading out from
+    // under them, so that one update opts out.
+    if (keepScrollRef.current) {
+      keepScrollRef.current = false;
+      return;
+    }
     listEndRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, typing]);
 
@@ -1123,11 +1145,11 @@ const ProfileCoach = () => {
                   )}
 
                   {message.introSlide != null && (
-                    <IntroSlideCard
+                    <IntroCarousel
                       index={message.introSlide}
-                      spent={message.spent}
-                      onContinue={() => introContinue(message)}
-                      onSkip={introSkip}
+                      onNext={() => introContinue(message)}
+                      onJump={(to) => introJump(message, to)}
+                      onSkip={() => introSkip(message)}
                     />
                   )}
                   {message.introBuild && (
