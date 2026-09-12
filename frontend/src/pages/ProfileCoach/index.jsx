@@ -399,16 +399,16 @@ const ProfileCoach = () => {
     setBusy(true);
     let withSummary = finalDraft;
 
-    // The summary is the one thing the conversation can't collect by asking.
-    // Guests don't get it here — it's an AI call — but they lose nothing
-    // permanent: the editor offers the same thing once they have an account.
-    if (isAuthenticated) {
-      try {
-        const { data } = await profileAPI.coachSummary(finalDraft);
-        if (data?.summary) withSummary = { ...finalDraft, summary: data.summary };
-      } catch {
-        // A missing summary is not worth blocking the handoff over.
-      }
+    // The summary is the one thing the conversation can't collect by asking,
+    // and it is the first thing a recruiter reads. Guests get it too: the
+    // endpoint is public and metered by IP exactly like the interpret, bullets
+    // and target calls they have already made by this point, so withholding it
+    // only produced emptier profiles for the people who had not committed yet.
+    try {
+      const { data } = await profileAPI.coachSummary(finalDraft);
+      if (data?.summary) withSummary = { ...finalDraft, summary: data.summary };
+    } catch {
+      // A missing summary is not worth blocking the handoff over.
     }
 
     setBusy(false);
@@ -852,6 +852,8 @@ const ProfileCoach = () => {
 
       const nextDraft = mergeInterpreted(current, step.aiStep, data?.fields || {}, {
         intoLatest: followUpFor === step.aiStep,
+        // An earlier job goes under the current one, not on top of it.
+        append: step.id === 'previousRole',
       });
       draftRef.current = nextDraft;
       setDraft(nextDraft);

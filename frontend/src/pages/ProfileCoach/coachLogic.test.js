@@ -704,3 +704,47 @@ test('both follow-ups cost nothing and can be skipped', () => {
     assert.ok(getChips(s, {}).length > 0, `${id} needs chips`);
   }
 });
+
+/* ─── A work history, not a job ───────────────────────────────── */
+
+test('an earlier job is only asked about when there is a later one', () => {
+  assert.equal(shouldSkip(step('previousRole'), emptyDraft()), true);
+  const employed = { ...emptyDraft(), experience: [{ company: 'Acme', title: 'Engineer' }] };
+  assert.equal(shouldSkip(step('previousRole'), employed), false);
+});
+
+test('an earlier job lands under the current one, not on top of it', () => {
+  const draft = {
+    ...emptyDraft(),
+    experience: [{ title: 'Staff Engineer', company: 'Acme', startDate: '2021', current: true }],
+  };
+  const merged = mergeInterpreted(
+    draft,
+    'currentRole',
+    { title: 'Engineer', company: 'Globex', startDate: '2018', endDate: '2021' },
+    { append: true }
+  );
+  assert.deepEqual(merged.experience.map((r) => r.company), ['Acme', 'Globex']);
+  assert.equal(merged.experience[1].current, false);
+});
+
+test('a clarifier about the earlier job does not rewrite the current one', () => {
+  const draft = {
+    ...emptyDraft(),
+    experience: [
+      { title: 'Staff Engineer', company: 'Acme', startDate: '2021', current: true },
+      { title: '', company: 'Globex', startDate: '', endDate: '' },
+    ],
+  };
+  const merged = mergeInterpreted(
+    draft,
+    'currentRole',
+    { title: 'Engineer', startDate: '2018', endDate: '2021' },
+    { append: true, intoLatest: true }
+  );
+  assert.equal(merged.experience.length, 2, 'the clarifier fills the row, it does not add one');
+  assert.equal(merged.experience[0].company, 'Acme');
+  assert.equal(merged.experience[0].title, 'Staff Engineer');
+  assert.equal(merged.experience[1].title, 'Engineer');
+  assert.equal(merged.experience[1].startDate, '2018');
+});

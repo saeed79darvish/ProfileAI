@@ -433,6 +433,23 @@ export const LADDER = [
     optional: true,
   },
   {
+    id: 'previousRole',
+    question: 'Anywhere before that?',
+    hint: 'Role, company and roughly when is plenty. Skip if that is your whole history.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    // Same shape as the current role, so it reuses that schema rather than
+    // teaching the server a second way to describe a job.
+    aiStep: 'currentRole',
+    assign: null,
+    // Only worth asking someone who named a first one. A work history of one
+    // job is a fragment; of two it is a trajectory, which is what the
+    // assessment and the summary are both trying to read.
+    skipIf: 'noFirstRole',
+    optional: true,
+  },
+  {
     id: 'projects',
     question: 'Then tell me about something you built, ran or organised.',
     hint: 'A side project, a course project, something at a volunteer job. What it was and what you did.',
@@ -967,6 +984,8 @@ const SKIP_PREDICATES = {
   // name. The editor still lets them add one later.
   noWorkHistory: (draft) =>
     draft.careerStage === 'new_grad' || draft.careerStage === 'student',
+  // Nothing to be "before", so there is nothing to ask.
+  noFirstRole: (draft) => !(draft.experience || []).length,
   // They already named a job, so the profile has something in it. Projects
   // are for the people whose work does not live at an employer.
   hasExperience: (draft) => (draft.experience || []).length > 0,
@@ -1036,10 +1055,37 @@ export const applyToDraft = (draft, patch = {}) => ({ ...draft, ...patch });
  * company?"). Without it the second half of one answer would prepend a
  * separate half-empty row instead of finishing the first.
  */
-export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = false } = {}) => {
+export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = false, append = false } = {}) => {
   const next = { ...draft };
   switch (stepId) {
     case 'currentRole': {
+      if (append) {
+        const rows = draft.experience || [];
+        const row = {
+          title: fields.title || '',
+          company: fields.company || '',
+          startDate: fields.startDate || '',
+          endDate: fields.endDate || '',
+          current: /present|now|current/i.test(fields.endDate || ''),
+          description: '',
+        };
+        // A clarifying answer belongs to the row that turn started — the one
+        // at the end — not to the job they still hold at the top.
+        if (intoLatest && rows.length > 1) {
+          const last = rows[rows.length - 1];
+          next.experience = [...rows.slice(0, -1), {
+            ...last,
+            title: row.title || last.title,
+            company: row.company || last.company,
+            startDate: row.startDate || last.startDate,
+            endDate: row.endDate || last.endDate,
+            current: row.current,
+          }];
+          break;
+        }
+        next.experience = [...rows, row];
+        break;
+      }
       if (intoLatest && (draft.experience || []).length) {
         const [head, ...rest] = draft.experience;
         const endDate = fields.endDate || head.endDate || '';
