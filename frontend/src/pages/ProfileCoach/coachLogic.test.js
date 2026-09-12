@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   levelsFor,
+  targetChips,
   normalizeTitle,
   titleChips,
   CUSTOM_ANSWER_CHIP,
@@ -612,4 +613,33 @@ test('titles keep the capitals their field uses', () => {
   assert.equal(normalizeTitle('ios developer'), 'iOS Developer');
   // Deliberate capitalisation survives untouched.
   assert.equal(normalizeTitle('eBay Seller'), 'eBay Seller');
+});
+
+/* ─── Targets ─────────────────────────────────────────────────
+   "What are you aiming for next?" has to point somewhere the person is not
+   already standing. */
+
+test('targets lead with the next rung up, not with the rank they have', () => {
+  const chips = targetChips({ sector: 'tech', level: 'staff', title: 'Staff Frontend Developer' })
+    .map((c) => c.label);
+  assert.equal(chips[0], 'Principal Frontend Developer');
+  assert.ok(!chips.includes('Staff Frontend Developer'), 'never offer the job they hold');
+  assert.ok(chips.some((c) => /manager/i.test(c)), 'the management branch is a real answer');
+  // Sideways moves are legitimate, just not the headline.
+  assert.ok(chips.indexOf('Staff Backend Developer') > 1);
+});
+
+test('a rank the trades use is a rank, not part of the job', () => {
+  const chips = targetChips({ sector: 'trades', level: 'entry', title: 'Apprentice Electrician' })
+    .map((c) => c.label);
+  assert.ok(chips.includes('Master Electrician'));
+  assert.ok(!chips.some((c) => /master apprentice/i.test(c)), 'stacked ranks');
+});
+
+test('sideways moves stay inside the same family of work', () => {
+  const nurse = targetChips({ sector: 'healthcare', level: 'ic', title: 'Registered Nurse' })
+    .map((c) => c.label);
+  assert.ok(nurse.includes('Nurse Practitioner'));
+  // A step down is not an ambition.
+  assert.ok(!nurse.includes('Medical Assistant'));
 });

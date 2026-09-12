@@ -545,7 +545,7 @@ export const emptyDraft = () => ({
    Manager pull their weight through the leadership titles that sort to the
    front instead. */
 
-const RANK_PREFIX = /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|associate)\s+/i;
+const RANK_PREFIX = /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|associate|apprentice|master|trainee)\s+/i;
 const LEADERSHIP = /(manager|director|head of|vp of|chief|president|partner|supervisor|foreman|principal investigator|broker)/i;
 const MANAGING_LEVELS = new Set(['lead', 'manager', 'director', 'head', 'owner']);
 
@@ -625,6 +625,69 @@ export const titleChips = (sector, level) => {
   });
 };
 
+/* "What are you aiming for next?" was answered with the person's own rank
+   applied to their neighbours' jobs: a Staff Frontend Developer was offered
+   Staff Backend Developer, Staff Full Stack Developer, Staff Frontend
+   Engineer. Those are sideways, and reading them back as ambition is how a
+   product tells someone it has not been listening.
+
+   Next means one of three real things, in the order people actually weigh
+   them: the next rung on the track they are already on, the management
+   branch, and only then a lateral move into a neighbouring role. The last of
+   those is a genuine answer — plenty of people do want the same rank in a
+   different specialism — it is just nobody's first thought. */
+
+export const targetChips = (draft = {}) => {
+  const { sector, level, title } = draft;
+  const current = String(title || '').trim();
+  const base = current.replace(RANK_PREFIX, '').trim();
+  const levels = levelsFor(sector);
+  const at = levels.findIndex((l) => l.id === level);
+
+  const out = [];
+  const add = (label) => {
+    const clean = String(label || '').trim();
+    if (!clean || norm(clean) === norm(current)) return;
+    if (out.some((o) => norm(o) === norm(clean))) return;
+    out.push(clean);
+  };
+
+  // 1. Up their own track: the rungs above the one they just gave, worn by
+  //    the job they already do.
+  if (base && at >= 0) {
+    for (const rung of levels.slice(at + 1)) {
+      if (rung.prefix) add(`${rung.prefix} ${base}`);
+    }
+  }
+
+  // 2. The management branch, in their sector's own words.
+  for (const sectorTitle of SECTOR_TITLES[sector] || []) {
+    if (LEADERSHIP.test(sectorTitle)) add(sectorTitle);
+  }
+
+  // 3. Sideways, but only into a related role. The sector list is not ranked,
+  //    so an unfiltered sweep offers a nurse "Medical Assistant" as an
+  //    ambition — a step down, read back as a goal. Sharing a real word with
+  //    the job they do is a cheap, honest test of "related": Backend
+  //    Developer for a Frontend Developer, Nurse Practitioner for a nurse,
+  //    nothing at all for a Server.
+  const words = new Set(
+    norm(base).split(/[^a-z]+/).filter((w) => w.length > 3)
+  );
+  const related = (label) => norm(label).split(/[^a-z]+/).some((w) => words.has(w));
+  for (const chip of titleChips(sector, level)) {
+    if (related(chip.label)) add(chip.label);
+  }
+
+  // A director on the top rung of a short ladder can run out of honest
+  // suggestions. Better a wider list than three chips and a dead end.
+  if (out.length < 3) {
+    for (const chip of titleChips(sector, level)) add(chip.label);
+  }
+
+  return out.slice(0, LIMITS.TITLE_CHIPS).map((label) => ({ id: label, label }));
+};
+
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {
@@ -649,12 +712,7 @@ export const getChips = (step, draft = {}) => {
         .map((s) => ({ id: s, label: s }));
     }
     case 'targets':
-      // Their own sector's titles, minus the one they already hold — offering
-      // someone their current job as a target reads as not having listened.
-      return [
-        ...titleChips(draft.sector, draft.level).filter((c) => norm(c.id) !== norm(draft.title)),
-        { ...CUSTOM_ANSWER_CHIP },
-      ];
+      return [...targetChips(draft), { ...CUSTOM_ANSWER_CHIP }];
     case 'importChoices':
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
     default:
