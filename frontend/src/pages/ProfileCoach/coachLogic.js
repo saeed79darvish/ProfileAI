@@ -258,7 +258,7 @@ export const sectorChips = (expanded = false) => {
 export const IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
-  { id: 'chat', label: 'Keep chatting' },
+  { id: 'chat', label: "No, let's just chat" },
 ];
 
 /* ─── The ladder ──────────────────────────────────────────────
@@ -548,6 +548,51 @@ export const emptyDraft = () => ({
 const RANK_PREFIX = /^(senior|sr\.?|junior|jr\.?|lead|principal|staff|associate)\s+/i;
 const LEADERSHIP = /(manager|director|head of|vp of|chief|president|partner|supervisor|foreman|principal investigator|broker)/i;
 const MANAGING_LEVELS = new Set(['lead', 'manager', 'director', 'head', 'owner']);
+
+/* A typed job title goes straight onto the profile as the headline, which
+   means it is read by recruiters exactly as it was typed at speed into a
+   chat box. "staff data analysis" is the right answer badly dressed, and
+   shouting it back as the headline is the profile's first impression.
+
+   Casing only. Fixing the words — "analysis" is not the job, "Analyst" is —
+   means guessing at what someone meant about their own career, and being
+   wrong about that is worse than being scruffy. Acronyms people actually use
+   keep their capitals, because "Qa Engineer" and "Ui Designer" read as
+   carelessness by the person, not by us. */
+
+const TITLE_ACRONYMS = new Set([
+  'it', 'qa', 'ux', 'ui', 'hr', 'pm', 'sre', 'ai', 'ml', 'bi', 'seo', 'sem',
+  'cnc', 'hvac', 'cdl', 'rn', 'cna', 'emt', 'cpa', 'ceo', 'cfo', 'cto', 'cmo',
+  'coo', 'cio', 'vp', 'sdr', 'ae', 'api', 'erp', 'crm', 'hgv',
+]);
+
+// Names that are neither lowercase nor all-caps, and that people type flat.
+const TITLE_SPELLINGS = {
+  ios: 'iOS', macos: 'macOS', javascript: 'JavaScript', typescript: 'TypeScript',
+  github: 'GitHub', nodejs: 'Node.js', 'c#': 'C#', devops: 'DevOps',
+  postgresql: 'PostgreSQL', mysql: 'MySQL', aws: 'AWS', saas: 'SaaS',
+};
+
+// Words that stay lowercase inside a title, never at the start of one.
+const TITLE_MINOR = new Set(['of', 'at', 'in', 'on', 'and', 'the', 'for', 'to', 'a', 'an']);
+
+export const normalizeTitle = (text) => {
+  const words = String(text || '').trim().replace(/\s+/g, ' ').split(' ');
+  return words
+    .map((word, i) => {
+      const bare = word.toLowerCase();
+      // Anything capitalised deliberately (iOS, eBay, McDonald's) is left
+      // exactly as typed — the person knows their own field better than we do.
+      if (word !== bare && word !== word.toUpperCase()) return word;
+      if (TITLE_SPELLINGS[bare]) return TITLE_SPELLINGS[bare];
+      if (TITLE_ACRONYMS.has(bare)) return word.toUpperCase();
+      if (i > 0 && TITLE_MINOR.has(bare)) return bare;
+      // Hyphens, slashes and brackets start new words: "full-stack" →
+      // "Full-Stack", "developer (ios)" → "Developer (iOS)" via the map above.
+      return bare.replace(/(^|[-/(])([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
+    })
+    .join(' ');
+};
 
 export const titleChips = (sector, level) => {
   const seen = new Set();

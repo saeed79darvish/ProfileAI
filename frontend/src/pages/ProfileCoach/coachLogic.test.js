@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   levelsFor,
+  normalizeTitle,
   titleChips,
   CUSTOM_ANSWER_CHIP,
   sectorChips,
@@ -589,4 +590,26 @@ test('there is always a way to answer something not on the list', () => {
     const chips = getChips(chipStep, { sector: 'tech', level: 'senior', title: 'Software Engineer' });
     assert.equal(chips.at(-1).id, CUSTOM_ANSWER_CHIP.id, `${stepId} needs a keyboard door`);
   }
+});
+
+/* ─── Typed titles ────────────────────────────────────────────
+   Whatever is typed here becomes the profile headline, read by recruiters
+   exactly as it was typed into a chat box at speed. */
+
+test('a typed title is tidied without being second-guessed', () => {
+  assert.equal(normalizeTitle('staff data analysis'), 'Staff Data Analysis');
+  assert.equal(normalizeTitle('PRODUCT MANAGER'), 'Product Manager');
+  assert.equal(normalizeTitle('head of people'), 'Head of People');
+  assert.equal(normalizeTitle('full-stack developer'), 'Full-Stack Developer');
+  // The words are the person's own: "analysis" is not silently made "Analyst".
+  assert.ok(normalizeTitle('data analysis').endsWith('Analysis'));
+});
+
+test('titles keep the capitals their field uses', () => {
+  assert.equal(normalizeTitle('senior qa engineer'), 'Senior QA Engineer');
+  assert.equal(normalizeTitle('ux designer'), 'UX Designer');
+  assert.equal(normalizeTitle('devops engineer'), 'DevOps Engineer');
+  assert.equal(normalizeTitle('ios developer'), 'iOS Developer');
+  // Deliberate capitalisation survives untouched.
+  assert.equal(normalizeTitle('eBay Seller'), 'eBay Seller');
 });

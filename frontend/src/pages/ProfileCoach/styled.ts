@@ -237,6 +237,21 @@ export const Chip = styled.button`
 
   &:disabled { box-shadow: none; }
 
+  /* The confirm on a multi-select. It ends the question rather than
+     answering it, so it leads as a filled action — wearing the same
+     selected-answer styling made it read as one more thing to pick. */
+  ${({ $primary }) => $primary && css`
+    border-color: #6366f1;
+    background: #6366f1;
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.28);
+
+    &:hover:not(:disabled) {
+      border-color: #4f52e0;
+      background: #4f52e0;
+    }
+  `}
+
   /* Control chips ("Type my own", "More fields") are not answers, and
      dressing them like answers invites a tap that looks like one. Dashed and
      quiet: obviously a door rather than a choice. */

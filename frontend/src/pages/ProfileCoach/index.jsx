@@ -59,6 +59,7 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  normalizeTitle,
   sectorChips,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
@@ -760,8 +761,10 @@ const ProfileCoach = () => {
         commit({ [step.assign]: chip.id }, index);
         return;
       }
-      // No aiStep declared: what they typed IS the value (a job title).
-      commit(step.assign ? { [step.assign]: text } : {}, index);
+      // No aiStep declared: what they typed IS the value (a job title). Tidy
+      // the casing first — this one goes on the profile as the headline.
+      const typed = step.assign === 'title' ? normalizeTitle(text) : text;
+      commit(step.assign ? { [step.assign]: typed } : {}, index);
       return;
     }
 
@@ -1171,7 +1174,12 @@ const ProfileCoach = () => {
                         </Chip>
                       ))}
                       {message.multi && !message.spent && (
-                        <Chip type="button" $selected onClick={() => confirmMulti(message)}>
+                        <Chip
+                          type="button"
+                          $primary={!!message.selected?.length}
+                          $ghost={!message.selected?.length}
+                          onClick={() => confirmMulti(message)}
+                        >
                           {message.selected?.length ? TEXT.DONE_CHIP : TEXT.SKIP_CHIP}
                         </Chip>
                       )}

@@ -63,7 +63,10 @@ export const TEXT = {
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 
   SKIP_CHIP: 'Skip this',
-  DONE_CHIP: 'That is everything',
+  // The confirm on a multi-select. "That is everything" answered a question
+  // nobody asked — the question was what work you want, not whether you were
+  // finished listing it.
+  DONE_CHIP: 'Continue',
 
   PANEL_TITLE: 'PROFILE STRENGTH',
   PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
