@@ -677,3 +677,30 @@ test('a link answer with no link in it is not silently accepted', () => {
   assert.deepEqual(parseLinks('i do not have one'), {});
   assert.deepEqual(parseLinks(''), {});
 });
+
+/* ─── The target conversation ─────────────────────────────────
+   Two questions a careers adviser asks and a form never does. */
+
+test('the coach asks why, and what is in the way, before it judges the gap', () => {
+  const ids = LADDER.map((s) => s.id);
+  assert.ok(ids.indexOf('targetWhy') > ids.indexOf('target'));
+  assert.ok(ids.indexOf('targetBlocker') > ids.indexOf('targetWhy'));
+  assert.ok(ids.indexOf('assess') > ids.indexOf('targetBlocker'), 'both must land before the assessment');
+});
+
+test('no target means no follow-ups about it', () => {
+  const noTarget = { ...emptyDraft() };
+  assert.equal(shouldSkip(step('targetWhy'), noTarget), true);
+  assert.equal(shouldSkip(step('targetBlocker'), noTarget), true);
+  const withTarget = { ...emptyDraft(), target: 'Principal Frontend Developer' };
+  assert.equal(shouldSkip(step('targetWhy'), withTarget), false);
+});
+
+test('both follow-ups cost nothing and can be skipped', () => {
+  for (const id of ['targetWhy', 'targetBlocker']) {
+    const s = step(id);
+    assert.equal(s.aiStep, null, `${id} must not spend a model call of its own`);
+    assert.ok(s.optional, `${id} must be skippable`);
+    assert.ok(getChips(s, {}).length > 0, `${id} needs chips`);
+  }
+});

@@ -97,6 +97,43 @@ const VERDICT_TONE = {
 };
 
 /**
+ * Narrated progress while a resume is parsed.
+ *
+ * Owns its own timer rather than storing a tick on the message: the parse
+ * takes several seconds, and re-rendering the entire transcript five times to
+ * advance a label is wasteful. The bar creeps toward 90% and only completes
+ * when the parse actually returns, so it never claims to be finished before
+ * it is.
+ */
+const UploadProgress = ({ fileName, done, failed }) => {
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    if (done || failed) return undefined;
+    const id = setInterval(
+      () => setStepIdx((i) => Math.min(i + 1, UPLOAD_STEPS.length - 1)),
+      UPLOAD_STEP_MS
+    );
+    return () => clearInterval(id);
+  }, [done, failed]);
+
+  const pct = failed ? 100 : done ? 100 : Math.min(90, 12 + stepIdx * 20);
+
+  return (
+    <UploadCard>
+      <UploadIcon>
+        {failed ? <FailedIcon htmlColor="#dc2626" /> : done ? <DoneIcon htmlColor="#22c55e" /> : <FileIcon />}
+      </UploadIcon>
+      <UploadBody>
+        <b>{fileName}</b>
+        <span>{failed ? TEXT.UPLOAD_UNREADABLE : done ? 'Read it.' : UPLOAD_STEPS[stepIdx]}</span>
+        <UploadTrack $pct={pct} $done={done} $failed={failed}><i /></UploadTrack>
+      </UploadBody>
+    </UploadCard>
+  );
+};
+
+/**
  * ProfileCoach — the conversational profile builder.
  *
  * Replaces both the three-choice-cards page and the seven-step wizard: resume
@@ -544,6 +581,10 @@ const ProfileCoach = () => {
         location: draftRef.current.location,
         // Decides whether "nearby" means their city, remote postings, or both.
         workStyle: draftRef.current.workStyle,
+        // Why they want it and what they think is stopping them, in their
+        // own words. The whole point of having asked.
+        motivation: draftRef.current.targetWhy,
+        blocker: draftRef.current.targetBlocker,
       });
       const assessment = data?.assessment;
       setTyping(false);

@@ -119,14 +119,21 @@ ${JSON.stringify({
   sector: draft.sector,
   location: draft.location,
   experience: draft.experience,
+  // Someone with no employer still has work worth describing, and for a new
+  // grad or a career changer this is the whole of it.
+  projects: draft.projects,
   skills: draft.skills,
   education: draft.education,
+  wants: draft.target,
+  why: draft.targetWhy,
 }, null, 2)}
 
 RULES:
 - 2 to 3 sentences, first person implied but no "I" — the way a resume summary reads.
 - Lead with what they actually do and how long they've done it. No throat-clearing.
+- If they have no jobs listed, lead with what they have built or studied instead. Never write around the gap or apologise for it.
 - Mention at most 3 skills, and only ones listed above.
+- "wants" is where they are heading, not where they are. At most one short closing clause about direction, and only if what they already do is fully said first. A summary that opens with ambition reads as a cover letter.
 - Invent nothing. If the material is thin, write a shorter summary rather than padding it.
 
 Return only the summary text.`;
@@ -188,7 +195,7 @@ RULES:
  * because inventing "there are no jobs for you" out of a missing number is
  * the single most damaging thing this feature could do to someone.
  */
-const targetAssessmentPrompt = ({ profile, inspection, target, market }) => `You are a career coach. This person wants a specific kind of role next. Tell them honestly how far away it is and what closes the gap.
+const targetAssessmentPrompt = ({ profile, inspection, target, market, motivation, blocker }) => `You are a career coach. This person wants a specific kind of role next. Tell them honestly how far away it is and what closes the gap.
 
 ${VOICE_AND_TONE}
 
@@ -203,6 +210,8 @@ ${JSON.stringify({
 
 ═══ WHERE THEY WANT TO BE ═══
 ${target}
+${motivation ? `\nWHY THEY WANT IT (their words): ${motivation}` : ''}
+${blocker ? `WHAT THEY THINK IS STOPPING THEM (their words): ${blocker}` : ''}
 
 ═══ LIVE POSTINGS IN OUR JOB DATA ═══
 ${JSON.stringify(market, null, 2)}
@@ -220,6 +229,8 @@ about volume at all in that case.
 
 RULES:
 - Judge the gap from their real history. Do not assume experience they have not listed.
+- If they said why they want it, the headline should show you heard it: someone chasing scope and someone chasing stability are not asking the same question, even about the same job title.
+- If they named what they think is stopping them, address it directly and honestly — confirm it, or tell them it is not the real obstacle and say what is. Ducking the thing they are worried about is how advice gets ignored.
 - "closes" items must be things they can actually do: a project to build, a skill to evidence, a number to dig up, a way to reframe work they already did. Not "network more".
 - If they are already qualified, say so plainly and make "closes" about how they present it, not about becoming someone else.
 - No preamble, no markdown. Return only the JSON object.`;

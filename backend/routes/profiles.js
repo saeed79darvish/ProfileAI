@@ -628,7 +628,7 @@ router.post('/coach/review', coachGuard, async (req, res) => {
 // @access  Public (guests metered by IP)
 router.post('/coach/target', coachGuard, async (req, res) => {
   try {
-    const { profile, target, location, workStyle } = req.body || {};
+    const { profile, target, location, workStyle, motivation, blocker } = req.body || {};
     if (!profile || typeof profile !== 'object') {
       return res.status(400).json({ error: 'Profile is required' });
     }
@@ -641,6 +641,10 @@ router.post('/coach/target', coachGuard, async (req, res) => {
       target: String(target).trim().slice(0, 120),
       location,
       workStyle,
+      // Free text in someone's own words. Capped like every other answer that
+      // reaches a prompt — see MAX_ANSWER_CHARS.
+      motivation: motivation ? String(motivation).trim().slice(0, 400) : '',
+      blocker: blocker ? String(blocker).trim().slice(0, 400) : '',
     });
 
     await recordCoachUsage(req);

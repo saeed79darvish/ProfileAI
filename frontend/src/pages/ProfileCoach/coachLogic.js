@@ -255,6 +255,37 @@ export const sectorChips = (expanded = false) => {
   return chips;
 };
 
+/* Why someone wants the next job, and what they think is stopping them.
+   These are the two questions a careers adviser asks and a form never does,
+   and the answers change what "how far away is it?" even means: scope and
+   stability are not the same ask, even about the same job title.
+
+   Chips because most people recognise their reason faster than they can
+   phrase it, free text because the real answer is often none of these. Both
+   are stored verbatim and spent inside the assessment call that already runs
+   — the understanding costs no extra model call, only a better prompt. */
+
+export const TARGET_MOTIVES = [
+  { id: 'scope', label: 'Bigger scope or impact' },
+  { id: 'money', label: 'Better pay' },
+  { id: 'lead', label: 'I want to lead' },
+  { id: 'craft', label: 'Go deeper on the craft' },
+  { id: 'domain', label: 'Move into a new field' },
+  { id: 'balance', label: 'Better balance' },
+  { id: 'stability', label: 'More stability' },
+  { id: 'stuck', label: 'I have outgrown this one' },
+];
+
+export const TARGET_BLOCKERS = [
+  { id: 'experience', label: 'Not enough experience yet' },
+  { id: 'skill', label: 'Missing a specific skill' },
+  { id: 'paper', label: 'It is not on paper anywhere' },
+  { id: 'chance', label: 'Nobody gives me the first shot' },
+  { id: 'credential', label: 'I need a qualification' },
+  { id: 'switch', label: 'Coming from a different field' },
+  { id: 'unsure', label: 'Honestly, I am not sure' },
+];
+
 export const IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
@@ -475,6 +506,32 @@ export const LADDER = [
     assign: 'target',
   },
   {
+    id: 'targetWhy',
+    question: 'What is pulling you toward that?',
+    hint: 'Tap the closest, or say it in your own words. It changes what good advice looks like.',
+    kind: 'chips',
+    chipSet: 'targetMotives',
+    freeText: true,
+    // Stored as said. It is spent inside the assessment call that already
+    // runs, so understanding it costs a better prompt rather than a new call.
+    aiStep: null,
+    assign: 'targetWhy',
+    skipIf: 'noTarget',
+    optional: true,
+  },
+  {
+    id: 'targetBlocker',
+    question: 'And what do you think is in the way?',
+    hint: 'I will tell you straight whether it is really the obstacle.',
+    kind: 'chips',
+    chipSet: 'targetBlockers',
+    freeText: true,
+    aiStep: null,
+    assign: 'targetBlocker',
+    skipIf: 'noTarget',
+    optional: true,
+  },
+  {
     id: 'assess',
     question: 'Let me look at what is actually out there for that.',
     hint: '',
@@ -543,6 +600,8 @@ export const emptyDraft = () => ({
   importedFrom: null,
   // What they want next, and the coach's read on how far away it is.
   target: '',
+  targetWhy: '',
+  targetBlocker: '',
   assessment: null,
   review: null,
 });
@@ -762,6 +821,10 @@ export const getChips = (step, draft = {}) => {
     }
     case 'targets':
       return [...targetChips(draft), { ...CUSTOM_ANSWER_CHIP }];
+    case 'targetMotives':
+      return TARGET_MOTIVES.map((m) => ({ id: m.label, label: m.label }));
+    case 'targetBlockers':
+      return TARGET_BLOCKERS.map((b) => ({ id: b.label, label: b.label }));
     case 'importChoices':
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
     default:

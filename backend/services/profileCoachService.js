@@ -361,7 +361,7 @@ async function reviewProfile({ profile, sector } = {}) {
  *
  * @returns {Promise<{verdict: string, headline: string, why: string[], closes: object[], market: object}>}
  */
-async function assessTarget({ profile, target, location, workStyle } = {}) {
+async function assessTarget({ profile, target, location, workStyle, motivation, blocker } = {}) {
   const inspection = inspectProfile(profile || {});
 
   let market = { total: null, nearby: null, nearbyKind: null, terms: [], samples: [] };
@@ -378,7 +378,9 @@ async function assessTarget({ profile, target, location, workStyle } = {}) {
     temperature: 0.4,
     messages: [{
       role: 'user',
-      content: targetAssessmentPrompt({ profile: profile || {}, inspection, target, market }),
+      content: targetAssessmentPrompt({
+        profile: profile || {}, inspection, target, market, motivation, blocker,
+      }),
     }],
   });
 
