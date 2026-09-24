@@ -354,9 +354,13 @@ export const LADDER = [
     kind: 'chips',
     chipSet: 'titles',
     freeText: true,
-    // A typed job title is already the answer. No model needed, which also
-    // means a guest can get this far without hitting the sign-up prompt.
-    aiStep: null,
+    /* A typed job title is already the answer, so the common case costs no
+       model call and a guest can walk straight past it. But "I'm not sure
+       what to put here" is not a job title, and taking every string verbatim
+       is how that sentence ended up in someone's headline. Anything that does
+       not read like a title goes to the model, which either finds the title
+       inside the sentence or asks again. See looksLikeTitle. */
+    aiStep: 'title',
     assign: 'title',
   },
   {
@@ -1083,18 +1087,45 @@ const QUESTION_OPENERS = /^(what|why|how|who|where|when|which|can you|can i|coul
    start of the string. Politeness should not cost someone an answer. */
 const QUESTION_ANYWHERE = /\b(i have a question|i've got a question|quick question|can you tell me|tell me more about|what (is|are|does|do|can|happens|kind of)|how (do|does|did|can|long|much|many)|why (do|does|is|are|would)|do i need|do you (have|offer|support)|is there|are there|what if)\b/i;
 
-// Things people say to a chat box that are about the conversation, not in it.
-const META = /^(i have a question|i've got a question|question|help|help me|wait|hold on|stop|idk|i don'?t know|not sure|no idea|what do you mean|huh|\?+)\b/i;
+/* Things people say to a chat box that are about the conversation rather
+   than in it. Every one of these was being stored as the answer — typed at
+   the job-title question, "I'm not sure what to put here" became someone's
+   headline. A regex will never catch all of it, but it can catch the dozen
+   phrases that make up most of it. */
+const META = /^(i have a question|i've got a question|question|help|help me|wait|hold on|stop|idk|i don'?t know|no idea|what do you mean|huh|\?+)\b/i;
+
+// Uncertainty, anywhere in the sentence. The coach has something genuinely
+// useful to say here — that it is fine to skip, and what happens if they do.
+const UNSURE = /\b(not sure|don'?t know|do not know|no idea|dunno|unsure|not certain|what should i (put|write|say))\b/i;
+
+/* Talking about the conversation itself: complaints, corrections, nudges.
+   These need a person's answer, never a filing. */
+const ABOUT_THE_CHAT = /\b(already told you|you (just )?asked|asked (me )?that|not what i meant|tell me more|what do you mean|repeat that|go back|start over)\b/i;
+
+/* Bare acknowledgements. Not answers to anything, and as a job title they are
+   absurd — "Ok" is nobody's headline. */
+const ACK = /^(ok|okay|k|yes|yeah|yep|yup|no|nope|sure|fine|right|thanks|thank you|cool|got it|alright)\b[\s!.,]*$/i;
+
+// Asking for help is asking a question, however it is phrased.
+const HELP = /\b(i need help|need some help|can you help|could you help|help me|not sure what you (mean|want))\b/i;
+
+/* Typing the skip out loud. The chip is right there, but people type it —
+   and "Skip" is not a job title. */
+const SKIP_WORD = /^(skip|skip this|skip it|next|pass|later|not now|no thanks)\b[\s!.,]*$/i;
 
 /**
- * @returns {'answer'|'greeting'|'question'} what the person is doing
+ * @returns {'answer'|'greeting'|'question'|'skip'} what the person is doing
  */
 export const readsAsAnswer = (text, step, draft = {}) => {
   const typed = String(text || '').trim();
   if (!typed) return 'answer';
 
   if (GREETINGS.test(typed)) return 'greeting';
-  if (META.test(typed)) return 'question';
+  if (SKIP_WORD.test(typed)) return 'skip';
+  if (META.test(typed) || UNSURE.test(typed) || ABOUT_THE_CHAT.test(typed) || HELP.test(typed)) return 'question';
+  // "Ok" is not an answer to anything. Treated as a nudge: the coach
+  // acknowledges and puts the question back, at no cost.
+  if (ACK.test(typed)) return 'greeting';
 
   // A chip label is that chip, whatever punctuation came with it.
   if (step && matchChip(typed, getChips(step, draft))) return 'answer';
@@ -1114,6 +1145,22 @@ export const readsAsAnswer = (text, step, draft = {}) => {
   return 'answer';
 };
 
+/* Does this read like a job title, or like someone talking?
+   Titles are short noun phrases. Sentences about oneself are not, and the
+   giveaway is nearly always a first-person verb: "I work in", "I'm not
+   sure", "I need help". */
+const NOT_A_TITLE = /\b(i am|i'?m|i work|i need|i want|i have|i do|i think|i guess|my |can you|help|sure|know)\b/i;
+
+export const looksLikeTitle = (text) => {
+  const typed = String(text || '').trim();
+  if (!typed) return false;
+  const words = typed.split(/\s+/);
+  // Six words covers "Senior Director of Product Marketing, EMEA".
+  if (words.length > 6) return false;
+  if (NOT_A_TITLE.test(typed)) return false;
+  return true;
+};
+
 export const needsAI = (step, text, draft = {}) => {
   if (!step || !step.aiStep) return false;
   const typed = String(text || '').trim();
@@ -1121,6 +1168,9 @@ export const needsAI = (step, text, draft = {}) => {
 
   if (step.id === 'sector') return !matchSector(typed);
   if (step.id === 'skills') return parseSkillList(typed).length === 0;
+  // A plain title is taken as typed; a sentence goes to the model to have the
+  // title pulled out of it, or to be asked again.
+  if (step.id === 'title') return !looksLikeTitle(typed);
 
   const chips = getChips(step, draft);
   if (chips.length && matchChip(typed, chips)) return false;

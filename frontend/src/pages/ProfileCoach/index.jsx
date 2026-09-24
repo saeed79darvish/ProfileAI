@@ -926,7 +926,7 @@ const ProfileCoach = () => {
     const first = LADDER[0];
     const intent = readsAsAnswer(text, first, draftRef.current);
 
-    if (intent === 'greeting') {
+    if (intent === 'greeting' || intent === 'skip') {
       pushCoach(TEXT.INTRO_HELLO);
       return;
     }
@@ -991,6 +991,18 @@ const ProfileCoach = () => {
        the draft now: the coach replies, and the question it had asked is put
        back in front of them. */
     const intent = probing ? 'answer' : readsAsAnswer(text, step, draftRef.current);
+    if (intent === 'skip') {
+      // Typed rather than tapped, but it means the same thing — where the
+      // step allows it. Where it does not, it is a nudge like any other.
+      if (step.optional) {
+        if (liveMessage) spendChips(liveMessage.id);
+        setFollowUpFor(null);
+        advance(stepIndex, draftRef.current);
+        return;
+      }
+      await handleAside(text, 'greeting', step, liveMessage);
+      return;
+    }
     if (intent !== 'answer') {
       await handleAside(text, intent, step, liveMessage);
       return;

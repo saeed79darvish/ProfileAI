@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   readsAsAnswer,
+  looksLikeTitle,
   parseConversation,
   serializeConversation,
   coachCompletion,
@@ -897,4 +898,47 @@ test('an entry-level answer is not handed a fantasy', () => {
     .map((c) => c.label);
   assert.ok(senior.includes('Staff Frontend Developer'));
   assert.ok(senior.some((c) => /Manager/.test(c)));
+});
+
+/* ─── The things people type that are not answers ─────────────
+   Every one of these was being stored as the person's job title, which is
+   the line a recruiter reads first. */
+
+test('talking to the coach is never filed as a job title', () => {
+  const title = step('title');
+  const draft = { sector: 'tech', level: 'staff' };
+  const notAnswers = {
+    "I'm not sure what to put here": 'question',
+    'what should I put': 'question',
+    'I already told you': 'question',
+    'that is not what I meant': 'question',
+    'tell me more': 'question',
+    'I need help with my resume': 'question',
+    'can you help me with this': 'question',
+    ok: 'greeting',
+    yes: 'greeting',
+    thanks: 'greeting',
+    skip: 'skip',
+    next: 'skip',
+  };
+  for (const [said, intent] of Object.entries(notAnswers)) {
+    assert.equal(readsAsAnswer(said, title, draft), intent, `"${said}"`);
+  }
+});
+
+test('a job title still costs no model call', () => {
+  const title = step('title');
+  const draft = { sector: 'tech', level: 'staff' };
+  for (const real of ['Staff Frontend Developer', 'Registered Nurse', 'Senior Director of Product Marketing', 'HVAC Technician']) {
+    assert.equal(readsAsAnswer(real, title, draft), 'answer', real);
+    assert.equal(needsAI(title, real, draft), false, `${real} should not need the model`);
+    assert.equal(looksLikeTitle(real), true, real);
+  }
+});
+
+test('a sentence with a title inside it goes to the model, not into the headline', () => {
+  const title = step('title');
+  const draft = { sector: 'healthcare', level: 'ic' };
+  assert.equal(needsAI(title, 'I work as a nurse in the ICU', draft), true);
+  assert.equal(looksLikeTitle('I work as a nurse in the ICU'), false);
 });
