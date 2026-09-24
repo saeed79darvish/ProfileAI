@@ -37,6 +37,7 @@ import {
   TOUR_CARDS,
   TIMING,
   PANEL_ITEMS,
+  JOB_SECTORS,
   ALLOWED_FILE_TYPES,
   VALIDATION,
   UPLOAD_STEPS,
@@ -289,11 +290,17 @@ const ProfileCoach = () => {
 
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
-  const startLadder = useCallback((from) => {
-    setStepIndex(0);
+  const startLadder = useCallback((from, seed = null) => {
+    // Someone who told us their field on the way in must not be asked for it
+    // again — that is the whole complaint about builders that do not listen.
+    const draft0 = { ...emptyDraft(), ...(seed || {}) };
+    const at = seed?.sector ? 1 : 0;
+    draftRef.current = draft0;
+    setDraft(draft0);
+    setStepIndex(at);
     pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
-    askStep(0, emptyDraft());
-    trackEvent('coach_started', { intro: from });
+    askStep(at, draft0);
+    trackEvent('coach_started', { intro: from, seeded: !!seed?.sector });
   }, [askStep, pushCoach]);
 
   useEffect(() => {
@@ -773,6 +780,31 @@ const ProfileCoach = () => {
    * people mean when they say a chatbot is not smart. Either way the step is
    * re-asked afterwards, so the conversation never stalls on an aside.
    */
+  /** Answer a question, and nothing else. Shared by the intro and the ladder. */
+  const answerQuestion = useCallback(async (text, asked, stepId) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachAsk({
+        question: text,
+        asked,
+        context: {
+          sector: draftRef.current.sector,
+          level: draftRef.current.level,
+          title: draftRef.current.title,
+          stepId,
+        },
+      });
+      setTyping(false);
+      pushCoach(data?.answer?.trim() || TEXT.ASIDE_FALLBACK);
+    } catch {
+      setTyping(false);
+      pushCoach(TEXT.ASIDE_FALLBACK);
+    } finally {
+      setBusy(false);
+    }
+  }, [pushCoach]);
+
   const handleAside = useCallback(async (text, intent, step, liveMessage) => {
     const index = LADDER.findIndex((s) => s.id === step.id);
     // The old chip row is retired: the question comes back below, live.
@@ -784,35 +816,62 @@ const ProfileCoach = () => {
       return;
     }
 
-    setBusy(true);
-    setTyping(true);
-    try {
-      const { data } = await profileAPI.coachAsk({
-        question: text,
-        asked: step.question,
-        context: {
-          sector: draftRef.current.sector,
-          level: draftRef.current.level,
-          title: draftRef.current.title,
-          stepId: step.id,
-        },
-      });
-      setTyping(false);
-      pushCoach(data?.answer?.trim() || TEXT.ASIDE_FALLBACK);
-    } catch {
-      setTyping(false);
-      pushCoach(TEXT.ASIDE_FALLBACK);
-    } finally {
-      setBusy(false);
-    }
+    await answerQuestion(text, step.question, step.id);
     later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
-  }, [askStep, later, pushCoach, spendChips]);
+  }, [answerQuestion, askStep, later, pushCoach, spendChips]);
+
+  /**
+   * Typed while the intro is on screen.
+   *
+   * The composer used to be dead here, because it is gated on there being a
+   * question to answer and the intro asks nothing. That was defensible when
+   * the intro was a slideshow and the box could only take dictation; it is
+   * not, now that the coach can answer things. A question gets answered and
+   * the intro stays put. Anything else is someone who would rather talk than
+   * read three slides, so the intro gets out of the way.
+   */
+  const handleIntroText = useCallback(async (text) => {
+    const first = LADDER[0];
+    const intent = readsAsAnswer(text, first, draftRef.current);
+
+    if (intent === 'greeting') {
+      pushCoach(TEXT.INTRO_HELLO);
+      return;
+    }
+    if (intent === 'question') {
+      await answerQuestion(text, '', 'intro');
+      return;
+    }
+
+    // They said something substantive. If it names their field, that is the
+    // first question answered before it was asked.
+    const matched = matchSector(text);
+    const sector = matched && JOB_SECTORS.find((s) => s.id === matched.sector);
+    pushCoach(sector ? TEXT.INTRO_START_SECTOR(sector.label) : TEXT.INTRO_START);
+    setMessages((prev) => prev
+      .filter((m) => m.introSlide == null)
+      .map((m) => (m.introBuild ? { ...m, spent: true } : m)));
+    trackEvent('coach_intro_typed_past', { seeded: !!sector });
+    later(
+      () => startLadder('typed', sector ? { sector: sector.id } : null),
+      TIMING.ACK_MS
+    );
+  }, [answerQuestion, later, pushCoach, startLadder]);
 
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
     const text = input.trim();
     const step = LADDER[stepIndex];
-    if (!text || !step || busy) return;
+    if (!text || busy) return;
+
+    // The intro is on screen and nothing has been asked yet.
+    if (!step) {
+      setInput('');
+      setError('');
+      pushMine(text);
+      await handleIntroText(text);
+      return;
+    }
     // canAnswer, not step.freeText: a probe question belongs to the review
     // step, which asks nothing itself and so declares freeText: false.
     if (!canAnswer(step, probing)) return;
@@ -966,7 +1025,7 @@ const ProfileCoach = () => {
       setFollowUpFor(null);
       advance(index, current);
     }
-  }, [advance, busy, commit, followUpFor, handleAside, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, busy, commit, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 
@@ -1041,7 +1100,9 @@ const ProfileCoach = () => {
   }, [draft]);
 
   const currentStep = LADDER[stepIndex];
-  const canType = canAnswer(currentStep, probing) && !busy;
+  // The intro (stepIndex -1) has no question, but it does have a coach who
+  // can answer one — see handleIntroText.
+  const canType = (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing)) && !busy;
 
   /* ─── Card renderers ───────────────────────────────────────── */
 

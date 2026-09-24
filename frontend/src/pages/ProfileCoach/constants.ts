@@ -78,6 +78,10 @@ export const TEXT = {
   ASIDE_FALLBACK:
     'I cannot answer that one, sorry. You can skip anything you would rather not answer, and edit everything at the end.',
   ASIDE_BACK: 'Back to it:',
+  // Typed during the intro, which is a slideshow with nothing to answer yet.
+  INTRO_HELLO: 'Hello. Have a look, or tap Continue whenever you want to start.',
+  INTRO_START: 'Let us get straight into it.',
+  INTRO_START_SECTOR: (label: string) => `${label} — got it. Let us do the rest.`,
   ACK_DEFAULT: 'Got it.',
 
   FINISH_TITLE: 'That is everything I need.',
