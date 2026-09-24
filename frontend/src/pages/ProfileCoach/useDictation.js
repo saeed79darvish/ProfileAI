@@ -41,13 +41,31 @@ export const useDictation = ({ onText, onError } = {}) => {
   // half-typed answer instead of eating it.
   const baseRef = useRef('');
   const finalRef = useRef('');
+  // Set while a session is being thrown away. stop() *finalises* what it
+  // heard, so the recogniser delivers one last result after the send — which
+  // landed the whole spoken sentence back in a box we had just cleared.
+  const discardedRef = useRef(false);
   // Read inside the recognition callbacks, which are created once and would
   // otherwise close over the first render's props.
   const handlersRef = useRef({ onText, onError });
   useEffect(() => { handlersRef.current = { onText, onError }; }, [onText, onError]);
 
+  // Finish the sentence and keep what was heard: the mic button.
   const stop = useCallback(() => {
     try { recognitionRef.current?.stop(); } catch { /* already stopped */ }
+    setListening(false);
+  }, []);
+
+  /**
+   * Throw the session away, keeping nothing: sending.
+   *
+   * abort() rather than stop(), and a flag as well, because the last result
+   * can arrive either side of that call and neither belongs in the box the
+   * send just emptied.
+   */
+  const cancel = useCallback(() => {
+    discardedRef.current = true;
+    try { recognitionRef.current?.abort(); } catch { /* nothing running */ }
     setListening(false);
   }, []);
 
@@ -55,6 +73,7 @@ export const useDictation = ({ onText, onError } = {}) => {
     if (!Recognition) return;
     baseRef.current = currentText;
     finalRef.current = '';
+    discardedRef.current = false;
 
     const recognition = new Recognition();
     recognition.continuous = true;
@@ -64,6 +83,7 @@ export const useDictation = ({ onText, onError } = {}) => {
     recognition.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
 
     recognition.onresult = (event) => {
+      if (discardedRef.current) return;
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
@@ -102,5 +122,5 @@ export const useDictation = ({ onText, onError } = {}) => {
     try { recognitionRef.current?.abort(); } catch { /* nothing to abort */ }
   }, []);
 
-  return { listening, start, stop, toggle, supported: dictationSupported };
+  return { listening, start, stop, cancel, toggle, supported: dictationSupported };
 };

@@ -993,6 +993,13 @@ const GREETINGS = /^(hi|hey|hello|yo|hiya|sup|howdy|good (morning|afternoon|even
 // Openers that make something a question even without a question mark.
 const QUESTION_OPENERS = /^(what|why|how|who|where|when|which|can you|can i|could you|do you|does it|did you|is this|is it|are you|are we|will you|would you|should i|tell me about you|explain)\b/i;
 
+/* The same thing, anywhere in the sentence. People do not open with the
+   question — they open with manners. "Hey I hope you're doing great so I have
+   a question about the portfolio, what does the portfolio do for me" was read
+   as an answer and filed, because every pattern here was anchored to the
+   start of the string. Politeness should not cost someone an answer. */
+const QUESTION_ANYWHERE = /\b(i have a question|i've got a question|quick question|can you tell me|tell me more about|what (is|are|does|do|can|happens|kind of)|how (do|does|did|can|long|much|many)|why (do|does|is|are|would)|do i need|do you (have|offer|support)|is there|are there|what if)\b/i;
+
 // Things people say to a chat box that are about the conversation, not in it.
 const META = /^(i have a question|i've got a question|question|help|help me|wait|hold on|stop|idk|i don'?t know|not sure|no idea|what do you mean|huh|\?+)\b/i;
 
@@ -1010,6 +1017,9 @@ export const readsAsAnswer = (text, step, draft = {}) => {
   if (step && matchChip(typed, getChips(step, draft))) return 'answer';
 
   const words = typed.split(/\s+/).length;
+
+  // Asked somewhere in the middle of a polite sentence.
+  if (QUESTION_ANYWHERE.test(typed)) return 'question';
 
   // A question mark on its own does not make a question: "Product Manager?"
   // is someone hedging about their own title, and answering it with an

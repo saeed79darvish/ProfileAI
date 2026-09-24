@@ -788,6 +788,19 @@ test('greetings and questions are not answers', () => {
   assert.equal(readsAsAnswer('idk', title, draft), 'question');
 });
 
+test('a question asked politely, mid-sentence, is still a question', () => {
+  const title = step('title');
+  const draft = { sector: 'tech', level: 'staff' };
+  // Real message that was filed as an answer: every pattern was anchored to
+  // the start of the string, and this person opened with manners.
+  assert.equal(
+    readsAsAnswer("Hey I hope you're doing great so I have a question about the portfolio, what does it do for me", title, draft),
+    'question'
+  );
+  assert.equal(readsAsAnswer('do i need to pay for this', title, draft), 'question');
+  assert.equal(readsAsAnswer('how long does this take', title, draft), 'question');
+});
+
 test('real answers are not mistaken for chatter', () => {
   const title = step('title');
   const draft = { sector: 'tech', level: 'staff' };
@@ -802,4 +815,6 @@ test('real answers are not mistaken for chatter', () => {
   );
   // A chip label is that chip, whatever punctuation came with it.
   assert.equal(readsAsAnswer('Senior?', step('level'), draft), 'answer');
+  // Describing your own work is an answer, even at length.
+  assert.equal(readsAsAnswer('I work in healthcare as a nurse', step('sector'), draft), 'answer');
 });

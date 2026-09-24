@@ -846,15 +846,22 @@ const ProfileCoach = () => {
       pushCoach(TEXT.INTRO_HELLO);
       return;
     }
-    if (intent === 'question') {
-      await answerQuestion(text, '', 'intro');
-      return;
-    }
 
-    // They said something substantive. If it names their field, that is the
-    // first question answered before it was asked.
     const matched = matchSector(text);
     const sector = matched && JOB_SECTORS.find((s) => s.id === matched.sector);
+
+    /* There is no question of ours on screen yet, so everything typed here is
+       something the person wanted to say — and all of it gets a real reply.
+       The exception is someone who just named their field, where we have
+       something specific to say back and no need to spend a call saying it. */
+    if (intent === 'question' || !sector) {
+      await answerQuestion(text, '', 'intro');
+    }
+
+    // Asking about the product is not a reason to start the questions.
+    // Telling us what they do is.
+    if (intent === 'question' && !sector) return;
+
     pushCoach(sector ? TEXT.INTRO_START_SECTOR(sector.label) : TEXT.INTRO_START);
     setMessages((prev) => prev
       .filter((m) => m.introSlide == null)
@@ -868,9 +875,10 @@ const ProfileCoach = () => {
 
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
-    // Sending ends the sentence: a recogniser still running would drop the
-    // next few words into the next question's box.
-    if (dictation.listening) dictation.stop();
+    // Sending throws the recogniser away rather than stopping it: stop()
+    // finalises, and that last result arrives after the box has been cleared
+    // and puts the whole spoken sentence straight back into it.
+    if (dictation.listening) dictation.cancel();
     const text = input.trim();
     const step = LADDER[stepIndex];
     if (!text || busy) return;
