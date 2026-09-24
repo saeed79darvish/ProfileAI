@@ -59,6 +59,7 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  readsAsAnswer,
   visiblePanelItems,
   normalizeTitle,
   parseLinks,
@@ -764,6 +765,49 @@ const ProfileCoach = () => {
     advance(LADDER.findIndex((s) => s.id === step.id), draftRef.current);
   }, [advance, pushMine, spendChips]);
 
+  /**
+   * They said hello, or asked us something, instead of answering.
+   *
+   * A greeting is free: say hello back and re-ask. A question costs one small
+   * call, because a canned "let's stay on topic" is exactly the unhelpfulness
+   * people mean when they say a chatbot is not smart. Either way the step is
+   * re-asked afterwards, so the conversation never stalls on an aside.
+   */
+  const handleAside = useCallback(async (text, intent, step, liveMessage) => {
+    const index = LADDER.findIndex((s) => s.id === step.id);
+    // The old chip row is retired: the question comes back below, live.
+    if (liveMessage) spendChips(liveMessage.id);
+
+    if (intent === 'greeting') {
+      pushCoach(TEXT.GREETING_BACK);
+      later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
+      return;
+    }
+
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachAsk({
+        question: text,
+        asked: step.question,
+        context: {
+          sector: draftRef.current.sector,
+          level: draftRef.current.level,
+          title: draftRef.current.title,
+          stepId: step.id,
+        },
+      });
+      setTyping(false);
+      pushCoach(data?.answer?.trim() || TEXT.ASIDE_FALLBACK);
+    } catch {
+      setTyping(false);
+      pushCoach(TEXT.ASIDE_FALLBACK);
+    } finally {
+      setBusy(false);
+    }
+    later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
+  }, [askStep, later, pushCoach, spendChips]);
+
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
     const text = input.trim();
@@ -778,6 +822,17 @@ const ProfileCoach = () => {
     setInput('');
     setError('');
     pushMine(text);
+
+    /* Not everything typed into a chat box is an answer. "Hi" was being
+       stored as someone's level and "I have a question?" as their job title,
+       which then went into the headline a recruiter reads. Neither touches
+       the draft now: the coach replies, and the question it had asked is put
+       back in front of them. */
+    const intent = probing ? 'answer' : readsAsAnswer(text, step, draftRef.current);
+    if (intent !== 'answer') {
+      await handleAside(text, intent, step, liveMessage);
+      return;
+    }
 
     const index = stepIndex;
     const current = draftRef.current;
@@ -911,7 +966,7 @@ const ProfileCoach = () => {
       setFollowUpFor(null);
       advance(index, current);
     }
-  }, [advance, busy, commit, followUpFor, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, busy, commit, followUpFor, handleAside, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 

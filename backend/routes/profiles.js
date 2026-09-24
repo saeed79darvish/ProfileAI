@@ -627,6 +627,30 @@ router.post('/coach/review', coachGuard, async (req, res) => {
   }
 });
 
+// @route   POST /api/profiles/coach/ask
+// @desc    Answer a question the person asked instead of answering ours
+// @access  Public (guests metered by IP)
+router.post('/coach/ask', coachGuard, async (req, res) => {
+  try {
+    const { question, asked, context } = req.body || {};
+    if (!question || !String(question).trim()) {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+
+    const answer = await profileCoachService.answerAside({
+      question,
+      asked: asked ? String(asked).slice(0, 300) : '',
+      context: context && typeof context === 'object' ? context : {},
+    });
+
+    await recordCoachUsage(req);
+    res.json({ success: true, answer });
+  } catch (error) {
+    console.error('Error answering coach aside:', error);
+    res.status(500).json({ error: 'Could not answer that' });
+  }
+});
+
 // @route   POST /api/profiles/coach/target
 // @desc    How far the target role is, grounded in live postings we hold
 // @access  Public (guests metered by IP)

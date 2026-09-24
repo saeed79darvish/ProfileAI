@@ -18,6 +18,7 @@ const {
   writeSummaryPrompt,
   reviewProfilePrompt,
   targetAssessmentPrompt,
+  answerAsidePrompt,
 } = require('./ai/prompts/profileCoach');
 const { inspectProfile } = require('./resume/coachInspect');
 const { countOpenings } = require('./coachMarket');
@@ -352,6 +353,29 @@ async function reviewProfile({ profile, sector } = {}) {
 }
 
 /**
+ * answerAside — reply to a question someone asked mid-conversation.
+ *
+ * Costs one small call, only ever on something the person typed themselves,
+ * and changes no profile field: an aside is not an answer.
+ */
+async function answerAside({ question, asked, context = {} } = {}) {
+  const trimmed = String(question || '').trim().slice(0, MAX_ANSWER_CHARS);
+  if (!trimmed) return '';
+
+  const response = await callAI({
+    model: TURN_MODEL,
+    max_tokens: 220,
+    temperature: 0.5,
+    messages: [{
+      role: 'user',
+      content: answerAsidePrompt({ question: trimmed, asked, context }),
+    }],
+  });
+
+  return (response.choices[0].message.content || '').trim();
+}
+
+/**
  * assessTarget — how far the target role is, and what closes the gap.
  *
  * The opening counts come from our own job corpus rather than the model, so
@@ -412,6 +436,7 @@ module.exports = {
   STEP_SCHEMAS,
   reviewProfile,
   assessTarget,
+  answerAside,
   PLACEHOLDER_RE,
   interpretAnswer,
   writeBullets,

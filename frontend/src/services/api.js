@@ -290,6 +290,9 @@ export const profileAPI = {
   // The coach's read on a resume it was just handed: what works, what costs
   // them interviews, and what to ask them next.
   coachReview: ({ profile, sector }) => api.post('/profiles/coach/review', { profile, sector }),
+  // Answer a question someone asked instead of answering ours.
+  coachAsk: ({ question, asked, context }) =>
+    api.post('/profiles/coach/ask', { question, asked, context }),
   // How far the target role is, grounded in live postings from our own corpus.
   coachTarget: ({ profile, target, location, workStyle, motivation, blocker }) =>
     api.post('/profiles/coach/target', { profile, target, location, workStyle, motivation, blocker }),

@@ -9,6 +9,7 @@ import {
 
 import {
   LADDER,
+  readsAsAnswer,
   levelsFor,
   visiblePanelItems,
   parseLinks,
@@ -770,4 +771,35 @@ test('the projects row is shown to whoever gets asked, and nobody else', () => {
     { experience: [{ company: 'Acme' }], projects: [{ title: 'Thing' }] },
     items
   ).some((i) => i.key === 'proj'));
+});
+
+/* ─── Talking to the coach, rather than answering it ──────────
+   "Hi" was stored as a level and "I have a question?" as a job title, which
+   went straight into the headline a recruiter reads. */
+
+test('greetings and questions are not answers', () => {
+  const title = step('title');
+  const draft = { sector: 'tech', level: 'staff' };
+  assert.equal(readsAsAnswer('Hi', title, draft), 'greeting');
+  assert.equal(readsAsAnswer('hey there', title, draft), 'greeting');
+  assert.equal(readsAsAnswer('I have a question?', title, draft), 'question');
+  assert.equal(readsAsAnswer('what is this?', title, draft), 'question');
+  assert.equal(readsAsAnswer('do I need an account?', title, draft), 'question');
+  assert.equal(readsAsAnswer('idk', title, draft), 'question');
+});
+
+test('real answers are not mistaken for chatter', () => {
+  const title = step('title');
+  const draft = { sector: 'tech', level: 'staff' };
+  // Being wrong here costs an exchange; being wrong the other way corrupts
+  // the profile. But a hedged job title is still a job title.
+  assert.equal(readsAsAnswer('Product Manager?', title, draft), 'answer');
+  assert.equal(readsAsAnswer('Staff Frontend Developer', title, draft), 'answer');
+  assert.equal(readsAsAnswer('Head of Department', step('level'), draft), 'answer');
+  assert.equal(
+    readsAsAnswer('I built the onboarding flow at Acme and shipped a design system', step('achievements'), draft),
+    'answer'
+  );
+  // A chip label is that chip, whatever punctuation came with it.
+  assert.equal(readsAsAnswer('Senior?', step('level'), draft), 'answer');
 });

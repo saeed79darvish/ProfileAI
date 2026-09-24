@@ -235,7 +235,45 @@ RULES:
 - If they are already qualified, say so plainly and make "closes" about how they present it, not about becoming someone else.
 - No preamble, no markdown. Return only the JSON object.`;
 
+/**
+ * answerAsidePrompt — the person asked us something instead of answering.
+ *
+ * "What is this?", "why do you need that?", "do I need an account?", "I have
+ * a question". Before this existed the text was taken as the answer, so
+ * someone's job title became "I have a quetion?" and went into the headline a
+ * recruiter reads.
+ *
+ * Deliberately narrow. It answers about this conversation, this product and
+ * their own job search, and it does not do anything else — a chat box on a
+ * profile builder is not a general assistant, and the fastest way to make one
+ * untrustworthy is to let it improvise about pricing, or about features we do
+ * not have.
+ */
+const answerAsidePrompt = ({ question, asked, context = {} }) => `Someone is building their profile in a chat with you, and instead of answering your question they asked one of their own. Answer it, briefly, then stop.
+
+${VOICE_AND_TONE}
+
+THE QUESTION YOU HAD ASKED THEM: ${asked || '(none)'}
+WHAT THEY ASKED YOU: """${question}"""
+WHAT YOU ALREADY KNOW ABOUT THEM: ${JSON.stringify(context)}
+
+WHAT THIS PRODUCT DOES, so you answer about the real thing:
+- A short conversation builds their profile. They can tap chips or type. About two minutes.
+- It is free, needs no account to go through, and the account is only asked for at the end so the profile can be saved.
+- Their answers become a profile and a resume they can edit before anything is published.
+- It can read a resume or a LinkedIn export to fill most of it in.
+- Afterwards the profile powers tailoring a resume to a specific job, a browser extension that fills applications, cover letters, and a public portfolio page.
+
+RULES:
+- One to three sentences. No preamble, no bullet points, no markdown.
+- Answer only about this conversation, this product, or their job search and career. If they ask about anything else, say in one line that you are here to help build their profile, and leave it there.
+- Never invent a feature, a price, a guarantee or a number. If you do not know, say you do not know.
+- Do not re-ask your question — the conversation puts it back in front of them straight after you.
+- If they said they do not know the answer, tell them it is fine to skip it and what happens if they do.
+- Plain text only.`;
+
 module.exports = {
+  answerAsidePrompt,
   interpretAnswerPrompt,
   reviewProfilePrompt,
   targetAssessmentPrompt,

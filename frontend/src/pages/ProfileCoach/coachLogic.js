@@ -973,6 +973,54 @@ export const parseSkillList = (text) => {
  *   - the text matched a chip locally
  *   - a skills answer that split cleanly into a list
  */
+/* ─── Is that an answer, or is it talking to me? ───────────────
+
+   The title step takes what you type as your title, because a typed job
+   title is already the answer and routing it through a model would spend a
+   call to learn nothing. The same shortcut stored "Hi" as someone's level and
+   "I have a question?" as their job title, which then went into the headline
+   a recruiter reads. Every free-text step has the same hole, including the
+   ones that do call the model: "what do you mean?" reaches an extractor
+   looking for an employer, and it will find one.
+
+   So before any step sees the text: is this an answer at all? Greetings and
+   questions are cheap and unambiguous to spot, and being wrong is not
+   symmetrical — treating a real answer as chatter costs one extra exchange,
+   while treating chatter as an answer silently corrupts the profile. */
+
+const GREETINGS = /^(hi|hey|hello|yo|hiya|sup|howdy|good (morning|afternoon|evening)|salam|salaam|bonjour|hola)( there| again| all| everyone)?[\s!.,]*$/i;
+
+// Openers that make something a question even without a question mark.
+const QUESTION_OPENERS = /^(what|why|how|who|where|when|which|can you|can i|could you|do you|does it|did you|is this|is it|are you|are we|will you|would you|should i|tell me about you|explain)\b/i;
+
+// Things people say to a chat box that are about the conversation, not in it.
+const META = /^(i have a question|i've got a question|question|help|help me|wait|hold on|stop|idk|i don'?t know|not sure|no idea|what do you mean|huh|\?+)\b/i;
+
+/**
+ * @returns {'answer'|'greeting'|'question'} what the person is doing
+ */
+export const readsAsAnswer = (text, step, draft = {}) => {
+  const typed = String(text || '').trim();
+  if (!typed) return 'answer';
+
+  if (GREETINGS.test(typed)) return 'greeting';
+  if (META.test(typed)) return 'question';
+
+  // A chip label is that chip, whatever punctuation came with it.
+  if (step && matchChip(typed, getChips(step, draft))) return 'answer';
+
+  const words = typed.split(/\s+/).length;
+
+  // A question mark on its own does not make a question: "Product Manager?"
+  // is someone hedging about their own title, and answering it with an
+  // explanation of the product would be absurd. It takes an opener, or
+  // enough words that it cannot be a hedged job title.
+  if (typed.endsWith('?') && (QUESTION_OPENERS.test(typed) || words >= 5)) return 'question';
+  if (QUESTION_OPENERS.test(typed) && words <= 14) return 'question';
+
+  return 'answer';
+};
+
 export const needsAI = (step, text, draft = {}) => {
   if (!step || !step.aiStep) return false;
   const typed = String(text || '').trim();

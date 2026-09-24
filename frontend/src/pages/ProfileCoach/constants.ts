@@ -72,6 +72,12 @@ export const TEXT = {
   PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
 
   THINKING: 'Thinking',
+  // Someone said hello, or asked something, instead of answering. Neither is
+  // an answer, and neither should land on their profile.
+  GREETING_BACK: 'Hello. Whenever you are ready:',
+  ASIDE_FALLBACK:
+    'I cannot answer that one, sorry. You can skip anything you would rather not answer, and edit everything at the end.',
+  ASIDE_BACK: 'Back to it:',
   ACK_DEFAULT: 'Got it.',
 
   FINISH_TITLE: 'That is everything I need.',
