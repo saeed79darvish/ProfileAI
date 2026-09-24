@@ -329,6 +329,14 @@ export const ComposerWrap = styled.div`
   }
 `;
 
+/* The focus state lives on this box, not on the input inside it.
+   index.css draws a 2px blue ring on any focused input for keyboard
+   accessibility, which here landed around just the text field — a second
+   rectangle inside the composer, skipping the mic and send buttons. MUI
+   inputs already have an exception there for the same reason.
+   So: the whole bar reacts instead, the way ChatGPT and Claude do it — the
+   border simply deepens while you are typing. Keyboard users still get a
+   real indicator, in the product's indigo rather than the browser's blue. */
 export const Composer = styled.form`
   display: flex;
   align-items: center;
@@ -337,8 +345,25 @@ export const Composer = styled.form`
   margin: 0 auto;
   padding: 8px 8px 8px 20px;
   background: #fff;
+  border: 1px solid #e6e6ef;
   border-radius: 16px;
   box-shadow: 0 2px 14px rgba(26, 26, 46, 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+
+  &:hover {
+    border-color: #dcdcea;
+  }
+
+  &:focus-within {
+    border-color: #b4b4c9;
+    box-shadow: 0 4px 18px rgba(26, 26, 46, 0.10);
+  }
+
+  /* Arrived by keyboard: that needs to be unmistakable, not tasteful. */
+  &:has(input:focus-visible) {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  }
 `;
 
 export const ComposerInput = styled.input`
@@ -353,6 +378,14 @@ export const ComposerInput = styled.input`
   min-width: 0;
 
   &::placeholder { color: #a0a0b8; }
+
+  /* Suppress the global ring on the field itself — the bar around it shows
+     focus instead. Without this the two draw on top of each other. */
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
 `;
 
 export const IconButton = styled.button`
