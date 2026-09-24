@@ -176,10 +176,38 @@ export const Bubble = styled.div`
     box-shadow: 0 2px 10px rgba(99, 102, 241, 0.25);
   `}
 
+  ${({ $editable }) => $editable && css`
+    font: inherit;
+    font-size: 1.02rem;
+    text-align: left;
+    border: none;
+    cursor: pointer;
+
+    &:hover ${EditHint}, &:focus-visible ${EditHint} { opacity: 0.85; }
+    &:hover { background: #5457e5; }
+  `}
+
   @media (max-width: 480px) {
     font-size: 0.96rem;
     max-width: 88%;
   }
+`;
+
+/* On a tapped answer, the bubble is a button. It stays a bubble — the same
+   indigo, the same shape — because dressing a transcript entry as a control
+   is what makes people afraid to touch it. The affordance appears on hover
+   and on focus, and it is always announced to a screen reader. */
+export const EditHint = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  font-size: 0.78rem;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  vertical-align: baseline;
+
+  svg { font-size: 0.85rem; }
 `;
 
 export const BubbleHint = styled.div`

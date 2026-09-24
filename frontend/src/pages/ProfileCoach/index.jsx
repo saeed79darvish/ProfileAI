@@ -8,6 +8,7 @@ import {
   Tune as TuneIcon,
   Extension as ExtensionIcon,
   MailOutline as MailIcon,
+  EditOutlined as EditIcon,
   Public as PublicIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
@@ -61,6 +62,8 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  canRewind,
+  draftRewoundTo,
   coachCompletion,
   loadConversation,
   saveConversation,
@@ -76,7 +79,7 @@ import {
 } from './coachLogic';
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
-  ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, Typing,
+  ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
   ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
@@ -262,8 +265,8 @@ const ProfileCoach = () => {
     setMessages((prev) => [...prev, { id: nextId(), role: 'coach', text, ...extra }]);
   }, []);
 
-  const pushMine = useCallback((text) => {
-    setMessages((prev) => [...prev, { id: nextId(), role: 'me', text }]);
+  const pushMine = useCallback((text, extra = {}) => {
+    setMessages((prev) => [...prev, { id: nextId(), role: 'me', text, ...extra }]);
   }, []);
 
   // Retire the chip row on a message once it has been answered, so the
@@ -318,6 +321,41 @@ const ProfileCoach = () => {
     }, TIMING.TYPING_MS);
   }, [later, pushCoach]);
 
+  /**
+   * Take back an answer.
+   *
+   * Everything from that question onward is dropped — the answer, the
+   * questions it led to, and the draft fields they filled — and the question
+   * is asked again. Anything less is worse than the mistake: change your
+   * sector and the job title you picked from the old sector's list is still
+   * sitting in your headline.
+   */
+  const rewindTo = useCallback((message) => {
+    const step = LADDER.find((s) => s.id === message.stepId);
+    if (!step || !canRewind(step) || busy) return;
+    const at = LADDER.findIndex((s) => s.id === step.id);
+
+    setMessages((prev) => {
+      const answerAt = prev.findIndex((m) => m.id === message.id);
+      if (answerAt < 0) return prev;
+      // Back to just before the question was asked, so askStep can ask it
+      // cleanly rather than leaving a spent row above a live one.
+      let questionAt = answerAt;
+      while (questionAt > 0 && prev[questionAt - 1].stepId === step.id) questionAt -= 1;
+      return prev.slice(0, questionAt);
+    });
+
+    const rewound = draftRewoundTo(draftRef.current, step.id);
+    draftRef.current = rewound;
+    setDraft(rewound);
+    setStepIndex(at);
+    setFollowUpFor(null);
+    setProbing(false);
+    trackEvent('coach_answer_changed', { step: step.id });
+    later(() => askStep(at, rewound), TIMING.ACK_MS);
+  }, [askStep, busy, later]);
+
+
   /* ─── Opening ──────────────────────────────────────────────── */
 
   /** Greet and ask the first ladder question — where every path through the
@@ -337,7 +375,7 @@ const ProfileCoach = () => {
 
   useEffect(() => {
     if (restored) {
-      pushCoach(TEXT.RESUMED);
+      pushCoach(TEXT.RESUMED, { ephemeral: true });
       trackEvent('coach_resumed', { atStep: LADDER[restored.stepIndex]?.id || 'intro' });
       return;
     }
@@ -653,7 +691,9 @@ const ProfileCoach = () => {
       setTyping(false);
       setBusy(false);
       // A failed review must not strand someone mid-conversation — the rest
-      // of the build still works without it.
+      // of the build still works without it. Counted, though: a silent
+      // failure nobody counts is an outage nobody notices.
+      trackEvent('coach_step_failed', { step: 'review' });
       advanceRef.current(index, draftRef.current);
     }
   }, [later, nextProbe, pushCoach]);
@@ -686,6 +726,7 @@ const ProfileCoach = () => {
     } catch {
       setTyping(false);
       setBusy(false);
+      trackEvent('coach_step_failed', { step: 'assess' });
       advanceRef.current(index, draftRef.current);
     }
   }, [pushCoach]);
@@ -758,7 +799,7 @@ const ProfileCoach = () => {
       return;
     }
 
-    pushMine(chip.label);
+    pushMine(chip.label, { stepId: step.id });
 
     if (step.id === 'importOffer') {
       // Deliberately NOT spent here. The file dialog can be dismissed and the
@@ -791,7 +832,10 @@ const ProfileCoach = () => {
     const chosen = message.chips.filter((c) => message.selected.includes(c.id));
 
     spendChips(message.id);
-    pushMine(chosen.length ? chosen.map((c) => c.label).join(', ') : TEXT.SKIP_CHIP);
+    pushMine(
+      chosen.length ? chosen.map((c) => c.label).join(', ') : TEXT.SKIP_CHIP,
+      { stepId: step.id }
+    );
 
     // Skills chips carry their label as id; preference chips carry an id the
     // editor's dropdowns expect. Both are already the right value to store.
@@ -1385,10 +1429,29 @@ const ProfileCoach = () => {
                       {message.role === 'coach' && (
                         <CoachAvatar aria-hidden="true"><CoachIcon htmlColor="#fff" /></CoachAvatar>
                       )}
-                      <Bubble $mine={message.role === 'me'}>
-                        {message.text}
-                        {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
-                      </Bubble>
+                      {/* Your own tapped answers are live controls: tap one to
+                          take it back. Typed answers are not — a sentence the
+                          model turned into experience rows cannot be cleanly
+                          un-picked, and those stay editable in the editor. */}
+                      {canRewind(LADDER.find((s) => s.id === message.stepId)) && message.role === 'me' ? (
+                        <Bubble
+                          $mine
+                          as="button"
+                          type="button"
+                          $editable
+                          onClick={() => rewindTo(message)}
+                          title={TEXT.CHANGE_ANSWER}
+                          aria-label={`${message.text} — ${TEXT.CHANGE_ANSWER}`}
+                        >
+                          {message.text}
+                          <EditHint aria-hidden="true"><EditIcon /> {TEXT.CHANGE_ANSWER}</EditHint>
+                        </Bubble>
+                      ) : (
+                        <Bubble $mine={message.role === 'me'}>
+                          {message.text}
+                          {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
+                        </Bubble>
+                      )}
                     </Row>
                   )}
 

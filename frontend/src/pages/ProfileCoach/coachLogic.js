@@ -474,7 +474,7 @@ export const LADDER = [
     // out with an empty experience section, which is the section recruiters
     // read first. Not asked of someone who already named a job — the
     // conversation has to end eventually, and the editor can add more.
-    skipIf: 'hasExperience',
+    skipIf: 'projectsCovered',
     optional: true,
   },
   {
@@ -646,7 +646,10 @@ export const emptyDraft = () => ({
    and thrown away rather than restored into a page that cannot render it. */
 
 export const CONVERSATION_KEY = 'profileai_coach_conversation';
-const CONVERSATION_VERSION = 1;
+// 2: v1 transcripts accumulated a "welcome back" line on every reload,
+// because the line was saved into the transcript it was announcing. Those
+// are not worth migrating — bumping the version drops them.
+const CONVERSATION_VERSION = 2;
 // Long enough to survive a phone call, a closed laptop or a commute; short
 // enough that a half-finished conversation from a fortnight ago does not
 // ambush someone who came back to start again.
@@ -660,7 +663,10 @@ export const serializeConversation = ({ draft, stepIndex, messages } = {}) => JS
   at: Date.now(),
   stepIndex: Number.isInteger(stepIndex) ? stepIndex : -1,
   draft: draft || emptyDraft(),
-  messages: Array.isArray(messages) ? messages : [],
+  // Anything said *about* the restore is not part of the conversation. Saving
+  // the "welcome back" line meant the next reload restored it and added
+  // another, and the greeting bred once per refresh.
+  messages: (Array.isArray(messages) ? messages : []).filter((m) => !m.ephemeral),
 });
 
 /**
@@ -1122,6 +1128,37 @@ export const needsAI = (step, text, draft = {}) => {
   return true;
 };
 
+/* ─── Changing your mind ──────────────────────────────────────
+
+   The transcript is append-only, so a mis-tapped sector poisoned every
+   question after it — titles, skills, the target ladder — with no way back
+   short of abandoning the conversation. Chat interfaces get away with that
+   when the stakes are a reply; here the stakes are the profile.
+
+   Only chip answers can be rewound. A step that writes prose through the
+   model puts it into experience rows and skill lists, and untangling which
+   row came from which sentence is guesswork — those stay editable where
+   they were always editable, in the editor at the end. */
+
+export const canRewind = (step) => !!(step && step.assign && step.chipSet);
+
+/**
+ * The draft with this step's answer, and everything downstream of it,
+ * forgotten. Changing your sector has to forget the job title you picked
+ * out of the old sector's list, or the correction leaves a worse mess than
+ * the mistake.
+ */
+export const draftRewoundTo = (draft, stepId) => {
+  const at = LADDER.findIndex((s) => s.id === stepId);
+  if (at < 0) return draft;
+  const blank = emptyDraft();
+  const next = { ...draft };
+  for (const step of LADDER.slice(at)) {
+    if (step.assign) next[step.assign] = blank[step.assign];
+  }
+  return next;
+};
+
 /* ─── Ladder navigation ──────────────────────────────────────── */
 
 const SKIP_PREDICATES = {
@@ -1131,9 +1168,13 @@ const SKIP_PREDICATES = {
     draft.careerStage === 'new_grad' || draft.careerStage === 'student',
   // Nothing to be "before", so there is nothing to ask.
   noFirstRole: (draft) => !(draft.experience || []).length,
-  // They already named a job, so the profile has something in it. Projects
-  // are for the people whose work does not live at an employer.
-  hasExperience: (draft) => (draft.experience || []).length > 0,
+  /* Projects are for whoever has nothing else to show — and for anyone
+     whose job history is in the field they are leaving. A career changer's
+     employer is the old career; the portfolio work in the new one is exactly
+     what is missing, and asking only the unemployed for it was how we
+     managed to skip the people who need it most. */
+  projectsCovered: (draft) => (draft.experience || []).length > 0
+    && !['career_change', 'self_taught'].includes(draft.careerStage),
   // Nothing was imported, so there is no document to react to.
   noImport: (draft) => !draft.importedFrom,
   // They skipped the target question; assessing an unstated goal would mean
