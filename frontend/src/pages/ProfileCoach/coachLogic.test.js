@@ -784,8 +784,11 @@ test('the projects row is shown to whoever gets asked, and nobody else', () => {
 test('greetings and questions are not answers', () => {
   const title = step('title');
   const draft = { sector: 'tech', level: 'staff' };
+  // A greeting is a person saying hello, and gets a real reply from the
+  // model. An acknowledgement is not, and is handled in place for free.
   assert.equal(readsAsAnswer('Hi', title, draft), 'greeting');
   assert.equal(readsAsAnswer('hey there', title, draft), 'greeting');
+  assert.equal(readsAsAnswer('ok', title, draft), 'ack');
   assert.equal(readsAsAnswer('I have a question?', title, draft), 'question');
   assert.equal(readsAsAnswer('what is this?', title, draft), 'question');
   assert.equal(readsAsAnswer('do I need an account?', title, draft), 'question');
@@ -915,9 +918,10 @@ test('talking to the coach is never filed as a job title', () => {
     'tell me more': 'question',
     'I need help with my resume': 'question',
     'can you help me with this': 'question',
-    ok: 'greeting',
-    yes: 'greeting',
-    thanks: 'greeting',
+    // Nothing in these to answer — acknowledged locally, no model call.
+    ok: 'ack',
+    yes: 'ack',
+    thanks: 'ack',
     skip: 'skip',
     next: 'skip',
   };

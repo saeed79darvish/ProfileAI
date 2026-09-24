@@ -1114,7 +1114,7 @@ const HELP = /\b(i need help|need some help|can you help|could you help|help me|
 const SKIP_WORD = /^(skip|skip this|skip it|next|pass|later|not now|no thanks)\b[\s!.,]*$/i;
 
 /**
- * @returns {'answer'|'greeting'|'question'|'skip'} what the person is doing
+ * @returns {'answer'|'greeting'|'question'|'skip'|'ack'} what the person is doing
  */
 export const readsAsAnswer = (text, step, draft = {}) => {
   const typed = String(text || '').trim();
@@ -1123,9 +1123,12 @@ export const readsAsAnswer = (text, step, draft = {}) => {
   if (GREETINGS.test(typed)) return 'greeting';
   if (SKIP_WORD.test(typed)) return 'skip';
   if (META.test(typed) || UNSURE.test(typed) || ABOUT_THE_CHAT.test(typed) || HELP.test(typed)) return 'question';
-  // "Ok" is not an answer to anything. Treated as a nudge: the coach
-  // acknowledges and puts the question back, at no cost.
-  if (ACK.test(typed)) return 'greeting';
+  /* "Ok" is not an answer to anything, but it is not worth a model call
+     either — there is nothing in it to respond to. Its own intent, handled
+     locally and free. A greeting is different: someone saying hello to a
+     coach deserves a coach saying hello back, and at roughly a tenth of a
+     cent that is the cheapest warmth in the product. */
+  if (ACK.test(typed)) return 'ack';
 
   // A chip label is that chip, whatever punctuation came with it.
   if (step && matchChip(typed, getChips(step, draft))) return 'answer';

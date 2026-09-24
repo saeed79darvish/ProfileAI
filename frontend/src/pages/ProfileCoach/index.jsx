@@ -902,12 +902,15 @@ const ProfileCoach = () => {
     // The old chip row is retired: the question comes back below, live.
     if (liveMessage) spendChips(liveMessage.id);
 
-    if (intent === 'greeting') {
+    // A bare "ok" has nothing in it to answer. Acknowledged in place, free.
+    if (intent === 'ack') {
       pushCoach(TEXT.GREETING_BACK);
       later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
       return;
     }
 
+    // Greetings go to the model like anything else someone says. A person
+    // who says hello and gets a form letter back has learned what this is.
     await answerQuestion(text, step.question, step.id);
     later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
   }, [answerQuestion, askStep, later, pushCoach, spendChips]);
@@ -926,8 +929,14 @@ const ProfileCoach = () => {
     const first = LADDER[0];
     const intent = readsAsAnswer(text, first, draftRef.current);
 
-    if (intent === 'greeting' || intent === 'skip') {
+    if (intent === 'ack' || intent === 'skip') {
       pushCoach(TEXT.INTRO_HELLO);
+      return;
+    }
+
+    // "hi" at the intro is the first thing anyone says. Answer it properly.
+    if (intent === 'greeting') {
+      await answerQuestion(text, '', 'intro');
       return;
     }
 
@@ -938,7 +947,7 @@ const ProfileCoach = () => {
        something the person wanted to say — and all of it gets a real reply.
        The exception is someone who just named their field, where we have
        something specific to say back and no need to spend a call saying it. */
-    if (intent === 'question' || !sector) {
+    if (!sector) {
       await answerQuestion(text, '', 'intro');
     }
 
