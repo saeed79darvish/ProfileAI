@@ -77,6 +77,7 @@ export const TEXT = {
   PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
 
   THINKING: 'Thinking',
+  RESUMED: 'Welcome back — picking up where we left off.',
   // Someone said hello, or asked something, instead of answering. Neither is
   // an answer, and neither should land on their profile.
   GREETING_BACK: 'Hello. Whenever you are ready:',

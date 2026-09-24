@@ -24,6 +24,7 @@ import {
   mapWizardProjectToEditor,
 } from '../JobPreferencesWizard/handoff.js';
 import { normalizeEducationRows } from '../../utils/education.js';
+import { COMPLETION_TIERS } from '../../hooks/useProfileCompletion.js';
 // The same formatter ProfileForm, the dashboard and the public profile use, so
 // a date reads identically wherever the person sees it.
 import { formatDateRange } from '../../utils/dateRange.js';
@@ -633,6 +634,75 @@ export const emptyDraft = () => ({
   review: null,
 });
 
+/* ─── Surviving a reload ──────────────────────────────────────
+
+   Seventeen questions is a long way to walk, and a refresh, a back-swipe on
+   a phone or a dropped connection took all of it — with nothing on the
+   server to fall back on for a signed-out visitor, which is most of them.
+   The key was declared in constants.ts from the start and never used.
+
+   Kept deliberately dumb: the transcript and the draft, a version, and a
+   timestamp. Anything the shape of which changes is caught by the version
+   and thrown away rather than restored into a page that cannot render it. */
+
+export const CONVERSATION_KEY = 'profileai_coach_conversation';
+const CONVERSATION_VERSION = 1;
+// Long enough to survive a phone call, a closed laptop or a commute; short
+// enough that a half-finished conversation from a fortnight ago does not
+// ambush someone who came back to start again.
+const CONVERSATION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+// A transcript this size means something has gone wrong; do not fill their
+// storage quota with it.
+const CONVERSATION_MAX_BYTES = 256 * 1024;
+
+export const serializeConversation = ({ draft, stepIndex, messages } = {}) => JSON.stringify({
+  v: CONVERSATION_VERSION,
+  at: Date.now(),
+  stepIndex: Number.isInteger(stepIndex) ? stepIndex : -1,
+  draft: draft || emptyDraft(),
+  messages: Array.isArray(messages) ? messages : [],
+});
+
+/**
+ * @returns {{draft, stepIndex, messages}|null} null whenever there is any
+ * doubt — a bad restore is worse than a fresh start, because it strands
+ * someone in a conversation whose controls no longer work.
+ */
+export const parseConversation = (raw, now = Date.now()) => {
+  if (!raw) return null;
+  let saved;
+  try { saved = JSON.parse(raw); } catch { return null; }
+  if (!saved || saved.v !== CONVERSATION_VERSION) return null;
+  if (!Number.isFinite(saved.at) || now - saved.at > CONVERSATION_MAX_AGE_MS) return null;
+  if (!Array.isArray(saved.messages) || !saved.messages.length) return null;
+  if (!saved.draft || typeof saved.draft !== 'object') return null;
+  // Nothing to come back to: the intro alone is not a conversation worth
+  // restoring, and restoring it would just replay the slideshow.
+  const answered = saved.messages.some((m) => m.role === 'me');
+  if (!answered) return null;
+  return {
+    draft: { ...emptyDraft(), ...saved.draft },
+    stepIndex: Number.isInteger(saved.stepIndex) ? saved.stepIndex : -1,
+    messages: saved.messages,
+  };
+};
+
+export const saveConversation = (state) => {
+  try {
+    const raw = serializeConversation(state);
+    if (raw.length > CONVERSATION_MAX_BYTES) return;
+    localStorage.setItem(CONVERSATION_KEY, raw);
+  } catch { /* private mode, or a full quota — losing the backup is not fatal */ }
+};
+
+export const loadConversation = () => {
+  try { return parseConversation(localStorage.getItem(CONVERSATION_KEY)); } catch { return null; }
+};
+
+export const clearConversation = () => {
+  try { localStorage.removeItem(CONVERSATION_KEY); } catch { /* nothing to clear */ }
+};
+
 /* ─── Chips ──────────────────────────────────────────────────── */
 
 /**
@@ -787,17 +857,24 @@ export const targetChips = (draft = {}) => {
     out.push(clean);
   };
 
-  // 1. Up their own track: the rungs above the one they just gave, worn by
-  //    the job they already do.
+  /* 1. Up their own track — but only as far as anyone can actually see.
+        Offering "Principal Frontend Developer" to someone who just said
+        entry level is flattery, and flattery is the failure mode career
+        products die of. Two rungs is a real horizon; eight is a fantasy. */
   if (base && at >= 0) {
-    for (const rung of levels.slice(at + 1)) {
+    for (const rung of levels.slice(at + 1, at + 3)) {
       if (rung.prefix) add(`${rung.prefix} ${base}`);
     }
   }
 
-  // 2. The management branch, in their sector's own words.
-  for (const sectorTitle of SECTOR_TITLES[sector] || []) {
-    if (LEADERSHIP.test(sectorTitle)) add(sectorTitle);
+  /* 2. The management branch, in their sector's own words — offered to
+        people who are within sight of it. "Engineering Manager" is the same
+        fantasy as "Principal" when someone has just said entry level, and
+        two fantasies do not make a career plan. */
+  if (at >= 2) {
+    for (const sectorTitle of SECTOR_TITLES[sector] || []) {
+      if (LEADERSHIP.test(sectorTitle)) add(sectorTitle);
+    }
   }
 
   // 3. Sideways, but only into a related role. The sector list is not ranked,
@@ -1477,6 +1554,38 @@ export const draftToProfileShape = (draft = {}) => ({
  * the shared rubric (it's a preference, not profile content), so it's scored
  * here; everything else defers to the rubric's own `done` flags.
  */
+/**
+ * The strength meter, scored against what this conversation can actually
+ * fill in.
+ *
+ * The canonical rubric has nine items and the coach asks for seven of them:
+ * it never asks for a photo, and it only asks for projects when there is no
+ * job to talk about. So answering every single question landed on 78% and
+ * the word "Intermediate" — a progress bar whose best outcome is a B minus,
+ * shown for the whole flow. The editor's rubric is untouched; this only
+ * re-scores it over the items that are in play for this person.
+ */
+export const coachCompletion = (completion, draft = {}) => {
+  const hasExperience = (draft.experience || []).length > 0;
+  const hasProjects = (draft.projects || []).length > 0;
+
+  const applicable = (completion.items || []).filter((item) => {
+    if (item.key === 'photo') return false;
+    // Never asked of someone with a job; never counted against them either.
+    if (item.key === 'proj' && hasExperience) return false;
+    // They were asked for projects instead — do not dock them twice.
+    if (item.key === 'exp' && !hasExperience && hasProjects) return false;
+    return true;
+  });
+
+  if (!applicable.length) return completion;
+
+  const done = applicable.filter((i) => i.done).length;
+  const pct = Math.round((done / applicable.length) * 100);
+  const tier = COMPLETION_TIERS.find((t) => pct >= t.min) || COMPLETION_TIERS[COMPLETION_TIERS.length - 1];
+  return { ...completion, items: applicable, pct, label: tier.label, color: tier.color };
+};
+
 export const panelState = (draft = {}, rubricItems = []) => {
   const byKey = Object.fromEntries(rubricItems.map((i) => [i.key, i.done]));
   return {

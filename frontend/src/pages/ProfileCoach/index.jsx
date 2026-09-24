@@ -61,6 +61,10 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  coachCompletion,
+  loadConversation,
+  saveConversation,
+  clearConversation,
   readsAsAnswer,
   visiblePanelItems,
   normalizeTitle,
@@ -163,6 +167,17 @@ const UploadProgress = ({ fileName, done, failed }) => {
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
 
+/* Restored ids were minted by a previous page load. Continue the sequence
+   rather than restart it, or the next message collides with an old one and
+   React renders two rows into the same key. */
+const resumeIdSequence = (messages = []) => {
+  const highest = messages.reduce((top, m) => {
+    const n = Number(String(m.id || '').replace(/^m/, ''));
+    return Number.isFinite(n) && n > top ? n : top;
+  }, 0);
+  messageSeq = Math.max(messageSeq, highest);
+};
+
 /* The welcome intro that used to be the standalone /onboarding page now runs
    as the first messages of this conversation — see components/
    OnboardingIntro. It plays every time rather than once per browser: this is
@@ -174,9 +189,18 @@ const ProfileCoach = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
 
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState(emptyDraft);
-  const [stepIndex, setStepIndex] = useState(-1);
+  /* A conversation left in this browser within the last day. Read once, in
+     a lazy initialiser, so the first render already has it — restoring in an
+     effect would flash the intro at someone who is mid-conversation. */
+  const [restored] = useState(() => {
+    const saved = loadConversation();
+    if (saved) resumeIdSequence(saved.messages);
+    return saved;
+  });
+
+  const [messages, setMessages] = useState(() => restored?.messages || []);
+  const [draft, setDraft] = useState(() => restored?.draft || emptyDraft());
+  const [stepIndex, setStepIndex] = useState(() => restored?.stepIndex ?? -1);
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -312,12 +336,25 @@ const ProfileCoach = () => {
   }, [askStep, pushCoach]);
 
   useEffect(() => {
+    if (restored) {
+      pushCoach(TEXT.RESUMED);
+      trackEvent('coach_resumed', { atStep: LADDER[restored.stepIndex]?.id || 'intro' });
+      return;
+    }
     pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
     pushCoach('', { introSlide: 0 });
     trackEvent('coach_intro_started', {});
     // Intentionally once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Every answer, straight to storage. Cheap — a transcript is a few
+     kilobytes of plain objects — and it is the difference between a dropped
+     connection costing someone a moment and costing them the whole thing. */
+  useEffect(() => {
+    if (!messages.length) return;
+    saveConversation({ draft, stepIndex, messages });
+  }, [draft, stepIndex, messages]);
 
   /* ─── The intro ────────────────────────────────────────────── */
 
@@ -436,6 +473,9 @@ const ProfileCoach = () => {
     });
 
     const resumeData = draftToResumeData(withSummary);
+    // The draft now lives somewhere better. Leaving the transcript behind
+    // would restore a finished conversation over a fresh one.
+    clearConversation();
     if (!isAuthenticated) saveGuestProfileDraft(resumeData);
     navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
   }, [isAuthenticated, navigate]);
@@ -1085,13 +1125,20 @@ const ProfileCoach = () => {
 
   /* ─── Derived view state ───────────────────────────────────── */
 
-  const completion = useMemo(
+  const completionRaw = useMemo(
     () => computeProfileCompletion(draftToProfileShape(draft)),
     [draft]
   );
+  /* Scored over what this conversation asks for — see coachCompletion. The
+     editor keeps the canonical nine-item rubric; this meter would otherwise
+     top out at 78% for someone who answered every single question. */
+  const completion = useMemo(
+    () => coachCompletion(completionRaw, draft),
+    [completionRaw, draft]
+  );
   const panel = useMemo(
-    () => panelState(draft, completion.items),
-    [draft, completion.items]
+    () => panelState(draft, completionRaw.items),
+    [draft, completionRaw.items]
   );
 
   // What the panel shows next to each label once it's filled in.

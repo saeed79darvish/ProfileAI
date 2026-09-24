@@ -10,6 +10,9 @@ import {
 import {
   LADDER,
   readsAsAnswer,
+  parseConversation,
+  serializeConversation,
+  coachCompletion,
   levelsFor,
   visiblePanelItems,
   parseLinks,
@@ -817,4 +820,81 @@ test('real answers are not mistaken for chatter', () => {
   assert.equal(readsAsAnswer('Senior?', step('level'), draft), 'answer');
   // Describing your own work is an answer, even at length.
   assert.equal(readsAsAnswer('I work in healthcare as a nurse', step('sector'), draft), 'answer');
+});
+
+/* ─── Surviving a reload ─────────────────────────────────────── */
+
+const transcript = [
+  { id: 'm1', role: 'coach', text: 'Which field are you in?' },
+  { id: 'm2', role: 'me', text: 'Software & IT' },
+];
+
+test('a conversation comes back, with the draft and the place in it', () => {
+  const draft = { ...emptyDraft(), sector: 'tech', title: 'Staff Frontend Developer' };
+  const saved = parseConversation(serializeConversation({ draft, stepIndex: 4, messages: transcript }));
+  assert.equal(saved.stepIndex, 4);
+  assert.equal(saved.draft.title, 'Staff Frontend Developer');
+  assert.equal(saved.messages.length, 2);
+});
+
+test('anything doubtful starts fresh instead', () => {
+  const good = serializeConversation({ draft: emptyDraft(), stepIndex: 2, messages: transcript });
+  // Stale: a fortnight-old conversation ambushes someone who came back to start again.
+  assert.equal(parseConversation(good, Date.now() + 25 * 60 * 60 * 1000), null);
+  // A shape this version cannot render.
+  assert.equal(parseConversation(JSON.stringify({ v: 99, at: Date.now(), messages: transcript })), null);
+  assert.equal(parseConversation('not json at all'), null);
+  assert.equal(parseConversation(''), null);
+  // The intro alone is not a conversation worth restoring.
+  const introOnly = serializeConversation({
+    draft: emptyDraft(), stepIndex: -1,
+    messages: [{ id: 'm1', role: 'coach', text: 'Welcome' }],
+  });
+  assert.equal(parseConversation(introOnly), null);
+});
+
+/* ─── A meter that can reach the top ─────────────────────────── */
+
+test('answering every question fills the bar', () => {
+  const draft = {
+    ...emptyDraft(),
+    title: 'Staff Frontend Developer',
+    location: 'San Francisco',
+    summary: 'A real summary, comfortably over twenty characters.',
+    skills: ['React'],
+    experience: [{ title: 'Staff Frontend Developer', company: 'Acme', startDate: '2019' }],
+    education: [{ institution: 'State', degree: 'BSc' }],
+    linkedinUrl: 'https://linkedin.com/in/x',
+  };
+  const raw = computeProfileCompletion(draftToProfileShape(draft));
+  // The editor still scores the photo and the project they were never asked for.
+  assert.ok(raw.pct < 100);
+  assert.equal(coachCompletion(raw, draft).pct, 100);
+});
+
+test('someone with no job is scored on projects, not docked for both', () => {
+  const grad = {
+    ...emptyDraft(),
+    title: 'Junior Frontend Developer',
+    projects: [{ title: 'Bus tracker', description: 'Live arrivals board for my neighbourhood' }],
+  };
+  const items = coachCompletion(computeProfileCompletion(draftToProfileShape(grad)), grad).items.map((i) => i.key);
+  assert.ok(items.includes('proj'));
+  assert.ok(!items.includes('exp'));
+  assert.ok(!items.includes('photo'));
+});
+
+/* ─── Targets within sight ───────────────────────────────────── */
+
+test('an entry-level answer is not handed a fantasy', () => {
+  const chips = targetChips({ sector: 'tech', level: 'entry', title: 'Junior Frontend Developer' })
+    .map((c) => c.label);
+  assert.ok(chips.includes('Senior Frontend Developer'), 'one rung up is the point');
+  assert.ok(!chips.some((c) => /^Principal|^Staff/.test(c)), `too far: ${chips.join(', ')}`);
+  assert.ok(!chips.some((c) => /Manager|Director/.test(c)), 'management is not one step from entry level');
+  // Someone senior can see both.
+  const senior = targetChips({ sector: 'tech', level: 'senior', title: 'Senior Frontend Developer' })
+    .map((c) => c.label);
+  assert.ok(senior.includes('Staff Frontend Developer'));
+  assert.ok(senior.some((c) => /Manager/.test(c)));
 });
