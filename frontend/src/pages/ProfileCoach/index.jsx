@@ -22,6 +22,7 @@ import { trackEvent } from '../../utils/analytics';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
+import { useDictation } from './useDictation';
 import {
   IntroCarousel,
   BuildProfileCard,
@@ -194,6 +195,13 @@ const ProfileCoach = () => {
   const [linkedinStatus, setLinkedinStatus] = useState({
     urlImportAvailable: false,
     oauthAvailable: false,
+  });
+
+  const dictation = useDictation({
+    onText: setInput,
+    onError: (code) => setError(code === 'not-allowed' || code === 'service-not-allowed'
+      ? TEXT.DICTATE_DENIED
+      : TEXT.DICTATE_FAILED),
   });
 
   const fileInputRef = useRef(null);
@@ -860,6 +868,9 @@ const ProfileCoach = () => {
 
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
+    // Sending ends the sentence: a recogniser still running would drop the
+    // next few words into the next question's box.
+    if (dictation.listening) dictation.stop();
     const text = input.trim();
     const step = LADDER[stepIndex];
     if (!text || busy) return;
@@ -1025,7 +1036,7 @@ const ProfileCoach = () => {
       setFollowUpFor(null);
       advance(index, current);
     }
-  }, [advance, busy, commit, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, busy, commit, dictation, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 
@@ -1432,11 +1443,24 @@ const ProfileCoach = () => {
                 ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={TEXT.INPUT_PLACEHOLDER}
+                placeholder={dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
                 disabled={!canType}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
               />
-              <IconButton type="button" disabled title={TEXT.VOICE_COMING_SOON} aria-label={TEXT.VOICE_COMING_SOON}>
+              <IconButton
+                type="button"
+                $listening={dictation.listening}
+                disabled={!dictation.supported || !canType}
+                onClick={() => {
+                  setError('');
+                  dictation.toggle(input);
+                }}
+                title={!dictation.supported
+                  ? TEXT.DICTATE_UNSUPPORTED
+                  : dictation.listening ? TEXT.DICTATE_STOP : TEXT.DICTATE_START}
+                aria-label={dictation.listening ? TEXT.DICTATE_STOP : TEXT.DICTATE_START}
+                aria-pressed={dictation.listening}
+              >
                 <MicIcon fontSize="small" />
               </IconButton>
               <IconButton type="submit" $primary disabled={!canType || !input.trim()} aria-label={TEXT.SEND}>

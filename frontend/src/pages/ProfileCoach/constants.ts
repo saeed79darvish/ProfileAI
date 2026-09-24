@@ -50,6 +50,11 @@ export const TEXT = {
   // v1 ships without voice. The button stays visible but disabled so the
   // affordance is discoverable and the layout does not shift when it lands.
   VOICE_COMING_SOON: 'Voice answers are coming soon',
+  DICTATE_START: 'Speak your answer',
+  DICTATE_STOP: 'Stop listening',
+  DICTATE_UNSUPPORTED: 'This browser cannot do speech input — try Chrome',
+  DICTATE_DENIED: 'I cannot hear the microphone. Allow access in your browser settings, or just type.',
+  DICTATE_FAILED: 'The microphone stopped working. Try again, or just type.',
   SKIP: 'Skip for now',
   LOGIN: 'Log in',
 

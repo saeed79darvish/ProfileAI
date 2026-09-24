@@ -10,6 +10,11 @@ export const bubbleIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+export const micPulse = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35); }
+  50%      { box-shadow: 0 0 0 7px rgba(220, 38, 38, 0); }
+`;
+
 export const blink = keyframes`
   0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
   40%           { opacity: 1;    transform: translateY(-3px); }
@@ -373,6 +378,19 @@ export const IconButton = styled.button`
         color: #6366f1;
         &:hover:not(:disabled) { background: #e7e7f6; }
       `}
+
+  /* Listening. A microphone that is on must look unmistakably on — the whole
+     point of dictation here is that you watch the words arrive, and half of
+     that is knowing it is still running. */
+  ${({ $listening }) => $listening && css`
+    background: #fee2e2;
+    color: #dc2626;
+    &:hover:not(:disabled) { background: #fecaca; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      animation: ${micPulse} 1.6s ease-in-out infinite;
+    }
+  `}
 
   &:disabled { opacity: 0.45; }
 `;
