@@ -77,7 +77,16 @@ export const TEXT = {
   PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
 
   THINKING: 'Thinking',
-  RESUMED: 'Welcome back — picking up where we left off.',
+  // Offered, not done to them. A silent restore after a deliberate refresh
+  // is the product arguing with the person about what they just did.
+  RESUME_OFFER: 'You have a conversation from earlier. Pick it up, or start fresh?',
+  RESUME_CHIP: 'Pick up where we left off',
+  FRESH_CHIP: 'Start fresh',
+  RESUMED: 'Right — back where we were.',
+  // The per-conversation ceiling on answered asides. Generous for a person,
+  // closed to a script.
+  ASIDE_LIMIT_HIT:
+    'Let us get your profile finished first — once it is built you can ask me anything about it.',
   CHANGE_ANSWER: 'Change this',
   // Someone said hello, or asked something, instead of answering. Neither is
   // an answer, and neither should land on their profile.

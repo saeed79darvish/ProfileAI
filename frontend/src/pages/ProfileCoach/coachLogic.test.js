@@ -946,3 +946,24 @@ test('a sentence with a title inside it goes to the model, not into the headline
   assert.equal(needsAI(title, 'I work as a nurse in the ICU', draft), true);
   assert.equal(looksLikeTitle('I work as a nurse in the ICU'), false);
 });
+
+/* ─── Asking whether you may ask ──────────────────────────────
+   "Of course, go ahead." is an invitation with no question mark in it, so
+   the reply's shape cannot be what decides whether the coach waits. */
+
+test('asking permission is its own thing, read off the question', () => {
+  const level = step('level');
+  const draft = { sector: 'operations' };
+  for (const said of [
+    'can I ask a question?',
+    'can i ask a question',
+    'may I ask something',
+    'could I ask you something first',
+    'quick question first',
+  ]) {
+    assert.equal(readsAsAnswer(said, level, draft), 'permission', said);
+  }
+  // A question actually asked is still a question to answer.
+  assert.equal(readsAsAnswer('what is this?', level, draft), 'question');
+  assert.equal(readsAsAnswer('Senior', level, draft), 'answer');
+});

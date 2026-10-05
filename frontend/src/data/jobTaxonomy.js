@@ -381,3 +381,55 @@ export const CAREER_STAGES = [
   { id: 'career_change', label: 'Changing careers', sub: 'Pivoting from a different field', icon: '🔄' },
   { id: 'self_taught', label: 'Self-taught / bootcamp', sub: 'Learned outside traditional channels', icon: '🛠️' },
 ];
+
+
+/* ─── Evidence probes ─────────────────────────────────────────
+
+   The one question a form cannot ask.
+
+   Resumes fail on vagueness, not on missing sections: "prototype UI
+   experiences and demos as required by the company" is a real line from a
+   real CV, and it tells a hiring manager nothing. The coach's resume review
+   already says so to anyone who uploads a file — this asks the same thing of
+   everyone else, once, while they are still thinking about the work.
+
+   Each probe is written in its sector's own units, because "quantify your
+   impact" is useless advice to a nurse and insulting to an electrician. A
+   nurse counts patients per shift, a line cook counts covers, a driver counts
+   routes, a teacher counts a class. Asking in the units someone already
+   thinks in is the difference between a question they can answer in ten
+   seconds and one they skip. */
+
+export const SECTOR_EVIDENCE = {
+  tech: 'What did you build there that people actually used — and roughly how many of them?',
+  data: 'What decision did your work change, and which number moved?',
+  design: 'What did you design that shipped, and what got better for the people using it?',
+  product: 'What did you ship, and what did it do to the numbers you were watching?',
+  marketing: 'Which channel or campaign was yours, and what did it do to the numbers?',
+  media: 'What did you publish or produce that did well, and how could you tell?',
+  sales: 'What was quota, and what did you close against it?',
+  support: 'How many tickets or customers did you carry, and what was your resolution time like?',
+  finance: 'What did you own — a budget, a close, a portfolio — and how big was it?',
+  legal: 'What kind of matters did you handle, and at what volume or value?',
+  hr: 'How many people did you hire or support, and what got better under you?',
+  admin: 'Who and how many did you support, and what did you take off their plate?',
+  operations: 'What process did you change, and what did it do to time, cost or errors?',
+  logistics: 'What were you moving and how much of it — loads, routes, pallets — and what was your on-time record?',
+  manufacturing: 'What were you running, at what volume, and what happened to scrap or downtime?',
+  trades: 'What size jobs do you run, how big a crew, and which tickets do you hold?',
+  engineering: 'What did you design or deliver, and at what scale or budget?',
+  science: 'What were you investigating, and what came out of it?',
+  healthcare: 'What is your usual patient load on a shift, and on which unit?',
+  socialcare: 'What caseload did you carry, and what kind of cases were they?',
+  education: 'What year group and class size, and what changed for them under you?',
+  publicservice: 'What programme or area did you cover, and how many people did it reach?',
+  hospitality: 'How many covers on a busy service, and what were you running?',
+  realestate: 'How many deals or units did you handle, and at what value?',
+  agriculture: 'What acreage or herd did you work, and what were you responsible for?',
+  personal: 'How many clients do you see in a week, and what do they come to you for?',
+};
+
+// For a sector we have no specific units for, and for anyone who typed their
+// own field. Still asks for the number rather than for "impact".
+export const DEFAULT_EVIDENCE =
+  'What is the one thing you did there that you would want a hiring manager to know? A number in it helps.';

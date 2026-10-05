@@ -73,6 +73,7 @@ import {
   normalizeTitle,
   parseLinks,
   sectorChips,
+  RESUME_CHOICE,
   RETRY_IMPORT_CHOICES,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
@@ -167,6 +168,12 @@ const UploadProgress = ({ fileName, done, failed }) => {
  *     an isAuthenticated check.
  */
 
+/* Model-answered asides allowed per conversation. At roughly a tenth of a
+   cent each this is about a penny — the point is not the money, it is that an
+   endpoint which returns model output to anonymous callers needs a ceiling
+   that is not only per-IP. */
+const ASIDE_LIMIT = 8;
+
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
 
@@ -201,9 +208,12 @@ const ProfileCoach = () => {
     return saved;
   });
 
-  const [messages, setMessages] = useState(() => restored?.messages || []);
-  const [draft, setDraft] = useState(() => restored?.draft || emptyDraft());
-  const [stepIndex, setStepIndex] = useState(() => restored?.stepIndex ?? -1);
+  /* The saved conversation is offered, never restored behind their back.
+     Someone who hard-refreshes usually means it — and a silent resume also
+     spends model calls continuing a conversation they were trying to leave. */
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState(emptyDraft);
+  const [stepIndex, setStepIndex] = useState(-1);
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -237,6 +247,10 @@ const ProfileCoach = () => {
   // Set for the one render after an in-place message update that must not
   // scroll the transcript (see the scroll effect below).
   const keepScrollRef = useRef(false);
+  /* How many asides have been answered by the model in this conversation.
+     Each costs a call; a person asks two or three, a script does not stop.
+     The cap is high enough that nobody real will meet it. */
+  const asidesRef = useRef(0);
   const timersRef = useRef([]);
   // Read inside delayed callbacks so a chip tapped during the typing pause
   // still sees the draft the previous answer produced.
@@ -358,6 +372,34 @@ const ProfileCoach = () => {
 
   /* ─── Opening ──────────────────────────────────────────────── */
 
+  const startIntro = useCallback(() => {
+    pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
+    pushCoach('', { introSlide: 0 });
+    trackEvent('coach_intro_started', {});
+  }, [pushCoach]);
+
+  /** Take up the offer, or decline it and start over. */
+  const answerResumeOffer = useCallback((message, choice) => {
+    setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+    if (choice === 'resume' && restored) {
+      draftRef.current = restored.draft;
+      setDraft(restored.draft);
+      setStepIndex(restored.stepIndex);
+      setMessages([...restored.messages, {
+        id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
+      }]);
+      trackEvent('coach_resumed', {});
+      return;
+    }
+    clearConversation();
+    setMessages([]);
+    setDraft(emptyDraft());
+    setStepIndex(-1);
+    draftRef.current = emptyDraft();
+    trackEvent('coach_restarted', {});
+    later(startIntro, TIMING.ACK_MS);
+  }, [later, restored, startIntro]);
+
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
   const startLadder = useCallback((from, seed = null) => {
@@ -375,13 +417,19 @@ const ProfileCoach = () => {
 
   useEffect(() => {
     if (restored) {
-      pushCoach(TEXT.RESUMED, { ephemeral: true });
-      trackEvent('coach_resumed', { atStep: LADDER[restored.stepIndex]?.id || 'intro' });
+      pushCoach(TEXT.RESUME_OFFER, {
+        ephemeral: true,
+        stepId: RESUME_CHOICE,
+        chips: [
+          { id: 'resume', label: TEXT.RESUME_CHIP },
+          { id: 'fresh', label: TEXT.FRESH_CHIP },
+        ],
+        selected: [],
+      });
+      trackEvent('coach_resume_offered', { atStep: LADDER[restored.stepIndex]?.id || 'intro' });
       return;
     }
-    pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
-    pushCoach('', { introSlide: 0 });
-    trackEvent('coach_intro_started', {});
+    startIntro();
     // Intentionally once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -765,6 +813,14 @@ const ProfileCoach = () => {
   /* ─── Answering ────────────────────────────────────────────── */
 
   const answerChip = useCallback((message, chip) => {
+    // Resuming is a question about the conversation, not one inside it, so it
+    // resolves before any ladder lookup.
+    if (message.stepId === RESUME_CHOICE) {
+      if (message.spent) return;
+      pushMine(chip.label);
+      answerResumeOffer(message, chip.id);
+      return;
+    }
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
@@ -823,7 +879,7 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, busy, commit, pushCoach, pushMine, spendChips]);
+  }, [advance, answerResumeOffer, busy, commit, pushCoach, pushMine, spendChips]);
 
   const confirmMulti = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);
@@ -880,6 +936,12 @@ const ProfileCoach = () => {
   const answerQuestion = useCallback(async (text, asked, stepId) => {
     setBusy(true);
     setTyping(true);
+    if (asidesRef.current >= ASIDE_LIMIT) {
+      pushCoach(TEXT.ASIDE_LIMIT_HIT);
+      return TEXT.ASIDE_LIMIT_HIT;
+    }
+    asidesRef.current += 1;
+
     let answer = '';
     try {
       const { data } = await profileAPI.coachAsk({
@@ -918,12 +980,15 @@ const ProfileCoach = () => {
     // who says hello and gets a form letter back has learned what this is.
     const answer = await answerQuestion(text, step.question, step.id);
 
-    /* If the coach ended on a question of its own — "Of course, what's your
-       question?" — then it is waiting, and re-asking ours on top of it both
-       contradicts the invitation and buries it. Someone who asks permission
-       to ask is given the floor, with the chips left live above so they can
-       still just tap an answer whenever they are ready. */
-    if (/\?\s*$/.test(answer)) return;
+    /* The coach is waiting, so nothing is asked on top of it: re-asking both
+       contradicts the invitation and buries it. Two ways to know — they asked
+       permission (deterministic, read off their message), or the reply itself
+       ended in a question. The first exists because the second was not enough:
+       "Of course, go ahead." is an invitation with no question mark in it, and
+       the step question landed underneath it anyway.
+       The chips stay live above either way, so tapping an answer is still
+       one tap — holding the floor is not blocking the path. */
+    if (intent === 'permission' || /\?\s*$/.test(answer)) return;
 
     if (liveMessage) spendChips(liveMessage.id);
     later(() => askStep(index, draftRef.current), TIMING.ACK_MS);

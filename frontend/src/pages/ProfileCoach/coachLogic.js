@@ -13,6 +13,8 @@
 import {
   JOB_SECTORS,
   PRIMARY_SECTORS,
+  SECTOR_EVIDENCE,
+  DEFAULT_EVIDENCE,
   SECTOR_TITLES,
   SECTOR_SKILLS,
   ALL_SKILLS,
@@ -236,6 +238,10 @@ export const WORK_STYLES = [
   { id: 'flexible', label: 'Flexible' },
 ];
 
+/* The stepId on the resume offer. Not a ladder step — it is a question about
+   the conversation rather than one inside it. */
+export const RESUME_CHOICE = '__resume_choice';
+
 // Not an answer either: it hands the person the keyboard. The chip row is a
 // shortcut, never the whole answer space — most job titles are not on it.
 export const CUSTOM_ANSWER_CHIP = { id: '__custom', label: 'Type my own' };
@@ -302,6 +308,18 @@ export const RETRY_IMPORT_CHOICES = [
   { id: 'linkedin', label: 'Import from LinkedIn' },
   { id: 'chat', label: "No, let's just chat" },
 ];
+
+/* The evidence probe, in the units of the person's own trade. See
+   SECTOR_EVIDENCE for why it is not one question for everybody. */
+export const evidenceProbe = (draft = {}) =>
+  SECTOR_EVIDENCE[draft.sector] || DEFAULT_EVIDENCE;
+
+/**
+ * A step's question, which for the evidence probe depends on who is being
+ * asked. Everything the page does with `step.question` goes through here.
+ */
+export const questionText = (step, draft = {}) =>
+  (typeof step?.question === 'function' ? step.question(draft) : step?.question || '');
 
 /* ─── The ladder ──────────────────────────────────────────────
 
@@ -479,6 +497,21 @@ export const LADDER = [
     // read first. Not asked of someone who already named a job — the
     // conversation has to end eventually, and the editor can add more.
     skipIf: 'projectsCovered',
+    optional: true,
+  },
+  {
+    id: 'evidence',
+    question: (draft) => evidenceProbe(draft),
+    hint: 'One line is enough. This is the part recruiters actually read.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    // The same schema the resume review's probes use: whatever this answer
+    // evidences becomes bullets on the role, and any tool named in passing
+    // becomes a skill.
+    aiStep: 'probe',
+    assign: null,
+    skipIf: 'nothingToQuantify',
     optional: true,
   },
   {
@@ -1106,6 +1139,12 @@ const ABOUT_THE_CHAT = /\b(already told you|you (just )?asked|asked (me )?that|n
    absurd — "Ok" is nobody's headline. */
 const ACK = /^(ok|okay|k|yes|yeah|yep|yup|no|nope|sure|fine|right|thanks|thank you|cool|got it|alright)\b[\s!.,]*$/i;
 
+/* Asking whether they may ask. The coach answers "Of course, go ahead." and
+   then has to actually wait — which cannot be inferred from the reply, since
+   that sentence has no question mark in it. Read it off the question instead:
+   deterministic, and true regardless of how the model phrases the yes. */
+const PERMISSION = /^(can|could|may) i ask\b|\bquick question first\b|\bone question first\b|\bbefore we (start|continue|go on)\b.*\?$/i;
+
 // Asking for help is asking a question, however it is phrased.
 const HELP = /\b(i need help|need some help|can you help|could you help|help me|not sure what you (mean|want))\b/i;
 
@@ -1114,7 +1153,7 @@ const HELP = /\b(i need help|need some help|can you help|could you help|help me|
 const SKIP_WORD = /^(skip|skip this|skip it|next|pass|later|not now|no thanks)\b[\s!.,]*$/i;
 
 /**
- * @returns {'answer'|'greeting'|'question'|'skip'|'ack'} what the person is doing
+ * @returns {'answer'|'greeting'|'question'|'skip'|'ack'|'permission'} what they are doing
  */
 export const readsAsAnswer = (text, step, draft = {}) => {
   const typed = String(text || '').trim();
@@ -1122,6 +1161,7 @@ export const readsAsAnswer = (text, step, draft = {}) => {
 
   if (GREETINGS.test(typed)) return 'greeting';
   if (SKIP_WORD.test(typed)) return 'skip';
+  if (PERMISSION.test(typed)) return 'permission';
   if (META.test(typed) || UNSURE.test(typed) || ABOUT_THE_CHAT.test(typed) || HELP.test(typed)) return 'question';
   /* "Ok" is not an answer to anything, but it is not worth a model call
      either — there is nothing in it to respond to. Its own intent, handled
@@ -1219,6 +1259,15 @@ const SKIP_PREDICATES = {
   // name. The editor still lets them add one later.
   noWorkHistory: (draft) =>
     draft.careerStage === 'new_grad' || draft.careerStage === 'student',
+  /* Nothing to pin a number to — no job and no project — so there is nothing
+     to probe. Also skipped for anyone who already answered in numbers: asking
+     someone who wrote "cut deploy time from 40 minutes to 6" to quantify it
+     reads as not having read their answer. */
+  nothingToQuantify: (draft) => {
+    const latest = (draft.experience || [])[0] || (draft.projects || [])[0];
+    if (!latest) return true;
+    return /\d/.test(String(latest.description || ''));
+  },
   // Nothing to be "before", so there is nothing to ask.
   noFirstRole: (draft) => !(draft.experience || []).length,
   /* Projects are for whoever has nothing else to show — and for anyone
@@ -1408,11 +1457,19 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
     // the skills list. Either may be empty and that is fine.
     case 'probe': {
       const newBullets = (fields.bullets || []).filter(Boolean);
+      const append = (row) => {
+        const existing = String(row.description || '').trim();
+        const added = newBullets.map((b) => `• ${b}`).join('\n');
+        return { ...row, description: existing ? `${existing}\n${added}` : added };
+      };
       if (newBullets.length && (draft.experience || []).length) {
         const [head, ...rest] = draft.experience;
-        const existing = String(head.description || '').trim();
-        const added = newBullets.map((b) => `• ${b}`).join('\n');
-        next.experience = [{ ...head, description: existing ? `${existing}\n${added}` : added }, ...rest];
+        next.experience = [append(head), ...rest];
+      } else if (newBullets.length && (draft.projects || []).length) {
+        // No job to hang it on: someone whose work is a project said something
+        // worth keeping, and dropping it would be the worst of both.
+        const [head, ...rest] = draft.projects;
+        next.projects = [append(head), ...rest];
       }
       const probeSkills = (fields.skills || []).map(normalizeSkill).filter(Boolean);
       if (probeSkills.length) {
