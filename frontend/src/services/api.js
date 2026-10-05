@@ -290,6 +290,10 @@ export const profileAPI = {
   // The coach's read on a resume it was just handed: what works, what costs
   // them interviews, and what to ask them next.
   coachReview: ({ profile, sector }) => api.post('/profiles/coach/review', { profile, sector }),
+  // One turn of the coach conversation, decided by the model: what to say,
+  // what it learned, and whether it is waiting on them.
+  coachTurn: ({ profile, missing, history, message }) =>
+    api.post('/profiles/coach/turn', { profile, missing, history, message }),
   // Answer a question someone asked instead of answering ours.
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),

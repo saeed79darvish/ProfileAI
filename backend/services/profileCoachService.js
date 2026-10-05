@@ -19,6 +19,7 @@ const {
   reviewProfilePrompt,
   targetAssessmentPrompt,
   answerAsidePrompt,
+  coachTurnPrompt,
 } = require('./ai/prompts/profileCoach');
 const { inspectProfile } = require('./resume/coachInspect');
 const { countOpenings } = require('./coachMarket');
@@ -391,6 +392,64 @@ async function reviewProfile({ profile, sector } = {}) {
 }
 
 /**
+ * coachTurn — one turn of the conversation, decided by the model.
+ *
+ * The model is handed the profile so far, what it still needs, and the
+ * transcript, and returns what to say plus whatever the person just revealed.
+ * The checklist stays ours: the model never decides what a profile requires,
+ * only how to ask for the next missing piece and how to respond to whatever
+ * came back — including when what came back is a question, a greeting, a
+ * correction, or three answers at once.
+ *
+ * `learned` is filtered to the keys we know how to store. A model that
+ * invents a field name should write nothing, not write anywhere.
+ */
+const TURN_FIELDS = new Set([
+  'title', 'seniority', 'field', 'company', 'startDate', 'endDate', 'bullets',
+  'skills', 'previousCompany', 'school', 'degree', 'location', 'roleType',
+  'workStyle', 'target', 'yearsExperience',
+]);
+
+async function coachTurn({ profile = {}, missing = [], history = [], message } = {}) {
+  const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
+  if (!trimmed) return { say: '', learned: {}, awaiting: true };
+
+  const response = await callAI({
+    model: TURN_MODEL,
+    max_tokens: 700,
+    temperature: 0.5,
+    messages: [{
+      role: 'user',
+      content: coachTurnPrompt({
+        profile,
+        missing,
+        // Enough to stay coherent, not enough to re-send the whole
+        // conversation on every turn — this runs once per message.
+        history: history.slice(-10),
+        message: trimmed,
+      }),
+    }],
+  });
+
+  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+
+  const learned = {};
+  for (const [key, value] of Object.entries(parsed.learned || {})) {
+    if (!TURN_FIELDS.has(key)) continue;
+    if (value === null || value === undefined || value === '') continue;
+    learned[key] = value;
+  }
+
+  return {
+    say: String(parsed.say || '').trim(),
+    learned,
+    // Default to waiting. Pressing on when the model did not say it was
+    // finished is how a conversation talks over someone.
+    awaiting: parsed.awaiting !== false,
+  };
+}
+
+/**
  * answerAside — reply to a question someone asked mid-conversation.
  *
  * Costs one small call, only ever on something the person typed themselves,
@@ -475,6 +534,7 @@ module.exports = {
   reviewProfile,
   assessTarget,
   answerAside,
+  coachTurn,
   PLACEHOLDER_RE,
   interpretAnswer,
   writeBullets,

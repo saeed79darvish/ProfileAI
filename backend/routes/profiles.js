@@ -627,6 +627,31 @@ router.post('/coach/review', coachGuard, async (req, res) => {
   }
 });
 
+// @route   POST /api/profiles/coach/turn
+// @desc    One turn of the coach conversation, decided by the model
+// @access  Public (guests metered by IP)
+router.post('/coach/turn', coachGuard, async (req, res) => {
+  try {
+    const { profile, missing, history, message } = req.body || {};
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const turn = await profileCoachService.coachTurn({
+      profile: profile && typeof profile === 'object' ? profile : {},
+      missing: Array.isArray(missing) ? missing.slice(0, 20) : [],
+      history: Array.isArray(history) ? history.slice(-10) : [],
+      message,
+    });
+
+    await recordCoachUsage(req);
+    res.json({ success: true, ...turn });
+  } catch (error) {
+    console.error('Error running coach turn:', error);
+    res.status(500).json({ error: 'Could not take that turn' });
+  }
+});
+
 // @route   POST /api/profiles/coach/ask
 // @desc    Answer a question the person asked instead of answering ours
 // @access  Public (guests metered by IP)

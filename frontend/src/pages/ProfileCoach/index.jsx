@@ -50,8 +50,6 @@ import {
   getChips,
   matchSector,
   matchChip,
-  parseSkillList,
-  needsAI,
   nextStepIndex,
   mergeInterpreted,
   attachBullets,
@@ -62,6 +60,10 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  questionText,
+  isAlreadyAnswered,
+  missingFields,
+  applyBraindump,
   canRewind,
   draftRewoundTo,
   coachCompletion,
@@ -70,7 +72,6 @@ import {
   clearConversation,
   readsAsAnswer,
   visiblePanelItems,
-  normalizeTitle,
   parseLinks,
   sectorChips,
   RESUME_CHOICE,
@@ -160,7 +161,7 @@ const UploadProgress = ({ fileName, done, failed }) => {
  * Two rules shape most of the branching here:
  *
  *  1. Tapping a chip must never cost an AI call. That is what lets a
- *     signed-out visitor walk the whole ladder — see needsAI().
+ *     signed-out visitor walk the whole ladder by tapping.
  *  2. No authenticated request may fire unprompted on this page. It is
  *     guest-reachable, and api.js's 401 interceptor force-redirects to
  *     /login outside the boot grace window, which would silently eject a
@@ -256,6 +257,9 @@ const ProfileCoach = () => {
   // still sees the draft the previous answer produced.
   const draftRef = useRef(draft);
   useEffect(() => { draftRef.current = draft; }, [draft]);
+  // Read inside the turn call, which must not re-create itself per message.
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // askStep dispatches run steps, run steps call advance, and advance calls
   // askStep. Refs are what let those three be defined in a readable order
@@ -296,7 +300,7 @@ const ProfileCoach = () => {
     // Steps that do work rather than ask: they announce themselves, then the
     // runner takes over and calls advance when it is done.
     if (step.kind === 'run') {
-      pushCoach(step.question);
+      pushCoach(questionText(step, currentDraft));
       later(() => {
         const run = runnersRef.current[step.runs];
         if (run) run(index);
@@ -312,7 +316,7 @@ const ProfileCoach = () => {
       setTyping(true);
       later(() => {
         setTyping(false);
-        pushCoach(step.question, {
+        pushCoach(questionText(step, currentDraft), {
           [step.kind]: true,
           stepId: step.id,
           continues: step.kind === 'tour',
@@ -324,7 +328,7 @@ const ProfileCoach = () => {
     setTyping(true);
     later(() => {
       setTyping(false);
-      pushCoach(step.question, {
+      pushCoach(questionText(step, currentDraft), {
         hint: step.hint,
         stepId: step.id,
         chips: getChips(step, currentDraft),
@@ -1002,7 +1006,7 @@ const ProfileCoach = () => {
 
     // Greetings go to the model like anything else someone says. A person
     // who says hello and gets a form letter back has learned what this is.
-    const answer = await answerQuestion(text, step.question, step.id);
+    const answer = await answerQuestion(text, questionText(step, draftRef.current), step.id);
 
     /* The coach is waiting, so nothing is asked on top of it: re-asking both
        contradicts the invitation and buries it. Two ways to know — they asked
@@ -1081,6 +1085,69 @@ const ProfileCoach = () => {
     );
   }, [answerQuestion, later, pushCoach, startLadder]);
 
+  /**
+   * A turn run by the model rather than by regexes.
+   *
+   * Everything typed goes here now. The model is given the profile, what it
+   * still needs and the transcript, and decides what to say and what it just
+   * learned — including when "what they said" is a question, a greeting, a
+   * correction or three answers at once. Thirteen hand-written patterns used
+   * to make that call, and every phrasing nobody anticipated landed in the
+   * wrong one.
+   *
+   * The ladder is still ours. The model never decides what a profile needs;
+   * it decides how to ask for the next missing piece, and the chips keep
+   * working exactly as before for anyone who would rather tap.
+   */
+  /** Has this step's question been answered, however it got answered? */
+  const stepAnswered = useCallback((step, draft) => {
+    const value = step.assign ? draft[step.assign] : null;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'string') return !!value.trim();
+    return isAlreadyAnswered(step, draft);
+  }, []);
+
+  const runTurn = useCallback(async (text) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachTurn({
+        profile: draftToProfileShape(draftRef.current),
+        missing: missingFields(draftRef.current),
+        history: messagesRef.current
+          .filter((m) => m.text)
+          .slice(-10)
+          .map((m) => ({ role: m.role, text: m.text })),
+        message: text,
+      });
+
+      const learned = data?.learned || {};
+      if (Object.keys(learned).length) {
+        const merged = applyBraindump(draftRef.current, learned);
+        // roleTypes and workStyle are chip answers the model can also hear in
+        // passing; applyBraindump deliberately does not own them.
+        if (learned.roleType && !(merged.roleTypes || []).length) {
+          merged.roleTypes = [String(learned.roleType).toLowerCase()];
+        }
+        if (learned.workStyle && !merged.workStyle) {
+          merged.workStyle = String(learned.workStyle).toLowerCase();
+        }
+        if (learned.target && !merged.target) merged.target = String(learned.target);
+        draftRef.current = merged;
+        setDraft(merged);
+      }
+
+      setTyping(false);
+      if (data?.say) pushCoach(data.say);
+      return { ok: true, awaiting: data?.awaiting !== false };
+    } catch {
+      setTyping(false);
+      return { ok: false, awaiting: false };
+    } finally {
+      setBusy(false);
+    }
+  }, [pushCoach]);
+
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
     // Sending throws the recogniser away rather than stopping it: stop()
@@ -1109,31 +1176,16 @@ const ProfileCoach = () => {
     setError('');
     pushMine(text);
 
-    /* Not everything typed into a chat box is an answer. "Hi" was being
-       stored as someone's level and "I have a question?" as their job title,
-       which then went into the headline a recruiter reads. Neither touches
-       the draft now: the coach replies, and the question it had asked is put
-       back in front of them. */
-    const intent = probing ? 'answer' : readsAsAnswer(text, step, draftRef.current);
-    if (intent === 'skip') {
-      // Typed rather than tapped, but it means the same thing — where the
-      // step allows it. Where it does not, it is a nudge like any other.
-      if (step.optional) {
-        if (liveMessage) spendChips(liveMessage.id);
-        setFollowUpFor(null);
-        advance(stepIndex, draftRef.current);
-        return;
-      }
-      await handleAside(text, 'greeting', step, liveMessage);
-      return;
-    }
-    if (intent !== 'answer') {
-      await handleAside(text, intent, step, liveMessage);
-      return;
-    }
-
     const index = stepIndex;
     const current = draftRef.current;
+
+    /* One model call decides what they meant.
+       Thirteen regexes used to make that call — answer or question, greeting
+       or correction, skip or hedge — and every phrasing nobody anticipated
+       landed in the wrong branch. The model gets the profile, the gap and the
+       transcript, and comes back with what to say and what it learned. The
+       chips above are untouched and still free for anyone who would rather
+       tap than type. */
 
     // A probe answer is prose about their work by definition — there is no
     // chip that could express it, so it always goes to the model.
@@ -1144,7 +1196,7 @@ const ProfileCoach = () => {
       try {
         const { data } = await profileAPI.coachInterpret({
           stepId: 'probe',
-          question: liveMessage ? liveMessage.text : step.question,
+          question: liveMessage ? liveMessage.text : questionText(step, current),
           answer: text,
           context: { title: current.title, sector: current.sector },
         });
@@ -1166,105 +1218,44 @@ const ProfileCoach = () => {
     // runs end to end and the account is asked for at the close, once there is
     // a finished profile to save. The server meters anonymous callers by IP
     // (coachGuard in routes/profiles.js) since there is no user to meter.
-    const usesAI = needsAI(step, text, current);
-
-    if (liveMessage) spendChips(liveMessage.id);
-
-    /* ── The free, local paths ── */
-    if (!usesAI) {
-      if (step.id === 'sector') {
-        const matched = matchSector(text);
-        commit(matched.title ? { sector: matched.sector, title: matched.title } : { sector: matched.sector }, index);
+    /* Exact and free: a pasted URL, or text that is literally one of the
+       chips on screen. Neither is a judgement call, so neither needs a model.
+       Everything else does. */
+    if (step.id === 'links') {
+      const links = parseLinks(text);
+      if (!Object.keys(links).length) {
+        setError(TEXT.ERROR_NO_LINK);
+        setInput(text);
         return;
       }
-      if (step.id === 'links') {
-        const links = parseLinks(text);
-        if (!Object.keys(links).length) {
-          // Nothing that looks like a link. Say so rather than silently
-          // swallowing it and moving on as though it landed.
-          setError(TEXT.ERROR_NO_LINK);
-          setInput(text);
-          return;
-        }
-        commit(links, index);
-        return;
-      }
-      if (step.id === 'skills') {
-        const merged = Array.from(new Set([...(current.skills || []), ...parseSkillList(text)]));
-        commit({ skills: merged }, index);
-        return;
-      }
-      const chip = matchChip(text, getChips(step, current));
-      if (chip && step.assign) {
-        commit({ [step.assign]: chip.id }, index);
-        return;
-      }
-      // No aiStep declared: what they typed IS the value (a job title). Tidy
-      // the casing first — this one goes on the profile as the headline.
-      const typed = step.assign === 'title' ? normalizeTitle(text) : text;
-      commit(step.assign ? { [step.assign]: typed } : {}, index);
+      if (liveMessage) spendChips(liveMessage.id);
+      commit(links, index);
       return;
     }
 
-    /* ── The model path, which guests don't have ── */
-    setBusy(true);
-    setTyping(true);
-    try {
-      if (step.aiStep === 'bullets') {
-      setFollowUpFor(null);
-        const recent = (current.experience || [])[0] || {};
-        const { data } = await profileAPI.coachBullets({
-          title: recent.title || current.title,
-          company: recent.company,
-          answer: text,
-        });
-        const nextDraft = attachBullets(current, data?.bullets || [], text);
-        draftRef.current = nextDraft;
-        setDraft(nextDraft);
-        setTyping(false);
-        setBusy(false);
-        advance(index, nextDraft);
-        return;
-      }
-
-      const { data } = await profileAPI.coachInterpret({
-        stepId: step.aiStep,
-        question: step.question,
-        answer: text,
-        context: { sector: current.sector, level: current.level, title: current.title },
-      });
-
-      const nextDraft = mergeInterpreted(current, step.aiStep, data?.fields || {}, {
-        intoLatest: followUpFor === step.aiStep,
-        // An earlier job goes under the current one, not on top of it.
-        append: step.id === 'previousRole',
-      });
-      draftRef.current = nextDraft;
-      setDraft(nextDraft);
-      setTyping(false);
-      setBusy(false);
-
-      // The model couldn't find something the step needs — ask once, stay put.
-      // Only once: a second miss advances rather than looping on someone who
-      // has already told us they don't want to answer.
-      if (data?.followUp && followUpFor !== step.aiStep) {
-        setFollowUpFor(step.aiStep);
-        pushCoach(data.followUp, { stepId: step.id, chips: [], optional: !!step.optional });
-        return;
-      }
-      setFollowUpFor(null);
-      advance(index, nextDraft);
-    } catch (err) {
-      setTyping(false);
-      setBusy(false);
-      // A rate-limited or failed turn must not strand the conversation —
-      // keep what they typed and move on rather than dead-ending them.
-      const limited = err?.response?.status === 429;
-      setError(limited ? (err.response.data?.error || TEXT.ERROR_GENERIC) : TEXT.ERROR_GENERIC);
-      setFollowUpFor(null);
-      advance(index, current);
+    const tapped = matchChip(text, getChips(step, current));
+    if (tapped && step.assign) {
+      if (liveMessage) spendChips(liveMessage.id);
+      commit({ [step.assign]: tapped.id }, index);
+      return;
     }
-  }, [advance, busy, commit, dictation, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+
+    const turn = await runTurn(text);
+    if (!turn.ok) {
+      setError(TEXT.ERROR_GENERIC);
+      return;
+    }
+    // It asked them something. Wait for the answer rather than talking over it.
+    if (turn.awaiting) return;
+
+    if (liveMessage) spendChips(liveMessage.id);
+
+    /* Did that fill in what this step was for? If so the conversation moves
+       on; if not — they asked a question, or said something unrelated — the
+       options come back without the question being restated at them. */
+    if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
+    else offerChipsAgain(step, null);
+  }, [advance, busy, commit, dictation, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 

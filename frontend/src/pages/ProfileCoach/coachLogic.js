@@ -1254,6 +1254,32 @@ export const draftRewoundTo = (draft, stepId) => {
   return next;
 };
 
+/* ─── What the profile still needs ───────────────────────────
+
+   The checklist handed to the model each turn. It stays on our side: the
+   model decides how to ask and how to respond, never what a profile
+   requires. Phrased as things a person would say, because that is what the
+   model has to turn back into a question. */
+
+export const missingFields = (draft = {}) => {
+  const missing = [];
+  if (!draft.sector) missing.push('what field they work in');
+  if (!draft.title) missing.push('their job title');
+  if (!draft.level) missing.push('how senior they are');
+  if (!(draft.roleTypes || []).length) missing.push('the kind of work they want: full-time, contract, and so on');
+  if (!draft.workStyle) missing.push('remote, hybrid or on-site');
+  if (!(draft.experience || []).length && !(draft.projects || []).length) {
+    missing.push('their most recent role, or a project if they have no job to name');
+  } else if (!String((draft.experience || [])[0]?.description || '').trim()) {
+    missing.push('what they actually did in that role, in concrete terms');
+  }
+  if (!(draft.skills || []).length) missing.push('what they are good at');
+  if (!(draft.education || []).length) missing.push('education, a bootcamp or certifications');
+  if (!draft.location) missing.push('where they are based');
+  if (!draft.target) missing.push('the role they want next');
+  return missing;
+};
+
 /* ─── Ladder navigation ──────────────────────────────────────── */
 
 const SKIP_PREDICATES = {
