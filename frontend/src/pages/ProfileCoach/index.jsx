@@ -872,10 +872,15 @@ const ProfileCoach = () => {
    * people mean when they say a chatbot is not smart. Either way the step is
    * re-asked afterwards, so the conversation never stalls on an aside.
    */
-  /** Answer a question, and nothing else. Shared by the intro and the ladder. */
+  /**
+   * Answer a question, and nothing else. Shared by the intro and the ladder.
+   * Returns what was said, because whether it ended with a question decides
+   * what the conversation does next.
+   */
   const answerQuestion = useCallback(async (text, asked, stepId) => {
     setBusy(true);
     setTyping(true);
+    let answer = '';
     try {
       const { data } = await profileAPI.coachAsk({
         question: text,
@@ -887,23 +892,23 @@ const ProfileCoach = () => {
           stepId,
         },
       });
-      setTyping(false);
-      pushCoach(data?.answer?.trim() || TEXT.ASIDE_FALLBACK);
+      answer = data?.answer?.trim() || TEXT.ASIDE_FALLBACK;
     } catch {
-      setTyping(false);
-      pushCoach(TEXT.ASIDE_FALLBACK);
+      answer = TEXT.ASIDE_FALLBACK;
     } finally {
+      setTyping(false);
       setBusy(false);
     }
+    pushCoach(answer);
+    return answer;
   }, [pushCoach]);
 
   const handleAside = useCallback(async (text, intent, step, liveMessage) => {
     const index = LADDER.findIndex((s) => s.id === step.id);
-    // The old chip row is retired: the question comes back below, live.
-    if (liveMessage) spendChips(liveMessage.id);
 
     // A bare "ok" has nothing in it to answer. Acknowledged in place, free.
     if (intent === 'ack') {
+      if (liveMessage) spendChips(liveMessage.id);
       pushCoach(TEXT.GREETING_BACK);
       later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
       return;
@@ -911,7 +916,16 @@ const ProfileCoach = () => {
 
     // Greetings go to the model like anything else someone says. A person
     // who says hello and gets a form letter back has learned what this is.
-    await answerQuestion(text, step.question, step.id);
+    const answer = await answerQuestion(text, step.question, step.id);
+
+    /* If the coach ended on a question of its own — "Of course, what's your
+       question?" — then it is waiting, and re-asking ours on top of it both
+       contradicts the invitation and buries it. Someone who asks permission
+       to ask is given the floor, with the chips left live above so they can
+       still just tap an answer whenever they are ready. */
+    if (/\?\s*$/.test(answer)) return;
+
+    if (liveMessage) spendChips(liveMessage.id);
     later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
   }, [answerQuestion, askStep, later, pushCoach, spendChips]);
 
