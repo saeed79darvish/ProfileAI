@@ -965,6 +965,30 @@ const ProfileCoach = () => {
     return answer;
   }, [pushCoach]);
 
+  /**
+   * Put the answer options back without restating the question.
+   *
+   * A text-only step gets nothing: the composer is already there, and an
+   * empty row would be noise.
+   */
+  const offerChipsAgain = useCallback((step, liveMessage) => {
+    const chips = getChips(step, draftRef.current);
+    if (!chips.length) return;
+    setMessages((prev) => [
+      ...prev.map((m) => (m.id === liveMessage?.id ? { ...m, spent: true } : m)),
+      {
+        id: nextId(),
+        role: 'coach',
+        text: '',
+        stepId: step.id,
+        chips,
+        multi: step.kind === 'multi',
+        selected: [],
+        optional: !!step.optional,
+      },
+    ]);
+  }, []);
+
   const handleAside = useCallback(async (text, intent, step, liveMessage) => {
     const index = LADDER.findIndex((s) => s.id === step.id);
 
@@ -990,9 +1014,16 @@ const ProfileCoach = () => {
        one tap — holding the floor is not blocking the path. */
     if (intent === 'permission' || /\?\s*$/.test(answer)) return;
 
-    if (liveMessage) spendChips(liveMessage.id);
-    later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
-  }, [answerQuestion, askStep, later, pushCoach, spendChips]);
+    /* Answer, then hold the options out — do not ask the question again.
+       Repeating it is what made the coach read as not caring what was asked:
+       you ask about the portfolio, you get an answer, and then the same
+       question you were already looking at is restated as though the aside
+       were an interruption to get past. The options come back underneath the
+       answer instead, with no question bubble: the way forward is visible,
+       nothing is repeated, and the next thing they say can just as easily be
+       another question. */
+    later(() => offerChipsAgain(step, liveMessage), TIMING.ACK_MS);
+  }, [answerQuestion, later, offerChipsAgain, pushCoach]);
 
   /**
    * Typed while the intro is on screen.
