@@ -663,6 +663,8 @@ export const emptyDraft = () => ({
   // Set when a resume or LinkedIn import seeded the draft — the coach then
   // asks only about what the import left empty.
   importedFrom: null,
+  // The same, for a paragraph someone typed, dictated, or said on a call.
+  spokenIntake: false,
   // What they want next, and the coach's read on how far away it is.
   target: '',
   targetWhy: '',
@@ -1310,7 +1312,9 @@ export const nextStepIndex = (fromIndex, draft = {}) => {
  * import feel pointless, so the coach jumps over those.
  */
 export const isAlreadyAnswered = (step, draft = {}) => {
-  if (!draft.importedFrom) return false;
+  // Spoken intake counts like an import: both arrive with answers already in
+  // hand, and re-asking for them is what makes either feel pointless.
+  if (!draft.importedFrom && !draft.spokenIntake) return false;
   switch (step.id) {
     case 'title':
       return !!draft.title;
@@ -1343,6 +1347,96 @@ export const applyToDraft = (draft, patch = {}) => ({ ...draft, ...patch });
  * company?"). Without it the second half of one answer would prepend a
  * separate half-empty row instead of finishing the first.
  */
+/* ─── One paragraph, many fields ──────────────────────────────
+
+   The counterpart to the `braindump` schema on the server. Everything a
+   person said in one go, spread across the draft — and a flag saying the
+   conversation should now skip whatever it covered, the same way it skips
+   after a resume import.
+
+   Every field is treated as optional and additive: a paragraph that mentions
+   only skills fills in skills and leaves the rest for the coach to ask. What
+   is already in the draft wins, because a tapped chip is a deliberate answer
+   and a parsed phrase is an inference. */
+
+// "ten years in", "senior", "staff" — mapped onto the rung ids the ladder
+// uses. Loose on purpose: this is a hint, and the headline question that
+// follows is where it gets confirmed.
+const SENIORITY_HINTS = [
+  [/\b(apprentice|trainee)\b/i, 'entry'],
+  [/\b(junior|entry|graduate|new grad|newly qualified)\b/i, 'entry'],
+  [/\b(principal)\b/i, 'principal'],
+  [/\b(staff)\b/i, 'staff'],
+  [/\b(senior|sr\.?|master|charge)\b/i, 'senior'],
+  [/\b(lead|foreman|supervisor)\b/i, 'lead'],
+  [/\b(head of|vp|chief)\b/i, 'head'],
+  [/\b(director)\b/i, 'director'],
+  [/\b(manager|managing)\b/i, 'manager'],
+  [/\b(mid|intermediate)\b/i, 'ic'],
+  [/\b(freelance|contractor|consultant|self.?employed)\b/i, 'consultant'],
+];
+
+const seniorityFrom = (said, sector) => {
+  const text = String(said || '');
+  const rungs = levelsFor(sector).map((l) => l.id);
+  for (const [pattern, id] of SENIORITY_HINTS) {
+    if (pattern.test(text) && rungs.includes(id)) return id;
+  }
+  return '';
+};
+
+export const applyBraindump = (draft = {}, fields = {}) => {
+  const next = { ...draft, spokenIntake: true };
+
+  // Field first: it decides which rungs and titles the rest is read against.
+  const matched = fields.field ? matchSector(fields.field) : null;
+  if (!next.sector && matched?.sector) next.sector = matched.sector;
+  if (!next.sector && fields.title) {
+    const fromTitle = matchSector(fields.title);
+    if (fromTitle?.sector) next.sector = fromTitle.sector;
+  }
+
+  if (!next.title && fields.title) next.title = normalizeTitle(fields.title);
+  if (!next.level) next.level = seniorityFrom(fields.seniority || fields.title, next.sector);
+  // Cased on the way in: this answer skips the location question that would
+  // otherwise have tidied it, and "san francisco" is someone's profile.
+  if (!next.location && fields.location) next.location = normalizeTitle(fields.location);
+
+  const bullets = (fields.bullets || []).filter(Boolean);
+  if (fields.company || bullets.length) {
+    const endDate = fields.endDate || '';
+    next.experience = [{
+      title: next.title || fields.title || '',
+      company: fields.company || '',
+      startDate: fields.startDate || '',
+      endDate,
+      current: !endDate || /present|now|current/i.test(endDate),
+      description: bullets.map((b) => `• ${b}`).join('\n'),
+    }, ...(draft.experience || [])];
+  }
+
+  // An earlier employer with nothing else said about it is still a row worth
+  // having — the editor can fill in the rest, and two roles read as a career
+  // where one reads as a fragment.
+  if (fields.previousCompany) {
+    next.experience = [...(next.experience || []), {
+      title: '', company: fields.previousCompany, startDate: '', endDate: '', current: false, description: '',
+    }];
+  }
+
+  const skills = (fields.skills || []).map(normalizeSkill).filter(Boolean);
+  if (skills.length) next.skills = Array.from(new Set([...(draft.skills || []), ...skills]));
+
+  if (fields.school || fields.degree) {
+    next.education = normalizeEducationRows([
+      { institution: fields.school || '', degree: fields.degree || '', fieldOfStudy: '', endDate: '' },
+      ...(draft.education || []),
+    ]);
+  }
+
+  return next;
+};
+
 export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = false, append = false } = {}) => {
   const next = { ...draft };
   switch (stepId) {
@@ -1455,6 +1549,8 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
     // A probe answer is a story about their work. Whatever it evidences gets
     // used: bullets land on the role they were just talking about, tools join
     // the skills list. Either may be empty and that is fine.
+    case 'braindump':
+      return applyBraindump(draft, fields);
     case 'probe': {
       const newBullets = (fields.bullets || []).filter(Boolean);
       const append = (row) => {

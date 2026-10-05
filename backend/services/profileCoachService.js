@@ -131,6 +131,44 @@ const STEP_SCHEMAS = {
     },
     required: [],
   },
+  /* One answer, everything in it.
+   *
+   * Every other schema here is deliberately narrow — one question, one or two
+   * fields — which is right when the coach asked one question. It is wrong
+   * for prose. Someone who says "I'm a software engineer, ten years, last
+   * five at Acme on payments, Node and Postgres, team of six" at the title
+   * question has their title extracted and the rest of it thrown away, then
+   * gets asked for each discarded part over the next six questions.
+   *
+   * This is the schema for a paragraph: typed, dictated, or the transcript of
+   * a voice call. Whatever it finds, the conversation then skips asking for.
+   *
+   * Everything is optional on purpose. Half the point is handling an answer
+   * that covers three fields and says nothing about the other six — a missing
+   * key means "they did not say", which the coach then asks about, and that
+   * is a better outcome than a confident guess sitting in someone's resume.
+   */
+  braindump: {
+    question: 'Tell me about your work — whatever comes to mind.',
+    expects: {
+      title: 'their current or most recent job title',
+      seniority: 'how senior they are, in their own words: junior, mid, senior, staff, principal, lead, manager, director, apprentice, newly qualified',
+      field: 'the field or industry they work in',
+      company: 'the employer of their most recent role',
+      startDate: 'when that role started, YYYY-MM or YYYY',
+      endDate: 'when it ended, YYYY-MM or YYYY, or "Present" if still there',
+      bullets: 'array of concrete things they said they did or built, each one a resume bullet in their own words',
+      skills: 'array of tools, systems, languages, methods or certifications they named',
+      previousCompany: 'an earlier employer, if they mentioned one',
+      school: 'school, university or bootcamp',
+      degree: 'degree or credential',
+      location: 'where they are based',
+      yearsExperience: 'total years of experience, as a number, only if they stated it',
+    },
+    // Nothing is required: a paragraph that mentions only skills is still
+    // worth keeping every skill from.
+    required: [],
+  },
 };
 
 // Values that are the *name* of the thing rather than the thing. Models

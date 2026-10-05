@@ -1021,6 +1021,11 @@ const ProfileCoach = () => {
 
     const matched = matchSector(text);
     const sector = matched && JOB_SECTORS.find((s) => s.id === matched.sector);
+    /* Asking something, and asking whether they may, are both the person
+       holding the floor. The ladder's handler already knew that; this one did
+       not, which is how "can I ask a question?" got "Of course, go ahead!"
+       followed immediately by the whole conversation starting anyway. */
+    const theyAsked = intent === 'question' || intent === 'permission';
 
     /* There is no question of ours on screen yet, so everything typed here is
        something the person wanted to say — and all of it gets a real reply.
@@ -1032,7 +1037,7 @@ const ProfileCoach = () => {
 
     // Asking about the product is not a reason to start the questions.
     // Telling us what they do is.
-    if (intent === 'question' && !sector) return;
+    if (theyAsked && !sector) return;
 
     pushCoach(sector ? TEXT.INTRO_START_SECTOR(sector.label) : TEXT.INTRO_START);
     setMessages((prev) => prev

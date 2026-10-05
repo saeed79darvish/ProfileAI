@@ -9,6 +9,7 @@ import {
 
 import {
   LADDER,
+  applyBraindump,
   readsAsAnswer,
   looksLikeTitle,
   parseConversation,
@@ -966,4 +967,63 @@ test('asking permission is its own thing, read off the question', () => {
   // A question actually asked is still a question to answer.
   assert.equal(readsAsAnswer('what is this?', level, draft), 'question');
   assert.equal(readsAsAnswer('Senior', level, draft), 'answer');
+});
+
+/* ─── One paragraph, many fields ──────────────────────────────
+   The shared half of every spoken path: dictation, a typed paragraph, or the
+   transcript of a voice call. */
+
+const SAID = {
+  title: 'software engineer',
+  seniority: 'ten years, last five senior',
+  field: 'software',
+  company: 'Acme',
+  startDate: '2021',
+  endDate: 'Present',
+  bullets: ['Built the payments platform', 'Led a team of six'],
+  skills: ['node.js', 'postgresql'],
+  previousCompany: 'Globex',
+  school: 'State University',
+  degree: 'BSc Computer Science',
+  location: 'san francisco',
+};
+
+test('a paragraph fills the whole draft, not one field of it', () => {
+  const d = applyBraindump(emptyDraft(), SAID);
+  assert.equal(d.sector, 'tech');
+  assert.equal(d.level, 'senior');
+  assert.equal(d.title, 'Software Engineer');
+  assert.equal(buildTitle(d), 'Senior Software Engineer');
+  assert.deepEqual(d.experience.map((e) => e.company), ['Acme', 'Globex']);
+  assert.match(d.experience[0].description, /payments platform/);
+  assert.deepEqual(d.skills, ['Node.js', 'PostgreSQL']);
+  assert.equal(d.education[0].degree, 'BSc Computer Science');
+  // Cased on the way in — this answer skips the step that would have tidied it.
+  assert.equal(d.location, 'San Francisco');
+});
+
+test('what it captured is not asked for again', () => {
+  const d = applyBraindump(emptyDraft(), SAID);
+  const skipped = LADDER.filter((s) => isAlreadyAnswered(s, d)).map((s) => s.id);
+  for (const id of ['title', 'currentRole', 'skills', 'education', 'location']) {
+    assert.ok(skipped.includes(id), `${id} should not be asked again`);
+  }
+  // What it cannot know is still asked.
+  assert.ok(!skipped.includes('target'), 'nobody can infer what you want next');
+});
+
+test('a deliberate answer outranks a parsed one', () => {
+  const tapped = { ...emptyDraft(), sector: 'healthcare', title: 'Registered Nurse' };
+  const d = applyBraindump(tapped, SAID);
+  assert.equal(d.sector, 'healthcare');
+  assert.equal(d.title, 'Registered Nurse');
+  // Additive where nothing was said before.
+  assert.deepEqual(d.skills, ['Node.js', 'PostgreSQL']);
+});
+
+test('a paragraph about only skills fills only skills', () => {
+  const d = applyBraindump(emptyDraft(), { skills: ['excel', 'route planning'] });
+  assert.deepEqual(d.skills, ['Excel', 'Route Planning']);
+  assert.equal(d.title, '');
+  assert.deepEqual(d.experience, []);
 });
