@@ -144,18 +144,23 @@ export const Row = styled.div`
   `}
 `;
 
+/* Round, and the mark fills it edge to edge — see CoachMark.jsx for why this
+   stopped being a sparkle in a rounded square. The ring is what lifts it off
+   the page without a drop shadow heavy enough to look like a button. */
 export const CoachAvatar = styled.div`
   width: 38px;
   height: 38px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, #6366f1, #7c85f5);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 2px 10px rgba(99, 102, 241, 0.3);
 
-  svg { width: 22px; height: 22px; }
+  svg { width: 100%; height: 100%; display: block; }
 `;
 
 export const Bubble = styled.div`

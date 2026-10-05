@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AutoAwesome as CoachIcon,
   Mic as MicIcon,
   Send as SendIcon,
   VolumeUp as VoiceIcon,
@@ -24,6 +23,7 @@ import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
+import CoachMark from './CoachMark';
 import {
   IntroCarousel,
   BuildProfileCard,
@@ -1532,7 +1532,7 @@ const ProfileCoach = () => {
                   {!!message.text && (
                     <Row $mine={message.role === 'me'}>
                       {message.role === 'coach' && (
-                        <CoachAvatar aria-hidden="true"><CoachIcon htmlColor="#fff" /></CoachAvatar>
+                        <CoachAvatar><CoachMark /></CoachAvatar>
                       )}
                       {/* Your own tapped answers are live controls: tap one to
                           take it back. Typed answers are not — a sentence the
@@ -1632,7 +1632,7 @@ const ProfileCoach = () => {
 
               {typing && (
                 <Row>
-                  <CoachAvatar aria-hidden="true"><CoachIcon htmlColor="#fff" /></CoachAvatar>
+                  <CoachAvatar><CoachMark /></CoachAvatar>
                   <Bubble aria-label={TEXT.THINKING}>
                     <Typing><span /><span /><span /></Typing>
                   </Bubble>
