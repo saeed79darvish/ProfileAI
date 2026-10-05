@@ -406,18 +406,21 @@ const ProfileCoach = () => {
 
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
-  const startLadder = useCallback((from, seed = null) => {
-    // Someone who told us their field on the way in must not be asked for it
-    // again — that is the whole complaint about builders that do not listen.
-    const draft0 = { ...emptyDraft(), ...(seed || {}) };
-    const at = seed?.sector ? 1 : 0;
+  /** Begin the questions at the first thing still missing. */
+  const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro' } = {}) => {
     draftRef.current = draft0;
     setDraft(draft0);
+    const at = Math.max(0, nextStepIndex(-1, draft0));
     setStepIndex(at);
-    pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
+    if (!silent) pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
     askStep(at, draft0);
-    trackEvent('coach_started', { intro: from, seeded: !!seed?.sector });
+    trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
   }, [askStep, pushCoach]);
+
+  const startLadder = useCallback(
+    (from, seed = null) => startLadderFrom({ ...emptyDraft(), ...(seed || {}) }, { from }),
+    [startLadderFrom]
+  );
 
   useEffect(() => {
     if (restored) {
@@ -1039,51 +1042,44 @@ const ProfileCoach = () => {
    * the intro stays put. Anything else is someone who would rather talk than
    * read three slides, so the intro gets out of the way.
    */
+  /**
+   * Typed while the intro is on screen — now run by the model, like the rest.
+   *
+   * This was the last path still deciding for itself what someone meant, and
+   * it failed exactly the way the others did: "how profileai helps me" was
+   * matched against sector aliases, found "pr" inside "profileai", announced
+   * "Media, Writing & PR — got it" and started building a journalism profile.
+   * The question went unanswered.
+   *
+   * Now the same turn endpoint answers it. If what they said was about
+   * themselves, the model records it and the questions start from whatever is
+   * still missing; if it was a question about the product, they get an answer
+   * and the intro stays where it is.
+   */
   const handleIntroText = useCallback(async (text) => {
-    const first = LADDER[0];
-    const intent = readsAsAnswer(text, first, draftRef.current);
-
-    if (intent === 'ack' || intent === 'skip') {
-      pushCoach(TEXT.INTRO_HELLO);
+    const before = draftRef.current;
+    const turn = await runTurn(text);
+    if (!turn.ok) {
+      setError(TEXT.ERROR_GENERIC);
       return;
     }
 
-    // "hi" at the intro is the first thing anyone says. Answer it properly.
-    if (intent === 'greeting') {
-      await answerQuestion(text, '', 'intro');
-      return;
-    }
+    // Did they tell us anything about themselves, or just ask something?
+    const after = draftRef.current;
+    const toldUsSomething = after !== before && (
+      after.sector || after.title || (after.skills || []).length || (after.experience || []).length
+    );
+    if (!toldUsSomething) return;
 
-    const matched = matchSector(text);
-    const sector = matched && JOB_SECTORS.find((s) => s.id === matched.sector);
-    /* Asking something, and asking whether they may, are both the person
-       holding the floor. The ladder's handler already knew that; this one did
-       not, which is how "can I ask a question?" got "Of course, go ahead!"
-       followed immediately by the whole conversation starting anyway. */
-    const theyAsked = intent === 'question' || intent === 'permission';
-
-    /* There is no question of ours on screen yet, so everything typed here is
-       something the person wanted to say — and all of it gets a real reply.
-       The exception is someone who just named their field, where we have
-       something specific to say back and no need to spend a call saying it. */
-    if (!sector) {
-      await answerQuestion(text, '', 'intro');
-    }
-
-    // Asking about the product is not a reason to start the questions.
-    // Telling us what they do is.
-    if (theyAsked && !sector) return;
-
-    pushCoach(sector ? TEXT.INTRO_START_SECTOR(sector.label) : TEXT.INTRO_START);
     setMessages((prev) => prev
       .filter((m) => m.introSlide == null)
       .map((m) => (m.introBuild ? { ...m, spent: true } : m)));
-    trackEvent('coach_intro_typed_past', { seeded: !!sector });
-    later(
-      () => startLadder('typed', sector ? { sector: sector.id } : null),
-      TIMING.ACK_MS
-    );
-  }, [answerQuestion, later, pushCoach, startLadder]);
+    trackEvent('coach_intro_typed_past', {});
+    // No second greeting: the model has already replied to them in its own
+    // words, and "Right — let's build your profile" on top of that is the
+    // product talking over itself.
+    later(() => startLadderFrom(draftRef.current, { silent: true }), TIMING.ACK_MS);
+  }, [later, runTurn, startLadderFrom]);
 
   /**
    * A turn run by the model rather than by regexes.

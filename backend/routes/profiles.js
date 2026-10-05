@@ -11,6 +11,7 @@ const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
 const profileCoachService = require('../services/profileCoachService');
+const coachVoiceService = require('../services/coachVoiceService');
 const linkedinAnalyzerCache = require('../services/linkedinAnalyzerCache');
 const { buildTeaser: buildLinkedInTeaser } = require('../services/linkedinAnalyzerTeaser');
 const emailService = require('../services/emailService');
@@ -625,6 +626,104 @@ router.post('/coach/review', coachGuard, async (req, res) => {
     console.error('Error reviewing profile for coach:', error);
     res.status(500).json({ error: 'Could not read that profile' });
   }
+});
+
+/* ─── Remi, out loud ──────────────────────────────────────────────
+   Three endpoints: one to start a call, one Vapi calls for every spoken
+   turn, and one the browser asks for what the call collected.
+
+   Signed-in only, deliberately. A voice minute costs roughly a hundred
+   times a typed turn, and the typed coach stays free and open to everyone —
+   value first, account after. That trade does not survive being metered by
+   the minute in front of anonymous traffic.
+   ───────────────────────────────────────────────────────────────── */
+
+// @route   POST /api/profiles/coach/voice/session
+// @desc    Create a voice coach for this person and hand the browser its keys
+// @access  Private
+router.post('/coach/voice/session', authMiddleware, async (req, res) => {
+  try {
+    if (!process.env.VAPI_API_KEY || !coachVoiceService.VAPI_PUBLIC_KEY) {
+      return res.status(503).json({ error: 'Voice is not configured on this server' });
+    }
+
+    const user = await User.findByPk(req.userId, { attributes: ['firstName'] });
+    const assistant = await coachVoiceService.createVoiceCoach({ firstName: user?.firstName });
+
+    res.json({
+      success: true,
+      assistantId: assistant.id,
+      publicKey: coachVoiceService.VAPI_PUBLIC_KEY,
+    });
+  } catch (error) {
+    console.error('Error starting voice coach:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Could not start the voice coach' });
+  }
+});
+
+// @route   POST /api/profiles/coach/voice
+// @desc    One spoken turn. Called by Vapi, in OpenAI chat-completions shape.
+// @access  Public — Vapi calls this, not a browser. See the auth note below.
+router.post('/coach/voice', async (req, res) => {
+  /* Vapi is the only caller, and it arrives without a session. The protection
+     is that this endpoint can do nothing but return a sentence: it writes no
+     database row, bills nothing to a user, and leaks nothing about anyone —
+     the profile it is handed comes from the request itself. A shared secret
+     in a header would still be worth adding before this sees real traffic. */
+  try {
+    const { messages, call, profile } = req.body || {};
+    const say = await coachVoiceService.handleVoiceTurn({
+      callId: call?.id,
+      messages: Array.isArray(messages) ? messages : [],
+      profile: profile && typeof profile === 'object' ? profile : {},
+    });
+
+    /* OpenAI's streaming shape, because that is what Vapi expects to read.
+       One chunk and done: the sentence is already complete by the time we
+       have it, and pretending to stream it token by token would add latency
+       to the one thing a voice call cannot afford. */
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const chunk = {
+      id: `remi-${Date.now()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: 'remi',
+      choices: [{ index: 0, delta: { role: 'assistant', content: say }, finish_reason: null }],
+    };
+    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    res.write(`data: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (error) {
+    console.error('Error on voice turn:', error);
+    // Never leave the caller silent: a voice agent with nothing to say is a
+    // dead line, which is worse than an imperfect sentence.
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.write(`data: ${JSON.stringify({
+      id: 'remi-error',
+      object: 'chat.completion.chunk',
+      choices: [{ index: 0, delta: { role: 'assistant', content: 'Sorry, I lost that. Could you say it again?' }, finish_reason: 'stop' }],
+    })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+  }
+});
+
+// @route   GET /api/profiles/coach/voice/result/:callId
+// @desc    What the call collected, for the browser to merge into the draft
+// @access  Private
+router.get('/coach/voice/result/:callId', authMiddleware, async (req, res) => {
+  const learned = coachVoiceService.takeSession(req.params.callId);
+  if (!learned) {
+    // Held in memory for an hour: a restart between the call and this
+    // request loses it, which is the known cost of not persisting an
+    // unfinished voice profile.
+    return res.status(404).json({ error: 'Nothing recorded for that call' });
+  }
+  res.json({ success: true, learned });
 });
 
 // @route   POST /api/profiles/coach/turn

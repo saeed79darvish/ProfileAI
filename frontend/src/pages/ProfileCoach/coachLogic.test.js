@@ -1027,3 +1027,29 @@ test('a paragraph about only skills fills only skills', () => {
   assert.equal(d.title, '');
   assert.deepEqual(d.experience, []);
 });
+
+/* ─── Whole words ─────────────────────────────────────────────
+   "pr" is a real alias for Media, Writing & PR. It is also three letters
+   inside "profileai", which is how a question about the product came back
+   as "Media, Writing & PR — got it" and started building someone a
+   journalism profile. */
+
+test('a sector alias has to be a word, not a fragment', () => {
+  for (const asked of [
+    'how profileai helps me',
+    'what is profileai',
+    'what does profilleai do',
+    'is it free',
+    'tell me about it',
+  ]) {
+    assert.equal(matchSector(asked), null, `"${asked}" is a question, not a sector`);
+  }
+});
+
+test('the short aliases still work as words', () => {
+  assert.equal(matchSector('i work in PR').sector, 'media');
+  assert.equal(matchSector('i do it support').sector, 'tech');
+  assert.equal(matchSector('i am in hr').sector, 'hr');
+  // And punctuation-bearing skills survive the word boundaries.
+  assert.equal(matchSector('c# developer').sector, 'tech');
+});

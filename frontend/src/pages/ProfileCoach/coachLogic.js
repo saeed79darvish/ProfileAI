@@ -992,6 +992,20 @@ export const getChips = (step, draft = {}) => {
  *
  * @returns {{sector: string, title?: string}|null}
  */
+/* Whole words only.
+   The alias lists contain short, legitimate ones — "pr", "it", "hr", "ae" —
+   and a plain substring test finds "pr" inside "profileai", which is how
+   "how profileai helps me" came back as Media, Writing & PR and started
+   building someone a journalism profile. */
+const containsPhrase = (haystack, phrase) => {
+  const needle = norm(phrase);
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Letters, digits, + and # are word characters here, so "c++" and "c#"
+  // survive and "pr" does not match inside "profileai".
+  return new RegExp(`(^|[^a-z0-9+#])${escaped}([^a-z0-9+#]|$)`, 'i').test(haystack);
+};
+
 export const matchSector = (text) => {
   const t = norm(text);
   if (!t) return null;
@@ -1001,7 +1015,7 @@ export const matchSector = (text) => {
   const titled = Object.entries(SECTOR_TITLES)
     .flatMap(([sectorId, titles]) => titles.map((title) => ({ sectorId, title })))
     .sort((a, b) => b.title.length - a.title.length)
-    .find(({ title }) => t.includes(norm(title)));
+    .find(({ title }) => containsPhrase(t, title));
   if (titled) return { sector: titled.sectorId, title: titled.title };
 
   // Then how people actually describe their field — "I'm an electrician",
@@ -1009,13 +1023,13 @@ export const matchSector = (text) => {
   const aliased = JOB_SECTORS
     .flatMap((sector) => (sector.aliases || []).map((alias) => ({ sector, alias })))
     .sort((a, b) => b.alias.length - a.alias.length)
-    .find(({ alias }) => t.includes(norm(alias)));
+    .find(({ alias }) => containsPhrase(t, alias));
   if (aliased) return { sector: aliased.sector.id };
 
   for (const sector of JOB_SECTORS) {
     // "Design & Creative" → ["design", "creative"]
     const words = sector.label.split('&').map((w) => norm(w)).filter(Boolean);
-    if (words.some((w) => w.length > 2 && t.includes(w))) return { sector: sector.id };
+    if (words.some((w) => w.length > 2 && containsPhrase(t, w))) return { sector: sector.id };
   }
 
   return null;

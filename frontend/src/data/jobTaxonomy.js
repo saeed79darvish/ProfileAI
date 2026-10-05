@@ -41,7 +41,7 @@ export const JOB_SECTORS = [
   { id: 'support',        icon: '🎧', label: 'Customer Support & Success', primary: true,
     aliases: ['customer service', 'customer support', 'customer success', 'call center', 'help desk', 'call centre'] },
   { id: 'finance',        icon: '📊', label: 'Finance & Accounting', primary: true,
-    aliases: ['finance', 'accounting', 'accountant', 'bookkeep', 'banking', 'bank teller', 'insurance', 'payroll', 'tax prep'] },
+    aliases: ['finance', 'accounting', 'accountant', 'bookkeeper', 'bookkeeping', 'banking', 'bank teller', 'insurance', 'payroll', 'tax prep'] },
   { id: 'hr',             icon: '🧑‍🤝‍🧑', label: 'People & HR', primary: true,
     aliases: ['hr', 'human resources', 'recruiting', 'recruiter', 'talent', 'people ops'] },
   { id: 'admin',          icon: '🗂️', label: 'Admin & Office Support', primary: true,
