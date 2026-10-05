@@ -58,9 +58,26 @@ export const TEXT = {
   SKIP: 'Skip for now',
   LOGIN: 'Log in',
 
-  GREETING: 'Hi, I am your ProfilleAI coach.',
+  /* The coach has a name.
+   *
+   * "Hi, I am your ProfilleAI coach" is a product describing itself, and it
+   * sets the register for everything after it. A name does more for the
+   * feeling that somebody is on the other end than any avatar can.
+   *
+   * Remi: short, warm, says the same in most languages, and not already worn
+   * by an assistant people know. Gender-neutral on purpose — this one talks
+   * to a nurse, an electrician and a staff engineer in the same afternoon,
+   * and none of them should have to picture anybody in particular.
+   *
+   * It is a name, not a disguise. The line below says career coach, the
+   * answer to "are you a real person?" is no, and the prompt is explicit
+   * about never claiming otherwise. */
+  COACH_NAME: 'Remi',
+  // Remi has already said hello in the intro — this is the handover into the
+  // questions, not a second introduction.
+  GREETING: "Right — let's build your profile.",
   GREETING_SUB:
-    'I will build your profile from a short conversation — about two minutes. Answer by tapping or typing.',
+    'About two minutes of questions. Answer by tapping, typing, or the mic.',
 
   INPUT_PLACEHOLDER: 'Type your answer',
   INPUT_PLACEHOLDER_VOICE: 'Type your answer, or tap the mic to talk',

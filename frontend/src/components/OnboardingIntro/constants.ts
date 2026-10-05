@@ -34,7 +34,9 @@ export const SLIDES = [
 ] as const;
 
 export const INTRO_TEXT = {
-  WELCOME: 'Welcome to ProfilleAI!',
+  // Where the coach introduces itself — once. The ladder's greeting used to
+  // do it too, which with a name became the same introduction twice.
+  WELCOME: "Hi, I'm Remi — your career coach here.",
   WELCOME_HINT: 'A quick look at what I can do, then we start.',
   HEADING_PREFIX: 'ProfilleAI can help you...',
   CONTINUE: 'Continue',
