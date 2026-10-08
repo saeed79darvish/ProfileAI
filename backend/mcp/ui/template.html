@@ -57,26 +57,6 @@
   .pa-badge--ok { background: var(--pa-ok-bg); color: var(--pa-ok-fg); }
   .pa-badge--low { background: var(--pa-low-bg); color: var(--pa-low-fg); }
 
-  /* LinkedIn analysis card ------------------------------------------- */
-  .pa-dials { display: flex; gap: 6px; margin-top: 12px; }
-  .pa-dial { flex: 1 1 0; min-width: 0; position: relative; text-align: center; }
-  .pa-dial__svg { width: 100%; max-width: 74px; height: auto; display: block; margin: 0 auto; }
-  .pa-dial__track { stroke: var(--pa-border); }
-  .pa-dial__value { stroke: var(--pa-low-fg); transition: stroke-dasharray 300ms ease; }
-  .pa-dial--good .pa-dial__value { stroke: var(--pa-good-fg); }
-  .pa-dial--ok .pa-dial__value { stroke: #b7791f; }
-  .pa-dial--low .pa-dial__value { stroke: #b42318; }
-  /* Centred over the arc: the ring is a fixed square, so the number tracks
-     its geometric middle rather than the column's. */
-  .pa-dial__num { position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-    width: 100%; max-width: 74px; height: 74px; display: flex; align-items: center;
-    justify-content: center; font-size: 17px; font-weight: 700; color: var(--pa-fg); }
-  .pa-dial__label { margin-top: 2px; font-size: 11px; color: var(--pa-muted); }
-  .pa-card__body { margin: 12px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--pa-fg); }
-  .pa-fixes { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--pa-fg); }
-  .pa-fixes__item { margin-bottom: 6px; }
-  .pa-card__note { margin-top: 10px; font-size: 11.5px; color: var(--pa-muted); }
-
   .pa-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .pa-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--pa-low-bg); color: var(--pa-low-fg); }
   .pa-proj { margin-bottom: 8px; }

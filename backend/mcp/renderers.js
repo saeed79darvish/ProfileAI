@@ -421,84 +421,9 @@ function renderInterviewPrepMarkdown(resume) {
   return parts.join('\n');
 }
 
-
-/** Verdict chip — same three bands the extension and the report email use. */
-function verdictLabel(verdict) {
-  const v = String(verdict || 'maybe').toLowerCase();
-  if (v === 'shortlist') return '\u2705 SHORTLIST';
-  if (v === 'pass') return '\u274c PASS';
-  return '\u26a0\ufe0f MAYBE';
-}
-
-/**
- * Where the numbers came from. The tool grades whatever content it could
- * resolve, and the three sources are not interchangeable — a stored
- * ProfilleAI profile is not the live LinkedIn page, and saying so is the
- * difference between a useful tool and one that quietly grades the wrong
- * document.
- */
-function sourceNote(source, profileUrl) {
-  if (source === 'cache') {
-    return `Graded from the saved analysis of ${profileUrl || 'this profile'} (analyses are kept for 7 days).`;
-  }
-  if (source === 'text') {
-    return 'Graded from the profile text you provided.';
-  }
-  return 'Graded from your ProfilleAI profile — not your live LinkedIn page. For the live page, use the Chrome extension or paste the profile text.';
-}
-
-/** Result card for `analyze_linkedin_profile`. */
-function renderLinkedInAnalysisMarkdown(a) {
-  // header() already bolds its title, so the target role goes in unstyled —
-  // nested asterisks render as literal asterisks, not emphasis.
-  const target = a.targetTitle ? ` for ${a.targetTitle}` : '';
-  const fixes = (a.fixes || []).map((f, i) => `${i + 1}. ${f.body}`);
-  const lines = [
-    header(`LinkedIn profile grade${target}`, sourceNote(a.source, a.profileUrl)),
-    '',
-    `**${a.overallScore}/100 overall** \u00b7 Recruiter fit ${a.recruiterFitScore}/100 \u00b7 Search visibility ${a.searchVisibilityScore}/100`,
-    '',
-    `**Recruiter verdict:** ${verdictLabel(a.verdict)}`,
-  ];
-  if (a.summary) lines.push('', a.summary);
-  if (fixes.length) lines.push('', '**Fix these first:**', '', ...fixes);
-  lines.push(
-    '',
-    footer([
-      `\ud83d\udd0d **Re-grade any profile in one click** \u2014 the [ProfilleAI Chrome Extension](${CHROME_EXTENSION_URL}) reads the LinkedIn page you're on and grades it live.`,
-    ]),
-  );
-  // Blank lines are load-bearing in markdown — without them every line above
-  // collapses into one paragraph. Only runs of them get squeezed.
-  return lines.filter((line, i) => line !== '' || lines[i - 1] !== '').join('\n');
-}
-
-/**
- * Shown when no source could be resolved. Deliberately not an error: the
- * three ways to get an analysis are the product surface, so this response
- * is a menu, not a dead end.
- */
-function renderAnalyzerHandoffMarkdown({ hasProfileUrl, textTooShort }) {
-  const lead = textTooShort
-    ? "That's too little text to grade fairly \u2014 a headline alone tells a recruiter almost nothing."
-    : hasProfileUrl
-      ? "I don't have an analysis of that profile yet, and I can't read LinkedIn pages directly \u2014 LinkedIn only shows profiles to a signed-in browser."
-      : "I can grade a LinkedIn profile, but I need its content first \u2014 I can't read LinkedIn pages directly.";
-  return [
-    header('Pick how to get the profile in', lead),
-    '',
-    '**1. Paste it** \u2014 copy the headline, About and experience from the profile and send them here.',
-    `**2. Send the PDF** \u2014 on the profile, open More, choose Save to PDF, then share that file with me. Takes about ten seconds.`,
-    `**3. Grade it live** \u2014 install the [ProfilleAI Chrome Extension](${CHROME_EXTENSION_URL}). It reads whichever LinkedIn profile you're viewing and grades it in place, no copying at all.`,
-    '',
-    `Or ask me to grade your [ProfilleAI profile](${withUtm('/profile')}) instead \u2014 I can do that one right now.`,
-  ].join('\n');
-}
-
 module.exports = {
   // urls
   BASE_URL,
-  CHROME_EXTENSION_URL,
   LOGO_URL,
   withUtm,
   jobUrl,
@@ -507,8 +432,6 @@ module.exports = {
   jobSearchUrl,
   resumeUrl,
   // renderers
-  renderLinkedInAnalysisMarkdown,
-  renderAnalyzerHandoffMarkdown,
   renderJobsListMarkdown,
   renderJobDetailMarkdown,
   renderCandidatesListMarkdown,
