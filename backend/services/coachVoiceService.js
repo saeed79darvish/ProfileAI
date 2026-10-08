@@ -62,6 +62,13 @@ function getSession(callId) {
   return session;
 }
 
+/** Whether this call has heard enough to hand back, without consuming it. */
+function peekSession(callId) {
+  const session = sessions.get(callId);
+  if (!session) return null;
+  return { done: !!session.done, turns: session.turns };
+}
+
 /** Everything the call gathered, for the browser to merge when it ends. */
 function takeSession(callId) {
   const session = sessions.get(callId);
@@ -104,6 +111,9 @@ async function createVoiceCoach({ firstName } = {}) {
     firstMessage: greeting,
     // Our endpoint, our prompt, our guardrails. Vapi never sees a system
     // prompt because it never decides what to say.
+    /* A base URL, not an endpoint: Vapi POSTs each turn to
+       `<url>/chat/completions`, the way an OpenAI client would. The route is
+       mounted at both spellings — see routes/profiles.js. */
     model: {
       provider: 'custom-llm',
       url: `${PUBLIC_API_URL}/api/profiles/coach/voice`,
@@ -175,13 +185,41 @@ async function handleVoiceTurn({ callId, messages = [], profile = {} }) {
   mergeLearned(session.learned, turn.learned);
   session.turns += 1;
 
+  /* Knowing when to stop talking.
+     A call with no ending runs until the ten-minute cap and then drops
+     mid-sentence, which is how this read to the first person who tried it.
+     Once the essentials are in, Remi says so and hands back to the screen —
+     deliberately the same words every time rather than whatever the model
+     feels like, because this line is a promise about what happens next, and
+     the browser is listening for it to close the call. */
+  if (!session.done && !essentialsMissing(session.learned).length) {
+    session.done = true;
+    return HANDOVER;
+  }
+
   return turn.say || 'Got it.';
 }
+
+/* The handover. Said out loud, then the call ends and the chat takes over —
+   a resume is a file, and asking someone to find one while they are talking
+   to their phone is asking them to do two things at once. */
+const HANDOVER =
+  "That is everything I need to get you started. I am putting it on screen now — "
+  + 'if you have a resume handy, you can upload it there and I will fill in the rest.';
 
 /* The same checklist the typed conversation uses, read off what the call has
    heard rather than off a draft. Kept here rather than imported from the
    frontend because the frontend is where the typed copy lives — if these ever
    disagree, this one is wrong. */
+/* What a profile cannot do without. Education and location are useful and
+   get asked for, but nobody should be kept on a phone call for them — they
+   are two taps in the chat afterwards. */
+function essentialsMissing(learned = {}) {
+  return missingForVoice(learned).filter(
+    (item) => !/education|where they are based/.test(item)
+  );
+}
+
 function missingForVoice(learned = {}) {
   const missing = [];
   if (!learned.title) missing.push('their job title');
@@ -199,6 +237,9 @@ module.exports = {
   createVoiceCoach,
   handleVoiceTurn,
   takeSession,
+  peekSession,
+  essentialsMissing,
+  HANDOVER,
   mergeLearned,
   missingForVoice,
   VAPI_PUBLIC_KEY,

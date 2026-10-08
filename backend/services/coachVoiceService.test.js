@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { mergeLearned, missingForVoice } = require('./coachVoiceService');
+const {
+  mergeLearned, missingForVoice, essentialsMissing, peekSession, HANDOVER,
+} = require('./coachVoiceService');
 
 /* What a call collects, accumulated across turns. Vapi re-sends the
    transcript each turn but knows nothing about a profile, so the merge is
@@ -43,4 +45,41 @@ test('the checklist shrinks as the call goes on', () => {
     target: 'Nurse Practitioner',
   });
   assert.deepEqual(far, []);
+});
+
+/* Knowing when to hang up. A call with no ending runs to the duration cap
+   and drops mid-sentence, which is how the first real call felt. */
+
+test('education and a home town do not keep anyone on the phone', () => {
+  const gathered = {
+    title: 'Registered Nurse',
+    seniority: 'senior',
+    company: 'County General',
+    bullets: ['Ran a 12-bed unit'],
+    skills: ['Triage'],
+    target: 'Nurse Practitioner',
+  };
+  // Still on the written checklist, deliberately — two taps in the chat.
+  assert.deepEqual(missingForVoice(gathered).sort(), [
+    'education, a bootcamp or certifications',
+    'where they are based',
+  ]);
+  // But not worth another spoken question.
+  assert.deepEqual(essentialsMissing(gathered), []);
+});
+
+test('a call that has heard nothing is not finished', () => {
+  assert.ok(essentialsMissing({}).length > 0);
+  assert.ok(essentialsMissing({ title: 'Developer' }).length > 0);
+});
+
+test('the handover names what the screen will ask for', () => {
+  // The browser closes the call on the back of this line, and the chat then
+  // offers the upload — the sentence has to promise exactly that.
+  assert.match(HANDOVER, /resume/i);
+  assert.match(HANDOVER, /upload/i);
+});
+
+test('a call nobody has spoken on yet reports no state', () => {
+  assert.equal(peekSession('never-dialled'), null);
 });

@@ -686,10 +686,16 @@ router.post('/coach/voice/session', authMiddleware, async (req, res) => {
   }
 });
 
-// @route   POST /api/profiles/coach/voice
+// @route   POST /api/profiles/coach/voice/chat/completions  (and /coach/voice)
 // @desc    One spoken turn. Called by Vapi, in OpenAI chat-completions shape.
 // @access  Public — Vapi calls this, not a browser. See the auth note below.
-router.post('/coach/voice', async (req, res) => {
+/* Two paths for one handler, because Vapi treats a custom-llm `url` as a base
+   and POSTs to `<url>/chat/completions` the way the OpenAI SDK would. We had
+   it mounted only at the bare path, so every call 404'd and Vapi hung up with
+   `custom-llm-llm-failed` — the voice coach never once reached our model, and
+   it looked like a flaky connection rather than a wrong URL. The bare path
+   stays because it is what a curl smoke test reaches for. */
+const voiceTurnRoute = async (req, res) => {
   /* Vapi is the only caller, and it arrives without a session. The protection
      is that this endpoint can do nothing but return a sentence: it writes no
      database row, bills nothing to a user, and leaks nothing about anyone —
@@ -735,6 +741,23 @@ router.post('/coach/voice', async (req, res) => {
     res.write('data: [DONE]\n\n');
     res.end();
   }
+};
+
+router.post('/coach/voice', voiceTurnRoute);
+router.post('/coach/voice/chat/completions', voiceTurnRoute);
+
+// @route   GET /api/profiles/coach/voice/state/:callId
+// @desc    Whether the call has heard enough, so the browser can close it
+// @access  Private
+/* The browser asks every few seconds while a call is live. It has to, because
+   the model's side of a Vapi call is a server-to-server conversation the
+   browser never sees — the only thing it knows is what was said out loud.
+   Without this, a finished call just keeps running until the duration cap and
+   drops in the middle of a sentence. */
+router.get('/coach/voice/state/:callId', authMiddleware, (req, res) => {
+  const state = coachVoiceService.peekSession(req.params.callId);
+  // No session yet simply means the first spoken turn has not landed.
+  res.json({ done: !!state?.done, turns: state?.turns || 0 });
 });
 
 // @route   GET /api/profiles/coach/voice/result/:callId
