@@ -253,6 +253,7 @@ const ProfileCoach = () => {
   const keepScrollRef = useRef(false);
   // The talk-or-type offer is made once per conversation, never again.
   const voiceOfferedRef = useRef(false);
+  const voiceAvailableRef = useRef(false);
   /* How many asides have been answered by the model in this conversation.
      Each costs a call; a person asks two or three, a script does not stop.
      The cap is high enough that nobody real will meet it. */
@@ -396,6 +397,7 @@ const ProfileCoach = () => {
    * hundred typed turns do.
    */
   const offerVoice = useCallback(() => {
+    if (!voiceAvailableRef.current) return false;
     pushCoach(TEXT.VOICE_OFFER, {
       stepId: VOICE_CHOICE,
       chips: [
@@ -404,6 +406,7 @@ const ProfileCoach = () => {
       ],
       selected: [],
     });
+    return true;
   }, [pushCoach]);
 
   /** Take up the offer, or decline it and start over. */
@@ -417,6 +420,12 @@ const ProfileCoach = () => {
         id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
       }]);
       trackEvent('coach_resumed', {});
+      // Coming back to a conversation skips the opening entirely, which is
+      // where the talk-or-type choice lives — so it is offered here too, once.
+      if (!voiceOfferedRef.current && voiceAvailableRef.current) {
+        voiceOfferedRef.current = true;
+        later(offerVoice, TIMING.TYPING_MS);
+      }
       return;
     }
     clearConversation();
@@ -426,7 +435,7 @@ const ProfileCoach = () => {
     draftRef.current = emptyDraft();
     trackEvent('coach_restarted', {});
     later(startIntro, TIMING.ACK_MS);
-  }, [later, restored, startIntro]);
+  }, [later, offerVoice, restored, startIntro]);
 
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
@@ -439,16 +448,17 @@ const ProfileCoach = () => {
     if (!silent) pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
     /* Offered once, before the first question rather than after it: the
        point of talking is to skip the typing, and an invitation that arrives
-       halfway through has already lost. Only to signed-in people — a spoken
-       minute costs about what a hundred typed turns do. */
-    if (isAuthenticated && from !== 'voice' && !voiceOfferedRef.current) {
+       halfway through has already lost. Shown to everyone — a guest who taps
+       it is told it needs a free account, which is a better conversation than
+       an option that silently does not exist for them. */
+    if (from !== 'voice' && !voiceOfferedRef.current && voiceAvailableRef.current) {
       voiceOfferedRef.current = true;
       later(offerVoice, TIMING.ACK_MS);
     } else {
       askStep(at, draft0);
     }
     trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
-  }, [askStep, isAuthenticated, later, offerVoice, pushCoach]);
+  }, [askStep, later, offerVoice, pushCoach]);
 
   const startLadder = useCallback(
     (from, seed = null) => startLadderFrom({ ...emptyDraft(), ...(seed || {}) }, { from }),
@@ -855,6 +865,23 @@ const ProfileCoach = () => {
   /* ─── Talking instead of typing ────────────────────────────── */
 
   const [lastSpoken, setLastSpoken] = useState(null);
+  /* Whether this deployment can do voice. Asked once, publicly, before the
+     choice is ever offered — an environment with no Vapi keys shows no voice
+     option rather than one that fails on tap, and starts showing it the
+     moment the keys are set. */
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    profileAPI.coachVoiceStatus()
+      .then(({ data }) => {
+        if (cancelled) return;
+        voiceAvailableRef.current = !!data?.available;
+        setVoiceAvailable(!!data?.available);
+      })
+      .catch(() => { if (!cancelled) setVoiceAvailable(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   /* What was said goes into the transcript as it happens. The chat is the
      record of the conversation whichever way it was held, and after the call
@@ -905,18 +932,31 @@ const ProfileCoach = () => {
   const voice = useVoiceCall({ onTranscript, onEnded: onCallEnded, onError: onVoiceError });
 
   /** Take the offer: create this person's voice coach, then open the session. */
+  /**
+   * Take the offer. Returns false when the call did not start, so the caller
+   * can carry on with the questions instead of leaving someone looking at an
+   * explanation with nothing to do next.
+   */
   const startTalking = useCallback(async () => {
     if (!isAuthenticated) {
       pushCoach(TEXT.VOICE_SIGNED_OUT);
-      return;
+      trackEvent('coach_voice_blocked', { reason: 'signed-out' });
+      return false;
     }
     setBusy(true);
     try {
       const { data } = await profileAPI.coachVoiceSession();
-      await voice.start({ assistantId: data?.assistantId, publicKey: data?.publicKey });
+      if (!data?.assistantId || !data?.publicKey) {
+        pushCoach(TEXT.VOICE_FAILED);
+        return false;
+      }
+      await voice.start({ assistantId: data.assistantId, publicKey: data.publicKey });
       trackEvent('coach_voice_started', {});
+      return true;
     } catch {
+      // Includes the 503 when voice is not configured on the server.
       pushCoach(TEXT.VOICE_FAILED);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -929,8 +969,14 @@ const ProfileCoach = () => {
       if (message.spent) return;
       pushMine(chip.label);
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
-      if (chip.id === 'talk') startTalking();
-      else later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+      if (chip.id === 'talk') {
+        startTalking().then((started) => {
+          // Declined, blocked or misconfigured — the questions carry on.
+          if (!started) later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+        });
+      } else {
+        later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+      }
       return;
     }
     if (message.stepId === RESUME_CHOICE) {

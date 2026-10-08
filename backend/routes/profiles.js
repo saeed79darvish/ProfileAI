@@ -638,6 +638,19 @@ router.post('/coach/review', coachGuard, async (req, res) => {
    the minute in front of anonymous traffic.
    ───────────────────────────────────────────────────────────────── */
 
+// @route   GET /api/profiles/coach/voice/status
+// @desc    Whether talking is available on this server at all
+// @access  Public
+router.get('/coach/voice/status', (req, res) => {
+  /* Config booleans only, no secrets. The browser asks before offering the
+     choice, so an environment without Vapi keys simply never shows a voice
+     option — better than offering a call that fails when someone taps it,
+     and it switches itself on the moment the keys are set. */
+  res.json({
+    available: !!(process.env.VAPI_API_KEY && coachVoiceService.VAPI_PUBLIC_KEY),
+  });
+});
+
 // @route   POST /api/profiles/coach/voice/session
 // @desc    Create a voice coach for this person and hand the browser its keys
 // @access  Private
