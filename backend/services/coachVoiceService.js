@@ -99,7 +99,7 @@ async function createVoiceCoach({ firstName } = {}) {
     ? `Hi ${firstName}, I'm Remi. I'll build your profile from this conversation — tell me what you do and we'll go from there.`
     : "Hi, I'm Remi. I'll build your profile from this conversation — tell me what you do and we'll go from there.";
 
-  const { data } = await vapiClient.post('/assistant', {
+  const payload = {
     name: `Remi-${Date.now()}`,
     firstMessage: greeting,
     // Our endpoint, our prompt, our guardrails. Vapi never sees a system
@@ -109,18 +109,40 @@ async function createVoiceCoach({ firstName } = {}) {
       url: `${PUBLIC_API_URL}/api/profiles/coach/voice`,
       model: 'remi',
     },
+    /* Vapi's own voices, not ElevenLabs.
+       Validating an 11labs voice means Vapi calling ElevenLabs during
+       assistant creation, and that dependency failed in production the first
+       time anyone tapped Talk: "Couldn't Validate 11labs Voice. 11labs was
+       temporarily unavailable." A voice that cannot be created is worse than
+       a voice that is merely good, and Vapi's own need no third party up —
+       they also cost less per minute. Both halves stay overridable so a
+       better voice can be tried without a deploy. */
     voice: {
-      provider: '11labs',
-      voiceId: process.env.VAPI_COACH_VOICE_ID || 'rachel',
+      provider: process.env.VAPI_COACH_VOICE_PROVIDER || 'vapi',
+      voiceId: process.env.VAPI_COACH_VOICE_ID || 'Elliot',
     },
     transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
     // A profile conversation that has not finished in ten minutes is not
     // going to; this is the ceiling on what one call can cost.
     maxDurationSeconds: 600,
     endCallMessage: 'Great — I have what I need. Your profile is on screen.',
-  });
+  };
 
-  return data;
+  try {
+    const { data } = await vapiClient.post('/assistant', payload);
+    return data;
+  } catch (error) {
+    const complaint = String(error.response?.data?.message || '');
+    // A voice provider having a bad minute should not cost somebody their
+    // call. One retry on Vapi's own voice, which depends on nobody.
+    if (!/voice/i.test(complaint) || payload.voice.provider === 'vapi') throw error;
+    console.warn(`[voice] ${complaint} — retrying with Vapi's own voice`);
+    const { data } = await vapiClient.post('/assistant', {
+      ...payload,
+      voice: { provider: 'vapi', voiceId: 'Elliot' },
+    });
+    return data;
+  }
 }
 
 /**
