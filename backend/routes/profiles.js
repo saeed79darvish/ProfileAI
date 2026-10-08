@@ -669,8 +669,20 @@ router.post('/coach/voice/session', authMiddleware, async (req, res) => {
       publicKey: coachVoiceService.VAPI_PUBLIC_KEY,
     });
   } catch (error) {
-    console.error('Error starting voice coach:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Could not start the voice coach' });
+    const detail = error.response?.data;
+    console.error('Error starting voice coach:', detail || error.message);
+    res.status(500).json({
+      error: 'Could not start the voice coach',
+      /* Vapi's own complaint, passed through. It is a validation message
+         about our assistant payload — a voice id it does not know, a model
+         shape it rejects — and not a secret. Without it the first failed
+         call is just a shrug on screen and a log nobody is watching. */
+      detail: typeof detail?.message === 'string'
+        ? detail.message
+        : Array.isArray(detail?.message)
+          ? detail.message.join('; ')
+          : undefined,
+    });
   }
 });
 

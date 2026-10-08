@@ -953,9 +953,12 @@ const ProfileCoach = () => {
       await voice.start({ assistantId: data.assistantId, publicKey: data.publicKey });
       trackEvent('coach_voice_started', {});
       return true;
-    } catch {
-      // Includes the 503 when voice is not configured on the server.
-      pushCoach(TEXT.VOICE_FAILED);
+    } catch (err) {
+      // Includes the 503 when voice is not configured on the server. Any
+      // detail the server passed through is shown rather than swallowed —
+      // the first failure should say what went wrong, not just that it did.
+      const detail = err?.response?.data?.detail;
+      pushCoach(detail ? `${TEXT.VOICE_FAILED} (${detail})` : TEXT.VOICE_FAILED);
       return false;
     } finally {
       setBusy(false);
