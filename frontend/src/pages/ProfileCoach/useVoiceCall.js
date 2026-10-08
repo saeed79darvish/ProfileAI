@@ -29,6 +29,11 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
      spinner, while one that moves with the actual voice reads as the voice. */
   const [level, setLevel] = useState(0);
   const [muted, setMuted] = useState(false);
+  /* The call id, in state and not only in a ref, because the page polls the
+     server with it while the call is live to find out when Remi has heard
+     enough. The model's half of a Vapi call never passes through the browser,
+     so this id is the only handle it has on the conversation. */
+  const [callId, setCallId] = useState(null);
   const vapiRef = useRef(null);
   const callIdRef = useRef(null);
   const handlersRef = useRef({ onTranscript, onEnded, onError });
@@ -90,6 +95,7 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
         setLevel(0);
         handlersRef.current.onEnded?.(callIdRef.current);
         callIdRef.current = null;
+        setCallId(null);
       });
 
       vapi.on('error', (err) => {
@@ -103,8 +109,10 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
       });
 
       const call = await vapi.start(assistantId);
-      // Needed after the call ends, to ask the server what it collected.
+      // Needed during the call to ask whether it is finished, and after it to
+      // ask the server what it collected.
       callIdRef.current = call?.id || null;
+      setCallId(call?.id || null);
     } catch (err) {
       setState(VOICE_STATES.idle);
       handlersRef.current.onError?.(
@@ -122,6 +130,7 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
     state,
     speaking,
     level,
+    callId,
     muted,
     toggleMute,
     start,

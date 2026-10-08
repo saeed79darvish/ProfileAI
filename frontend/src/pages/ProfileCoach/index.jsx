@@ -41,6 +41,9 @@ import {
   COACH_TEXT,
   TOUR_CARDS,
   TIMING,
+  VOICE_POLL_MS,
+  VOICE_GOODBYE_MS,
+  VOICE_WRAPUP_CAP_MS,
   PANEL_ITEMS,
   JOB_SECTORS,
   ALLOWED_FILE_TYPES,
@@ -81,6 +84,7 @@ import {
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
   RETRY_IMPORT_CHOICES,
+  POST_CALL_IMPORT_CHOICES,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
 } from './coachLogic';
@@ -442,7 +446,7 @@ const ProfileCoach = () => {
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
   /** Begin the questions at the first thing still missing. */
-  const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro' } = {}) => {
+  const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro', ask = true } = {}) => {
     draftRef.current = draft0;
     setDraft(draft0);
     const at = Math.max(0, nextStepIndex(-1, draft0));
@@ -456,9 +460,12 @@ const ProfileCoach = () => {
     if (from !== 'voice' && !voiceOfferedRef.current && voiceAvailableRef.current) {
       voiceOfferedRef.current = true;
       later(offerVoice, TIMING.ACK_MS);
-    } else {
+    } else if (ask) {
       askStep(at, draft0);
     }
+    /* ask: false leaves the ladder parked on the next gap without asking it,
+       for a caller that has something to put on screen first — after a call,
+       that is the upload offer. Whatever answers it picks up from here. */
     trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
   }, [askStep, later, offerVoice, pushCoach]);
 
@@ -664,7 +671,7 @@ const ProfileCoach = () => {
    * no has to say what to do next in the same breath, at the end, where you
    * are already looking.
    */
-  const offerImportAgain = useCallback((text) => {
+  const offerImportAgain = useCallback((text, choices = RETRY_IMPORT_CHOICES) => {
     setMessages((prev) => [
       // Retire the older row so there is exactly one live set of these.
       ...prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)),
@@ -673,7 +680,7 @@ const ProfileCoach = () => {
         role: 'coach',
         text,
         stepId: 'importOffer',
-        chips: RETRY_IMPORT_CHOICES.map((c) => ({ ...c })),
+        chips: choices.map((c) => ({ ...c })),
         selected: [],
       },
     ]);
@@ -891,7 +898,20 @@ const ProfileCoach = () => {
      summary of them. */
   const onTranscript = useCallback((line) => {
     setLastSpoken(line);
-    setMessages((prev) => [...prev, { id: nextId(), role: line.role, text: line.text, spoken: true }]);
+    setMessages((prev) => {
+      /* Vapi marks a transcript final per utterance, not per turn, so one
+         spoken sentence arrives in pieces — a greeting came through as four
+         bubbles broken at its own commas, which reads as the call stuttering.
+         Consecutive lines from the same speaker are one thing said, so they
+         join into one bubble. Roles alternate, so this never glues two
+         people together. */
+      const last = prev[prev.length - 1];
+      if (last?.spoken && last.role === line.role) {
+        const joined = `${last.text} ${line.text}`.replace(/\s+/g, ' ').trim();
+        return [...prev.slice(0, -1), { ...last, text: joined }];
+      }
+      return [...prev, { id: nextId(), role: line.role, text: line.text, spoken: true }];
+    });
   }, []);
 
   /**
@@ -920,8 +940,12 @@ const ProfileCoach = () => {
       setDraft(merged);
       pushCoach(TEXT.VOICE_DONE);
       trackEvent('coach_voice_completed', { fields: Object.keys(learned).length });
-      // Back to the questions, starting wherever the call left gaps.
-      later(() => startLadderFrom(merged, { silent: true, from: 'voice' }), TIMING.ACK_MS);
+      /* Park the ladder on the first gap, then make the handover Remi
+         promised out loud: a file is the one thing a phone call cannot
+         collect, so it is the first thing the screen asks for. Whichever
+         chip they pick, the questions pick up from the gap underneath. */
+      startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
+      later(() => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES), TIMING.ACK_MS);
     } catch {
       pushCoach(TEXT.VOICE_NOTHING);
     }
@@ -932,6 +956,47 @@ const ProfileCoach = () => {
   }, [pushCoach]);
 
   const voice = useVoiceCall({ onTranscript, onEnded: onCallEnded, onError: onVoiceError });
+
+  /* Ending the call on time.
+     Remi decides it has heard enough on the server, mid-call, and says so out
+     loud — but the model's half of a Vapi call never passes through this
+     browser, so the only way to know is to ask. Without it the call runs to
+     the ten-minute cap and drops mid-sentence, which is exactly how it felt
+     to the first person who tried it. */
+  const [wrapUp, setWrapUp] = useState(false);
+  const spokeAfterWrapUpRef = useRef(false);
+
+  useEffect(() => {
+    if (!voice.live || !voice.callId) {
+      setWrapUp(false);
+      spokeAfterWrapUpRef.current = false;
+      return undefined;
+    }
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const { data } = await profileAPI.coachVoiceState(voice.callId);
+        if (!stopped && data?.done) setWrapUp(true);
+      } catch { /* a dropped poll costs nothing; the next is seconds away */ }
+    };
+    const timer = setInterval(tick, VOICE_POLL_MS);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [voice.live, voice.callId]);
+
+  useEffect(() => {
+    if (wrapUp && voice.speaking) spokeAfterWrapUpRef.current = true;
+  }, [wrapUp, voice.speaking]);
+
+  useEffect(() => {
+    if (!wrapUp || !voice.live) return undefined;
+    /* Hang up once the handover has actually been said and the line has gone
+       quiet — cutting Remi off mid-goodbye is the rudeness this was meant to
+       fix. The cap is there for the case where the sentence never arrives,
+       so a finished call cannot hang on a missed event. */
+    const quiet = spokeAfterWrapUpRef.current && !voice.speaking;
+    const timer = setTimeout(() => voice.stop(), quiet ? VOICE_GOODBYE_MS : VOICE_WRAPUP_CAP_MS);
+    return () => clearTimeout(timer);
+  }, [wrapUp, voice.live, voice.speaking, voice.stop]);
 
   /** Take the offer: create this person's voice coach, then open the session. */
   /**

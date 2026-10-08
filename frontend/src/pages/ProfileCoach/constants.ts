@@ -30,6 +30,7 @@ export {
   SENIORITY_LEVELS,
   WORK_STYLES,
   IMPORT_CHOICES,
+  POST_CALL_IMPORT_CHOICES,
   LIMITS,
 } from './coachLogic.js';
 export {
@@ -68,6 +69,7 @@ export const TEXT = {
   VOICE_LIVE: 'Listening. Talk normally — close this when you are done.',
   VOICE_END: 'End call',
   VOICE_DONE: 'Thanks — I have put what you told me into your profile.',
+  VOICE_HANDOVER: 'One last thing, and it is easier here than out loud: if you have a resume or a LinkedIn profile, send it over and I will fill in anything we missed.',
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
   VOICE_FAILED: 'I could not start the call. We can keep going here instead.',
@@ -288,3 +290,13 @@ export const TIMING = {
   ACK_MS: 420,
   TYPING_MS: 650,
 } as const;
+
+/* Closing a live call.
+   The poll is every four seconds because the thing it is waiting for arrives
+   at conversational pace, not machine pace, and a call lasts minutes. The
+   goodbye pause lets the line settle after the handover sentence rather than
+   cutting the last word. The cap is the backstop for a handover we never hear
+   — a finished call must not hang on a missed event. */
+export const VOICE_POLL_MS = 4000;
+export const VOICE_GOODBYE_MS = 900;
+export const VOICE_WRAPUP_CAP_MS = 20000;

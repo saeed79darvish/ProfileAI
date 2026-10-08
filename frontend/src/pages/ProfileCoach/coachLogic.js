@@ -318,6 +318,16 @@ export const RETRY_IMPORT_CHOICES = [
   { id: 'chat', label: "No, let's just chat" },
 ];
 
+/* Offered when a call hands back to the screen. "Try another file" would be
+   nonsense to someone who has not touched a file yet, and the third option
+   has to say the conversation continues rather than ends — they just spent
+   five minutes talking and are owed the rest of it. */
+export const POST_CALL_IMPORT_CHOICES = [
+  { id: 'resume', label: 'Upload my resume' },
+  { id: 'linkedin', label: 'Import from LinkedIn' },
+  { id: 'chat', label: 'Nothing to upload' },
+];
+
 /* The evidence probe, in the units of the person's own trade. See
    SECTOR_EVIDENCE for why it is not one question for everybody. */
 export const evidenceProbe = (draft = {}) =>
