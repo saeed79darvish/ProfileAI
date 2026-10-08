@@ -24,6 +24,11 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
   const [state, setState] = useState(VOICE_STATES.idle);
   // True while Remi is the one talking, so the UI can say who has the floor.
   const [speaking, setSpeaking] = useState(false);
+  /* How loud Remi is, right now, 0–1. This is what makes the orb look alive
+     rather than animated: a shape pulsing on a timer reads as a loading
+     spinner, while one that moves with the actual voice reads as the voice. */
+  const [level, setLevel] = useState(0);
+  const [muted, setMuted] = useState(false);
   const vapiRef = useRef(null);
   const callIdRef = useRef(null);
   const handlersRef = useRef({ onTranscript, onEnded, onError });
@@ -31,7 +36,17 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
 
   const stop = useCallback(() => {
     setState(VOICE_STATES.ending);
+    setLevel(0);
     try { vapiRef.current?.stop(); } catch { /* already gone */ }
+  }, []);
+
+  /** Hold the microphone while they think, cough, or talk to someone else. */
+  const toggleMute = useCallback(() => {
+    setMuted((wasMuted) => {
+      const next = !wasMuted;
+      try { vapiRef.current?.setMuted(next); } catch { /* call already over */ }
+      return next;
+    });
   }, []);
 
   const start = useCallback(async ({ assistantId, publicKey }) => {
@@ -48,7 +63,14 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
 
       vapi.on('call-start', () => setState(VOICE_STATES.live));
       vapi.on('speech-start', () => setSpeaking(true));
-      vapi.on('speech-end', () => setSpeaking(false));
+      vapi.on('speech-end', () => {
+        setSpeaking(false);
+        setLevel(0);
+      });
+      vapi.on('volume-level', (value) => {
+        const next = Number(value);
+        setLevel(Number.isFinite(next) ? Math.min(1, Math.max(0, next)) : 0);
+      });
 
       vapi.on('message', (message) => {
         // Partials arrive constantly while someone is mid-sentence; only the
@@ -65,6 +87,7 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
       vapi.on('call-end', () => {
         setState(VOICE_STATES.idle);
         setSpeaking(false);
+        setLevel(0);
         handlersRef.current.onEnded?.(callIdRef.current);
         callIdRef.current = null;
       });
@@ -95,5 +118,14 @@ export const useVoiceCall = ({ onTranscript, onEnded, onError } = {}) => {
     try { vapiRef.current?.stop(); } catch { /* nothing running */ }
   }, []);
 
-  return { state, speaking, start, stop, live: state === VOICE_STATES.live };
+  return {
+    state,
+    speaking,
+    level,
+    muted,
+    toggleMute,
+    start,
+    stop,
+    live: state === VOICE_STATES.live,
+  };
 };

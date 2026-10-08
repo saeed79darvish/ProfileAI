@@ -1,10 +1,15 @@
 import React from 'react';
-import { CallEnd as EndIcon } from '@mui/icons-material';
+import {
+  CallEnd as EndIcon,
+  Mic as MicIcon,
+  MicOff as MicOffIcon,
+} from '@mui/icons-material';
 
 import { TEXT } from './constants';
 import { VOICE_STATES } from './useVoiceCall';
 import {
   VoiceVeil, VoiceWho, Orb, VoiceStatus, VoiceCaption, VoiceActions, EndCall, VoiceQuiet,
+  MuteButton,
 } from './styled';
 
 /**
@@ -20,14 +25,16 @@ import {
  * while you are still in the call is the difference between fixing it in
  * three words and finding it on your profile a week later.
  */
-const VoicePanel = ({ state, speaking, lastLine, onEnd }) => {
+const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine, onEnd }) => {
   const connecting = state === VOICE_STATES.connecting;
 
   const status = connecting
     ? TEXT.VOICE_CONNECTING
-    : speaking
-      ? `${TEXT.COACH_NAME} is speaking`
-      : TEXT.VOICE_LIVE;
+    : muted
+      ? TEXT.VOICE_MUTED
+      : speaking
+        ? `${TEXT.COACH_NAME} is speaking`
+        : TEXT.VOICE_LIVE;
 
   return (
     <VoiceVeil role="dialog" aria-modal="true" aria-label={`Talking to ${TEXT.COACH_NAME}`}>
@@ -36,7 +43,10 @@ const VoicePanel = ({ state, speaking, lastLine, onEnd }) => {
         <p>Your career coach</p>
       </VoiceWho>
 
-      <Orb $speaking={speaking} aria-hidden="true" />
+      {/* The live volume drives the orb through a CSS variable rather than
+          React state in the style of every frame — one custom property set,
+          the compositor does the rest. */}
+      <Orb $speaking={speaking} style={{ '--level': speaking ? level : 0 }} aria-hidden="true" />
 
       {/* Announced politely: a screen reader should hear the state change
           without the caption re-reading itself on every partial. */}
@@ -54,6 +64,16 @@ const VoicePanel = ({ state, speaking, lastLine, onEnd }) => {
       </VoiceCaption>
 
       <VoiceActions>
+        <MuteButton
+          type="button"
+          $on={muted}
+          onClick={onToggleMute}
+          aria-pressed={muted}
+          aria-label={muted ? TEXT.VOICE_UNMUTE : TEXT.VOICE_MUTE}
+          title={muted ? TEXT.VOICE_UNMUTE : TEXT.VOICE_MUTE}
+        >
+          {muted ? <MicOffIcon /> : <MicIcon />}
+        </MuteButton>
         <EndCall type="button" onClick={onEnd}>
           <EndIcon /> {TEXT.VOICE_END}
         </EndCall>

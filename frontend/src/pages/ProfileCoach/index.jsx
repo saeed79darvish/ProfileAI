@@ -1862,6 +1862,9 @@ const ProfileCoach = () => {
         <VoicePanel
           state={voice.state}
           speaking={voice.speaking}
+          level={voice.level}
+          muted={voice.muted}
+          onToggleMute={voice.toggleMute}
           lastLine={lastSpoken}
           onEnd={voice.stop}
         />

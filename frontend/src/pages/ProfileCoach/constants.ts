@@ -58,9 +58,12 @@ export const TEXT = {
   SKIP: 'Skip for now',
 
   /* ─── Talking to Remi ─── */
-  VOICE_OFFER: 'Would you rather just talk? I can ask the questions out loud and fill this in as we go.',
-  VOICE_START: 'Talk it through',
-  VOICE_KEEP_TYPING: 'I will keep typing',
+  VOICE_OFFER: 'Before we start — would you rather keep typing, or have a short live conversation? Talking is usually quicker, and I can hear what you actually mean.',
+  VOICE_START: 'Let us talk',
+  VOICE_KEEP_TYPING: 'Keep typing',
+  VOICE_MUTE: 'Mute your microphone',
+  VOICE_UNMUTE: 'Unmute',
+  VOICE_MUTED: 'Muted — tap the microphone when you want to speak.',
   VOICE_CONNECTING: 'Connecting — allow the microphone when your browser asks.',
   VOICE_LIVE: 'Listening. Talk normally, and tap End call when you are done.',
   VOICE_END: 'End call',

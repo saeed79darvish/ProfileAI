@@ -1075,6 +1075,11 @@ export const VoiceWho = styled.div`
   }
 `;
 
+/* The orb moves with the voice, not with a timer.
+   `--level` is the live volume from the call, 0–1. A shape pulsing on a
+   fixed loop reads as a loading spinner; one that swells on a stressed
+   syllable and settles in a pause reads as somebody speaking. The breathing
+   animation only runs while nobody is talking, so the two never fight. */
 export const Orb = styled.div`
   position: relative;
   width: min(210px, 52vw);
@@ -1084,16 +1089,22 @@ export const Orb = styled.div`
   place-items: center;
   background: radial-gradient(circle at 32% 28%, #a5abff 0%, #6366f1 45%, #4044cc 100%);
   box-shadow:
-    0 0 60px rgba(99, 102, 241, 0.55),
+    0 0 calc(50px + (var(--level, 0) * 70px)) rgba(99, 102, 241, 0.55),
     inset 0 -14px 40px rgba(20, 20, 60, 0.45);
+  transform: scale(calc(1 + (var(--level, 0) * 0.22)));
+  /* Short enough to track speech, long enough not to jitter on every frame. */
+  transition: transform 90ms ease-out, box-shadow 160ms ease-out;
 
   @media (prefers-reduced-motion: no-preference) {
-    animation: ${({ $speaking }) => ($speaking ? orbSpeak : orbBreathe)}
-      ${({ $speaking }) => ($speaking ? '1.1s' : '4s')} ease-in-out infinite;
+    animation: ${({ $speaking }) => ($speaking ? 'none' : css`${orbBreathe} 4s ease-in-out infinite`)};
   }
 
-  /* The ring only travels while Remi is talking — a permanent pulse reads
-     as decoration, one that starts and stops reads as a voice. */
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+  }
+
+  /* A ring leaves the orb on each phrase. Only while Remi is talking: a
+     permanent ripple is decoration, one that starts and stops is a voice. */
   &::after {
     content: '';
     position: absolute;
@@ -1103,9 +1114,27 @@ export const Orb = styled.div`
     opacity: 0;
 
     @media (prefers-reduced-motion: no-preference) {
-      animation: ${({ $speaking }) => ($speaking ? ringOut : 'none')} 1.4s ease-out infinite;
+      animation: ${({ $speaking }) => ($speaking ? css`${ringOut} 1.4s ease-out infinite` : 'none')};
     }
   }
+`;
+
+/* Mute, because people cough, think out loud, and get spoken to by someone
+   in the room. Without it the only way to stop talking is to hang up. */
+export const MuteButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.7)' : 'rgba(165, 171, 255, 0.35)')};
+  background: ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.16)' : 'rgba(255, 255, 255, 0.07)')};
+  color: ${({ $on }) => ($on ? '#ff9ba0' : '#cfd0f5')};
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+
+  &:hover { background: ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.24)' : 'rgba(255, 255, 255, 0.13)')}; }
 `;
 
 export const VoiceStatus = styled.p`
