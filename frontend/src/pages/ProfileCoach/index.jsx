@@ -78,6 +78,7 @@ import {
   sectorChips,
   RESUME_CHOICE,
   VOICE_CHOICE,
+  VOICE_SIGNIN_CHOICE,
   RETRY_IMPORT_CHOICES,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
@@ -939,7 +940,19 @@ const ProfileCoach = () => {
    */
   const startTalking = useCallback(async () => {
     if (!isAuthenticated) {
-      pushCoach(TEXT.VOICE_SIGNED_OUT);
+      /* Not a dead end: the conversation is already saved in this browser,
+         so signing in and coming back resumes it. Saying "you need an
+         account" without a way to get one is how a product turns its own
+         best moment into a shrug. */
+      pushCoach(TEXT.VOICE_SIGNED_OUT, {
+        stepId: VOICE_SIGNIN_CHOICE,
+        chips: [
+          { id: 'register', label: TEXT.VOICE_REGISTER },
+          { id: 'signin', label: TEXT.VOICE_SIGNIN },
+          { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
+        ],
+        selected: [],
+      });
       trackEvent('coach_voice_blocked', { reason: 'signed-out' });
       return false;
     }
@@ -968,14 +981,32 @@ const ProfileCoach = () => {
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
     // resolves before any ladder lookup.
+    if (message.stepId === VOICE_SIGNIN_CHOICE) {
+      if (message.spent) return;
+      pushMine(chip.label);
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+      if (chip.id === 'register' || chip.id === 'signin') {
+        trackEvent('coach_voice_signin_clicked', { via: chip.id });
+        // ?redirect brings them back here, where the saved conversation is
+        // waiting to be picked up.
+        navigate(`${chip.id === 'register' ? ROUTES.REGISTER : ROUTES.LOGIN}?redirect=/profile/create`);
+        return;
+      }
+      later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+      return;
+    }
     if (message.stepId === VOICE_CHOICE) {
       if (message.spent) return;
       pushMine(chip.label);
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
       if (chip.id === 'talk') {
         startTalking().then((started) => {
-          // Declined, blocked or misconfigured — the questions carry on.
-          if (!started) later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+          /* Declined or misconfigured: the questions carry on. Signed out is
+             the exception — that path puts its own choice on screen, and
+             asking the next question underneath it would bury it. */
+          if (!started && isAuthenticated) {
+            later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+          }
         });
       } else {
         later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
@@ -1046,7 +1077,7 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, askStep, busy, commit, later, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
+  }, [advance, answerResumeOffer, askStep, busy, commit, later, navigate, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
   const confirmMulti = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);

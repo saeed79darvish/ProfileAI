@@ -71,7 +71,9 @@ export const TEXT = {
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
   VOICE_FAILED: 'I could not start the call. We can keep going here instead.',
-  VOICE_SIGNED_OUT: 'Talking needs an account — it costs us real money per minute. Typing here is free.',
+  VOICE_SIGNED_OUT: 'Talking needs an account — a live call costs us by the minute. It takes about twenty seconds to make one, and I will keep everything you have told me so far.',
+  VOICE_SIGNIN: 'Sign in',
+  VOICE_REGISTER: 'Create a free account',
   LOGIN: 'Log in',
 
   /* The coach has a name.

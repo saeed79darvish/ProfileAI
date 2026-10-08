@@ -247,6 +247,10 @@ export const RESUME_CHOICE = '__resume_choice';
    runs, not a question inside it. */
 export const VOICE_CHOICE = '__voice_choice';
 
+/* Offered after someone signed out asks to talk. Its own stepId so the two
+   buttons route to auth instead of into the ladder. */
+export const VOICE_SIGNIN_CHOICE = '__voice_signin';
+
 // Not an answer either: it hands the person the keyboard. The chip row is a
 // shortcut, never the whole answer space — most job titles are not on it.
 export const CUSTOM_ANSWER_CHIP = { id: '__custom', label: 'Type my own' };
