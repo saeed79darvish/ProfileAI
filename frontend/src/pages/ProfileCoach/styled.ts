@@ -1050,27 +1050,19 @@ export const UploadTrack = styled.div`
 
 /* ═══════════════════════════════════════════════
    VOICE MODE
-   A full-screen session, not a widget in the corner. When someone is
-   talking there is nothing to read and nothing to tap, so the screen
-   should hold one thing that is plainly alive and listening — the same
-   reason ChatGPT and Claude give voice its own surface instead of a
-   microphone button in the composer.
+   Light, quiet, and one soft thing moving.
+
+   The first cut was a dark veil with a hard-edged glowing circle, which
+   reads as a sci-fi HUD. What people have been taught a voice assistant
+   looks like is the opposite: a pale room, a soft cloud that drifts, and
+   two controls at the bottom where a thumb already is. Mobile first, since
+   talking to your phone is the case this exists for.
    ═══════════════════════════════════════════════ */
 
-const orbBreathe = keyframes`
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.04); }
-`;
-
-const orbSpeak = keyframes`
-  0%, 100% { transform: scale(1); }
-  25%      { transform: scale(1.09); }
-  60%      { transform: scale(1.03); }
-`;
-
-const ringOut = keyframes`
-  from { transform: scale(0.85); opacity: 0.55; }
-  to   { transform: scale(1.7);  opacity: 0; }
+const drift = keyframes`
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  33%      { transform: translate3d(-6%, 4%, 0) rotate(40deg); }
+  66%      { transform: translate3d(5%, -3%, 0) rotate(-25deg); }
 `;
 
 const veilIn = keyframes`
@@ -1082,167 +1074,188 @@ export const VoiceVeil = styled.div`
   position: fixed;
   inset: 0;
   z-index: 60;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 34px;
-  padding: 32px 24px calc(32px + env(safe-area-inset-bottom, 0px));
-  /* Deep, quiet ground: the orb is the only lit thing on screen. */
-  background: radial-gradient(120% 90% at 50% 10%, #2b2b63 0%, #15152c 55%, #0d0d1c 100%);
-  animation: ${veilIn} 220ms ease both;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  padding: 24px 20px calc(26px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  animation: ${veilIn} 200ms ease both;
 `;
 
 export const VoiceWho = styled.div`
   text-align: center;
-  color: #cfd0f5;
+  padding-top: 8px;
 
   h2 {
-    margin: 0 0 6px;
-    font-size: 1.15rem;
+    margin: 0 0 4px;
+    font-size: 1.02rem;
     font-weight: 600;
-    letter-spacing: 0.01em;
-    color: #fff;
+    color: #1a1a2e;
   }
 
   p {
     margin: 0;
-    font-size: 0.95rem;
-    color: #a2a3d4;
+    font-size: 0.88rem;
+    color: #8d8da6;
   }
 `;
 
-/* The orb moves with the voice, not with a timer.
-   `--level` is the live volume from the call, 0–1. A shape pulsing on a
-   fixed loop reads as a loading spinner; one that swells on a stressed
-   syllable and settles in a pause reads as somebody speaking. The breathing
-   animation only runs while nobody is talking, so the two never fight. */
+/* The orb.
+   Two blurred blobs drifting inside a circle, so the surface moves the way
+   weather does rather than pulsing like a progress indicator. `--level` is
+   the live volume from the call: it swells on a stressed syllable and
+   settles in a pause, which is the whole difference between a shape that is
+   animated and one that is listening. */
 export const Orb = styled.div`
   position: relative;
-  width: min(210px, 52vw);
-  height: min(210px, 52vw);
+  align-self: center;
+  width: min(272px, 64vw);
+  height: min(272px, 64vw);
   border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: radial-gradient(circle at 32% 28%, #a5abff 0%, #6366f1 45%, #4044cc 100%);
-  box-shadow:
-    0 0 calc(50px + (var(--level, 0) * 70px)) rgba(99, 102, 241, 0.55),
-    inset 0 -14px 40px rgba(20, 20, 60, 0.45);
-  transform: scale(calc(1 + (var(--level, 0) * 0.22)));
-  /* Short enough to track speech, long enough not to jitter on every frame. */
-  transition: transform 90ms ease-out, box-shadow 160ms ease-out;
+  overflow: hidden;
+  background: linear-gradient(155deg, #dfe6ff 0%, #a9bcff 42%, #3a6ff0 100%);
+  transform: scale(calc(1 + (var(--level, 0) * 0.14)));
+  transition: transform 110ms ease-out;
+  box-shadow: 0 24px 70px rgba(80, 110, 230, 0.26);
 
-  @media (prefers-reduced-motion: no-preference) {
-    animation: ${({ $speaking }) => ($speaking ? 'none' : css`${orbBreathe} 4s ease-in-out infinite`)};
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(26px);
+  }
+
+  /* The pale sweep across the middle. */
+  &::before {
+    inset: -18% -10% 32% -28%;
+    background: radial-gradient(circle at 40% 55%, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0) 68%);
+    @media (prefers-reduced-motion: no-preference) {
+      animation: ${drift} 14s ease-in-out infinite;
+    }
+  }
+
+  /* The deeper blue gathering at the top right. */
+  &::after {
+    inset: -24% -30% 46% 34%;
+    background: radial-gradient(circle at 50% 50%, rgba(37, 86, 230, 0.92), rgba(37, 86, 230, 0) 70%);
+    @media (prefers-reduced-motion: no-preference) {
+      animation: ${drift} 18s ease-in-out infinite reverse;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
     transform: none;
   }
-
-  /* A ring leaves the orb on each phrase. Only while Remi is talking: a
-     permanent ripple is decoration, one that starts and stops is a voice. */
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    border: 2px solid rgba(165, 171, 255, 0.5);
-    opacity: 0;
-
-    @media (prefers-reduced-motion: no-preference) {
-      animation: ${({ $speaking }) => ($speaking ? css`${ringOut} 1.4s ease-out infinite` : 'none')};
-    }
-  }
 `;
 
-/* Mute, because people cough, think out loud, and get spoken to by someone
-   in the room. Without it the only way to stop talking is to hang up. */
-export const MuteButton = styled.button`
-  display: inline-flex;
+/* Orb, status and caption as one block that stays optically centred in
+   whatever height is left between the header and the controls — which on a
+   phone in landscape, or with a keyboard up, is not much. */
+export const VoiceStage = styled.div`
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 1px solid ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.7)' : 'rgba(165, 171, 255, 0.35)')};
-  background: ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.16)' : 'rgba(255, 255, 255, 0.07)')};
-  color: ${({ $on }) => ($on ? '#ff9ba0' : '#cfd0f5')};
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-
-  &:hover { background: ${({ $on }) => ($on ? 'rgba(229, 72, 77, 0.24)' : 'rgba(255, 255, 255, 0.13)')}; }
+  width: 100%;
+  min-height: 0;
 `;
 
 export const VoiceStatus = styled.p`
-  margin: 0;
-  min-height: 22px;
-  font-size: 0.95rem;
-  letter-spacing: 0.02em;
-  color: #b9bae8;
+  margin: 18px 0 0;
+  min-height: 20px;
+  font-size: 0.92rem;
+  color: #8d8da6;
   text-align: center;
 `;
 
-/* The last thing said, so someone can see they were heard correctly —
-   speech recognition mangles company names, and watching it happen is the
-   difference between fixing it now and finding it in the profile later. */
+/* The last line heard. Small and grey on purpose — it is there to be
+   glanced at, because speech recognition mangles company names and catching
+   it mid-call costs three words. It is not the point of the screen. */
 export const VoiceCaption = styled.div`
-  max-width: 540px;
-  width: 100%;
-  min-height: 72px;
+  max-width: 520px;
+  margin: 10px auto 0;
+  min-height: 48px;
   text-align: center;
-  font-size: 1.08rem;
-  line-height: 1.5;
-  color: #fff;
-  opacity: ${({ $dim }) => ($dim ? 0.55 : 1)};
-  transition: opacity 200ms ease;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: ${({ $dim }) => ($dim ? '#a8a8bd' : '#2b2b45')};
 
   span {
     display: block;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #8f90c8;
-    margin-bottom: 8px;
+    color: #b4b4c8;
+    margin-bottom: 6px;
   }
 `;
 
+/* The bottom bar, which is the part of the reference worth copying.
+   A tappable "keep typing" field where a composer would be, then mute, then
+   the way out — all inside thumb reach at the bottom of a phone. Leaving the
+   call is not a punishment: the typed conversation is still there with
+   everything the call learned already in it. */
 export const VoiceActions = styled.div`
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  width: 100%;
+  max-width: 520px;
 `;
 
-export const EndCall = styled.button`
+/* Looks like the composer it returns you to, so the gesture is obvious
+   without a label explaining it. */
+export const VoiceQuiet = styled.button`
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  padding: 0 20px;
+  text-align: left;
+  border: 1px solid #e4e4ef;
+  border-radius: 28px;
+  background: #f6f6fa;
+  color: #8d8da6;
+  font-size: 0.95rem;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: background 140ms ease, border-color 140ms ease;
+
+  &:hover { background: #eeeef5; border-color: #d8d8e6; }
+`;
+
+/* Round, thumb-sized — the shape every phone call has had for fifteen
+   years. 56px because that is the smallest circle a thumb hits reliably. */
+const RoundControl = styled.button`
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 14px 26px;
-  border: none;
-  border-radius: 999px;
-  background: #e5484d;
-  color: #fff;
-  font-family: inherit;
-  font-size: 1rem;
-  font-weight: 600;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 6px 24px rgba(229, 72, 77, 0.4);
-  transition: background 140ms ease, transform 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 
-  &:hover { background: #d93d42; transform: translateY(-1px); }
+  &:active { transform: scale(0.95); }
 
-  svg { font-size: 1.15rem; }
+  svg { font-size: 1.4rem; }
 `;
 
-export const VoiceQuiet = styled.button`
-  background: none;
-  border: none;
-  color: #9a9bd0;
-  font-family: inherit;
-  font-size: 0.92rem;
-  cursor: pointer;
-  padding: 12px;
-  border-radius: 10px;
+export const MuteButton = styled(RoundControl)`
+  border: 1px solid ${({ $on }) => ($on ? '#f0b4b6' : '#e4e4ef')};
+  background: ${({ $on }) => ($on ? '#fdeced' : '#f6f6fa')};
+  color: ${({ $on }) => ($on ? '#d6373d' : '#4a4a68')};
 
-  &:hover { color: #cfd0f5; }
+  &:hover { background: ${({ $on }) => ($on ? '#fbdfe0' : '#eeeef5')}; }
+`;
+
+export const EndCall = styled(RoundControl)`
+  border: none;
+  background: #16162a;
+  color: #fff;
+
+  &:hover { background: #26264a; }
 `;
