@@ -59,6 +59,43 @@ export const Logo = styled.button`
   font-family: inherit;
 `;
 
+/* Always there, never buried.
+   The talk-or-type choice is a chip in the transcript, which means it is
+   gone the moment it scrolls away or gets answered once — and someone who
+   changes their mind ten questions in has no way back to it. This is the
+   standing door into voice, the way every other product keeps it in reach. */
+export const TalkButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 1px solid #d7d8f0;
+  background: linear-gradient(135deg, #eef0ff, #f6f7ff);
+  color: #4c51bf;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+
+  &:hover:not(:disabled) {
+    border-color: #6366f1;
+    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.22);
+    transform: translateY(-1px);
+  }
+
+  &:disabled { opacity: 0.55; cursor: default; }
+
+  svg { font-size: 1.05rem; }
+
+  /* On a phone the top bar is tight: the icon carries it. */
+  @media (max-width: 560px) {
+    padding: 8px 10px;
+    .label { display: none; }
+  }
+`;
+
 export const TopActions = styled.div`
   display: flex;
   align-items: center;

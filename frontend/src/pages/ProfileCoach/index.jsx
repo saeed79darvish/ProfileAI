@@ -8,6 +8,7 @@ import {
   Extension as ExtensionIcon,
   MailOutline as MailIcon,
   EditOutlined as EditIcon,
+  GraphicEq as TalkIcon,
   Public as PublicIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
@@ -87,7 +88,7 @@ import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote,
+  ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote, TalkButton,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -1705,6 +1706,20 @@ const ProfileCoach = () => {
           <BrandLogo />
         </Logo>
         <TopActions>
+          {/* Shown whenever this server can actually place a call — see the
+              voice status check. Hidden entirely when it cannot, rather than
+              offering something that fails. */}
+          {voiceAvailable && (
+            <TalkButton
+              type="button"
+              onClick={() => startTalking()}
+              disabled={busy || voice.state !== VOICE_STATES.idle}
+              title={TEXT.VOICE_START}
+            >
+              <TalkIcon />
+              <span className="label">{TEXT.VOICE_START}</span>
+            </TalkButton>
+          )}
           {/* v1 has no voice. Shown but disabled so the affordance is
               discoverable and the layout doesn't shift when it ships. */}
           <TopButton type="button" disabled $muted title={TEXT.VOICE_COMING_SOON}>
