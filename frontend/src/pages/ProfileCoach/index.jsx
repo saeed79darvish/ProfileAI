@@ -972,6 +972,55 @@ const ProfileCoach = () => {
     return answer;
   }, [pushCoach]);
 
+  /** Has this step's question been answered, however it got answered? */
+  const stepAnswered = useCallback((step, draft) => {
+    const value = step.assign ? draft[step.assign] : null;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'string') return !!value.trim();
+    return isAlreadyAnswered(step, draft);
+  }, []);
+
+  const runTurn = useCallback(async (text) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachTurn({
+        profile: draftToProfileShape(draftRef.current),
+        missing: missingFields(draftRef.current),
+        history: messagesRef.current
+          .filter((m) => m.text)
+          .slice(-10)
+          .map((m) => ({ role: m.role, text: m.text })),
+        message: text,
+      });
+
+      const learned = data?.learned || {};
+      if (Object.keys(learned).length) {
+        const merged = applyBraindump(draftRef.current, learned);
+        // roleTypes and workStyle are chip answers the model can also hear in
+        // passing; applyBraindump deliberately does not own them.
+        if (learned.roleType && !(merged.roleTypes || []).length) {
+          merged.roleTypes = [String(learned.roleType).toLowerCase()];
+        }
+        if (learned.workStyle && !merged.workStyle) {
+          merged.workStyle = String(learned.workStyle).toLowerCase();
+        }
+        if (learned.target && !merged.target) merged.target = String(learned.target);
+        draftRef.current = merged;
+        setDraft(merged);
+      }
+
+      setTyping(false);
+      if (data?.say) pushCoach(data.say);
+      return { ok: true, awaiting: data?.awaiting !== false };
+    } catch {
+      setTyping(false);
+      return { ok: false, awaiting: false };
+    } finally {
+      setBusy(false);
+    }
+  }, [pushCoach]);
+
   /**
    * Put the answer options back without restating the question.
    *
@@ -1095,55 +1144,6 @@ const ProfileCoach = () => {
    * it decides how to ask for the next missing piece, and the chips keep
    * working exactly as before for anyone who would rather tap.
    */
-  /** Has this step's question been answered, however it got answered? */
-  const stepAnswered = useCallback((step, draft) => {
-    const value = step.assign ? draft[step.assign] : null;
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === 'string') return !!value.trim();
-    return isAlreadyAnswered(step, draft);
-  }, []);
-
-  const runTurn = useCallback(async (text) => {
-    setBusy(true);
-    setTyping(true);
-    try {
-      const { data } = await profileAPI.coachTurn({
-        profile: draftToProfileShape(draftRef.current),
-        missing: missingFields(draftRef.current),
-        history: messagesRef.current
-          .filter((m) => m.text)
-          .slice(-10)
-          .map((m) => ({ role: m.role, text: m.text })),
-        message: text,
-      });
-
-      const learned = data?.learned || {};
-      if (Object.keys(learned).length) {
-        const merged = applyBraindump(draftRef.current, learned);
-        // roleTypes and workStyle are chip answers the model can also hear in
-        // passing; applyBraindump deliberately does not own them.
-        if (learned.roleType && !(merged.roleTypes || []).length) {
-          merged.roleTypes = [String(learned.roleType).toLowerCase()];
-        }
-        if (learned.workStyle && !merged.workStyle) {
-          merged.workStyle = String(learned.workStyle).toLowerCase();
-        }
-        if (learned.target && !merged.target) merged.target = String(learned.target);
-        draftRef.current = merged;
-        setDraft(merged);
-      }
-
-      setTyping(false);
-      if (data?.say) pushCoach(data.say);
-      return { ok: true, awaiting: data?.awaiting !== false };
-    } catch {
-      setTyping(false);
-      return { ok: false, awaiting: false };
-    } finally {
-      setBusy(false);
-    }
-  }, [pushCoach]);
-
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
     // Sending throws the recogniser away rather than stopping it: stop()
