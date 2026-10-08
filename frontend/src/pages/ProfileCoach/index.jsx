@@ -24,6 +24,8 @@ import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
 import CoachMark from './CoachMark';
+import VoicePanel from './VoicePanel';
+import { useVoiceCall, VOICE_STATES } from './useVoiceCall';
 import {
   IntroCarousel,
   BuildProfileCard,
@@ -75,6 +77,7 @@ import {
   parseLinks,
   sectorChips,
   RESUME_CHOICE,
+  VOICE_CHOICE,
   RETRY_IMPORT_CHOICES,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
@@ -248,6 +251,8 @@ const ProfileCoach = () => {
   // Set for the one render after an in-place message update that must not
   // scroll the transcript (see the scroll effect below).
   const keepScrollRef = useRef(false);
+  // The talk-or-type offer is made once per conversation, never again.
+  const voiceOfferedRef = useRef(false);
   /* How many asides have been answered by the model in this conversation.
      Each costs a call; a person asks two or three, a script does not stop.
      The cap is high enough that nobody real will meet it. */
@@ -382,6 +387,25 @@ const ProfileCoach = () => {
     trackEvent('coach_intro_started', {});
   }, [pushCoach]);
 
+  /**
+   * Offer the choice before the questions start.
+   *
+   * Asked rather than assumed, and asked once: most people will type, and a
+   * voice invitation that keeps reappearing is a product nagging someone to
+   * spend its money. Signed-in only — a minute of talking costs about what a
+   * hundred typed turns do.
+   */
+  const offerVoice = useCallback(() => {
+    pushCoach(TEXT.VOICE_OFFER, {
+      stepId: VOICE_CHOICE,
+      chips: [
+        { id: 'talk', label: TEXT.VOICE_START },
+        { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
+      ],
+      selected: [],
+    });
+  }, [pushCoach]);
+
   /** Take up the offer, or decline it and start over. */
   const answerResumeOffer = useCallback((message, choice) => {
     setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
@@ -413,9 +437,18 @@ const ProfileCoach = () => {
     const at = Math.max(0, nextStepIndex(-1, draft0));
     setStepIndex(at);
     if (!silent) pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
-    askStep(at, draft0);
+    /* Offered once, before the first question rather than after it: the
+       point of talking is to skip the typing, and an invitation that arrives
+       halfway through has already lost. Only to signed-in people — a spoken
+       minute costs about what a hundred typed turns do. */
+    if (isAuthenticated && from !== 'voice' && !voiceOfferedRef.current) {
+      voiceOfferedRef.current = true;
+      later(offerVoice, TIMING.ACK_MS);
+    } else {
+      askStep(at, draft0);
+    }
     trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
-  }, [askStep, pushCoach]);
+  }, [askStep, isAuthenticated, later, offerVoice, pushCoach]);
 
   const startLadder = useCallback(
     (from, seed = null) => startLadderFrom({ ...emptyDraft(), ...(seed || {}) }, { from }),
@@ -819,9 +852,87 @@ const ProfileCoach = () => {
 
   /* ─── Answering ────────────────────────────────────────────── */
 
+  /* ─── Talking instead of typing ────────────────────────────── */
+
+  const [lastSpoken, setLastSpoken] = useState(null);
+
+  /* What was said goes into the transcript as it happens. The chat is the
+     record of the conversation whichever way it was held, and after the call
+     ends it is the only record — so it has to be the same messages, not a
+     summary of them. */
+  const onTranscript = useCallback((line) => {
+    setLastSpoken(line);
+    setMessages((prev) => [...prev, { id: nextId(), role: line.role, text: line.text, spoken: true }]);
+  }, []);
+
+  /**
+   * The call is over: ask the server what it heard and put it in the draft.
+   *
+   * Vapi re-sends the transcript each turn but knows nothing about a profile,
+   * so the fields were accumulated server-side across the call. One request
+   * collects them.
+   */
+  const onCallEnded = useCallback(async (callId) => {
+    setLastSpoken(null);
+    if (!callId) {
+      pushCoach(TEXT.VOICE_NOTHING);
+      return;
+    }
+    try {
+      const { data } = await profileAPI.coachVoiceResult(callId);
+      const learned = data?.learned || {};
+      if (!Object.keys(learned).length) {
+        pushCoach(TEXT.VOICE_NOTHING);
+        return;
+      }
+      const merged = applyBraindump(draftRef.current, learned);
+      if (learned.target && !merged.target) merged.target = String(learned.target);
+      draftRef.current = merged;
+      setDraft(merged);
+      pushCoach(TEXT.VOICE_DONE);
+      trackEvent('coach_voice_completed', { fields: Object.keys(learned).length });
+      // Back to the questions, starting wherever the call left gaps.
+      later(() => startLadderFrom(merged, { silent: true, from: 'voice' }), TIMING.ACK_MS);
+    } catch {
+      pushCoach(TEXT.VOICE_NOTHING);
+    }
+  }, [later, pushCoach, startLadderFrom]);
+
+  const onVoiceError = useCallback((kind) => {
+    pushCoach(kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED);
+  }, [pushCoach]);
+
+  const voice = useVoiceCall({ onTranscript, onEnded: onCallEnded, onError: onVoiceError });
+
+  /** Take the offer: create this person's voice coach, then open the session. */
+  const startTalking = useCallback(async () => {
+    if (!isAuthenticated) {
+      pushCoach(TEXT.VOICE_SIGNED_OUT);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await profileAPI.coachVoiceSession();
+      await voice.start({ assistantId: data?.assistantId, publicKey: data?.publicKey });
+      trackEvent('coach_voice_started', {});
+    } catch {
+      pushCoach(TEXT.VOICE_FAILED);
+    } finally {
+      setBusy(false);
+    }
+  }, [isAuthenticated, pushCoach, voice]);
+
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
     // resolves before any ladder lookup.
+    if (message.stepId === VOICE_CHOICE) {
+      if (message.spent) return;
+      pushMine(chip.label);
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+      if (chip.id === 'talk') startTalking();
+      else later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+      return;
+    }
     if (message.stepId === RESUME_CHOICE) {
       if (message.spent) return;
       pushMine(chip.label);
@@ -886,7 +997,7 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, busy, commit, pushCoach, pushMine, spendChips]);
+  }, [advance, answerResumeOffer, askStep, busy, commit, later, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
   const confirmMulti = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);
@@ -1746,6 +1857,15 @@ const ProfileCoach = () => {
         onCancel={() => offerImportAgain(TEXT.UPLOAD_CANCELLED)}
         style={{ display: 'none' }}
       />
+
+      {voice.state !== VOICE_STATES.idle && (
+        <VoicePanel
+          state={voice.state}
+          speaking={voice.speaking}
+          lastLine={lastSpoken}
+          onEnd={voice.stop}
+        />
+      )}
 
       <LinkedInImportModal
         open={linkedinOpen}

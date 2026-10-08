@@ -242,6 +242,11 @@ export const WORK_STYLES = [
    the conversation rather than one inside it. */
 export const RESUME_CHOICE = '__resume_choice';
 
+/* The one-time offer to talk instead of type. Its own stepId for the same
+   reason as the resume choice: it is a question about how the conversation
+   runs, not a question inside it. */
+export const VOICE_CHOICE = '__voice_choice';
+
 // Not an answer either: it hands the person the keyboard. The chip row is a
 // shortcut, never the whole answer space — most job titles are not on it.
 export const CUSTOM_ANSWER_CHIP = { id: '__custom', label: 'Type my own' };

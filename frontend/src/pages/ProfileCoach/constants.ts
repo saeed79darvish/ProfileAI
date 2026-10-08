@@ -56,6 +56,19 @@ export const TEXT = {
   DICTATE_DENIED: 'I cannot hear the microphone. Allow access in your browser settings, or just type.',
   DICTATE_FAILED: 'The microphone stopped working. Try again, or just type.',
   SKIP: 'Skip for now',
+
+  /* ─── Talking to Remi ─── */
+  VOICE_OFFER: 'Would you rather just talk? I can ask the questions out loud and fill this in as we go.',
+  VOICE_START: 'Talk it through',
+  VOICE_KEEP_TYPING: 'I will keep typing',
+  VOICE_CONNECTING: 'Connecting — allow the microphone when your browser asks.',
+  VOICE_LIVE: 'Listening. Talk normally, and tap End call when you are done.',
+  VOICE_END: 'End call',
+  VOICE_DONE: 'Thanks — I have put what you told me into your profile.',
+  VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
+  VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
+  VOICE_FAILED: 'I could not start the call. We can keep going here instead.',
+  VOICE_SIGNED_OUT: 'Talking needs an account — it costs us real money per minute. Typing here is free.',
   LOGIN: 'Log in',
 
   /* The coach has a name.

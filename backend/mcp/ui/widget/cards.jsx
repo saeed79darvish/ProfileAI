@@ -5,7 +5,8 @@
  * Data contract: the MCP server injects `window.__MCP_DATA__` (a JSON object)
  * into the HTML at tool-call time, so this bundle is fully self-contained and
  * needs no network. Shape:
- *   { kind: 'jobs'|'portfolio'|'resumeDownloads', title, jobs?, portfolio?, resumes? }
+ *   { kind: 'jobs'|'portfolio'|'resumeDownloads'|'linkedinAnalysis',
+ *     title, jobs?, portfolio?, resumes?, analysis? }
  *
  * The iframe NEVER navigates. The primary action posts a "link" intent to the
  * host (MCP-UI + Apps SDK conventions) and the host opens the deep link in a
@@ -150,13 +151,96 @@ function PortfolioCard({ portfolio, expanded }) {
   );
 }
 
+
+/** Score dial. SVG rather than a bar: three of these read as one instrument
+ *  panel, and the arc survives the host's font scaling where a bar doesn't. */
+function ScoreDial({ score, label }) {
+  const val = Math.max(0, Math.min(100, Number(score) || 0));
+  const tone = val >= 70 ? 'good' : val >= 50 ? 'ok' : 'low';
+  const R = 26;
+  const C = 2 * Math.PI * R;
+  return (
+    <div className={`pa-dial pa-dial--${tone}`}>
+      <svg viewBox="0 0 64 64" className="pa-dial__svg" aria-hidden="true">
+        <circle cx="32" cy="32" r={R} className="pa-dial__track" fill="none" strokeWidth="6" />
+        <circle
+          cx="32" cy="32" r={R} className="pa-dial__value" fill="none" strokeWidth="6"
+          strokeDasharray={`${(val / 100) * C} ${C}`} strokeLinecap="round"
+          transform="rotate(-90 32 32)"
+        />
+      </svg>
+      <div className="pa-dial__num">{val}</div>
+      <div className="pa-dial__label">{label}</div>
+    </div>
+  );
+}
+
+/** Where the grade came from. Three different claims — never blur them. */
+const SOURCE_NOTE = {
+  cache: 'From the saved analysis of this profile.',
+  text: 'From the profile text you provided.',
+  profileai: 'From your ProfilleAI profile, not your live LinkedIn page.',
+};
+
+function LinkedInAnalysisCard({ analysis, expanded }) {
+  const [open, setOpen] = useState(false);
+  const show = expanded || open;
+  const a = analysis || {};
+  const verdict = String(a.verdict || 'maybe').toLowerCase();
+  const verdictLabel = verdict === 'shortlist' ? 'Shortlist' : verdict === 'pass' ? 'Pass' : 'Maybe';
+  const fixes = Array.isArray(a.fixes) ? a.fixes : [];
+  const shown = show ? fixes : fixes.slice(0, 2);
+  return (
+    <article className="pa-card pa-card--analysis" aria-label="LinkedIn profile grade">
+      <div className="pa-card__head">
+        <div className="pa-card__title">
+          {a.targetTitle ? `Graded for ${a.targetTitle}` : 'Recruiter grade'}
+        </div>
+        <Badge tone={verdict === 'shortlist' ? 'good' : verdict === 'pass' ? 'low' : 'ok'}>
+          {verdictLabel}
+        </Badge>
+      </div>
+
+      <div className="pa-dials">
+        <ScoreDial score={a.overallScore} label="Overall" />
+        <ScoreDial score={a.recruiterFitScore} label="Recruiter fit" />
+        <ScoreDial score={a.searchVisibilityScore} label="Search" />
+      </div>
+
+      {a.summary && <p className="pa-card__body">{a.summary}</p>}
+
+      {shown.length > 0 && (
+        <ol className="pa-fixes">
+          {shown.map((f, i) => (
+            <li key={i} className="pa-fixes__item">{f.body}</li>
+          ))}
+        </ol>
+      )}
+
+      {fixes.length > 2 && (
+        <button type="button" className="pa-btn pa-btn--ghost" onClick={() => setOpen((v) => !v)}>
+          {show ? 'Show less' : `Show all ${fixes.length} fixes`}
+        </button>
+      )}
+
+      {SOURCE_NOTE[a.source] && <div className="pa-card__note">{SOURCE_NOTE[a.source]}</div>}
+
+      <div className="pa-card__actions">
+        <ActionButton label="Grade any profile live" url={a.extensionUrl} primary />
+        <ActionButton label="Open ProfilleAI" url={a.deepLinkUrl} />
+      </div>
+    </article>
+  );
+}
+
 function App() {
   const data = (typeof window !== 'undefined' && window.__MCP_DATA__) || {};
   const [expanded, setExpanded] = useState(false);
-  const kind = data.kind || (data.jobs ? 'jobs' : data.resumes ? 'resumeDownloads' : data.portfolio ? 'portfolio' : 'jobs');
+  const kind = data.kind || (data.jobs ? 'jobs' : data.resumes ? 'resumeDownloads' : data.portfolio ? 'portfolio' : data.analysis ? 'linkedinAnalysis' : 'jobs');
 
   const items = kind === 'jobs' ? (data.jobs || []) : kind === 'resumeDownloads' ? (data.resumes || []) : [];
-  const isEmpty = kind === 'portfolio' ? !data.portfolio : items.length === 0;
+  const isEmpty =
+    kind === 'portfolio' ? !data.portfolio : kind === 'linkedinAnalysis' ? !data.analysis : items.length === 0;
 
   return (
     <div className="pa-root" data-kind={kind}>
@@ -181,6 +265,9 @@ function App() {
           {kind === 'jobs' && items.map((j) => <JobCard key={j.jobId} job={j} expanded={expanded} />)}
           {kind === 'resumeDownloads' && items.map((r) => <ResumeCard key={r.id} resume={r} />)}
           {kind === 'portfolio' && <PortfolioCard portfolio={data.portfolio} expanded={expanded} />}
+          {kind === 'linkedinAnalysis' && (
+            <LinkedInAnalysisCard analysis={data.analysis} expanded={expanded} />
+          )}
         </div>
       )}
     </div>

@@ -290,6 +290,11 @@ export const profileAPI = {
   // The coach's read on a resume it was just handed: what works, what costs
   // them interviews, and what to ask them next.
   coachReview: ({ profile, sector }) => api.post('/profiles/coach/review', { profile, sector }),
+  // Start a spoken session: creates this person's voice coach and returns
+  // the browser's keys for it.
+  coachVoiceSession: () => api.post('/profiles/coach/voice/session'),
+  // What the call collected, once it has ended.
+  coachVoiceResult: (callId) => api.get(`/profiles/coach/voice/result/${callId}`),
   // One turn of the coach conversation, decided by the model: what to say,
   // what it learned, and whether it is waiting on them.
   coachTurn: ({ profile, missing, history, message }) =>

@@ -1010,3 +1010,173 @@ export const UploadTrack = styled.div`
     transition: width 420ms ease, background 220ms ease;
   }
 `;
+
+/* ═══════════════════════════════════════════════
+   VOICE MODE
+   A full-screen session, not a widget in the corner. When someone is
+   talking there is nothing to read and nothing to tap, so the screen
+   should hold one thing that is plainly alive and listening — the same
+   reason ChatGPT and Claude give voice its own surface instead of a
+   microphone button in the composer.
+   ═══════════════════════════════════════════════ */
+
+const orbBreathe = keyframes`
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+`;
+
+const orbSpeak = keyframes`
+  0%, 100% { transform: scale(1); }
+  25%      { transform: scale(1.09); }
+  60%      { transform: scale(1.03); }
+`;
+
+const ringOut = keyframes`
+  from { transform: scale(0.85); opacity: 0.55; }
+  to   { transform: scale(1.7);  opacity: 0; }
+`;
+
+const veilIn = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`;
+
+export const VoiceVeil = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 34px;
+  padding: 32px 24px calc(32px + env(safe-area-inset-bottom, 0px));
+  /* Deep, quiet ground: the orb is the only lit thing on screen. */
+  background: radial-gradient(120% 90% at 50% 10%, #2b2b63 0%, #15152c 55%, #0d0d1c 100%);
+  animation: ${veilIn} 220ms ease both;
+`;
+
+export const VoiceWho = styled.div`
+  text-align: center;
+  color: #cfd0f5;
+
+  h2 {
+    margin: 0 0 6px;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #fff;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #a2a3d4;
+  }
+`;
+
+export const Orb = styled.div`
+  position: relative;
+  width: min(210px, 52vw);
+  height: min(210px, 52vw);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 32% 28%, #a5abff 0%, #6366f1 45%, #4044cc 100%);
+  box-shadow:
+    0 0 60px rgba(99, 102, 241, 0.55),
+    inset 0 -14px 40px rgba(20, 20, 60, 0.45);
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: ${({ $speaking }) => ($speaking ? orbSpeak : orbBreathe)}
+      ${({ $speaking }) => ($speaking ? '1.1s' : '4s')} ease-in-out infinite;
+  }
+
+  /* The ring only travels while Remi is talking — a permanent pulse reads
+     as decoration, one that starts and stops reads as a voice. */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(165, 171, 255, 0.5);
+    opacity: 0;
+
+    @media (prefers-reduced-motion: no-preference) {
+      animation: ${({ $speaking }) => ($speaking ? ringOut : 'none')} 1.4s ease-out infinite;
+    }
+  }
+`;
+
+export const VoiceStatus = styled.p`
+  margin: 0;
+  min-height: 22px;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: #b9bae8;
+  text-align: center;
+`;
+
+/* The last thing said, so someone can see they were heard correctly —
+   speech recognition mangles company names, and watching it happen is the
+   difference between fixing it now and finding it in the profile later. */
+export const VoiceCaption = styled.div`
+  max-width: 540px;
+  width: 100%;
+  min-height: 72px;
+  text-align: center;
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: #fff;
+  opacity: ${({ $dim }) => ($dim ? 0.55 : 1)};
+  transition: opacity 200ms ease;
+
+  span {
+    display: block;
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8f90c8;
+    margin-bottom: 8px;
+  }
+`;
+
+export const VoiceActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+`;
+
+export const EndCall = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 26px;
+  border: none;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(229, 72, 77, 0.4);
+  transition: background 140ms ease, transform 140ms ease;
+
+  &:hover { background: #d93d42; transform: translateY(-1px); }
+
+  svg { font-size: 1.15rem; }
+`;
+
+export const VoiceQuiet = styled.button`
+  background: none;
+  border: none;
+  color: #9a9bd0;
+  font-family: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  padding: 12px;
+  border-radius: 10px;
+
+  &:hover { color: #cfd0f5; }
+`;
