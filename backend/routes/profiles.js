@@ -1003,7 +1003,7 @@ router.post('/analyze-linkedin', authMiddleware, aiRateLimiter('career_suggestio
         scraped,
         analysisJson: analysis,
         targetTitle: effectiveTitle,
-        modelUsed: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
+        modelUsed: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
         producedByUserId: req.user.id,
       });
     }
@@ -1134,7 +1134,7 @@ router.post('/analyze-linkedin-guest', guestAnalysisLimiter(), async (req, res) 
           /model:\s*/i.test(String(aiErr?.message || ''));
         if (!isModelMissing) throw aiErr;
 
-        const sonnetFallback = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
+        const sonnetFallback = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
         console.warn(
           `[guestAnalyzer] Haiku model "${guestModelPreferred}" not available on this account — falling back to ${sonnetFallback}. ` +
           `Set ANTHROPIC_HAIKU_GUEST_MODEL to a Haiku ID this account supports to save cost.`

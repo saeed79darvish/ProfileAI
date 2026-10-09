@@ -10,6 +10,7 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 const { classifyDocument, rejectionMessage } = require('./resumeDocumentType');
+const { supportsTemperature } = require('./ai/core');
 // IMPORTANT: pdf-parse@1.1.1's top-level index.js has a debug shim that
 // tries to read a bundled test fixture when `module.parent` is undefined,
 // which is the case under Render's Node 22 runtime. Requiring the inner
@@ -420,13 +421,19 @@ async function callAI({ system, prompt, max_tokens = 2000, temperature = 0.7, re
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await anthropic.messages.create({
-        model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
+      /* This is the one AI call in the codebase that does not go through
+         ai/core's callAI, so it needs the same temperature rule: the Claude
+         5 family rejects the parameter outright. Shared helper rather than a
+         second copy of the logic — one of them would have rotted. */
+      const chosen = model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+      const request = {
+        model: chosen,
         max_tokens,
-        temperature,
         system: system || 'You are a helpful AI assistant.',
         messages: [{ role: 'user', content: prompt }],
-      });
+      };
+      if (supportsTemperature(chosen)) request.temperature = temperature;
+      const response = await anthropic.messages.create(request);
       return response.content[0].text.trim();
     } catch (err) {
       lastError = err;
