@@ -517,20 +517,20 @@ const Dashboard = () => {
     });
     if (user?.role === 'recruiter') {
       navigate('/recruiter/dashboard');
-    } else if (
-      user?.role === 'candidate' &&
-      user?.hasProfile === false &&
-      // Don't trust the eagerly-hydrated localStorage flag — it's commonly
-      // stale right after a fresh register+createProfile flow. Wait until
-      // the background /auth/me call confirms the user genuinely has no
-      // profile before bouncing to onboarding.
-      !isValidating
-    ) {
-      authDebug('redirect candidate to onboarding (hasProfile false)');
-      navigate('/onboarding');
     }
+    /* A candidate with no profile used to be bounced to /onboarding from
+       here, before loadProfile had even answered. That is what made the app
+       feel like it had no front door: every single visit landed you
+       mid-conversation with the coach. The dashboard now has a start screen
+       for exactly this case — see the needsProfile branch in the render —
+       so there is somewhere to be instead. */
   }, [user, navigate, isValidating]);
 
+  /* The same thing by another route: settled, signed in, nothing loaded.
+     It no longer bounces — it shows the start screen, which is what this
+     state actually means. Kept as an effect rather than deleted because
+     `needsProfile` is only set by a confirmed 404, and a profile that comes
+     back empty for any other reason would otherwise render nothing at all. */
   useEffect(() => {
     if (
       !authLoading &&
@@ -540,10 +540,9 @@ const Dashboard = () => {
       !profile &&
       !error
     ) {
-      authDebug('redirect candidate to onboarding (no profile loaded)');
-      navigate('/onboarding');
+      setNeedsProfile(true);
     }
-  }, [authLoading, isValidating, loading, user, profile, error, navigate]);
+  }, [authLoading, isValidating, loading, user, profile, error]);
 
   // Load profile data. Lifted out of the effect so the failure state can
   // re-run it — before this, a backend hiccup on boot left the user with a

@@ -624,9 +624,11 @@ const Navbar = () => {
   const isAdmin = isAuthenticated && user?.role === 'admin';
   const isHome = location.pathname === '/';
   const isTransparent = isHome && !scrolled && !isAuthenticated;
-  const candidateProfilePath = user?.role === 'candidate' && user?.hasProfile !== true
-    ? '/onboarding'
-    : '/profile';
+  /* Always the dashboard. This used to point at /onboarding for anyone
+     without a finished profile, so the logo and the Profile menu item both
+     led into the coach rather than into the app. The dashboard has a start
+     screen for an empty account; getting there is the point. */
+  const candidateProfilePath = '/profile';
 
   useEffect(() => {
     authDebug('profile path resolved', {
