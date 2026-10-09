@@ -35,9 +35,19 @@ export const VOICE_STATES = {
 /* A call that has not ended on its own by now is not going to. Nothing caps
    this for us any more: the platform that used to enforce a ceiling is gone,
    and a forgotten open tab is billed by the minute like any other call. The
-   conversation this exists for is about two minutes long, so four is already
-   generous. */
-const MAX_CALL_MS = 4 * 60 * 1000;
+   conversation this exists for is two to three minutes, so three is the
+   ceiling and anything past it is a call that has gone wrong. */
+const MAX_CALL_MS = 3 * 60 * 1000;
+
+/* How long to let silence run after somebody finishes speaking before
+   deciding the model is not going to answer. Long enough that a slow turn is
+   not interrupted, short enough that nobody concludes the call is dead —
+   people start saying "hello? hello?" at about five seconds. */
+const SILENCE_NUDGE_MS = 5000;
+
+/* Two nudges per turn, then stop. A watchdog that keeps firing turns one
+   stuck turn into a model talking over itself, which is worse than silence. */
+const MAX_NUDGES = 2;
 
 /* How long to let a goodbye run before hanging up anyway. */
 const GOODBYE_CAP_MS = 12 * 1000;
@@ -69,6 +79,14 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   // Mirrors `speaking` for the hangup poll, which runs outside React's render.
   const speakingRef = useRef(false);
   const leavingRef = useRef(false);
+  /* Watchdog state. The missing response.create after a tool call is fixed at
+     the source, but "the call froze and I had no idea why" is bad enough that
+     it is worth a second line of defence: anything else that leaves a turn
+     unanswered — a response that errors server-side, a dropped event — looks
+     identical to the person sitting there talking to nobody. */
+  const responseInFlightRef = useRef(false);
+  const nudgeTimerRef = useRef(null);
+  const nudgesRef = useRef(0);
 
   const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError });
   useEffect(() => {
@@ -79,6 +97,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const teardown = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (capRef.current) clearTimeout(capRef.current);
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = null;
     rafRef.current = null;
     capRef.current = null;
     try { micRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
@@ -151,6 +171,25 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     } catch { /* no meter is survivable; a dead call is not */ }
   }, []);
 
+  const clearNudge = useCallback(() => {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = null;
+  }, []);
+
+  /** Ask for a response that should already have come. */
+  const scheduleNudge = useCallback(() => {
+    clearNudge();
+    nudgeTimerRef.current = setTimeout(() => {
+      if (endedRef.current || leavingRef.current) return;
+      if (responseInFlightRef.current || speakingRef.current) return;
+      if (nudgesRef.current >= MAX_NUDGES) return;
+      nudgesRef.current += 1;
+      try {
+        channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+      } catch { /* channel already closed */ }
+    }, SILENCE_NUDGE_MS);
+  }, [clearNudge]);
+
   /* Hang up once Remi has stopped talking.
      The goodbye is a spoken sentence of unpredictable length, so this waits
      for silence instead of guessing. The cap is for the case where the
@@ -178,6 +217,26 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     try { event = JSON.parse(raw); } catch { return; }
 
     switch (event.type) {
+      /* Watchdog bookkeeping. A turn is "answered" from the moment a
+         response is created, not from when audio starts — a model that is
+         thinking has not stalled. */
+      case 'response.created':
+        responseInFlightRef.current = true;
+        clearNudge();
+        break;
+      case 'response.done':
+        responseInFlightRef.current = false;
+        nudgesRef.current = 0;
+        break;
+      // They are talking; nothing is owed yet.
+      case 'input_audio_buffer.speech_started':
+        clearNudge();
+        break;
+      // They stopped. Something should happen now.
+      case 'input_audio_buffer.speech_stopped':
+        scheduleNudge();
+        break;
+
       // Remi has the floor.
       case 'output_audio_buffer.started':
         speakingRef.current = true;
@@ -238,6 +297,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
           }));
           if (!hangUp) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
         } catch { /* channel already closed */ }
+        // Belt for the braces above: if that response never arrives, ask again.
+        if (!hangUp) scheduleNudge();
 
         /* Leaving: wait for the goodbye to actually finish rather than
            counting off a fixed delay. A sentence takes as long as it takes,
@@ -254,7 +315,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       default:
         break;
     }
-  }, [finish, hangUpWhenQuiet]);
+  }, [clearNudge, finish, hangUpWhenQuiet, scheduleNudge]);
 
   const start = useCallback(async ({ clientSecret, model }) => {
     if (!clientSecret || !model) {
@@ -265,6 +326,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     heardThemRef.current = false;
     speakingRef.current = false;
     leavingRef.current = false;
+    responseInFlightRef.current = false;
+    nudgesRef.current = 0;
     setState(VOICE_STATES.connecting);
 
     try {
