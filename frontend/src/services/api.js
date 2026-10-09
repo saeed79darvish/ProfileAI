@@ -294,7 +294,7 @@ export const profileAPI = {
   coachVoiceStatus: () => api.get('/profiles/coach/voice/status'),
   // Start a spoken session: creates this person's voice coach and returns
   // the browser's keys for it.
-  coachVoiceSession: (profile) => api.post('/profiles/coach/voice/session', { profile }),
+  coachVoiceSession: (profile, missing) => api.post('/profiles/coach/voice/session', { profile, missing }),
   // What the call collected, once it has ended.
   // One turn of the coach conversation, decided by the model: what to say,
   // what it learned, and whether it is waiting on them.

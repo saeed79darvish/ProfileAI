@@ -31,6 +31,8 @@ export {
   WORK_STYLES,
   IMPORT_CHOICES,
   POST_CALL_IMPORT_CHOICES,
+  VOICE_OFFER_STEP,
+  voiceAgenda,
   LIMITS,
 } from './coachLogic.js';
 export {
@@ -59,8 +61,8 @@ export const TEXT = {
   SKIP: 'Skip for now',
 
   /* ─── Talking to Remi ─── */
-  VOICE_OFFER: 'Before we start — would you rather keep typing, or have a short live conversation? Talking is usually quicker, and I can hear what you actually mean.',
-  VOICE_START: 'Let us talk',
+  VOICE_OFFER: 'I have the facts down. The rest is the part people never write well in a box — what you actually want next, and what is in the way. Two minutes out loud and I will have it. Or we can keep typing, which is completely fine.',
+  VOICE_START: 'Let us talk, two minutes',
   VOICE_KEEP_TYPING: 'Keep typing',
   VOICE_MUTE: 'Mute your microphone',
   VOICE_UNMUTE: 'Unmute',

@@ -669,9 +669,17 @@ router.post('/coach/voice/session', authMiddleware, async (req, res) => {
       ? req.body.profile
       : {};
 
+    /* The gaps come from the browser because the checklist lives there, with
+       the ladder that produced them. The call is scoped to exactly what the
+       typed conversation could not get. */
+    const missing = Array.isArray(req.body?.missing)
+      ? req.body.missing.filter((m) => typeof m === 'string').slice(0, 12)
+      : [];
+
     const session = await coachRealtimeService.createVoiceSession({
       firstName: user?.firstName,
       profile,
+      missing,
     });
 
     res.json({ success: true, ...session });

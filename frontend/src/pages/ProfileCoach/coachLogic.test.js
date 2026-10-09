@@ -9,6 +9,8 @@ import {
 
 import {
   LADDER,
+  VOICE_OFFER_STEP,
+  voiceAgenda,
   applyBraindump,
   readsAsAnswer,
   looksLikeTitle,
@@ -1052,4 +1054,44 @@ test('the short aliases still work as words', () => {
   assert.equal(matchSector('i am in hr').sector, 'hr');
   // And punctuation-bearing skills survive the word boundaries.
   assert.equal(matchSector('c# developer').sector, 'tech');
+});
+
+/* The call is offered once, in one place, and only for the questions a
+   conversation is actually better at than a button. */
+
+test('the call is offered where the open-ended questions begin', () => {
+  const ids = LADDER.map((s) => s.id);
+  const at = ids.indexOf(VOICE_OFFER_STEP);
+  assert.ok(at > 0, 'the offer step must exist in the ladder');
+  // Everything above it is facts a tap answers better than speech.
+  for (const factual of ['sector', 'level', 'title', 'skills', 'education', 'location']) {
+    assert.ok(ids.indexOf(factual) < at, `${factual} should be settled before the call is offered`);
+  }
+  // Everything the call is for is still ahead of it.
+  for (const open of ['targetWhy', 'targetBlocker']) {
+    assert.ok(ids.indexOf(open) > at, `${open} should still be open when the call is offered`);
+  }
+});
+
+test('a call never spends its two minutes on a postcode', () => {
+  const agenda = voiceAgenda({});
+  assert.ok(!agenda.some((a) => /where they are based/.test(a)));
+  assert.ok(!agenda.some((a) => /education/.test(a)));
+});
+
+test('the agenda leads with why, not with what is left over', () => {
+  const agenda = voiceAgenda({});
+  assert.match(agenda[0], /what they want to do next/);
+  assert.match(agenda[1], /why that/);
+  assert.match(agenda[2], /in the way/);
+});
+
+test('a profile that already answered the why has nothing to call about', () => {
+  const done = {
+    sector: 'tech', title: 'Staff Engineer', level: 'staff', roleTypes: ['full'],
+    workStyle: 'hybrid', experience: [{ description: 'built things' }], skills: ['Go'],
+    education: [{ school: 'UofT' }], location: 'Toronto',
+    target: 'Principal Engineer', targetWhy: 'scope', targetBlocker: 'paper',
+  };
+  assert.deepEqual(voiceAgenda(done), []);
 });

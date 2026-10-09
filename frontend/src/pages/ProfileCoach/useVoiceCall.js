@@ -34,8 +34,10 @@ export const VOICE_STATES = {
 
 /* A call that has not ended on its own by now is not going to. Nothing caps
    this for us any more: the platform that used to enforce a ceiling is gone,
-   and a forgotten open tab is billed by the minute like any other call. */
-const MAX_CALL_MS = 10 * 60 * 1000;
+   and a forgotten open tab is billed by the minute like any other call. The
+   conversation this exists for is about two minutes long, so four is already
+   generous. */
+const MAX_CALL_MS = 4 * 60 * 1000;
 
 export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {}) => {
   const [state, setState] = useState(VOICE_STATES.idle);
@@ -56,6 +58,11 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const rafRef = useRef(null);
   const capRef = useRef(null);
   const endedRef = useRef(false);
+  /* Whether the person has actually said anything yet. The model asking to
+     hang up before it has heard a single word means it is reacting to its
+     own voice or to room noise, not to a finished conversation — and the
+     person is left holding a call that thanked them for their time. */
+  const heardThemRef = useRef(false);
 
   const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError });
   useEffect(() => {
@@ -157,7 +164,9 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       // What the person said, once the transcriber is sure of it.
       case 'conversation.item.input_audio_transcription.completed': {
         const text = String(event.transcript || '').trim();
-        if (text) handlersRef.current.onTranscript?.({ role: 'me', text });
+        if (!text) break;
+        heardThemRef.current = true;
+        handlersRef.current.onTranscript?.({ role: 'me', text });
         break;
       }
 
@@ -177,6 +186,10 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
         if (event.name === 'remember_about_them') {
           handlersRef.current.onLearned?.(args);
         } else if (event.name === 'hand_back_to_chat') {
+          if (!heardThemRef.current) {
+            // Nobody has spoken. Whatever it thinks it heard, it was not them.
+            break;
+          }
           /* Said goodbye, now hanging up. The wait lets the last sentence
              finish playing — cutting Remi off mid-goodbye is exactly the
              rudeness this is meant to avoid. */
@@ -211,10 +224,23 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       return;
     }
     endedRef.current = false;
+    heardThemRef.current = false;
     setState(VOICE_STATES.connecting);
 
     try {
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+      /* These three are the difference between a call and a feedback loop.
+         Without echoCancellation the microphone hears Remi through the
+         speakers, the transcriber faithfully writes it down, and the model
+         answers itself — which is exactly what it did: talking to nobody and
+         then thanking the person for their time. `audio: true` asks for none
+         of this; every one of them has to be named. */
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       micRef.current = mic;
 
       const pc = new RTCPeerConnection();
@@ -234,7 +260,16 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       const channel = pc.createDataChannel(EVENT_CHANNEL);
       channelRef.current = channel;
       channel.addEventListener('message', (event) => onEvent(event.data));
-      channel.addEventListener('open', () => setState(VOICE_STATES.live));
+      channel.addEventListener('open', () => {
+        setState(VOICE_STATES.live);
+        /* Say hello first. Nothing else starts the conversation: with server
+           voice detection the model speaks when it hears something, so a
+           silent opening means the first cough in the room becomes the first
+           thing Remi replies to. */
+        try {
+          channel.send(JSON.stringify({ type: 'response.create' }));
+        } catch { /* channel closed before it opened */ }
+      });
 
       // A dropped connection is an ended call, not a frozen screen.
       pc.onconnectionstatechange = () => {

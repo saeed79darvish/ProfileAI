@@ -51,27 +51,37 @@ const isConfigured = () => !!process.env.OPENAI_API_KEY;
  * open one realtime session, so it is safe in a browser in a way our actual
  * API key never would be.
  */
-async function createVoiceSession({ firstName, profile = {} } = {}) {
+async function createVoiceSession({ firstName, profile = {}, missing = [] } = {}) {
   if (!isConfigured()) throw new Error('OPENAI_API_KEY is not configured');
 
   const body = {
     session: {
       type: 'realtime',
       model: REALTIME_MODEL,
-      instructions: coachVoiceInstructions({ firstName, profile }),
+      instructions: coachVoiceInstructions({ firstName, profile, missing }),
       tools: COACH_VOICE_TOOLS,
       tool_choice: 'auto',
       audio: {
         input: {
           transcription: { model: INPUT_TRANSCRIPTION_MODEL },
+          /* Keyboards, traffic, a room. The browser suppresses some of this
+             before it leaves the machine; this catches what is left, and
+             what is left is what trips the detector below. */
+          noise_reduction: { type: 'near_field' },
           /* Server-side voice activity detection, with interruption on.
              This is what makes talking over Remi work, and it is the part
-             that was worth paying a platform for until it came in the box. */
+             that was worth paying a platform for until it came in the box.
+
+             Both numbers are deliberately less eager than the defaults. At
+             0.5 and 600ms the model treated a breath as a turn and answered
+             it, and cut people off who paused to think mid-sentence — the
+             two failures feel completely different to the person on the call
+             and have the same cause. */
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.5,
+            threshold: 0.62,
             prefix_padding_ms: 300,
-            silence_duration_ms: 600,
+            silence_duration_ms: 900,
             create_response: true,
             interrupt_response: true,
           },

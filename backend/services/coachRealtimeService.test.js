@@ -58,12 +58,54 @@ test('a call never asks for what the chat already collected', () => {
     firstName: 'Saeed',
     profile: { title: 'Staff Backend Engineer', skills: ['Go', 'Kubernetes'] },
   });
-  assert.match(instructions, /NEVER ASK FOR THESE/);
+  assert.match(instructions, /NEVER ASK FOR ANY OF THIS/);
   assert.match(instructions, /title: Staff Backend Engineer/);
   assert.match(instructions, /skills: Go, Kubernetes/);
 });
 
-test('an empty profile leaves out the already-known block entirely', () => {
-  // An empty "here is what you know" heading invites the model to invent one.
-  assert.doesNotMatch(coachVoiceInstructions({ firstName: 'Saeed' }), /NEVER ASK FOR THESE/);
+test('a call with nothing to go on is told to just introduce itself', () => {
+  /* The call is normally offered part-way through a typed conversation, so
+     it almost always has something. When it does not, an empty "here is what
+     you know" heading would invite the model to invent one — it gets an
+     instruction instead. */
+  assert.match(coachVoiceInstructions({ firstName: 'Saeed' }), /nothing yet/);
+});
+
+/* The call is now a two-minute follow-up to a conversation already in
+   progress, not an interview from a cold start. */
+
+test('the call is told it is continuing, not starting over', () => {
+  const instructions = coachVoiceInstructions({
+    firstName: 'Saeed',
+    profile: { title: 'Staff Backend Engineer' },
+    missing: ['what they want to do next'],
+  });
+  assert.match(instructions, /not starting over/i);
+  assert.match(instructions, /Two minutes/);
+  assert.match(instructions, /what they want to do next/);
+});
+
+test('a call is told to ignore its own voice coming back at it', () => {
+  // Without echo cancellation the model answered itself and then thanked
+  // the person for their time. The microphone is fixed; this is the belt.
+  const instructions = coachVoiceInstructions({ firstName: 'Saeed' });
+  assert.match(instructions, /echo/i);
+  assert.match(instructions, /[Nn]ever answer yourself/);
+});
+
+test('a call cannot say goodbye before anybody has spoken', () => {
+  assert.match(
+    coachVoiceInstructions({ firstName: 'Saeed' }),
+    /[Nn]ever call hand_back_to_chat before they have actually said something/
+  );
+});
+
+test('the greeting proves it read the profile instead of asking again', () => {
+  const instructions = coachVoiceInstructions({
+    firstName: 'Saeed',
+    profile: { title: 'Staff Backend Engineer', company: 'Equinix' },
+  });
+  assert.match(instructions, /THE FIRST THING YOU SAY/);
+  assert.match(instructions, /NEVER ASK FOR ANY OF THIS/);
+  assert.match(instructions, /company: Equinix/);
 });

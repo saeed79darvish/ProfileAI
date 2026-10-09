@@ -318,6 +318,29 @@ export const RETRY_IMPORT_CHOICES = [
   { id: 'chat', label: "No, let's just chat" },
 ];
 
+/* Where the talk-or-type invitation belongs.
+   Everything before this step is facts a button answers faster and more
+   accurately than speech. Everything from here is why — what they want, what
+   is in the way — which is the part nobody writes well in a text box. */
+export const VOICE_OFFER_STEP = 'target';
+
+/* What the call is actually for.
+   Not the same list as missingFields. That one is the written checklist and
+   includes things a call should never spend a minute on — a location, a
+   school name. This is the subset a conversation is better at, plus whatever
+   the typed flow genuinely did not get. Order matters: the model works down
+   it, so the two "why" questions come first. */
+export const voiceAgenda = (draft = {}) => {
+  const agenda = [];
+  if (!draft.target) agenda.push('what they want to do next');
+  if (!draft.targetWhy) agenda.push('why that, and what is pulling them toward it');
+  if (!draft.targetBlocker) agenda.push('what they think is standing in the way');
+  const written = missingFields(draft).filter(
+    (m) => !/where they are based|education|the role they want next/.test(m)
+  );
+  return [...agenda, ...written];
+};
+
 /* Offered when a call hands back to the screen. "Try another file" would be
    nonsense to someone who has not touched a file yet, and the third option
    has to say the conversation continues rather than ends — they just spent

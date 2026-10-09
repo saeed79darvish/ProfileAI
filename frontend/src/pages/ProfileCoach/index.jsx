@@ -82,6 +82,8 @@ import {
   VOICE_SIGNIN_CHOICE,
   RETRY_IMPORT_CHOICES,
   POST_CALL_IMPORT_CHOICES,
+  VOICE_OFFER_STEP,
+  voiceAgenda,
   MORE_SECTORS_CHIP,
   CUSTOM_ANSWER_CHIP,
 } from './coachLogic';
@@ -274,6 +276,8 @@ const ProfileCoach = () => {
   // askStep. Refs are what let those three be defined in a readable order
   // without a circular useCallback dependency.
   const advanceRef = useRef(() => {});
+  // askStep offers the call, and offerVoice is declared below it.
+  const offerVoiceRef = useRef(() => false);
   const runnersRef = useRef({});
 
   // Clear pending "typing" timers on unmount — otherwise a fast navigate
@@ -305,6 +309,19 @@ const ProfileCoach = () => {
   const askStep = useCallback((index, currentDraft) => {
     const step = LADDER[index];
     if (!step) return;
+
+    /* The one moment a call is worth offering.
+       Everything above this step is facts — a title, a company, a list of
+       skills — and a button is faster and more accurate than speech for
+       every one of them. Everything from here down is why: what they want
+       next, what is in the way. Those are the questions nobody answers well
+       in a text box, and the ones that make a profile sound like a person.
+       So the invitation goes here, where there is already someone on the
+       other end to be curious about, rather than at the door. */
+    if (step.id === VOICE_OFFER_STEP && !voiceOfferedRef.current && voiceAvailableRef.current) {
+      voiceOfferedRef.current = true;
+      if (offerVoiceRef.current()) return;
+    }
 
     // Steps that do work rather than ask: they announce themselves, then the
     // runner takes over and calls advance when it is done.
@@ -412,6 +429,8 @@ const ProfileCoach = () => {
     return true;
   }, [pushCoach]);
 
+  useEffect(() => { offerVoiceRef.current = offerVoice; }, [offerVoice]);
+
   /** Take up the offer, or decline it and start over. */
   const answerResumeOffer = useCallback((message, choice) => {
     setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
@@ -423,12 +442,6 @@ const ProfileCoach = () => {
         id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
       }]);
       trackEvent('coach_resumed', {});
-      // Coming back to a conversation skips the opening entirely, which is
-      // where the talk-or-type choice lives — so it is offered here too, once.
-      if (!voiceOfferedRef.current && voiceAvailableRef.current) {
-        voiceOfferedRef.current = true;
-        later(offerVoice, TIMING.TYPING_MS);
-      }
       return;
     }
     clearConversation();
@@ -438,28 +451,25 @@ const ProfileCoach = () => {
     draftRef.current = emptyDraft();
     trackEvent('coach_restarted', {});
     later(startIntro, TIMING.ACK_MS);
-  }, [later, offerVoice, restored, startIntro]);
+  }, [later, restored, startIntro]);
 
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
   /** Begin the questions at the first thing still missing. */
+  /* The call is not offered here any more.
+     It used to come before the first question, on the theory that the point
+     of talking is to skip the typing. That theory was wrong in practice: a
+     cold call has nothing to react to, so it opens by reading the form out
+     loud — "what is your job title" — which is the one thing a call is worse
+     at than a button. It is now offered at the `target` step, once there is
+     a person on the other end to be curious about. */
   const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro', ask = true } = {}) => {
     draftRef.current = draft0;
     setDraft(draft0);
     const at = Math.max(0, nextStepIndex(-1, draft0));
     setStepIndex(at);
     if (!silent) pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
-    /* Offered once, before the first question rather than after it: the
-       point of talking is to skip the typing, and an invitation that arrives
-       halfway through has already lost. Shown to everyone — a guest who taps
-       it is told it needs a free account, which is a better conversation than
-       an option that silently does not exist for them. */
-    if (from !== 'voice' && !voiceOfferedRef.current && voiceAvailableRef.current) {
-      voiceOfferedRef.current = true;
-      later(offerVoice, TIMING.ACK_MS);
-    } else if (ask) {
-      askStep(at, draft0);
-    }
+    if (ask) askStep(at, draft0);
     /* ask: false leaves the ladder parked on the next gap without asking it,
        for a caller that has something to put on screen first — after a call,
        that is the upload offer. Whatever answers it picks up from here. */
@@ -993,7 +1003,10 @@ const ProfileCoach = () => {
     try {
       /* What they have already told us goes with the request, so the call
          does not open by asking for something they typed two minutes ago. */
-      const { data } = await profileAPI.coachVoiceSession(draftRef.current);
+      const { data } = await profileAPI.coachVoiceSession(
+        draftRef.current,
+        voiceAgenda(draftRef.current)
+      );
       if (!data?.clientSecret || !data?.model) {
         pushCoach(TEXT.VOICE_FAILED);
         return false;
