@@ -1095,3 +1095,41 @@ test('a profile that already answered the why has nothing to call about', () => 
   };
   assert.deepEqual(voiceAgenda(done), []);
 });
+
+/* After a call hands back, the conversation must not start interrogating
+   people about things they already answered. */
+
+test('a question the draft already answers is never asked again', () => {
+  const draft = {
+    sector: 'tech', level: 'staff', roleTypes: ['fullTime'], workStyle: 'hybrid',
+    target: 'Principal Engineer', targetWhy: 'scope', targetBlocker: 'paper',
+  };
+  for (const id of ['sector', 'level', 'lookingFor', 'workStyle', 'target', 'targetWhy', 'targetBlocker']) {
+    const step = LADDER.find((s) => s.id === id);
+    assert.equal(isAlreadyAnswered(step, draft), true, `${id} should count as answered`);
+  }
+});
+
+test('chip answers count on their own, with no import to vouch for them', () => {
+  // These used to be gated behind importedFrom/spokenIntake, so somebody who
+  // picked full-time from a row of chips got asked about it again after a
+  // call handed back.
+  const step = LADDER.find((s) => s.id === 'lookingFor');
+  assert.equal(isAlreadyAnswered(step, { roleTypes: ['fullTime'] }), true);
+  assert.equal(isAlreadyAnswered(step, { roleTypes: [] }), false);
+  assert.equal(isAlreadyAnswered(step, {}), false);
+});
+
+test('the detail steps still want an import or a call behind them', () => {
+  // A thin title scraped from nowhere is not the same as one they confirmed.
+  const title = LADDER.find((s) => s.id === 'title');
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer' }), false);
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer', spokenIntake: true }), true);
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer', importedFrom: 'resume' }), true);
+});
+
+test('an empty draft has nothing already answered', () => {
+  for (const step of LADDER) {
+    assert.equal(isAlreadyAnswered(step, {}), false, step.id);
+  }
+});

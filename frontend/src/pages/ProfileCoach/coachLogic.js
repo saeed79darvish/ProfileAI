@@ -1396,6 +1396,38 @@ export const nextStepIndex = (fromIndex, draft = {}) => {
 export const isAlreadyAnswered = (step, draft = {}) => {
   // Spoken intake counts like an import: both arrive with answers already in
   // hand, and re-asking for them is what makes either feel pointless.
+  /* Anything the person has already said, however they said it.
+     These are not gated on an import. The ladder normally walks forward and
+     visits each step once, but it does not always: a call hands back
+     part-way down, and the upload offer that follows re-enters the ladder
+     from its own position. Somebody who picked "full-time" from a row of
+     chips, talked for two minutes, and was then asked whether they want
+     full-time or part-time has every reason to think nothing they said was
+     heard. If the answer is in the draft, the question is answered. */
+  switch (step.id) {
+    case 'sector':
+      return !!draft.sector;
+    case 'level':
+      return !!draft.level;
+    case 'lookingFor':
+      return Array.isArray(draft.roleTypes) && draft.roleTypes.length > 0;
+    case 'workStyle':
+      return !!draft.workStyle;
+    case 'careerStage':
+      return !!draft.careerStage;
+    case 'target':
+      return !!draft.target;
+    case 'targetWhy':
+      return !!draft.targetWhy;
+    case 'targetBlocker':
+      return !!draft.targetBlocker;
+    default:
+      break;
+  }
+
+  /* The rest only count as answered when they arrived in bulk — from an
+     import or from a call. These are the steps that ask for detail, and a
+     thin value scraped off a resume is still worth going back over. */
   if (!draft.importedFrom && !draft.spokenIntake) return false;
   switch (step.id) {
     case 'title':
@@ -1409,7 +1441,6 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return Array.isArray(draft.education) && draft.education.length > 0;
     case 'location':
       return !!draft.location;
-    // The import can't know what someone WANTS next — always still asked.
     default:
       return false;
   }

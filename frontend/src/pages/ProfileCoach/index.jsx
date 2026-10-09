@@ -678,7 +678,7 @@ const ProfileCoach = () => {
    * no has to say what to do next in the same breath, at the end, where you
    * are already looking.
    */
-  const offerImportAgain = useCallback((text, choices = RETRY_IMPORT_CHOICES) => {
+  const offerImportAgain = useCallback((text, choices = RETRY_IMPORT_CHOICES, { postCall = false } = {}) => {
     setMessages((prev) => [
       // Retire the older row so there is exactly one live set of these.
       ...prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)),
@@ -687,6 +687,7 @@ const ProfileCoach = () => {
         role: 'coach',
         text,
         stepId: 'importOffer',
+        postCall,
         chips: choices.map((c) => ({ ...c })),
         selected: [],
       },
@@ -961,7 +962,10 @@ const ProfileCoach = () => {
        collect, so it is the first thing the screen asks for. Whichever
        chip they pick, the questions pick up from the gap underneath. */
     startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
-    later(() => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES), TIMING.ACK_MS);
+    later(
+      () => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES, { postCall: true }),
+      TIMING.ACK_MS
+    );
   }, [later, offerImportAgain, pushCoach, startLadderFrom]);
 
   const onVoiceError = useCallback((kind) => {
@@ -1119,7 +1123,15 @@ const ProfileCoach = () => {
         return;
       }
       spendChips(message.id);
-      advance(index, draftRef.current);
+      /* The upload offer after a call is a detour, not a rung.
+         `index` is where importOffer sits in the ladder — near the top — so
+         advancing from it walks the whole thing again from there. It skips
+         what the draft already answers, but anything it does not recognise
+         gets asked a second time, which is how somebody who had already
+         picked full-time got asked about full-time after talking for two
+         minutes. Resume where the conversation actually is. */
+      if (message.postCall) askStep(stepIndex, draftRef.current);
+      else advance(index, draftRef.current);
       return;
     }
 

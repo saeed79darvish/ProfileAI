@@ -39,6 +39,9 @@ export const VOICE_STATES = {
    generous. */
 const MAX_CALL_MS = 4 * 60 * 1000;
 
+/* How long to let a goodbye run before hanging up anyway. */
+const GOODBYE_CAP_MS = 12 * 1000;
+
 export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {}) => {
   const [state, setState] = useState(VOICE_STATES.idle);
   // True while Remi is the one talking, so the UI can say who has the floor.
@@ -63,6 +66,9 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
      own voice or to room noise, not to a finished conversation — and the
      person is left holding a call that thanked them for their time. */
   const heardThemRef = useRef(false);
+  // Mirrors `speaking` for the hangup poll, which runs outside React's render.
+  const speakingRef = useRef(false);
+  const leavingRef = useRef(false);
 
   const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError });
   useEffect(() => {
@@ -145,6 +151,27 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     } catch { /* no meter is survivable; a dead call is not */ }
   }, []);
 
+  /* Hang up once Remi has stopped talking.
+     The goodbye is a spoken sentence of unpredictable length, so this waits
+     for silence instead of guessing. The cap is for the case where the
+     goodbye never comes and nothing would otherwise end the call. */
+  const hangUpWhenQuiet = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    const startedAt = Date.now();
+    const check = () => {
+      if (endedRef.current) return;
+      const quiet = !speakingRef.current;
+      if (quiet || Date.now() - startedAt > GOODBYE_CAP_MS) {
+        setTimeout(() => finish(), quiet ? 600 : 0);
+        return;
+      }
+      setTimeout(check, 250);
+    };
+    // A beat first: the audio for the goodbye may not have started yet.
+    setTimeout(check, 700);
+  }, [finish]);
+
   /* Everything that is not audio arrives here. */
   const onEvent = useCallback((raw) => {
     let event;
@@ -153,10 +180,12 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     switch (event.type) {
       // Remi has the floor.
       case 'output_audio_buffer.started':
+        speakingRef.current = true;
         setSpeaking(true);
         break;
       case 'output_audio_buffer.stopped':
       case 'output_audio_buffer.cleared':
+        speakingRef.current = false;
         setSpeaking(false);
         setLevel(0);
         break;
@@ -183,19 +212,21 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       case 'response.function_call_arguments.done': {
         let args = {};
         try { args = JSON.parse(event.arguments || '{}'); } catch { /* ignore a malformed call */ }
+
+        let hangUp = false;
         if (event.name === 'remember_about_them') {
           handlersRef.current.onLearned?.(args);
         } else if (event.name === 'hand_back_to_chat') {
-          if (!heardThemRef.current) {
-            // Nobody has spoken. Whatever it thinks it heard, it was not them.
-            break;
-          }
-          /* Said goodbye, now hanging up. The wait lets the last sentence
-             finish playing — cutting Remi off mid-goodbye is exactly the
-             rudeness this is meant to avoid. */
-          setTimeout(() => finish(), 1200);
+          // Nobody has spoken. Whatever it thinks it heard, it was not them.
+          hangUp = heardThemRef.current;
         }
-        // Tools still want an answer, or the model waits for one.
+
+        /* Answer the tool, then ask for the next response.
+           Both halves are required and the second one is easy to miss: the
+           API does not resume on its own after a tool result, it waits to be
+           asked. Without it Remi said "let me get that down", called the
+           tool, and went silent for the rest of the call — which is exactly
+           what it did, and it looked like the call had frozen. */
         try {
           channelRef.current?.send(JSON.stringify({
             type: 'conversation.item.create',
@@ -205,7 +236,14 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
               output: JSON.stringify({ ok: true }),
             },
           }));
+          if (!hangUp) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
         } catch { /* channel already closed */ }
+
+        /* Leaving: wait for the goodbye to actually finish rather than
+           counting off a fixed delay. A sentence takes as long as it takes,
+           and the old 1.2 seconds cut it off — which read as the call
+           dropping rather than ending. */
+        if (hangUp) hangUpWhenQuiet();
         break;
       }
 
@@ -216,7 +254,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       default:
         break;
     }
-  }, [finish]);
+  }, [finish, hangUpWhenQuiet]);
 
   const start = useCallback(async ({ clientSecret, model }) => {
     if (!clientSecret || !model) {
@@ -225,6 +263,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     }
     endedRef.current = false;
     heardThemRef.current = false;
+    speakingRef.current = false;
+    leavingRef.current = false;
     setState(VOICE_STATES.connecting);
 
     try {

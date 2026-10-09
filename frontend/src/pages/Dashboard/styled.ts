@@ -2046,3 +2046,76 @@ export const EXTENSION_STEP_COLORS = [
   { bgColor: '#fffbeb', borderColor: `${COLORS.WARNING}26`, accentColor: '#d97706' },
   { bgColor: '#fdf2f8', borderColor: `${COLORS.ACCENT_PINK}26`, accentColor: COLORS.ACCENT_PINK },
 ];
+/* The first screen of an account that has no profile yet.
+   It used to be a redirect straight into the coach, which meant the app
+   had no front door: every load dropped you mid-conversation with no way
+   to see where you were or what else was here. This is the door. */
+export const StartPanel = styled.div`
+  max-width: 560px;
+  margin: 10vh auto 0;
+  padding: 0 20px;
+  text-align: center;
+
+  h1 {
+    margin: 0 0 12px;
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    font-weight: 650;
+    color: #14142b;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    margin: 0 auto 28px;
+    max-width: 44ch;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #6b6b85;
+  }
+`;
+
+export const StartActions = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+
+  @media (min-width: 520px) {
+    flex-direction: row;
+    justify-content: center;
+  }
+`;
+
+export const StartPrimary = styled.button`
+  width: 100%;
+  padding: 14px 28px;
+  border: none;
+  border-radius: 12px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 0.98rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, transform 140ms ease;
+
+  &:hover { background: #4338ca; }
+  &:active { transform: scale(0.99); }
+
+  @media (min-width: 520px) { width: auto; }
+`;
+
+export const StartSecondary = styled.button`
+  width: 100%;
+  padding: 14px 28px;
+  border: 1px solid #e3e3ef;
+  border-radius: 12px;
+  background: #fff;
+  color: #4a4a68;
+  font-size: 0.98rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+
+  &:hover { background: #f7f7fb; border-color: #d6d6e4; }
+
+  @media (min-width: 520px) { width: auto; }
+`;

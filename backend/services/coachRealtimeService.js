@@ -72,16 +72,18 @@ async function createVoiceSession({ firstName, profile = {}, missing = [] } = {}
              This is what makes talking over Remi work, and it is the part
              that was worth paying a platform for until it came in the box.
 
-             Both numbers are deliberately less eager than the defaults. At
-             0.5 and 600ms the model treated a breath as a turn and answered
-             it, and cut people off who paused to think mid-sentence — the
-             two failures feel completely different to the person on the call
-             and have the same cause. */
+             The threshold went up to 0.62 as a workaround while the real
+             problem was the missing echo cancellation on the microphone.
+             With that fixed at the source it only hurt: a quiet answer fell
+             under the bar and the call sat there as though nobody had
+             spoken. Back to the default. The silence window stays a little
+             longer than stock so that pausing to think is not read as
+             finishing a sentence. */
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.62,
+            threshold: 0.5,
             prefix_padding_ms: 300,
-            silence_duration_ms: 900,
+            silence_duration_ms: 700,
             create_response: true,
             interrupt_response: true,
           },

@@ -172,7 +172,11 @@ import {
   aiSummaryBoxSx,
   tabsSx,
   postCardSx,
-  tailoredCardSx
+  tailoredCardSx,
+  StartPanel,
+  StartActions,
+  StartPrimary,
+  StartSecondary,
 } from './styled';
 import { ROUTES, ALLOWED_RESUME_TYPES, TIMINGS as DASH_TIMINGS, LIMITS, EXTENSION_STEPS_DATA } from './constants';
 import { COMPANY_LOGO_COLORS, EXTENSION_STEP_COLORS } from './styled';
@@ -304,6 +308,10 @@ const Dashboard = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // No profile on the server yet — the dashboard shows its own front door
+  // rather than bouncing into the coach. See loadProfile's 404 branch.
+  const [needsProfile, setNeedsProfile] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
   // Indices must track the <Tab> order rendered below: Overview, Experience,
   // Education, Projects, Tailored Profiles, and Posts when the feed flag is on.
   // They had drifted one place apart, so ?tab=education opened Projects.
@@ -575,24 +583,24 @@ const Dashboard = () => {
         code: err?.code,
       });
       if (err.response?.status === 404) {
-        // Check if user has an in-progress draft before redirecting to onboarding
+        /* No profile yet. This used to navigate straight into the coach,
+           which meant the app had no front door — opening it dropped you
+           mid-conversation every time, with no way to see what else was
+           here or that you had a half-finished draft waiting. Show the
+           dashboard's own starting screen instead and let them choose. */
         try {
           const draftKey = `profileai_draft_${user?.id || 'unknown'}`;
           const savedDraft = localStorage.getItem(draftKey);
           if (savedDraft) {
             const draft = JSON.parse(savedDraft);
             if (draft && (draft.title || draft.summary || draft.experience?.length > 0)) {
-              navigate('/profile/create-form');
-              return;
+              setHasDraft(true);
             }
           }
         } catch (draftErr) {
           // ignore draft check errors
         }
-        // The intro is part of the coach conversation now, and shows itself
-        // only on a first visit — so there is no longer a second destination
-        // to choose between here.
-        navigate('/profile/create');
+        setNeedsProfile(true);
       } else {
         // Keep the error object, not just its message: LoadFailure reads the
         // status/code off it to tell "you're offline" apart from "we broke".
@@ -1115,6 +1123,29 @@ const Dashboard = () => {
           title="We couldn't load your profile"
           onRetry={loadProfile}
         />
+      </PageContainer>
+    );
+  }
+
+  if (needsProfile) {
+    return (
+      <PageContainer>
+        <StartPanel>
+          <h1>Welcome{user?.firstName ? `, ${user.firstName}` : ''}</h1>
+          <p>
+            You do not have a profile yet. Building one takes a few minutes — I will
+            ask about your work, and you can upload a resume at any point if you have
+            one.
+          </p>
+          <StartActions>
+            <StartPrimary onClick={() => navigate('/profile/create')}>
+              {hasDraft ? 'Pick up where you left off' : 'Build my profile'}
+            </StartPrimary>
+            <StartSecondary onClick={() => navigate('/jobs')}>
+              Browse jobs first
+            </StartSecondary>
+          </StartActions>
+        </StartPanel>
       </PageContainer>
     );
   }
