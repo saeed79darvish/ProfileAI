@@ -227,7 +227,18 @@ app.use('/api', globalLimiter);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  /* The models are here because a model retirement has broken this app
+     twice now — claude-3-5-haiku in February, Sonnet 4.5 this month — and
+     both times the first question was "what is production actually running?"
+     with no way to answer it but a deploy log. Model names are not secrets,
+     and a dated snapshot still sitting here after a migration is the thing
+     you want to find before Anthropic's deadline does. */
+  const { DEFAULT_MODEL, HAIKU_MODEL } = require('./services/ai/core');
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    models: { default: DEFAULT_MODEL, haiku: HAIKU_MODEL },
+  });
 });
 
 // Routes
