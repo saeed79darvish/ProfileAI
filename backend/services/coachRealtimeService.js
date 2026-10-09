@@ -81,7 +81,14 @@ async function createVoiceSession({ firstName, profile = {}, missing = [] } = {}
              finishing a sentence. */
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.5,
+            /* A middle setting, arrived at the hard way. 0.62 was too deaf
+               and quiet answers went unheard; 0.5 was too twitchy and
+               whatever leaked back through the speakers interrupted Remi
+               mid-sentence, because barge-in cannot tell a person from an
+               echo of itself. The crackle that was doing most of the
+               tripping is gone now that the remote stream is not being run
+               through a WebAudio graph as well as played. */
+            threshold: 0.55,
             prefix_padding_ms: 300,
             silence_duration_ms: 700,
             create_response: true,

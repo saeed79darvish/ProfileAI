@@ -37,7 +37,13 @@ export const VOICE_STATES = {
    and a forgotten open tab is billed by the minute like any other call. The
    conversation this exists for is two to three minutes, so three is the
    ceiling and anything past it is a call that has gone wrong. */
-const MAX_CALL_MS = 3 * 60 * 1000;
+/* Two stages, because a call that simply vanishes at a deadline is a worse
+   experience than one that runs slightly long. At WRAP_AT_MS Remi is told to
+   land it — out loud, in its own words — and the call ends the way every
+   other call ends. MAX_CALL_MS is the backstop for when that does not work,
+   and reaching it means something has already gone wrong. */
+const WRAP_AT_MS = 2 * 60 * 1000 + 20 * 1000;
+const MAX_CALL_MS = 3 * 60 * 1000 + 30 * 1000;
 
 /* How long to let silence run after somebody finishes speaking before
    deciding the model is not going to answer. Long enough that a slow turn is
@@ -66,10 +72,9 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const channelRef = useRef(null);
   const micRef = useRef(null);
   const audioRef = useRef(null);
-  const analyserRef = useRef(null);
-  const audioCtxRef = useRef(null);
   const rafRef = useRef(null);
   const capRef = useRef(null);
+  const wrapRef = useRef(null);
   const endedRef = useRef(false);
   /* Whether the person has actually said anything yet. The model asking to
      hang up before it has heard a single word means it is reacting to its
@@ -97,6 +102,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const teardown = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (capRef.current) clearTimeout(capRef.current);
+    if (wrapRef.current) clearTimeout(wrapRef.current);
+    wrapRef.current = null;
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = null;
     rafRef.current = null;
@@ -104,7 +111,6 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     try { micRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
     try { channelRef.current?.close(); } catch { /* already closed */ }
     try { pcRef.current?.close(); } catch { /* already closed */ }
-    try { audioCtxRef.current?.close(); } catch { /* already closed */ }
     if (audioRef.current) {
       audioRef.current.srcObject = null;
       audioRef.current.remove();
@@ -113,8 +119,6 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     micRef.current = null;
     channelRef.current = null;
     pcRef.current = null;
-    analyserRef.current = null;
-    audioCtxRef.current = null;
     setSpeaking(false);
     setLevel(0);
     setMuted(false);
@@ -142,33 +146,30 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     });
   }, []);
 
-  /* Remi's actual output level, read off the audio we are playing. The
-     Realtime API tells us when speech starts and stops but not how loud it
-     is, and "is talking" alone gives you a shape that blinks on and off. */
-  const watchLevel = useCallback((stream) => {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      audioCtxRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      analyserRef.current = analyser;
+  /* Remi's output level, for the orb.
+     This used to run the remote stream through a WebAudio analyser while an
+     <audio> element played the same stream. Chrome does not love that: the
+     same MediaStream feeding a playback element and a graph node is a known
+     source of crackle, and crackle on the line is also what trips voice
+     detection and makes a call interrupt itself mid-sentence. Both
+     complaints, one cause.
 
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        analyser.getByteTimeDomainData(data);
-        let peak = 0;
-        for (let i = 0; i < data.length; i += 1) {
-          peak = Math.max(peak, Math.abs(data[i] - 128) / 128);
-        }
-        // Eased, so the orb swells and settles rather than twitching.
-        setLevel((prev) => prev * 0.7 + Math.min(1, peak * 2.2) * 0.3);
-        rafRef.current = requestAnimationFrame(tick);
-      };
+     The receiver reports an audio level for free, computed from the RTP it
+     is already decoding. No second consumer of the stream, no graph, no
+     artefacts. */
+  const watchLevel = useCallback((receiver) => {
+    if (!receiver?.getSynchronizationSources) return;
+    const tick = () => {
+      let peak = 0;
+      try {
+        const [source] = receiver.getSynchronizationSources();
+        if (typeof source?.audioLevel === 'number') peak = source.audioLevel;
+      } catch { /* the receiver went away with the call */ }
+      // Eased, so the orb swells and settles rather than twitching.
+      setLevel((prev) => prev * 0.7 + Math.min(1, peak * 2.4) * 0.3);
       rafRef.current = requestAnimationFrame(tick);
-    } catch { /* no meter is survivable; a dead call is not */ }
+    };
+    rafRef.current = requestAnimationFrame(tick);
   }, []);
 
   const clearNudge = useCallback(() => {
@@ -355,7 +356,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       audioRef.current = audio;
       pc.ontrack = (event) => {
         [audio.srcObject] = event.streams;
-        watchLevel(event.streams[0]);
+        watchLevel(event.receiver);
       };
 
       pc.addTrack(mic.getAudioTracks()[0], mic);
@@ -393,6 +394,27 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       if (!answer.ok) throw new Error(`realtime handshake failed: ${answer.status}`);
 
       await pc.setRemoteDescription({ type: 'answer', sdp: await answer.text() });
+
+      /* Ask for the ending rather than imposing one. The instruction goes
+         in as a system turn so it steers the next response without ever
+         being spoken or appearing in the transcript. */
+      wrapRef.current = setTimeout(() => {
+        if (endedRef.current || leavingRef.current) return;
+        try {
+          channelRef.current?.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'system',
+              content: [{
+                type: 'input_text',
+                text: 'You are out of time. Finish the thought you are on, then say goodbye the way you were told to and call hand_back_to_chat. Do not start anything new.',
+              }],
+            },
+          }));
+          channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+        } catch { /* channel already closed */ }
+      }, WRAP_AT_MS);
 
       capRef.current = setTimeout(() => finish(), MAX_CALL_MS);
     } catch (err) {
