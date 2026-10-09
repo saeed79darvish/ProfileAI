@@ -26,7 +26,6 @@
     "@sentry/react": "^8.55.2",
     "@stripe/react-stripe-js": "^2.x",
     "@stripe/stripe-js": "^2.x",
-    "@vapi-ai/web": "^2.7.1",
     "axios": "^1.x",
     "chart.js": "^4.5.1",
     "date-fns": "^4.1.0",

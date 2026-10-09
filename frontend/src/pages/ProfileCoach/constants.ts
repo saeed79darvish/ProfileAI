@@ -291,12 +291,3 @@ export const TIMING = {
   TYPING_MS: 650,
 } as const;
 
-/* Closing a live call.
-   The poll is every four seconds because the thing it is waiting for arrives
-   at conversational pace, not machine pace, and a call lasts minutes. The
-   goodbye pause lets the line settle after the handover sentence rather than
-   cutting the last word. The cap is the backstop for a handover we never hear
-   — a finished call must not hang on a missed event. */
-export const VOICE_POLL_MS = 4000;
-export const VOICE_GOODBYE_MS = 900;
-export const VOICE_WRAPUP_CAP_MS = 20000;

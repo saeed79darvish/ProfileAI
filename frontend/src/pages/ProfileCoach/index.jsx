@@ -41,9 +41,6 @@ import {
   COACH_TEXT,
   TOUR_CARDS,
   TIMING,
-  VOICE_POLL_MS,
-  VOICE_GOODBYE_MS,
-  VOICE_WRAPUP_CAP_MS,
   PANEL_ITEMS,
   JOB_SECTORS,
   ALLOWED_FILE_TYPES,
@@ -875,9 +872,9 @@ const ProfileCoach = () => {
 
   const [lastSpoken, setLastSpoken] = useState(null);
   /* Whether this deployment can do voice. Asked once, publicly, before the
-     choice is ever offered — an environment with no Vapi keys shows no voice
-     option rather than one that fails on tap, and starts showing it the
-     moment the keys are set. */
+     choice is ever offered — an environment with no OpenAI key shows no
+     voice option rather than one that fails on tap, and starts showing it
+     the moment the key is set. */
   const [voiceAvailable, setVoiceAvailable] = useState(false);
 
   useEffect(() => {
@@ -899,9 +896,9 @@ const ProfileCoach = () => {
   const onTranscript = useCallback((line) => {
     setLastSpoken(line);
     setMessages((prev) => {
-      /* Vapi marks a transcript final per utterance, not per turn, so one
-         spoken sentence arrives in pieces — a greeting came through as four
-         bubbles broken at its own commas, which reads as the call stuttering.
+      /* A transcript is final per utterance, not per turn: somebody who
+         pauses in the middle of a thought produces two of them, and a
+         greeting once arrived as four bubbles broken at its own commas.
          Consecutive lines from the same speaker are one thing said, so they
          join into one bubble. Roles alternate, so this never glues two
          people together. */
@@ -914,89 +911,59 @@ const ProfileCoach = () => {
     });
   }, []);
 
+  /* What the call hears, as it hears it.
+     The model calls a tool the moment it learns something, and because the
+     browser holds the call that arrives here directly — the draft fills in
+     behind the orb while the person is still talking. The old arrangement
+     could not do this: the model ran on a server somewhere and the browser
+     found out what had been said only after hanging up. */
+  const heardAnythingRef = useRef(false);
+
+  const onLearned = useCallback((fields) => {
+    const clean = Object.fromEntries(
+      Object.entries(fields || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
+    );
+    if (!Object.keys(clean).length) return;
+    heardAnythingRef.current = true;
+    const merged = applyBraindump(draftRef.current, clean);
+    if (clean.target && !merged.target) merged.target = String(clean.target);
+    draftRef.current = merged;
+    setDraft(merged);
+  }, []);
+
   /**
-   * The call is over: ask the server what it heard and put it in the draft.
-   *
-   * Vapi re-sends the transcript each turn but knows nothing about a profile,
-   * so the fields were accumulated server-side across the call. One request
-   * collects them.
+   * The call is over. Everything it heard is already in the draft, so this
+   * only has to decide what the screen says next.
    */
-  const onCallEnded = useCallback(async (callId) => {
+  const onCallEnded = useCallback(() => {
     setLastSpoken(null);
-    if (!callId) {
+    if (!heardAnythingRef.current) {
       pushCoach(TEXT.VOICE_NOTHING);
+      later(() => startLadderFrom(draftRef.current, { silent: true, from: 'voice' }), TIMING.ACK_MS);
       return;
     }
-    try {
-      const { data } = await profileAPI.coachVoiceResult(callId);
-      const learned = data?.learned || {};
-      if (!Object.keys(learned).length) {
-        pushCoach(TEXT.VOICE_NOTHING);
-        return;
-      }
-      const merged = applyBraindump(draftRef.current, learned);
-      if (learned.target && !merged.target) merged.target = String(learned.target);
-      draftRef.current = merged;
-      setDraft(merged);
-      pushCoach(TEXT.VOICE_DONE);
-      trackEvent('coach_voice_completed', { fields: Object.keys(learned).length });
-      /* Park the ladder on the first gap, then make the handover Remi
-         promised out loud: a file is the one thing a phone call cannot
-         collect, so it is the first thing the screen asks for. Whichever
-         chip they pick, the questions pick up from the gap underneath. */
-      startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
-      later(() => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES), TIMING.ACK_MS);
-    } catch {
-      pushCoach(TEXT.VOICE_NOTHING);
-    }
-  }, [later, pushCoach, startLadderFrom]);
+    heardAnythingRef.current = false;
+    const merged = draftRef.current;
+    pushCoach(TEXT.VOICE_DONE);
+    trackEvent('coach_voice_completed', { fields: Object.keys(merged).length });
+    /* Park the ladder on the first gap, then make the handover Remi
+       promised out loud: a file is the one thing a phone call cannot
+       collect, so it is the first thing the screen asks for. Whichever
+       chip they pick, the questions pick up from the gap underneath. */
+    startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
+    later(() => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES), TIMING.ACK_MS);
+  }, [later, offerImportAgain, pushCoach, startLadderFrom]);
 
   const onVoiceError = useCallback((kind) => {
     pushCoach(kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED);
   }, [pushCoach]);
 
-  const voice = useVoiceCall({ onTranscript, onEnded: onCallEnded, onError: onVoiceError });
-
-  /* Ending the call on time.
-     Remi decides it has heard enough on the server, mid-call, and says so out
-     loud — but the model's half of a Vapi call never passes through this
-     browser, so the only way to know is to ask. Without it the call runs to
-     the ten-minute cap and drops mid-sentence, which is exactly how it felt
-     to the first person who tried it. */
-  const [wrapUp, setWrapUp] = useState(false);
-  const spokeAfterWrapUpRef = useRef(false);
-
-  useEffect(() => {
-    if (!voice.live || !voice.callId) {
-      setWrapUp(false);
-      spokeAfterWrapUpRef.current = false;
-      return undefined;
-    }
-    let stopped = false;
-    const tick = async () => {
-      try {
-        const { data } = await profileAPI.coachVoiceState(voice.callId);
-        if (!stopped && data?.done) setWrapUp(true);
-      } catch { /* a dropped poll costs nothing; the next is seconds away */ }
-    };
-    const timer = setInterval(tick, VOICE_POLL_MS);
-    return () => { stopped = true; clearInterval(timer); };
-  }, [voice.live, voice.callId]);
-
-  useEffect(() => {
-    if (wrapUp && voice.speaking) spokeAfterWrapUpRef.current = true;
-  }, [wrapUp, voice.speaking]);
-
-  useEffect(() => {
-    if (!wrapUp || !voice.live) return undefined;
-    /* Hang up once the handover has actually been said and the line has gone
-       quiet — cutting Remi off mid-goodbye is the rudeness this was meant to
-       fix. The cap is there for the case where the sentence never arrives,
-       so a finished call cannot hang on a missed event. */
-    const quiet = spokeAfterWrapUpRef.current && !voice.speaking;
-    const timer = setTimeout(() => voice.stop(), quiet ? VOICE_GOODBYE_MS : VOICE_WRAPUP_CAP_MS);
-    return () => clearTimeout(timer);
-  }, [wrapUp, voice.live, voice.speaking, voice.stop]);
+  const voice = useVoiceCall({
+    onTranscript,
+    onLearned,
+    onEnded: onCallEnded,
+    onError: onVoiceError,
+  });
 
   /** Take the offer: create this person's voice coach, then open the session. */
   /**
@@ -1024,12 +991,14 @@ const ProfileCoach = () => {
     }
     setBusy(true);
     try {
-      const { data } = await profileAPI.coachVoiceSession();
-      if (!data?.assistantId || !data?.publicKey) {
+      /* What they have already told us goes with the request, so the call
+         does not open by asking for something they typed two minutes ago. */
+      const { data } = await profileAPI.coachVoiceSession(draftRef.current);
+      if (!data?.clientSecret || !data?.model) {
         pushCoach(TEXT.VOICE_FAILED);
         return false;
       }
-      await voice.start({ assistantId: data.assistantId, publicKey: data.publicKey });
+      await voice.start({ clientSecret: data.clientSecret, model: data.model });
       trackEvent('coach_voice_started', {});
       return true;
     } catch (err) {

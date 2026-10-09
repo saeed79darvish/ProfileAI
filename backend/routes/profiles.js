@@ -11,7 +11,7 @@ const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
 const profileCoachService = require('../services/profileCoachService');
-const coachVoiceService = require('../services/coachVoiceService');
+const coachRealtimeService = require('../services/coachRealtimeService');
 const linkedinAnalyzerCache = require('../services/linkedinAnalyzerCache');
 const { buildTeaser: buildLinkedInTeaser } = require('../services/linkedinAnalyzerTeaser');
 const emailService = require('../services/emailService');
@@ -646,132 +646,45 @@ router.get('/coach/voice/status', (req, res) => {
      choice, so an environment without Vapi keys simply never shows a voice
      option — better than offering a call that fails when someone taps it,
      and it switches itself on the moment the keys are set. */
-  res.json({
-    available: !!(process.env.VAPI_API_KEY && coachVoiceService.VAPI_PUBLIC_KEY),
-  });
+  res.json({ available: coachRealtimeService.isConfigured() });
 });
 
 // @route   POST /api/profiles/coach/voice/session
-// @desc    Create a voice coach for this person and hand the browser its keys
+// @desc    Open a realtime session and hand the browser a short-lived key
 // @access  Private
+/* The browser talks to OpenAI directly from here on. We are only the thing
+   that holds the API key and decides who is allowed to start a call — which
+   is the whole of our involvement, because a realtime session is one model
+   doing hearing, thinking and speaking with nothing in the middle. */
 router.post('/coach/voice/session', authMiddleware, async (req, res) => {
   try {
-    if (!process.env.VAPI_API_KEY || !coachVoiceService.VAPI_PUBLIC_KEY) {
+    if (!coachRealtimeService.isConfigured()) {
       return res.status(503).json({ error: 'Voice is not configured on this server' });
     }
 
     const user = await User.findByPk(req.userId, { attributes: ['firstName'] });
-    const assistant = await coachVoiceService.createVoiceCoach({ firstName: user?.firstName });
+    /* What the browser already has goes into the instructions, so the call
+       does not open by asking for something they typed two minutes ago. */
+    const profile = req.body?.profile && typeof req.body.profile === 'object'
+      ? req.body.profile
+      : {};
 
-    res.json({
-      success: true,
-      assistantId: assistant.id,
-      publicKey: coachVoiceService.VAPI_PUBLIC_KEY,
+    const session = await coachRealtimeService.createVoiceSession({
+      firstName: user?.firstName,
+      profile,
     });
+
+    res.json({ success: true, ...session });
   } catch (error) {
-    const detail = error.response?.data;
-    console.error('Error starting voice coach:', detail || error.message);
+    console.error('Error starting voice coach:', error.detail || error.message);
     res.status(500).json({
       error: 'Could not start the voice coach',
-      /* Vapi's own complaint, passed through. It is a validation message
-         about our assistant payload — a voice id it does not know, a model
-         shape it rejects — and not a secret. Without it the first failed
-         call is just a shrug on screen and a log nobody is watching. */
-      detail: typeof detail?.message === 'string'
-        ? detail.message
-        : Array.isArray(detail?.message)
-          ? detail.message.join('; ')
-          : undefined,
+      // OpenAI's own complaint about our session payload, passed through.
+      // Without it the first failed call is a shrug on screen and a log
+      // nobody is watching.
+      detail: error.detail,
     });
   }
-});
-
-// @route   POST /api/profiles/coach/voice/chat/completions  (and /coach/voice)
-// @desc    One spoken turn. Called by Vapi, in OpenAI chat-completions shape.
-// @access  Public — Vapi calls this, not a browser. See the auth note below.
-/* Two paths for one handler, because Vapi treats a custom-llm `url` as a base
-   and POSTs to `<url>/chat/completions` the way the OpenAI SDK would. We had
-   it mounted only at the bare path, so every call 404'd and Vapi hung up with
-   `custom-llm-llm-failed` — the voice coach never once reached our model, and
-   it looked like a flaky connection rather than a wrong URL. The bare path
-   stays because it is what a curl smoke test reaches for. */
-const voiceTurnRoute = async (req, res) => {
-  /* Vapi is the only caller, and it arrives without a session. The protection
-     is that this endpoint can do nothing but return a sentence: it writes no
-     database row, bills nothing to a user, and leaks nothing about anyone —
-     the profile it is handed comes from the request itself. A shared secret
-     in a header would still be worth adding before this sees real traffic. */
-  try {
-    const { messages, call, profile } = req.body || {};
-    const say = await coachVoiceService.handleVoiceTurn({
-      callId: call?.id,
-      messages: Array.isArray(messages) ? messages : [],
-      profile: profile && typeof profile === 'object' ? profile : {},
-    });
-
-    /* OpenAI's streaming shape, because that is what Vapi expects to read.
-       One chunk and done: the sentence is already complete by the time we
-       have it, and pretending to stream it token by token would add latency
-       to the one thing a voice call cannot afford. */
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const chunk = {
-      id: `remi-${Date.now()}`,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model: 'remi',
-      choices: [{ index: 0, delta: { role: 'assistant', content: say }, finish_reason: null }],
-    };
-    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    res.write(`data: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
-    res.write('data: [DONE]\n\n');
-    res.end();
-  } catch (error) {
-    console.error('Error on voice turn:', error);
-    // Never leave the caller silent: a voice agent with nothing to say is a
-    // dead line, which is worse than an imperfect sentence.
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.write(`data: ${JSON.stringify({
-      id: 'remi-error',
-      object: 'chat.completion.chunk',
-      choices: [{ index: 0, delta: { role: 'assistant', content: 'Sorry, I lost that. Could you say it again?' }, finish_reason: 'stop' }],
-    })}\n\n`);
-    res.write('data: [DONE]\n\n');
-    res.end();
-  }
-};
-
-router.post('/coach/voice', voiceTurnRoute);
-router.post('/coach/voice/chat/completions', voiceTurnRoute);
-
-// @route   GET /api/profiles/coach/voice/state/:callId
-// @desc    Whether the call has heard enough, so the browser can close it
-// @access  Private
-/* The browser asks every few seconds while a call is live. It has to, because
-   the model's side of a Vapi call is a server-to-server conversation the
-   browser never sees — the only thing it knows is what was said out loud.
-   Without this, a finished call just keeps running until the duration cap and
-   drops in the middle of a sentence. */
-router.get('/coach/voice/state/:callId', authMiddleware, (req, res) => {
-  const state = coachVoiceService.peekSession(req.params.callId);
-  // No session yet simply means the first spoken turn has not landed.
-  res.json({ done: !!state?.done, turns: state?.turns || 0 });
-});
-
-// @route   GET /api/profiles/coach/voice/result/:callId
-// @desc    What the call collected, for the browser to merge into the draft
-// @access  Private
-router.get('/coach/voice/result/:callId', authMiddleware, async (req, res) => {
-  const learned = coachVoiceService.takeSession(req.params.callId);
-  if (!learned) {
-    // Held in memory for an hour: a restart between the call and this
-    // request loses it, which is the known cost of not persisting an
-    // unfinished voice profile.
-    return res.status(404).json({ error: 'Nothing recorded for that call' });
-  }
-  res.json({ success: true, learned });
 });
 
 // @route   POST /api/profiles/coach/turn
