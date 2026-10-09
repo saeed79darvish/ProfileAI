@@ -115,11 +115,14 @@ const Register = () => {
     if (authDebugEnabled) console.log('[AUTH_FLOW][Register]', ...args);
   };
 
-  const getCandidateDest = (authUser, fallback) => (
-    authUser?.role === 'candidate' && authUser?.hasProfile !== true
-      ? ROUTES.ONBOARDING
-      : fallback
-  );
+  /* Used by the "you are already signed in" effect below, not by a fresh
+     registration. Someone who already has an account lands on the dashboard
+     whether or not they have finished a profile — it has a start screen for
+     the empty case, and being force-marched into the coach on every visit is
+     what made the app feel like it had no front door. A brand-new signup
+     still goes straight to building, further down: that is what they just
+     asked for. */
+  const getCandidateDest = (authUser, fallback) => fallback;
 
   // A visitor who built a profile pre-registration (see utils/guestDraft.js)
   // has it waiting in localStorage. On a genuinely fresh registration —
@@ -237,7 +240,9 @@ const Register = () => {
       trackEvent('register_completed', { role: user?.role, method: 'google', emailVerified: !!user?.emailVerified });
       const dest = user?.role === 'recruiter'
         ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-        : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
+        // Dashboard either way: it has a start screen for an empty account,
+        // and these OAuth paths are taken by returning users too.
+        : '/profile';
       const guestDraft = claimGuestDraftFor(user);
       authDebug('google register navigate', { dest, hasGuestDraft: !!guestDraft });
       if (fromExtension) {
@@ -288,7 +293,9 @@ const Register = () => {
       trackEvent('register_completed', { role: user?.role, method: 'linkedin', emailVerified: !!user?.emailVerified });
       const dest = user?.role === 'recruiter'
         ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-        : (user?.hasProfile ? '/profile' : ROUTES.ONBOARDING);
+        // Dashboard either way: it has a start screen for an empty account,
+        // and these OAuth paths are taken by returning users too.
+        : '/profile';
       const guestDraft = claimGuestDraftFor(user);
       authDebug('linkedin register navigate', { dest, hasGuestDraft: !!guestDraft });
       if (fromExtension) {

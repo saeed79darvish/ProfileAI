@@ -69,11 +69,14 @@ const Login = () => {
     if (authDebugEnabled) console.log('[AUTH_FLOW][Login]', ...args);
   };
 
-  const getCandidateDest = (authUser, fallback) => (
-    authUser?.role === ROLES.CANDIDATE && authUser?.hasProfile !== true
-      ? '/onboarding'
-      : fallback
-  );
+  /* Signing in lands on the dashboard, profile or no profile.
+     This used to send anyone without a profile to /onboarding, which
+     redirects to /profile/create — so the app had no front door for the
+     people who most needed one. Every sign-in dropped them mid-conversation
+     with the coach, with no way to see what else was here or that they had a
+     half-finished draft waiting. The dashboard greets them and offers to
+     start, which is an invitation rather than a shove. */
+  const getCandidateDest = (authUser, fallback) => fallback;
 
   // Redirect if already authenticated
   useEffect(() => {
