@@ -45,6 +45,38 @@ const isTemperatureComplaint = (err) =>
   err?.status === 400 && /temperature/i.test(String(err?.message || ''));
 
 /**
+ * Pull the model's answer out of a response's content blocks.
+ *
+ * Not `content[0].text`. The Claude 5 family runs adaptive thinking by
+ * default, and it decides per request: a short prompt comes back as
+ * `[text]`, but a long, genuinely hard one comes back as
+ * `[thinking, text]`. A thinking block has no `.text`, so `content[0].text`
+ * is `undefined` and the `.trim()` after it throws a TypeError — which is
+ * not retryable, so it surfaced to the client as a bare 400.
+ *
+ * That is why tailor-for-job failed while analyze-gaps kept working: gaps
+ * run on Haiku 4.5 (no adaptive thinking), tailoring runs on the Sonnet 5
+ * default with a prompt complex enough to always trigger it.
+ *
+ * Thinking text is deliberately ignored — with `display` left at its default
+ * the blocks are empty anyway, and the reasoning is never the answer.
+ */
+function extractText(response) {
+  const blocks = (response && response.content) || [];
+  const text = blocks
+    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('');
+  if (!text.trim()) {
+    const kinds = blocks.map((b) => (b && b.type) || 'unknown').join(', ') || 'none';
+    throw new Error(
+      `Claude returned no text content (blocks: ${kinds}, stop_reason: ${response && response.stop_reason})`
+    );
+  }
+  return text;
+}
+
+/**
  * Centralized AI call function
  * Includes retry with exponential backoff for transient failures
  * @param {Object} options - Call options
@@ -82,7 +114,7 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
     
     // Strip AI-tell characters (em/en dashes, non-breaking spaces) so all
     // downstream consumers get clean text without touching each caller.
-    const rawText = response.content[0].text;
+    const rawText = extractText(response);
     const cleaned = stripAiTellChars(rawText);
 
     // Return in OpenAI-compatible shape so existing code works unchanged
@@ -111,5 +143,6 @@ module.exports = {
   validateAIScores,
   DEFAULT_MODEL,
   HAIKU_MODEL,
-  supportsTemperature
+  supportsTemperature,
+  extractText
 };
