@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { supportsTemperature, extractText } = require('./core');
+const { supportsTemperature, extractText, createMessage, withThinkingOff } = require('./core');
 
 /* The Claude 5 family rejects `temperature` outright — a 400, not a warning.
    Every AI call in this codebase passes one, so getting this rule wrong
@@ -77,4 +77,81 @@ test('a response with no text at all fails loudly, naming the blocks', () => {
   );
   assert.throws(() => extractText({ content: [] }), /no text content/);
   assert.throws(() => extractText({}), /no text content/);
+});
+
+
+/* Turning thinking off. The forms below are what the live API accepts — there
+   is no major-version rule, so these are negotiated rather than looked up. */
+
+const refuses = (/** @type {string[]} */ forms) => {
+  /* Stands in for the API: rejects the named thinking forms the way it does,
+     with a 400 that mentions `thinking`. */
+  const calls = [];
+  return {
+    calls,
+    messages: {
+      create: async (request) => {
+        calls.push(request);
+        const type = request.thinking && request.thinking.type;
+        if (type && forms.includes(type)) {
+          const err = new Error(`"thinking.type.${type}" is not supported for this model.`);
+          err.status = 400;
+          throw err;
+        }
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+    },
+  };
+};
+
+test('a model that takes between_tools is asked once, with no wasted call', async () => {
+  const client = refuses(['disabled']);
+  const res = await createMessage(client, { model: 'probe-between-tools', max_tokens: 6000, messages: [] });
+  assert.equal(res.content[0].text, 'ok');
+  assert.equal(client.calls.length, 1);
+  assert.deepEqual(client.calls[0].thinking, { type: 'between_tools' });
+});
+
+test('a model that refuses it falls through to disabled, then remembers', async () => {
+  const client = refuses(['between_tools']);
+  await createMessage(client, { model: 'probe-disabled', max_tokens: 6000, messages: [] });
+  assert.deepEqual(client.calls.map((c) => c.thinking.type), ['between_tools', 'disabled']);
+
+  // The second call must not repeat the rejected form.
+  await createMessage(client, { model: 'probe-disabled', max_tokens: 6000, messages: [] });
+  assert.equal(client.calls.length, 3);
+  assert.deepEqual(client.calls[2].thinking, { type: 'disabled' });
+});
+
+test('a model that always thinks is given a budget for it instead', async () => {
+  /* The regression this whole mechanism exists for: thinking is spent out of
+     max_tokens, so leaving the tuned 6000 in place let it starve the answer. */
+  const client = refuses(['between_tools', 'disabled']);
+  await createMessage(client, { model: 'probe-mandatory', max_tokens: 6000, messages: [] });
+  const last = client.calls[client.calls.length - 1];
+  assert.equal(last.thinking, undefined, 'thinking param dropped');
+  assert.ok(last.max_tokens > 6000, `expected headroom above 6000, got ${last.max_tokens}`);
+  assert.ok(last.max_tokens <= 32000, 'stays within the output ceiling');
+});
+
+test('a 400 that is not about thinking is a real error', async () => {
+  const client = {
+    messages: {
+      create: async () => {
+        const err = new Error('credit balance is too low');
+        err.status = 400;
+        throw err;
+      },
+    },
+  };
+  await assert.rejects(
+    () => createMessage(client, { model: 'probe-other-400', max_tokens: 100, messages: [] }),
+    /credit balance/
+  );
+});
+
+test('the budget is left alone while a form is still being tried', () => {
+  const request = { model: 'probe-untouched', max_tokens: 6000, messages: [] };
+  assert.equal(withThinkingOff(request).max_tokens, 6000);
+  assert.equal(request.thinking, undefined, 'the caller\'s request is not mutated');
 });

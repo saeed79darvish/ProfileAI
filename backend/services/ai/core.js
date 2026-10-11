@@ -77,6 +77,84 @@ function extractText(response) {
 }
 
 /**
+ * Turning thinking OFF.
+ *
+ * The Claude 5 family runs adaptive thinking by default, and thinking tokens
+ * are spent out of `max_tokens`. Every call in this codebase had its budget
+ * tuned against a model that did not think — tailoring asks for 6000 and a
+ * resume fills most of it — so adaptive thinking quietly ate the output
+ * allowance and tailor-for-job started coming back with
+ * `stop_reason: max_tokens` and no text block at all.
+ *
+ * None of these calls want reasoning. They ask for one JSON document, and the
+ * judgement in this service lives in the deterministic audit and enforcement
+ * passes, not in the model's scratchpad.
+ *
+ * There is no version rule for the off switch. Checked against the live API:
+ *
+ *   claude-sonnet-5-5                     {type:'between_tools'}  ('disabled' 400s)
+ *   claude-sonnet-5, opus-5, haiku-4-5    {type:'disabled'}       ('between_tools' 400s)
+ *   claude-opus-5-5                       neither — cannot be turned off
+ *
+ * So the obvious `supportsTemperature`-style major-version test would be wrong
+ * today, not just eventually, and a hardcoded id table would rot on the next
+ * release. Instead we try the forms in order and keep whichever one the API
+ * accepted. The 400 names the right form, so an unknown model costs a couple
+ * of rejected calls once per process and nothing after that.
+ */
+const THINKING_OFF_FORMS = [{ type: 'between_tools' }, { type: 'disabled' }];
+
+/* model -> index into THINKING_OFF_FORMS. An index at the end of the list
+   means every form was refused and the model always thinks. */
+const thinkingOffByModel = new Map();
+
+const isThinkingComplaint = (err) =>
+  err?.status === 400 && /thinking/i.test(String(err?.message || ''));
+
+/* When thinking cannot be turned off it still has to be paid for out of
+   max_tokens, so give it a budget of its own rather than let it crowd out the
+   answer — which is the whole failure this code exists to prevent. */
+const THINKING_HEADROOM = 16000;
+const MAX_OUTPUT_TOKENS = 32000;
+
+function withThinkingOff(request) {
+  const index = thinkingOffByModel.get(request.model) ?? 0;
+  const form = THINKING_OFF_FORMS[index];
+  if (form) return { ...request, thinking: form };
+  return {
+    ...request,
+    max_tokens: Math.min(MAX_OUTPUT_TOKENS, (request.max_tokens || 2000) + THINKING_HEADROOM),
+  };
+}
+
+/** Records that `model` refused its current form. Returns false once we have
+ *  run out of things to try, which makes the error a real one. */
+function noteThinkingRefused(model) {
+  const index = thinkingOffByModel.get(model) ?? 0;
+  if (index >= THINKING_OFF_FORMS.length) return false;
+  thinkingOffByModel.set(model, index + 1);
+  return true;
+}
+
+/**
+ * `messages.create` with thinking turned off, learning how to ask per model.
+ * Both callAI implementations go through this — the one here and the separate
+ * one in resumeParserService.
+ */
+async function createMessage(client, request) {
+  for (;;) {
+    try {
+      return await client.messages.create(withThinkingOff(request));
+    } catch (err) {
+      if (!isThinkingComplaint(err) || !noteThinkingRefused(request.model)) throw err;
+      console.warn(
+        `[ProfilleAI] ${request.model} refused that thinking setting; trying the next one`
+      );
+    }
+  }
+}
+
+/**
  * Centralized AI call function
  * Includes retry with exponential backoff for transient failures
  * @param {Object} options - Call options
@@ -104,12 +182,12 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
 
     let response;
     try {
-      response = await anthropic.messages.create(request);
+      response = await createMessage(anthropic, request);
     } catch (err) {
       // Backstop for a family we have not met yet that also drops it.
       if (!isTemperatureComplaint(err)) throw err;
       delete request.temperature;
-      response = await anthropic.messages.create(request);
+      response = await createMessage(anthropic, request);
     }
     
     // Strip AI-tell characters (em/en dashes, non-breaking spaces) so all
@@ -144,5 +222,8 @@ module.exports = {
   DEFAULT_MODEL,
   HAIKU_MODEL,
   supportsTemperature,
-  extractText
+  extractText,
+  createMessage,
+  withThinkingOff,
+  noteThinkingRefused
 };
