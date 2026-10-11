@@ -78,9 +78,49 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
 
   const strongMatches = tailoredProfile.matchAnalysis?.strongMatches || tailoredProfile.highlights || [];
   const gapObjects = tailoredProfile._skillGaps || [];
-  const longTermGaps = gapObjects.length > 0
-    ? gapObjects.map((g) => g.skill)
-    : (tailoredProfile.matchAnalysis?.gaps || tailoredProfile.suggestions || []);
+
+  /* What is still missing has to be measured against the finished resume.
+     `_skillGaps` is `acceptedGapObjects` — the gaps the candidate asked
+     tailoring to ADD. Accept is the default in the gap review, so clicking
+     through it accepts everything, and this panel then reported the
+     candidate's own requests back as failures. Nothing in that path looked at
+     the tailored output, which is why the list and the "gaps left" count came
+     back identical on every run no matter what tailoring did.
+
+     The backend already does the honest arithmetic in `matchAnalysis.gaps`:
+     the model's own gaps, plus every JD keyword stripped for having no support
+     in the original resume, plus every required keyword still absent from the
+     draft. Prefer that, then drop anything the draft demonstrably covers. */
+  const tailoredText = [
+    tailoredProfile.summary || '',
+    ...(tailoredProfile.skills || []),
+    ...(tailoredProfile.experience || []).map((e: any) => e?.description || ''),
+  ].join(' ').toLowerCase();
+
+  const GAP_FILLER_WORDS = new Set([
+    'and', 'the', 'for', 'with', 'using', 'experience', 'experiences', 'knowledge',
+    'strong', 'hands', 'our', 'their', 'able', 'ability', 'such', 'that', 'this',
+  ]);
+
+  /* Covered only when every content word appears, so a word shared with the
+     rest of the resume — "framework", "design" — cannot on its own mark
+     "NestJS framework" as handled. Erring towards leaving a gap listed is the
+     right way to be wrong here. */
+  const coveredByDraft = (gap: string) => {
+    const words = String(gap)
+      .toLowerCase()
+      .split(/[^a-z0-9+#.]+/)
+      .filter((w) => w.length > 2 && !GAP_FILLER_WORDS.has(w));
+    return words.length > 0 && words.every((w) => tailoredText.includes(w));
+  };
+
+  const reportedGaps = tailoredProfile.matchAnalysis?.gaps?.length
+    ? tailoredProfile.matchAnalysis.gaps
+    : gapObjects.length > 0
+      ? gapObjects.map((g) => g.skill)
+      : (tailoredProfile.suggestions || []);
+
+  const longTermGaps = reportedGaps.filter((g) => g && !coveredByDraft(g));
 
   // Keywords added: prefer the explicitly-passed targeted list, fall back to strong matches.
   const added = (addedKeywords && addedKeywords.length > 0 ? addedKeywords : strongMatches).filter(Boolean);
