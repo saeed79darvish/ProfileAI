@@ -1711,7 +1711,16 @@ Return ONLY a valid JSON array, no additional text.`;
         system: 'You are a career gap analyst. You understand OR-patterns, required vs preferred language, and technology families. You correctly identify which gaps are real vs already covered by alternatives. Return valid JSON arrays only.',
         prompt,
         temperature: 0.3,
-        max_tokens: 3000
+        // 3000 was not enough and the failure was total. Up to 15 gaps, each
+        // carrying skill + category + severity + type + reason + description +
+        // learningResource, against a long resume and a long posting, runs past
+        // 3000 tokens — and this endpoint had no truncation recovery, so the
+        // response died on `JSON.parse` with "Unterminated string in JSON at
+        // position 8642". Observed in production on a 7-role resume: every
+        // single call failed. The panel's catch then proceeded straight to
+        // tailoring with NO gap selections, so the candidate never saw the gap
+        // review and could not tell that anything had gone wrong.
+        max_tokens: 6000
       });
 
       let jsonText = responseText;
@@ -1721,8 +1730,33 @@ Return ONLY a valid JSON array, no additional text.`;
         jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
       }
 
-      const allGaps = JSON.parse(jsonText);
-      const parsed = Array.isArray(allGaps) ? allGaps : [];
+      /* Same recovery the tailoring and upload paths already use. A truncated
+         reply holds N complete gaps and one severed tail; keeping the N beats
+         throwing all of them away, and the alternative here is not "no gaps"
+         but "the gap step silently did not happen". */
+      let allGaps;
+      try {
+        allGaps = JSON.parse(jsonText);
+      } catch (parseError) {
+        allGaps = repairTruncatedJSON(jsonText);
+        if (!allGaps) {
+          throw new Error(
+            `Gap analysis returned JSON that could not be parsed or repaired (${jsonText.length} chars): ${parseError.message}`
+          );
+        }
+        console.warn(
+          `[ProfilleAI] ⚠️ Gap analysis JSON was truncated at ${jsonText.length} chars ` +
+          `(${parseError.message}); recovered ${Array.isArray(allGaps) ? allGaps.length : 0} complete gap(s).`
+        );
+      }
+      // Drop fragments. Truncation recovery closes the structure at whatever
+      // point the reply stopped, so the final element can be a half-written
+      // object with no `skill` — and an entry with no skill name renders as a
+      // blank row in the gap review that the candidate cannot act on or
+      // dismiss. A gap without a name is not a gap.
+      const parsed = (Array.isArray(allGaps) ? allGaps : []).filter(
+        (g) => g && typeof g === 'object' && typeof g.skill === 'string' && g.skill.trim()
+      );
 
       // Split into actionable gaps vs satisfied alternatives
       const gaps = parsed.filter(g => g.suggest_adding !== false);

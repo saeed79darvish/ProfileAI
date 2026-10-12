@@ -1173,11 +1173,27 @@ export const SidePanel: React.FC = () => {
         setTailoringStartedAt(null);
         setGapReview({ gaps: response.gaps, settings: activeSettings || null });
       } else {
-        // No gaps — proceed directly to tailoring
+        // Two very different outcomes used to land here identically: "your
+        // resume already covers this posting" and "the gap step failed".
+        // Treating them the same is how a gap analysis that failed on EVERY
+        // call went unnoticed — the run carried on into tailoring with no gap
+        // selections and looked, to the user, like it had simply skipped a step
+        // and produced the same resume as last time.
+        if (!response?.success) {
+          console.warn('[ProfileAI] Gap analysis failed:', response?.error);
+          showNotification(
+            'Could not analyze your skill gaps for this job — tailoring without the gap review.',
+            'warning'
+          );
+        }
         await doTailor(null, undefined, activeSettings);
       }
     } catch (error) {
-      console.warn('[ProfileAI] Gap analysis failed, proceeding to tailor:', error);
+      console.warn('[ProfileAI] Gap analysis threw, proceeding to tailor:', error);
+      showNotification(
+        'Could not analyze your skill gaps for this job — tailoring without the gap review.',
+        'warning'
+      );
       await doTailor(null, undefined, activeSettings);
     } finally {
       endOp('gaps');
