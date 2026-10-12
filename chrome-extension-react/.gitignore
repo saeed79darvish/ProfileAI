@@ -5,3 +5,6 @@ dist/
 # Extension signing private key — NEVER commit. Keep a secure backup.
 extension-key.pem
 *.pem
+
+# Test fixtures built by npm test
+.test-build/

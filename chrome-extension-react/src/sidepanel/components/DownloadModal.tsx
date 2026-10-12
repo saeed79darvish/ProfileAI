@@ -218,6 +218,19 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
         {activeTab === 'edit' && editData && (
           <div className="dl-edit-scroll">
+            {/* Headline — the title printed under the candidate's name. It is
+                set from the posting's own title during tailoring, so it is the
+                first thing worth checking and was previously not editable. */}
+            <div className="dl-edit-section">
+              <h4 className="dl-edit-title">🎯 Headline</h4>
+              <input
+                className="dl-input"
+                value={editData.title || ''}
+                onChange={(e) => updateField('title', e.target.value)}
+                placeholder="e.g. Staff Software Engineer"
+              />
+            </div>
+
             {/* Summary */}
             <div className="dl-edit-section">
               <h4 className="dl-edit-title">📝 Summary</h4>

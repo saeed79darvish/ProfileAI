@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
 import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
 import { analyzeJobMatchLocally, type Vocabulary } from '../jobMatch/localJobMatch';
+import { scrapeJobFromDocument, mergeScrapes } from '../jobScrape';
 
 // Any task that was still running when a previous worker generation was torn
 // down has no fetch behind it any more. Flag those immediately on boot so a
@@ -388,9 +389,13 @@ async function handleMessage(
         // Use chrome.scripting.executeScript to extract job info directly from the page DOM.
         // This is the most reliable method — no dependency on content script messaging.
         let jobInfo = null;
+        // The page being asked about, so a stored posting from another tab can
+        // be rejected rather than substituted.
+        let relayUrl = '';
         try {
           const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           const tab = tabs[0];
+          relayUrl = tab?.url || '';
           console.log('[ProfileAI BG] GET_JOB_INFO_RELAY — tab:', tab?.id, tab?.url?.slice(0, 80));
           // Bail out on pages that are definitely not job pages. Prevents phantom
           // "job title" like the person's name being scraped off a LinkedIn
@@ -403,102 +408,14 @@ async function handleMessage(
           }
           if (tab?.id && tab?.url && !tab.url.startsWith('chrome://')) {
             try {
+              // The shared scraper, injected. This was a third hand-written
+              // copy of the extraction logic, with its own selector list and
+              // its own description read — the drift between the copies is the
+              // whole reason job data differed depending on which code path
+              // happened to produce it.
               const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
-                func: () => {
-                  // --- Runs in the page context ---
-                  const titleSelectors = [
-                    '.job-details-jobs-unified-top-card__job-title',
-                    '.jobs-unified-top-card__job-title',
-                    '.jobs-details-top-card__job-title',
-                    '.top-card-layout__title',
-                    'h1.t-24',
-                    'h1[class*="jobs"]',
-                    'h2.top-card-layout__title',
-                    '.app-title',
-                    '.posting-headline h2',
-                    '[data-automation-id="jobPostingTitle"]',
-                    'h1',
-                  ];
-                  const companySelectors = [
-                    '.job-details-jobs-unified-top-card__company-name',
-                    '.jobs-unified-top-card__company-name',
-                    '.jobs-details-top-card__company-info a',
-                    '.topcard__org-name-link',
-                    'a[data-tracking-control-name*="company"]',
-                    '[class*="job-details"] a[href*="/company/"]',
-                    '.company-name',
-                    '.posting-categories .location',
-                    '[data-automation-id="jobPostingCompany"]',
-                    '[class*="company"]',
-                  ];
-                  const descriptionSelectors = [
-                    '#job-details',
-                    '.jobs-description-content',
-                    '.jobs-description__content',
-                    '.jobs-description-content__text',
-                    '.jobs-box__html-content',
-                    '.show-more-less-html__markup',
-                    '.description__text',
-                    'div.jobs-description',
-                    'div[class*="jobs-description"]',
-                    'section[class*="description"]',
-                    '.job-description',
-                    '#job_description',
-                    '[data-automation-id="jobPostingDescription"]',
-                    '.posting-page',
-                    '.section-wrapper',
-                    '[class*="job-description"]',
-                    '[class*="description"]',
-                    'article',
-                    'main',
-                  ];
-
-                  let title = '';
-                  let company = '';
-                  let description = '';
-
-                  for (const sel of titleSelectors) {
-                    try {
-                      const el = document.querySelector(sel);
-                      if (el && el.textContent && el.textContent.trim()) {
-                        title = el.textContent.trim();
-                        break;
-                      }
-                    } catch (_) {}
-                  }
-
-                  for (const sel of companySelectors) {
-                    try {
-                      const el = document.querySelector(sel);
-                      if (el && el.textContent && el.textContent.trim()) {
-                        company = el.textContent.trim();
-                        break;
-                      }
-                    } catch (_) {}
-                  }
-
-                  // For description, pick the longest match
-                  for (const sel of descriptionSelectors) {
-                    try {
-                      const el = document.querySelector(sel);
-                      if (el) {
-                        const text = (el as HTMLElement).innerText || el.textContent || '';
-                        if (text.trim().length > description.length) {
-                          description = text.trim();
-                        }
-                      }
-                    } catch (_) {}
-                  }
-
-                  // Ultimate fallback: page body
-                  if (description.length < 100) {
-                    description = document.body.innerText.slice(0, 8000);
-                  }
-
-                  if (!title && !company) return null;
-                  return { title, company, description };
-                },
+                func: scrapeJobFromDocument,
               });
               if (results && results[0]?.result) {
                 jobInfo = results[0].result;
@@ -507,8 +424,13 @@ async function handleMessage(
                   company: jobInfo.company?.slice(0, 40),
                   descLength: jobInfo.description?.length || 0,
                 });
-                // Also store in storage for future use
-                chrome.storage.local.set({ currentJobInfo: jobInfo, currentJobUrl: tab.url });
+                // Also store in storage for future use. `_url` rides along so
+                // readers can tell which page this came from — storage has one
+                // slot shared by every tab.
+                chrome.storage.local.set({
+                  currentJobInfo: { ...jobInfo, _ts: Date.now(), _url: tab.url },
+                  currentJobUrl: tab.url,
+                });
               }
             } catch (e) {
               console.log('[ProfileAI BG] scripting.executeScript failed:', e);
@@ -517,15 +439,25 @@ async function handleMessage(
         } catch (e) {
           console.log('[ProfileAI BG] tabs.query failed:', e);
         }
-        // Fallback: read from storage
+        // Fallback: read from storage — but only if it is about THIS page.
+        // Storage holds a single slot shared by every tab, so an unguarded
+        // read here answered "what job is on screen?" with a posting from a
+        // different tab, which the panel then tailored against.
         if (!jobInfo || (!jobInfo.title && !jobInfo.company)) {
           try {
             const stored = await chrome.storage.local.get(['currentJobInfo', 'currentJobUrl']);
-            if (stored.currentJobInfo && (stored.currentJobInfo.title || stored.currentJobInfo.company)) {
+            const storedUrl = stored.currentJobInfo?._url || stored.currentJobUrl || '';
+            const samePage = !!relayUrl && !!storedUrl && storedUrl === relayUrl;
+            if (samePage && stored.currentJobInfo && (stored.currentJobInfo.title || stored.currentJobInfo.company)) {
               jobInfo = stored.currentJobInfo;
               console.log('[ProfileAI BG] Got job from storage fallback:', {
                 title: jobInfo.title?.slice(0, 60),
                 descLength: jobInfo.description?.length || 0,
+              });
+            } else if (stored.currentJobInfo && !samePage) {
+              console.log('[ProfileAI BG] Ignoring storage fallback — belongs to a different page', {
+                storedUrl: storedUrl?.slice(0, 80),
+                relayUrl: relayUrl?.slice(0, 80),
               });
             }
           } catch (_) {}
@@ -580,6 +512,30 @@ async function handleMessage(
               company: tailorData.company,
               _skillGaps: tailorData.gapSelections?.acceptedGapObjects || [],
             };
+            /* Diagnostic: the "still missing" list has three possible
+               sources and the panel cannot tell us which one it used. Print
+               all of them next to what the draft actually contains, so a
+               mismatch is readable from the background console. */
+            try {
+              const draft = [
+                tailored.summary || '',
+                ...(tailored.skills || []),
+                ...(tailored.experience || []).map((e: any) => e?.description || ''),
+              ].join(' ').toLowerCase();
+              const accepted = (tailorData.gapSelections?.acceptedGapObjects || []).map((g: any) => g.skill);
+              console.log('[ProfileAI BG] GAP SOURCES', {
+                matchAnalysisGaps: tailored.matchAnalysis?.gaps ?? '(absent)',
+                acceptedGaps: accepted,
+                skippedGaps: tailorData.gapSelections?.skippedGaps ?? '(none)',
+                inDraft: accepted.filter((g: string) =>
+                  String(g).toLowerCase().split(/[^a-z0-9+#.]+/)
+                    .filter((w) => w.length > 2)
+                    .every((w) => draft.includes(w))),
+                skillsCount: (tailored.skills || []).length,
+                draftChars: draft.length,
+              });
+            } catch (_) {}
+
             try {
               if (tailorData.jobUrl) {
                 const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
@@ -611,14 +567,14 @@ async function handleMessage(
       }
 
       case 'ANALYZE_GAPS': {
-        const gapData = message.data as { jobDescription: string; jobTitle?: string; company?: string };
+        const gapData = message.data as { jobDescription: string; jobTitle?: string; company?: string; forceRefresh?: boolean };
         // Keyed by page, like every other job-scoped task, so the panel can
         // tell whether a restored record belongs to the tab in front of the user.
         const gapResult = await runBackgroundTask(
           'gaps',
           await activeTabJobKey(),
           { jobTitle: gapData.jobTitle || '', company: gapData.company || '' },
-          () => analyzeGapsForJob(gapData.jobDescription),
+          () => analyzeGapsForJob(gapData.jobDescription, gapData.forceRefresh),
         );
         sendResponse(gapResult);
         break;
@@ -1056,6 +1012,61 @@ async function silentAuthCheck(): Promise<boolean> {
   return await syncAuthFromWebApp();
 }
 
+// The API sits behind Cloudflare in front of Render, and Render redeploys the
+// service on every push to main. During that restart — and during an OOM kill,
+// which this 512MB instance has had before — the edge answers 502/503/504 on
+// its own; the Express app never sees the request. Those windows last seconds,
+// but a single request landing in one used to fail for good: fetchProfileImpl
+// threw, the catch swallowed it, and the panel fell back to the cached profile,
+// which for a first-run user is nothing at all. Retrying across the window is
+// the whole fix. Network-level rejections (service worker woken with no
+// connectivity, DNS blip) are the same problem wearing a different hat, so they
+// retry too.
+const TRANSIENT_HTTP_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_RETRY_DELAYS_MS = [600, 1800];
+
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+async function fetchWithTransientRetry(url: string, init?: RequestInit): Promise<Response> {
+  const lastAttempt = TRANSIENT_RETRY_DELAYS_MS.length;
+  for (let attempt = 0; ; attempt++) {
+    if (attempt > 0) await delay(TRANSIENT_RETRY_DELAYS_MS[attempt - 1]);
+    try {
+      const response = await fetch(url, init);
+      if (attempt === lastAttempt || !TRANSIENT_HTTP_STATUSES.has(response.status)) return response;
+      console.warn(`[ProfileAI] ${url} -> HTTP ${response.status} (backend restarting?), retrying`);
+    } catch (err) {
+      // Total budget here is 2.4s, well inside the MV3 service worker's idle
+      // timeout, so the retries cannot outlive the worker that started them.
+      if (attempt === lastAttempt) throw err;
+      console.warn(`[ProfileAI] ${url} fetch failed, retrying`, err);
+    }
+  }
+}
+
+
+// A 502/503 does not carry JSON — Cloudflare serves its own HTML error page —
+// so the unconditional response.json() the sign-in and promo paths used to do
+// threw a SyntaxError, was caught by their outer catch, and reported "Could not
+// connect to server". That sends people to check their wifi when the real cause
+// is the API redeploying. Parse defensively and name the actual cause instead.
+async function readJsonOrNull(response: Response): Promise<any> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function apiErrorMessage(response: Response, body: any, fallback: string): string {
+  if (body?.error) return body.error;
+  if (body?.errors?.[0]?.msg) return body.errors[0].msg;
+  if (TRANSIENT_HTTP_STATUSES.has(response.status)) {
+    return 'ProfileAI is restarting. Wait a few seconds and try again.';
+  }
+  return fallback;
+}
+
 // Auth functions
 async function loadAuthFromStorage() {
   const data = await chrome.storage.local.get(['authToken', 'user']);
@@ -1099,9 +1110,9 @@ async function loginWithCredentials(email: string, password: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const data = await response.json();
+    const data = await readJsonOrNull(response);
     if (!response.ok) {
-      return { success: false, error: data.error || data.errors?.[0]?.msg || 'Login failed' };
+      return { success: false, error: apiErrorMessage(response, data, 'Login failed') };
     }
     await handleLogin(data.token, data.user);
     return { success: true, token: data.token, user: data.user };
@@ -1153,10 +1164,10 @@ async function googleAuthInteractive(): Promise<InteractiveAuthResult> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken, clientId: CONFIG.GOOGLE_CLIENT_ID }),
     });
-    const data = await resp.json();
+    const data = await readJsonOrNull(resp);
     if (!resp.ok) {
-      if (resp.status === 404) return { success: false, notRegistered: true, error: data.error };
-      return { success: false, error: data.error || 'Google sign-in failed' };
+      if (resp.status === 404) return { success: false, notRegistered: true, error: data?.error };
+      return { success: false, error: apiErrorMessage(resp, data, 'Google sign-in failed') };
     }
     await handleLogin(data.token, data.user);
     return { success: true, token: data.token, user: data.user };
@@ -1198,11 +1209,11 @@ async function linkedinAuthInteractive(): Promise<InteractiveAuthResult> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, redirectUri }),
     });
-    const data = await resp.json();
+    const data = await readJsonOrNull(resp);
     if (!resp.ok) {
       // Backend 404 = valid LinkedIn identity but no ProfilleAI account yet.
-      if (resp.status === 404) return { success: false, notRegistered: true, error: data.error };
-      return { success: false, error: data.error || 'LinkedIn sign-in failed' };
+      if (resp.status === 404) return { success: false, notRegistered: true, error: data?.error };
+      return { success: false, error: apiErrorMessage(resp, data, 'LinkedIn sign-in failed') };
     }
     await handleLogin(data.token, data.user);
     return { success: true, token: data.token, user: data.user };
@@ -1219,9 +1230,9 @@ async function registerWithCredentials(data: { email: string; password: string; 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    const result = await response.json();
+    const result = await readJsonOrNull(response);
     if (!response.ok) {
-      return { success: false, error: result.error || result.errors?.[0]?.msg || 'Registration failed' };
+      return { success: false, error: apiErrorMessage(response, result, 'Registration failed') };
     }
     await handleLogin(result.token, result.user);
     return { success: true, token: result.token, user: result.user };
@@ -1243,7 +1254,7 @@ async function handleLogout() {
 }
 
 // Analyze skill gaps between profile and job
-async function analyzeGapsForJob(jobDescription: string) {
+async function analyzeGapsForJob(jobDescription: string, forceRefresh = false) {
   if (!authToken) {
     return { success: false, error: 'Not authenticated' };
   }
@@ -1265,6 +1276,10 @@ async function analyzeGapsForJob(jobDescription: string) {
       body: JSON.stringify({
         profileData: cachedProfile,
         jobDescription,
+        // A deliberate "Tailor Again" must not be answered from the stored
+        // analysis — identical gaps are what made re-tailoring look like a
+        // no-op, with no way for the user to get a fresh read.
+        forceRefresh: forceRefresh || undefined,
       }),
     });
 
@@ -1274,7 +1289,14 @@ async function analyzeGapsForJob(jobDescription: string) {
     }
 
     const data = await response.json();
-    return { success: true, gaps: data.gaps || [], satisfiedAlternatives: data.satisfiedAlternatives || [] };
+    return {
+      success: true,
+      gaps: data.gaps || [],
+      satisfiedAlternatives: data.satisfiedAlternatives || [],
+      // Surfaced so the panel can say "this is your saved analysis" instead of
+      // presenting a cached report as a fresh one.
+      cached: !!data.cached,
+    };
   } catch (error) {
     console.error('[ProfileAI] Error analyzing gaps:', error);
     return { success: false, error: (error as Error).message, gaps: [], satisfiedAlternatives: [] };
@@ -1397,9 +1419,9 @@ async function redeemPromoCode(code: string) {
       },
       body: JSON.stringify({ code }),
     });
-    const result = await response.json();
+    const result = await readJsonOrNull(response);
     if (!response.ok) {
-      return { error: result.error || 'Failed to redeem promo code' };
+      return { error: apiErrorMessage(response, result, 'Failed to redeem promo code') };
     }
     return result; // { success, message, benefit, expiresAt, redemption }
   } catch (error) {
@@ -1483,10 +1505,14 @@ async function generateCoverLetter(data: {
 async function analyzeActiveJobPage(): Promise<any> {
   let pageJobInfo: any = null;
   let resolvedTabId: number | null = null;
+  // The page this analysis is about. Used to reject a stored posting that
+  // belongs to some other tab — see the storage fallback below.
+  let activeUrl = '';
   try {
     const tabs2 = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const tab = tabs2[0];
     resolvedTabId = tab?.id ?? null;
+    activeUrl = tab?.url || '';
     console.log('[ProfileAI BG] ANALYZE_JOB_PAGE — tab:', tab?.id, tab?.url?.slice(0, 80));
     // Same non-job guard as GET_JOB_INFO_RELAY — don't scrape phantom
     // titles/companies from social/profile/search pages.
@@ -1496,100 +1522,15 @@ async function analyzeActiveJobPage(): Promise<any> {
       return { success: false, error: 'This page does not look like a job posting.' };
     }
     if (tab?.id && tab?.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-      // Method 1: executeScript (direct DOM access, no content script dependency)
+      // Method 1: executeScript (direct DOM access, no content script
+      // dependency). Injects the SHARED scraper — this used to be a second,
+      // independently-written copy of the extraction logic, and the two drifted
+      // apart on exactly the fields that matter (title selector priority,
+      // bullet preservation).
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: () => {
-            // Try multiple selectors, return first non-empty match
-            const getText = (selectors: string[]) => {
-              for (const sel of selectors) {
-                try {
-                  const el = document.querySelector(sel);
-                  const text = el?.textContent?.trim();
-                  if (text && text.length > 0 && text.length < 500) return text;
-                } catch (_) {}
-              }
-              return '';
-            };
-            let title = getText([
-              '.job-details-jobs-unified-top-card__job-title a',
-              '.job-details-jobs-unified-top-card__job-title h1',
-              '.job-details-jobs-unified-top-card__job-title',
-              '.jobs-unified-top-card__job-title a',
-              '.jobs-unified-top-card__job-title h1',
-              '.jobs-unified-top-card__job-title',
-              '.jobs-details-top-card__job-title',
-              '.top-card-layout__title',
-              'h1.t-24', 'h1.t-18',
-              'h1[class*="job"]', 'h2[class*="job-title"]',
-              '.app-title',
-              '.posting-headline h2',
-              '[data-automation-id="jobPostingTitle"]',
-              'h1',
-            ]);
-            let company = getText([
-              '.job-details-jobs-unified-top-card__company-name a',
-              '.job-details-jobs-unified-top-card__company-name',
-              '.job-details-jobs-unified-top-card__primary-description-without-tagline a',
-              '.jobs-unified-top-card__company-name a',
-              '.jobs-unified-top-card__company-name',
-              '.jobs-details-top-card__company-info a',
-              '.topcard__org-name-link',
-              'a[data-tracking-control-name*="company"]',
-              '.job-details-jobs-unified-top-card__primary-description a[href*="/company/"]',
-              'a[href*="/company/"]',
-              '[class*="company-name"]',
-              '[data-automation-id="jobPostingCompany"]',
-            ]);
-            // Fallback: extract from document.title (e.g. "Frontend Architect | Distyl | LinkedIn")
-            if (!title || !company) {
-              const docTitle = document.title || '';
-              // LinkedIn pattern: "Job Title | Company | LinkedIn" or "(N) Job Title | Company | LinkedIn"
-              const cleaned = docTitle.replace(/^\(\d+\)\s*/, '');
-              const parts = cleaned.split(/\s*[|·–—]\s*/);
-              if (parts.length >= 2) {
-                if (!title && parts[0].length < 200) title = parts[0].trim();
-                if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) company = parts[1].trim();
-              }
-            }
-            // Two tiers. The generic containers (`article`, `main`) are almost
-            // always the longest match on a page, so mixing them in with the
-            // specific ones meant they won on any list+detail layout — e.g.
-            // our own /jobs, where `main` is the 200-row sidebar plus the
-            // posting. Only fall back to them when nothing specific found a
-            // real description.
-            const longestOf = (selectors: string[]) => {
-              let best = '';
-              for (const sel of selectors) {
-                try {
-                  const el = document.querySelector(sel);
-                  if (el) {
-                    const text = ((el as HTMLElement).innerText || '').trim();
-                    if (text.length > best.length) best = text;
-                  }
-                } catch (_) {}
-              }
-              return best;
-            };
-            let description = longestOf([
-              '#job-details', '.jobs-description-content', '.jobs-description__content',
-              '.jobs-description-content__text', '.jobs-box__html-content',
-              '.show-more-less-html__markup', 'div.jobs-description',
-              'div[class*="jobs-description"]', 'section[class*="description"]',
-              '.job-description', '#job_description',
-              '[data-automation-id="jobPostingDescription"]',
-              '.posting-page', '.section-wrapper',
-              '.external-job-description',
-              '[class*="job-description"]', '[class*="description"]',
-            ]);
-            if (description.length < 400) {
-              const generic = longestOf(['article', 'main']);
-              if (generic.length > description.length) description = generic;
-            }
-            if (description.length < 100) description = document.body.innerText.slice(0, 8000);
-            return { title, company, description };
-          },
+          func: scrapeJobFromDocument,
         });
         if (results?.[0]?.result) {
           pageJobInfo = results[0].result;
@@ -1597,54 +1538,87 @@ async function analyzeActiveJobPage(): Promise<any> {
             title: pageJobInfo.title?.slice(0, 60),
             company: pageJobInfo.company?.slice(0, 40),
             descLength: pageJobInfo.description?.length || 0,
+            site: pageJobInfo.site,
+            via: pageJobInfo.via,
           });
         }
       } catch (e) {
         console.log('[ProfileAI BG] ANALYZE_JOB_PAGE executeScript failed:', e);
       }
 
-      // Method 2: Ask content script (has richer site-specific extraction)
+
+      // Method 2: ask the content script. It runs the SAME scraper, but from
+      // inside the page, so it can see content an injected read occasionally
+      // misses (and it is the only path available if injection is blocked).
+      //
+      // The two are merged FIELD BY FIELD. The old merge gated everything on
+      // "is the content script's description longer?" and then took its title
+      // too — so a longer description could drag a worse title along with it,
+      // overwriting a title read from the posting's own header with one read
+      // from a stray `h1`.
       try {
         const csResponse = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
         if (csResponse) {
-          // Use content script data if it's better (longer description, or has title/company we're missing)
-          const csDescLen = csResponse.description?.trim().length || 0;
-          const curDescLen = pageJobInfo?.description?.trim().length || 0;
-          const csBetter = csDescLen > curDescLen
-            || (!pageJobInfo?.title && csResponse.title)
-            || (!pageJobInfo?.company && csResponse.company);
-          if (csBetter) {
-            console.log('[ProfileAI BG] ANALYZE_JOB_PAGE got better data from content script:', {
+          const merged = mergeScrapes(pageJobInfo, csResponse);
+          console.log('[ProfileAI BG] ANALYZE_JOB_PAGE merged scrapes:', {
+            injected: {
+              title: pageJobInfo?.title?.slice(0, 60),
+              descLength: pageJobInfo?.description?.trim().length || 0,
+              via: pageJobInfo?.via,
+            },
+            contentScript: {
               title: csResponse.title?.slice(0, 60),
-              company: csResponse.company?.slice(0, 40),
-              descLength: csDescLen,
-            });
-            // Merge: prefer content script fields that are better
-            pageJobInfo = {
-              title: csResponse.title || pageJobInfo?.title || '',
-              company: csResponse.company || pageJobInfo?.company || '',
-              description: csDescLen > curDescLen ? csResponse.description : (pageJobInfo?.description || ''),
-              location: csResponse.location || pageJobInfo?.location || '',
-            };
-          }
+              descLength: csResponse.description?.trim().length || 0,
+              via: csResponse.via,
+            },
+            chose: {
+              title: merged.title?.slice(0, 60),
+              descLength: merged.description?.trim().length || 0,
+              via: merged.via,
+            },
+          });
+          pageJobInfo = merged;
         }
       } catch (e) {
         console.log('[ProfileAI BG] ANALYZE_JOB_PAGE content script message failed:', e);
       }
 
-      // Store in storage for future use
+      // Store in storage for future use. `_url` travels with the payload so a
+      // later reader can tell which page the text came from — storage holds one
+      // slot shared by every tab.
       if (pageJobInfo && (pageJobInfo.title || pageJobInfo.company || pageJobInfo.description)) {
-        chrome.storage.local.set({ currentJobInfo: pageJobInfo, currentJobUrl: tab.url });
+        chrome.storage.local.set({
+          currentJobInfo: { ...pageJobInfo, _ts: Date.now(), _url: tab.url },
+          currentJobUrl: tab.url,
+        });
       }
     }
   } catch (e) {
     console.log('[ProfileAI BG] ANALYZE_JOB_PAGE tabs.query failed:', e);
   }
-  // Storage fallback
+  // Storage fallback — ONLY for the same page.
+  //
+  // `currentJobInfo` is a single slot shared across every tab, so an unguarded
+  // fallback happily substituted a different posting whenever the live read
+  // came back short: the user got a resume tailored, flawlessly, to whatever
+  // job they had looked at before this one. The URL has to match for the
+  // stored copy to be about this page at all.
   if (!pageJobInfo || (!pageJobInfo.description || pageJobInfo.description.trim().length < 30)) {
     try {
-      const stored = await chrome.storage.local.get(['currentJobInfo']);
-      if (stored.currentJobInfo && stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)) {
+      const stored = await chrome.storage.local.get(['currentJobInfo', 'currentJobUrl']);
+      const storedUrl = stored.currentJobInfo?._url || stored.currentJobUrl || '';
+      const samePage = !!activeUrl && !!storedUrl && storedUrl === activeUrl;
+      if (!samePage && stored.currentJobInfo) {
+        console.log(
+          '[ProfileAI BG] ANALYZE_JOB_PAGE ignoring storage fallback — it belongs to a different page',
+          { storedUrl: storedUrl?.slice(0, 80), activeUrl: activeUrl?.slice(0, 80) }
+        );
+      }
+      if (
+        samePage &&
+        stored.currentJobInfo &&
+        stored.currentJobInfo.description?.trim().length > (pageJobInfo?.description?.trim().length || 0)
+      ) {
         console.log('[ProfileAI BG] ANALYZE_JOB_PAGE using storage fallback, descLength:', stored.currentJobInfo.description?.length);
         pageJobInfo = stored.currentJobInfo;
       }
@@ -2443,7 +2417,7 @@ async function adoptFresherTokenFromWebApp(deadToken: string | null): Promise<bo
 async function fetchProfileImpl(retryOn401 = true): Promise<FullProfile | null> {
   const tokenFingerprint = authToken ? `${authToken.slice(0, 12)}…(len ${authToken.length})` : 'null';
   try {
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/me`, {
+    const response = await fetchWithTransientRetry(`${CONFIG.API_BASE}/profiles/me`, {
       headers: {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',

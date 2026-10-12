@@ -1,20 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 /**
- * Structured "why are you analyzing this profile?" picker.
+ * Confirmation step shown BEFORE the LinkedIn analyzer runs.
  *
- * Runs BEFORE the LinkedIn analyzer so we grade the profile against a
- * specific target instead of blindly inferring. Four intent tiles nudge
- * the user toward specificity (target role, next level, career change, or
- * pure inference) and each carries a contextual placeholder so the input
- * suggests what "good" looks like.
+ * It used to be four intent tiles — next role / promotion / career change /
+ * just infer — and picking one was mandatory before Analyze would enable. But
+ * three of those tiles submitted the exact same thing: a job title typed into
+ * the same input. The intent itself was never sent anywhere; it only swapped
+ * the placeholder text. So the tiles were asking the user to classify their own
+ * ambition to unlock a text field, and the fourth tile existed to opt out of a
+ * choice we didn't need them to make.
  *
- * Returns whatever the user typed as `targetTitle`. When intent is 'infer',
- * `targetTitle` is empty and the backend prompt lets Claude infer the
- * target from the profile itself.
+ * Now the default path is one click — Analyze grades what's on the profile —
+ * and the target role is an optional detail behind a disclosure, for the users
+ * who want the sharper grade. Same two outcomes as before, no taxonomy.
+ *
+ * Returns whatever the user typed as `targetTitle`. Empty means "let AI infer
+ * the target from the profile itself".
  */
-
-type Intent = 'role' | 'promotion' | 'switch' | 'infer';
 
 interface AnalyzerGoalPickerProps {
   open: boolean;
@@ -28,56 +31,18 @@ interface AnalyzerGoalPickerProps {
   contextHint?: 'own-profile' | 'other-profile';
 }
 
-interface IntentTile {
-  key: Intent;
-  emoji: string;
-  title: string;
-  sub: string;
-  placeholder: string;
-  cta: string;
-  /** When true the target input hides and we run inference on submit. */
-  skipInput?: boolean;
-  examples?: string[];
-}
-
-const INTENTS: IntentTile[] = [
-  {
-    key: 'role',
-    emoji: '🎯',
-    title: 'Land my next role',
-    sub: 'Grade against a specific job title.',
-    placeholder: 'e.g. Senior Frontend Engineer',
-    cta: 'Analyze for this role',
-    examples: ['Senior Frontend Engineer', 'Product Manager', 'Data Scientist', 'DevOps Engineer'],
-  },
-  {
-    key: 'promotion',
-    emoji: '📈',
-    title: 'Get promoted',
-    sub: 'Grade against the next level up.',
-    placeholder: 'e.g. Staff Engineer, Engineering Manager',
-    cta: 'Analyze for promotion',
-    examples: ['Staff Engineer', 'Engineering Manager', 'Senior Product Manager', 'Director of Engineering'],
-  },
-  {
-    key: 'switch',
-    emoji: '🔀',
-    title: 'Change careers',
-    sub: 'Grade against a new field or role.',
-    placeholder: 'e.g. Product Manager, Solutions Architect',
-    cta: 'Analyze for career change',
-    examples: ['Product Manager', 'Solutions Architect', 'Technical Program Manager', 'AI/ML Engineer'],
-  },
-  {
-    key: 'infer',
-    emoji: '✨',
-    title: 'Just grade what\'s there',
-    sub: 'Let AI infer the target from the profile.',
-    placeholder: '',
-    cta: 'Analyze without a target',
-    skipInput: true,
-  },
+/** Spread across levels and tracks on purpose: the chips double as a hint that
+ *  "target role" means any role, not just the next rung of your current one. */
+const EXAMPLE_ROLES = [
+  'Senior Frontend Engineer',
+  'Staff Engineer',
+  'Engineering Manager',
+  'Product Manager',
 ];
+
+/** A role has to be at least this long to count as one. Two characters covers
+ *  the real short titles (PM, QA) while still rejecting a stray keystroke. */
+const MIN_TARGET_LENGTH = 2;
 
 export const AnalyzerGoalPicker: React.FC<AnalyzerGoalPickerProps> = ({
   open,
@@ -86,37 +51,46 @@ export const AnalyzerGoalPicker: React.FC<AnalyzerGoalPickerProps> = ({
   defaultTitle,
   contextHint,
 }) => {
-  const [intent, setIntent] = useState<Intent | null>(null);
+  const [showTarget, setShowTarget] = useState(false);
   const [target, setTarget] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset when the modal reopens.
   useEffect(() => {
     if (open) {
-      setIntent(null);
+      setShowTarget(false);
       // Prefill from the user's ProfileAI title only when they're analysing
       // their OWN LinkedIn profile — for someone else's profile a saved title
-      // is a distractor, not a helpful default.
+      // is a distractor, not a helpful default. The field stays collapsed
+      // either way: a prefill is there for whoever opens the detail, not a
+      // reason to put a form in front of everyone else.
       setTarget(contextHint === 'own-profile' && defaultTitle ? defaultTitle : '');
     }
   }, [open, defaultTitle, contextHint]);
 
+  useEffect(() => {
+    if (showTarget) inputRef.current?.focus();
+  }, [showTarget]);
+
   if (!open) return null;
 
-  const active = intent ? INTENTS.find((i) => i.key === intent) : null;
-  const canSubmit = intent === 'infer' || (intent && target.trim().length >= 3);
-  const submitLabel = active?.cta || 'Analyze';
+  const trimmed = target.trim();
+  const hasTarget = trimmed.length >= MIN_TARGET_LENGTH;
+  // One typed character is neither a role nor a decision to grade generically,
+  // so it holds the button rather than being silently dropped on submit.
+  const targetTooShort = showTarget && trimmed.length > 0 && !hasTarget;
 
   const handleOverlay = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
   };
 
   const handleSubmit = () => {
-    if (!intent) return;
-    onAnalyze(intent === 'infer' ? '' : target.trim());
+    if (targetTooShort) return;
+    onAnalyze(showTarget && hasTarget ? trimmed : '');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && canSubmit) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
     }
@@ -127,8 +101,11 @@ export const AnalyzerGoalPicker: React.FC<AnalyzerGoalPickerProps> = ({
       <div className="modal-container analyzer-goal-picker" role="dialog" aria-modal="true">
         <div className="modal-header">
           <div>
-            <h3>What should we grade this profile for?</h3>
-            <p className="agp-subhead">The more specific your goal, the sharper the fixes we'll give you.</p>
+            <h3>Grade this profile</h3>
+            <p className="agp-subhead">
+              We'll read the headline, About and experience, then grade them the way a recruiter
+              skims them.
+            </p>
           </div>
           <button className="btn-icon modal-close" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none">
@@ -138,60 +115,57 @@ export const AnalyzerGoalPicker: React.FC<AnalyzerGoalPickerProps> = ({
         </div>
 
         <div className="modal-body">
-          <div className="agp-tile-grid" role="radiogroup" aria-label="Analysis goal">
-            {INTENTS.map((tile) => (
-              <button
-                key={tile.key}
-                type="button"
-                role="radio"
-                aria-checked={intent === tile.key}
-                className={`agp-tile${intent === tile.key ? ' selected' : ''}`}
-                onClick={() => setIntent(tile.key)}
-              >
-                <span className="agp-tile-emoji" aria-hidden="true">{tile.emoji}</span>
-                <span className="agp-tile-title">{tile.title}</span>
-                <span className="agp-tile-sub">{tile.sub}</span>
-              </button>
-            ))}
-          </div>
-
-          {active && !active.skipInput && (
+          {!showTarget ? (
+            <button type="button" className="agp-detail-toggle" onClick={() => setShowTarget(true)}>
+              <span className="agp-detail-plus" aria-hidden>+</span>
+              <span className="agp-detail-copy">
+                <span className="agp-detail-title">Add a target role</span>
+                <span className="agp-detail-sub">
+                  Name the job you're aiming at and the fixes get specific to it. Optional.
+                </span>
+              </span>
+            </button>
+          ) : (
             <div className="agp-input-block">
-              <label className="agp-input-label" htmlFor="agp-target">
-                What role should we grade against?
-              </label>
+              <div className="agp-input-head">
+                <label className="agp-input-label" htmlFor="agp-target">
+                  Target role
+                </label>
+                <button
+                  type="button"
+                  className="agp-input-skip"
+                  onClick={() => {
+                    setShowTarget(false);
+                    setTarget('');
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
               <input
                 id="agp-target"
+                ref={inputRef}
                 type="text"
                 className="agp-input"
-                placeholder={active.placeholder}
+                placeholder="e.g. Senior Frontend Engineer"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 onKeyDown={handleKeyDown}
                 maxLength={80}
-                autoFocus
               />
-              {active.examples && active.examples.length > 0 && (
-                <div className="agp-examples">
-                  <span className="agp-examples-label">Popular:</span>
-                  {active.examples.map((ex) => (
-                    <button
-                      key={ex}
-                      type="button"
-                      className="agp-example-chip"
-                      onClick={() => setTarget(ex)}
-                    >
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {active?.skipInput && (
-            <div className="agp-infer-note">
-              We'll read the profile's headline, About, and experience, then grade it against whatever role the profile itself is aiming for. Great for quick checks or grading someone else's profile.
+              <div className="agp-examples">
+                <span className="agp-examples-label">Popular:</span>
+                {EXAMPLE_ROLES.map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    className="agp-example-chip"
+                    onClick={() => setTarget(role)}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -201,10 +175,10 @@ export const AnalyzerGoalPicker: React.FC<AnalyzerGoalPickerProps> = ({
           <button
             className="btn primary small"
             onClick={handleSubmit}
-            disabled={!canSubmit}
-            title={!canSubmit ? 'Pick a goal first' : ''}
+            disabled={targetTooShort}
+            title={targetTooShort ? 'Finish the role, or remove it to grade generically' : ''}
           >
-            {submitLabel}
+            {showTarget && hasTarget ? 'Analyze for this role' : 'Analyze'}
           </button>
         </div>
       </div>

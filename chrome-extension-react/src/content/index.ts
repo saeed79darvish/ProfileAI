@@ -1,6 +1,12 @@
 // ProfileAI Content Script
 // Runs on all pages - shows overlay panel as iframe
-// Self-contained - no imports
+//
+// Imports are limited to src/jobScrape.ts, which Rollup inlines into
+// content.js (content scripts are classic scripts and cannot resolve imports
+// at runtime — the build is checked for this). The scraper is shared because
+// having a second copy here is what let the content script and the background
+// worker disagree about the same posting.
+import { scrapeJobFromDocument } from '../jobScrape';
 
 // Environment: 'development' | 'production'
 const ENV = 'production';
@@ -100,6 +106,11 @@ interface JobInfo {
   title: string;
   company: string;
   description: string;
+  location?: string;
+  /** Which site profile the scraper matched. */
+  site?: string;
+  /** Which selector produced each field — makes a bad scrape diagnosable. */
+  via?: { title: string; company: string; description: string };
 }
 
 // State
@@ -218,8 +229,7 @@ async function init() {
       const jobInfo = getJobInfo();
       if (jobInfo) {
         console.log('[ProfileAI] Storing job info:', jobInfo.title);
-        chrome.storage.local.set({ currentJobInfo: jobInfo, currentJobUrl: location.href });
-        return true;
+        return storeJobInfo(jobInfo);
       }
       return false;
     };
@@ -676,11 +686,10 @@ function watchForLinkedInJobContent() {
       const jobInfo = getJobInfo();
       if (jobInfo && (jobInfo.title || jobInfo.company)) {
         console.log('[ProfileAI] LinkedIn content loaded, storing job info:', jobInfo.title);
-        // Store for side panel — add _ts to force onChanged to fire even if same job
-        chrome.storage.local.set({
-          currentJobInfo: { ...jobInfo, _ts: Date.now() },
-          currentJobUrl: location.href,
-        });
+        // Store for side panel — storeJobInfo stamps _ts so onChanged fires even
+        // for the same job, and refuses a scrape that still shows the previous
+        // posting. A refusal leaves the observer running for the real repaint.
+        if (!storeJobInfo(jobInfo)) return;
 
         // Inject inline banner if not already present
         if (!document.getElementById('profileai-inline-banner')) {
@@ -730,20 +739,30 @@ function handleNavigation() {
       } else {
         // Confirmed non-job page — purge any stale job so the panel clears.
         try { chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']); } catch (_) {}
+        lastStoredJob = null;
       }
       return;
     }
     const jobInfo = getJobInfo();
-    if (jobInfo) {
+    // `storeJobInfo` returning false means the DOM still holds the previous
+    // posting, so this is treated exactly like "nothing scraped yet" and
+    // retried. The old code only retried on a null scrape, which is why stale
+    // text filed under a new URL was stored as if it were fresh.
+    if (jobInfo && storeJobInfo(jobInfo)) {
       console.log('[ProfileAI] Nav: stored job info (attempt', attempt, '):', jobInfo.title);
-      try {
-        chrome.storage.local.set({ currentJobInfo: { ...jobInfo, _ts: Date.now() }, currentJobUrl: location.href });
-      } catch (_) { /* context gone mid-flight */ }
-    } else if (attempt < 4) {
-      // Retry — don't clear storage yet, content might still be loading
-      setTimeout(() => tryStoreNav(attempt + 1), 1500);
+    } else if (attempt < 6) {
+      // Don't clear storage yet — the pane may still be repainting. Six
+      // attempts at 1.2s covers a slow detail pane; the old ceiling of four
+      // was tuned for "content still loading" only, and a stale-pane read
+      // needs the pane to actually change, which takes longer.
+      setTimeout(() => tryStoreNav(attempt + 1), 1200);
     } else {
+      // Gave up: better no job than the wrong one. The panel clears and the
+      // user is told to re-analyze rather than silently tailoring to the
+      // posting they were looking at a minute ago.
+      console.warn('[ProfileAI] Nav: gave up reading this posting after', attempt, 'attempts — clearing stored job');
       try { chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']); } catch (_) {}
+      lastStoredJob = null;
     }
   };
   setTimeout(() => tryStoreNav(1), 800);
@@ -786,187 +805,89 @@ function detectSite() {
   currentSiteName = 'generic';
 }
 
-// Get job info from current page
+// Get job info from current page (see src/jobScrape.ts for the scraper itself)
+
 /**
- * innerText, but with list markers kept.
+ * A cheap fingerprint of a scraped posting, used to tell "the pane has not
+ * repainted yet" apart from "this is the new job".
  *
- * Chrome renders `<li>` without its `::marker`, so `innerText` hands back a
- * bulleted requirements list as unmarked prose. The on-device matcher trusts a
- * bulleted line and is deliberately sceptical of prose — an unbulleted line has
- * to carry a requirement cue and stay under 220 characters to count, or every
- * sentence of company blurb would become a requirement. Net effect on a posting
- * that writes long bullets: 34 list items arrived as 3 usable lines, and the
- * posting came back unscorable with its requirements sitting right there.
- *
- * `innerText` needs layout and a detached clone has none — it quietly degrades
- * to `textContent` and loses every line break — so the clone is attached
- * offscreen for the read and removed straight after. The marker is inserted as
- * a text node rather than by rewriting `textContent`, which would flatten any
- * nested list into its parent.
- *
- * Falls back to plain `innerText` on any failure: a missing marker costs
- * fidelity, a thrown error costs the whole analysis.
+ * On a single-page job board the URL changes the instant a card is clicked and
+ * the detail pane repaints some unknown time later. The nav handler read the
+ * DOM 800ms after the URL changed and stored whatever it found — which, on a
+ * slow pane, is the PREVIOUS posting's text filed under the new URL. Nothing
+ * downstream can detect that: the resume comes back flawlessly tailored to the
+ * wrong job. Comparing fingerprints is what makes it detectable.
  */
-function readJobText(el: Element | null): string {
-  if (!el) return '';
-  const plain = (el as HTMLElement).innerText || el.textContent || '';
-  let host: HTMLElement | null = null;
-  try {
-    if (!el.querySelector('li')) return plain;
-    const clone = el.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('li').forEach((li) => {
-      if ((li.textContent || '').trim()) {
-        li.insertBefore(document.createTextNode('• '), li.firstChild);
-      }
-    });
-    host = document.createElement('div');
-    // Rendered (so innerText still resolves line breaks) but off the canvas and
-    // inert, so nothing about the user's page shifts during the read.
-    host.style.cssText =
-      'position:fixed;left:-99999px;top:0;width:900px;pointer-events:none;z-index:-1;';
-    host.setAttribute('aria-hidden', 'true');
-    host.appendChild(clone);
-    document.body.appendChild(host);
-    const marked = clone.innerText || '';
-    // If the offscreen read came back materially shorter, something about the
-    // clone did not render — trust the original rather than a truncated copy.
-    return marked.trim().length >= plain.trim().length * 0.6 ? marked : plain;
-  } catch (_) {
-    return plain;
-  } finally {
-    if (host && host.parentNode) host.parentNode.removeChild(host);
-  }
+function jobFingerprint(info: JobInfo): string {
+  const desc = (info.description || '').trim();
+  return [
+    (info.title || '').trim().toLowerCase(),
+    (info.company || '').trim().toLowerCase(),
+    desc.length,
+    desc.slice(0, 200),
+    desc.slice(-200),
+  ].join('::');
 }
 
+/** What was last written to storage, so staleness is decidable. */
+let lastStoredJob: { url: string; fingerprint: string } | null = null;
+
+/**
+ * The single writer for `currentJobInfo`. Every path that scrapes a posting
+ * goes through here so the URL, the timestamp and the fingerprint can never
+ * disagree with the payload.
+ *
+ * Returns false and writes nothing when the scrape looks like the previous
+ * page's content showing through on a new URL — the caller is expected to
+ * retry rather than to treat that as a successful read.
+ */
+function storeJobInfo(info: JobInfo): boolean {
+  if (!extAlive()) return false;
+  const fingerprint = jobFingerprint(info);
+  const url = location.href;
+
+  if (lastStoredJob && lastStoredJob.url !== url && lastStoredJob.fingerprint === fingerprint) {
+    console.log('[ProfileAI] Scrape is byte-identical to the previous job on a new URL — pane has not repainted yet, not storing');
+    return false;
+  }
+
+  try {
+    chrome.storage.local.set({
+      currentJobInfo: { ...info, _ts: Date.now(), _url: url },
+      currentJobUrl: url,
+    });
+  } catch (_) {
+    // Context torn down mid-flight (extension reloaded).
+    return false;
+  }
+  lastStoredJob = { url, fingerprint };
+  return true;
+}
+
+/**
+ * The content script's view of the posting.
+ *
+ * Delegates to the SHARED scraper (src/jobScrape.ts). This function used to
+ * hold its own copy of the extraction logic, and its title resolution was a
+ * single `document.querySelector` over a COMMA-JOINED selector list — which
+ * returns the first element in document order matching any of them, not the
+ * first selector that matches. With a bare `h1` at the end of that list, any
+ * unrelated `h1` higher up the page outranked the posting's own title element.
+ * The shared scraper resolves selectors in priority order instead.
+ */
 function getJobInfo(): JobInfo | null {
-  let title = '';
-  let company = '';
-  let description = '';
-
-  if (currentSite) {
-    // (see readJobText — description reads go through it so bullets survive)
-    const titleEl = document.querySelector(currentSite.titleSelector);
-    const companyEl = document.querySelector(currentSite.companySelector);
-    
-    // Try each description selector separately (comma-separated selectors may not all exist)
-    const descSelectors = currentSite.descriptionSelector.split(',').map((s: string) => s.trim());
-    for (const sel of descSelectors) {
-      try {
-        const el = document.querySelector(sel);
-        if (el) {
-          const text = readJobText(el);
-          if (text.trim().length > (description?.length || 0)) {
-            description = text;
-          }
-        }
-      } catch (e) { /* skip invalid selector */ }
-    }
-
-    title = titleEl?.textContent?.trim() || '';
-    company = companyEl?.textContent?.trim() || '';
-  }
-
-  // LinkedIn-specific: aggressive description extraction
-  if (currentSiteName === 'linkedin' && (!description || description.trim().length < 200)) {
-    // Try the "About the job" section specifically
-    const aboutJobHeading = Array.from(document.querySelectorAll('h2, h3, span.t-bold')).find(
-      el => /about the job|job description|description/i.test(el.textContent || '')
-    );
-    if (aboutJobHeading) {
-      // Walk up to find the container and get its full text
-      let container = aboutJobHeading.closest('section') || aboutJobHeading.closest('[class*="description"]') || aboutJobHeading.parentElement?.parentElement;
-      if (container) {
-        const text = readJobText(container);
-        if (text.trim().length > (description?.trim().length || 0)) {
-          description = text;
-        }
-      }
-    }
-    
-    // Try the main job details container (LinkedIn 2024+ layout)
-    const jobDetailsContainers = [
-      'div.jobs-description',
-      'div.jobs-description-content',
-      'div[class*="jobs-description"]',
-      'section[class*="description"]',
-      'div.jobs-box__html-content',
-      'article[class*="jobs"]',
-      'div.job-view-layout',
-    ];
-    for (const sel of jobDetailsContainers) {
-      try {
-        const el = document.querySelector(sel);
-        if (el) {
-          const text = readJobText(el);
-          if (text.trim().length > (description?.trim().length || 0)) {
-            description = text;
-          }
-        }
-      } catch (_) {}
-    }
-  }
-
-  // Fallback: generic selectors if we still don't have a title
-  if (!title) {
-    title = (
-      document.querySelector('h1')?.textContent?.trim() ||
-      document.querySelector('.job-title, [class*="job-title"], [class*="posting-headline"]')?.textContent?.trim() ||
-      ''
-    );
-  }
-  if (!company) {
-    company = (
-      document.querySelector('.company, .company-name, [class*="company"]')?.textContent?.trim() ||
-      ''
-    );
-  }
-
-  // Fallback: try multiple common description selectors, pick the LONGEST match
-  if (!description || description.trim().length < 200) {
-    const fallbackSelectors = [
-      '.job-description',
-      '[class*="job-description"]',
-      '[class*="jobdescription"]',
-      '.posting-page',
-      '.section-wrapper',
-      '#content',
-      '.content-wrapper',
-      '[class*="description"]',
-      'article',
-      'main',
-    ];
-    let longestDesc = description || '';
-    for (const sel of fallbackSelectors) {
-      try {
-        const el = document.querySelector(sel);
-        if (el) {
-          const text = readJobText(el);
-          if (text.trim().length > longestDesc.length) {
-            longestDesc = text;
-          }
-        }
-      } catch (e) { /* skip */ }
-    }
-    if (longestDesc.trim().length > (description?.trim().length || 0)) {
-      description = longestDesc;
-    }
-  }
-
-  // Ultimate fallback: use page body text (same as vanilla extension)
-  if (!description || description.trim().length < 50) {
-    description = readJobText(document.body).slice(0, 8000);
-  }
-
+  const scraped = scrapeJobFromDocument();
   console.log('[ProfileAI] getJobInfo result:', {
-    title: title?.slice(0, 60),
-    company: company?.slice(0, 40),
-    descLength: description?.length || 0,
-    descPreview: description?.slice(0, 150),
+    site: scraped.site,
+    title: scraped.title?.slice(0, 60),
+    company: scraped.company?.slice(0, 40),
+    descLength: scraped.description?.length || 0,
+    via: scraped.via,
+    descPreview: scraped.description?.slice(0, 150),
   });
 
-  if (!title && !company) return null;
-
-  return { title, company, description };
+  if (!scraped.title && !scraped.company) return null;
+  return scraped;
 }
 
 // Inject styles
@@ -1515,7 +1436,7 @@ function openOverlay() {
   // Store current job info so the iframe SidePanel can read it reliably
   const jobInfo = getJobInfo();
   if (jobInfo) {
-    chrome.storage.local.set({ currentJobInfo: jobInfo, currentJobUrl: location.href });
+    storeJobInfo(jobInfo);
   }
   
   // Create backdrop

@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.content.config.ts && node scripts/verify-dist.mjs",
     "build:watch": "vite build --watch",
+    "build:content": "vite build --config vite.content.config.ts",
+    "test": "node tests/build-fixtures.mjs && node --test --test-force-exit \"tests/**/*.test.mjs\"",
     "preview": "vite preview",
-    "package": "vite build && node scripts/package.mjs"
+    "package": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -19,6 +21,7 @@
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
+    "jsdom": "^26.1.0",
     "typescript": "^5.3.3",
     "vite": "^5.1.0"
   }

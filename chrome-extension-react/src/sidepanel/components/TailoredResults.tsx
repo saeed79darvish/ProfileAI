@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CONFIG } from '../../config';
+import { buildDownloadPayload } from '../downloadPayload';
 
 interface TailoredResultsProps {
   tailoredProfile: {
@@ -17,6 +18,9 @@ interface TailoredResultsProps {
     jobTitle?: string;
     company?: string;
     title?: string;
+    skillsGrouped?: Record<string, string[]>;
+    education?: any[];
+    projects?: any[];
     changelog?: Array<{
       section: string;
       action: string;
@@ -138,26 +142,7 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const profileData = {
-        firstName: profile?.firstName || '',
-        lastName: profile?.lastName || '',
-        email: profile?.email || '',
-        title: profile?.title || tailoredProfile.title || '',
-        phone: profile?.phone || '',
-        location: profile?.location || '',
-        linkedinUrl: profile?.linkedinUrl || '',
-        githubUrl: profile?.githubUrl || '',
-        portfolioUrl: profile?.portfolioUrl || '',
-        summary: tailoredProfile.summary || profile?.summary || '',
-        skills: tailoredProfile.skills || profile?.skills || [],
-        experience: tailoredProfile.experience || profile?.experience || [],
-        education: profile?.education || [],
-        certifications: profile?.certifications || [],
-        projects: profile?.projects || [],
-        matchScore: tailoredProfile.matchScore,
-        jobTitle: tailoredProfile.jobTitle,
-        company: tailoredProfile.company,
-      };
+      const profileData = buildDownloadPayload(tailoredProfile, profile);
 
       await chrome.storage.local.set({ pendingResumeDownload: profileData });
 

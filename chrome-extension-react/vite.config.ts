@@ -57,25 +57,21 @@ export default defineConfig({
         download: resolve(__dirname, 'src/download/index.html'),
         onboarding: resolve(__dirname, 'src/onboarding/index.html'),
         background: resolve(__dirname, 'src/background/index.ts'),
-        content: resolve(__dirname, 'src/content/index.ts'),
+        // NOTE: the content script is NOT built here. It is a classic script
+        // and must be self-contained, which a multi-entry build cannot
+        // guarantee — see vite.content.config.ts.
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          // Keep background and content scripts at root level
-          if (chunkInfo.name === 'background' || chunkInfo.name === 'content') {
+          // Keep the background worker at root level (manifest references it
+          // as "background.js").
+          if (chunkInfo.name === 'background') {
             return '[name].js';
           }
           return 'assets/[name]-[hash].js';
         },
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
-        // Make content script self-contained
-        manualChunks: (id) => {
-          // Don't split content script into chunks
-          if (id.includes('content/index.ts')) {
-            return undefined;
-          }
-        },
         inlineDynamicImports: false,
       },
     },

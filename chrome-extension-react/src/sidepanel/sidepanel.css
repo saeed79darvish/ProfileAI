@@ -313,6 +313,98 @@ html, body, #root {
   flex: 0 0 auto;
 }
 
+/* Analyze-button hint popover ------------------------------------------- */
+.jd-analyze-anchor {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.jd-hint {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: max-content;
+  max-width: 250px;
+  padding: 10px 10px 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  animation: jdHintIn 0.18s ease-out;
+}
+
+@keyframes jdHintIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.jd-hint-icon {
+  flex: 0 0 16px;
+  display: flex;
+  margin-top: 1px;
+  color: var(--warning);
+}
+
+.jd-hint-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.jd-hint-text {
+  flex: 1 1 auto;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.jd-hint-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: -2px -2px 0 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.jd-hint-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.jd-hint-close svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The arrow is two stacked squares: the outer one borrows the popover's
+   border colour, the inner one covers the seam so the tail reads as part of
+   the same surface rather than a diamond glued underneath it. */
+.jd-hint-arrow {
+  position: absolute;
+  top: 100%;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  transform: rotate(45deg);
+}
+
 .job-card {
   background: var(--bg-tertiary);
   border-radius: 10px;
@@ -5902,9 +5994,10 @@ html, body, #root {
 .tr-change-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
 
 /* =============================================================
-   Analyzer goal picker — modal shown BEFORE the analyzer runs so
-   the user commits to a specific target (role / promotion / career
-   change / just infer). Sharpens the AI feedback vs blind grading.
+   Analyzer goal picker — confirmation step shown BEFORE the
+   analyzer runs. One primary action (grade what's there) plus an
+   optional target role behind a disclosure. Replaced a four-tile
+   intent grid whose choice was never sent anywhere.
    ============================================================= */
 
 .analyzer-goal-picker { max-width: 560px; }
@@ -5914,50 +6007,74 @@ html, body, #root {
   color: var(--text-muted);
   line-height: 1.45;
 }
-.agp-tile-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-@media (max-width: 480px) {
-  .agp-tile-grid { grid-template-columns: 1fr; }
-}
-.agp-tile {
+
+/* The disclosure is deliberately quieter than the footer's Analyze button —
+   it is the detour, not the path. */
+.agp-detail-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
   align-items: flex-start;
+  gap: 10px;
+  width: 100%;
   text-align: left;
-  padding: 14px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.03);
-  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
   border-radius: 10px;
   color: var(--text-primary, #f5f5f5);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
-.agp-tile:hover {
+.agp-detail-toggle:hover {
   border-color: rgba(124, 58, 237, 0.55);
   background: rgba(124, 58, 237, 0.08);
 }
-.agp-tile:active { transform: scale(0.99); }
-.agp-tile.selected {
-  border-color: #7C3AED;
-  background: rgba(124, 58, 237, 0.14);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+.agp-detail-plus {
+  flex: 0 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 6px;
+  background: rgba(124, 58, 237, 0.18);
+  color: var(--accent-secondary, #8b5cf6);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
 }
-.agp-tile-emoji { font-size: 22px; line-height: 1; }
-.agp-tile-title {
-  font-weight: 700;
-  font-size: 14px;
-  line-height: 1.25;
+.agp-detail-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
-.agp-tile-sub {
+.agp-detail-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.agp-detail-sub {
   font-size: 12px;
   line-height: 1.45;
   color: var(--text-muted, #a1a1aa);
 }
+
+.agp-input-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agp-input-skip {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted, #a1a1aa);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.agp-input-skip:hover { color: var(--text-primary, #f5f5f5); }
 
 .agp-input-block {
   padding: 12px 14px 14px 14px;
@@ -6021,17 +6138,6 @@ html, body, #root {
 .agp-example-chip:hover {
   background: rgba(124, 58, 237, 0.14);
   border-color: rgba(124, 58, 237, 0.5);
-}
-
-.agp-infer-note {
-  padding: 12px 14px;
-  background: rgba(124, 58, 237, 0.06);
-  border: 1px solid rgba(124, 58, 237, 0.22);
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-secondary, #d4d4d8);
-  animation: agp-slide-in 180ms ease-out;
 }
 
 /* =============================================================

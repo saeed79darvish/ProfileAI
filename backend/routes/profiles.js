@@ -874,8 +874,18 @@ router.post('/enhancement-suggestions', authMiddleware, aiRateLimiter('career_su
 // Identical profile + identical job can only yield the same answer.
 async function analyzeGapsCacheHit(req, res, next) {
   try {
-    const { profileData, jobDescription } = req.body || {};
+    const { profileData, jobDescription, forceRefresh } = req.body || {};
     if (!profileData || !jobDescription) return next();
+    // An explicit re-run is not a re-open. The cache exists so that OPENING a
+    // job again does not re-spend a credit on an answer that cannot have
+    // changed — but when the candidate deliberately asks to tailor the same
+    // posting a second time, serving them the stored analysis makes the
+    // product look broken ("it just gave me the same result") and there is no
+    // way for them to get past it. A deliberate re-run pays for a fresh one.
+    if (forceRefresh) {
+      console.log(`[analyze-gaps] forceRefresh for user ${req.user.id} — bypassing cache`);
+      return next();
+    }
     const { getCachedAnalysis } = require('../services/aiAnalysisCacheService');
     const cached = await getCachedAnalysis({
       kind: 'analyze_gaps',

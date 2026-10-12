@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { JobInfo, KeywordAnalysis } from '../../types';
 import {
   rankMissingKeywords,
@@ -16,6 +16,11 @@ interface JobMatchSectionProps {
   isTailoring?: boolean;
   /** When a tailored result is showing, collapse to just the job row. */
   hasTailored?: boolean;
+  /** Why the last Analyze click produced nothing, anchored to the button that
+   *  produced it. Only the empty state carries it: once a job is detected the
+   *  card itself is the place errors belong. */
+  analyzeHint?: string | null;
+  onDismissAnalyzeHint?: () => void;
 }
 
 const impactLabel: Record<Impact, string> = {
@@ -110,9 +115,20 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   onTailor,
   isTailoring,
   hasTailored,
+  analyzeHint,
+  onDismissAnalyzeHint,
 }) => {
   const [showAllMissing, setShowAllMissing] = useState(false);
   const busy = !!isAnalyzing;
+  const hintRef = useRef<HTMLDivElement | null>(null);
+
+  // The popover sits above its button inside a scrolling column, so when the
+  // section happens to be parked at the top of that column the hint opens off
+  // screen. 'nearest' scrolls the minimum needed and does nothing when it is
+  // already visible.
+  useEffect(() => {
+    if (analyzeHint) hintRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [analyzeHint]);
 
   if (!currentJob) {
     // Compact empty state — single row, no big icon block. Half the vertical
@@ -132,13 +148,43 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             <path d="M21 21l-4.35-4.35" />
           </svg>
           <span className="jd-compact-text">Analyze current job page</span>
-          <button
-            className="btn primary small jd-compact-btn"
-            onClick={onAnalyze}
-            disabled={busy}
-          >
-            {busy ? 'Analyzing…' : 'Analyze'}
-          </button>
+          {/* The hint is anchored to the button rather than thrown to the
+              top-of-panel toast: "this page isn't a job posting" is an answer
+              to the click, and three seconds in the opposite corner made it
+              read as an unrelated system message people missed entirely. */}
+          <div className="jd-analyze-anchor">
+            {analyzeHint && (
+              <div className="jd-hint" role="status" aria-live="polite" ref={hintRef}>
+                <span className="jd-hint-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeLinejoin="round" />
+                    <line x1="15" y1="9" x2="9" y2="15" strokeLinecap="round" strokeLinejoin="round" />
+                    <line x1="9" y1="9" x2="15" y2="15" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <span className="jd-hint-text">{analyzeHint}</span>
+                <button
+                  type="button"
+                  className="jd-hint-close"
+                  onClick={onDismissAnalyzeHint}
+                  aria-label="Dismiss"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <line x1="18" y1="6" x2="6" y2="18" strokeLinecap="round" />
+                    <line x1="6" y1="6" x2="18" y2="18" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <span className="jd-hint-arrow" aria-hidden />
+              </div>
+            )}
+            <button
+              className="btn primary small jd-compact-btn"
+              onClick={onAnalyze}
+              disabled={busy}
+            >
+              {busy ? 'Analyzing…' : 'Analyze'}
+            </button>
+          </div>
         </div>
       </div>
     );

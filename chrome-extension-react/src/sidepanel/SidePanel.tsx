@@ -40,6 +40,24 @@ import {
   type BgTaskRecord,
 } from '../tasks';
 
+/** How long the Analyze-button hint stays up. The toast's 3s is tuned for
+ *  "saved", not for a sentence the user has to act on. */
+const ANALYZE_HINT_TIMEOUT_MS = 9000;
+
+/** Set when the analyzer hook sends someone to LinkedIn, read by the panel
+ *  once a profile is on screen so the goal picker opens by itself. It lives in
+ *  storage rather than component state because reopening the side panel for the
+ *  new tab can hand us a freshly mounted panel, which would lose the intent. */
+const PENDING_ANALYZER_KEY = 'pendingAnalyzerGoalPicker';
+/** Past this, the click that set the flag is no longer what the user is doing —
+ *  a picker opening out of nowhere is worse than no picker at all. */
+const PENDING_ANALYZER_TTL_MS = 2 * 60 * 1000;
+
+/** /in/me resolves to whichever member is signed in on this browser, so the
+ *  analyzer hook can send someone to their own profile without knowing the
+ *  slug. */
+const LINKEDIN_OWN_PROFILE_URL = 'https://www.linkedin.com/in/me/';
+
 // --- LinkedIn analysis cache helpers (shared by detector + analyzer) --------
 const LI_CACHE_KEY = 'linkedInAnalysisCache';
 const LI_CACHE_MAX_ENTRIES = 20;
@@ -170,6 +188,41 @@ export const SidePanel: React.FC = () => {
   const [answersCount, setAnswersCount] = useState(0);
   const [showAnswersModal, setShowAnswersModal] = useState(false);
   const [notification, setNotification] = useState<NotificationProps | null>(null);
+  /**
+   * Why the last Analyze click came back empty, shown against the button that
+   * produced it. Wrapped in an object so clicking Analyze onto the same error
+   * twice is a new value and restarts the dismiss timer, which a bare string
+   * would not.
+   */
+  const [analyzeHint, setAnalyzeHint] = useState<{ message: string } | null>(null);
+  /** Committed value of currentJob, readable from callbacks that must not take
+   *  it as a dependency. Decides whether an analyze error belongs on the
+   *  Analyze button or in the toast. */
+  const currentJobRef = useRef<JobInfo | null>(null);
+  /**
+   * The posting a tailor run is actually committed to, together with the tab
+   * URL it was read from.
+   *
+   * `currentJob` is a mirror of whatever was last written to storage and can
+   * belong to a job the user has since clicked away from. Tailoring used to
+   * send it straight to the API — only refreshing when it was absent — so a
+   * stale mirror produced a resume perfectly tailored to the wrong posting,
+   * with nothing anywhere in the response able to detect that. Every tailor
+   * run now re-reads the page first and pins the result here with its URL, and
+   * the URL is re-checked at the moment of sending.
+   */
+  const verifiedJobRef = useRef<{ job: JobInfo; url: string } | null>(null);
+  /**
+   * Set when the user chose "Tailor Again" on a posting they had already
+   * tailored.
+   *
+   * Gap analysis is cached server-side so that re-OPENING a job does not
+   * re-spend a credit on an answer that cannot have changed. A deliberate
+   * re-run is a different intent, and serving it from cache is what made
+   * re-tailoring look like it did nothing: identical gaps, and a stale
+   * tailored card still on screen underneath.
+   */
+  const forceFreshRef = useRef(false);
   const [tailoredProfile, setTailoredProfile] = useState<any | null>(null);
   const [isTailoring, setIsTailoring] = useState(false);
   const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
@@ -349,11 +402,15 @@ export const SidePanel: React.FC = () => {
       }
       // Also refresh the LinkedIn-profile flag whenever a URL changes.
       if (changeInfo.url) detectLinkedInProfileTab();
+      // The hint describes the page that was open when Analyze was clicked, so
+      // a navigation retires it — right or wrong, it is about somewhere else.
+      if (changeInfo.url) setAnalyzeHint(null);
     };
     const onTabActivated = () => {
       setTimeout(() => loadJobInfoWithRetry(), 300);
       // Re-check whether we're on a LinkedIn profile page.
       detectLinkedInProfileTab();
+      setAnalyzeHint(null);
     };
     chrome.tabs.onUpdated.addListener(onTabUpdated);
     chrome.tabs.onActivated.addListener(onTabActivated);
@@ -814,17 +871,84 @@ export const SidePanel: React.FC = () => {
    * resolves to the signed-in member's own profile; the tab listener flips the
    * card back to "Analyze my profile" as soon as it lands.
    */
-  const handleAnalyzerHookClick = useCallback(() => {
+  const handleAnalyzerHookClick = useCallback(async () => {
     if (isOnLinkedInProfile) {
       void openAnalyzeGoalPicker('guest');
       return;
     }
-    chrome.runtime.sendMessage({
-      type: 'OPEN_TAB',
-      data: { url: 'https://www.linkedin.com/in/me/' },
-    });
-    showNotification('Opened LinkedIn. Tap Analyze once your profile loads.', 'info');
+    // The tab has to be created HERE rather than through the background
+    // worker, because the panel has to be reopened for it in the same breath
+    // and chrome.sidePanel.open() only runs under a live user gesture — the
+    // worker has none of its own. Handing the URL to OPEN_TAB landed the user
+    // on LinkedIn with the panel shut, one step past the only thing we asked
+    // them to do, and nothing on the page to tell them to reopen it.
+    // Landing on LinkedIn is a step on the way to the analysis, not the thing
+    // asked for, so the panel picks the flow back up on arrival instead of
+    // leaving a second Analyze tap between the user and what they clicked.
+    try {
+      await chrome.storage.local.set({ [PENDING_ANALYZER_KEY]: { at: Date.now() } });
+    } catch (_) { /* the manual tap still works */ }
+
+    let opened: chrome.tabs.Tab | null = null;
+    try {
+      opened = await chrome.tabs.create({ url: LINKEDIN_OWN_PROFILE_URL });
+    } catch (_) {
+      opened = null;
+    }
+    if (!opened) {
+      // tabs.create refused (no window, permission edge) — the worker can still
+      // put the user on LinkedIn, which is the part they actually asked for.
+      chrome.runtime.sendMessage({
+        type: 'OPEN_TAB',
+        data: { url: LINKEDIN_OWN_PROFILE_URL },
+      });
+      showNotification('Opening your LinkedIn profile…', 'info');
+      return;
+    }
+    try {
+      // windowId keeps the panel window-scoped, the way the action click opens
+      // it; tabId is the fallback for the rare create() result without one.
+      if (opened.windowId != null) await chrome.sidePanel.open({ windowId: opened.windowId });
+      else if (opened.id != null) await chrome.sidePanel.open({ tabId: opened.id });
+      showNotification('Opening your LinkedIn profile…', 'info');
+    } catch (_) {
+      // Reopen refused (gesture expired, panel disabled for this window). The
+      // tab is already there, so say what is left to do instead of silence.
+      showNotification('Opened LinkedIn. Reopen ProfileAI there to continue.', 'info');
+    }
   }, [isOnLinkedInProfile, openAnalyzeGoalPicker]);
+
+  /**
+   * Picks the analyzer flow back up once the LinkedIn tab we opened has a
+   * profile on it. The flag is consumed on read, so a stale one can never open
+   * the picker twice, and the flow is chosen from the CURRENT auth state rather
+   * than from whatever it was at click time — the trip through LinkedIn is long
+   * enough for a sign-in to have happened in between.
+   */
+  useEffect(() => {
+    if (!isOnLinkedInProfile) return;
+    let cancelled = false;
+    (async () => {
+      let pending: { at?: number } | undefined;
+      try {
+        const stored = await chrome.storage.local.get(PENDING_ANALYZER_KEY);
+        pending = stored?.[PENDING_ANALYZER_KEY];
+      } catch (_) {
+        return;
+      }
+      if (!pending || cancelled) return;
+      try {
+        await chrome.storage.local.remove(PENDING_ANALYZER_KEY);
+      } catch (_) { /* worst case it expires on its own */ }
+      if (cancelled || Date.now() - (pending.at || 0) > PENDING_ANALYZER_TTL_MS) return;
+      // Same rule the pills use, debug flag included — otherwise the one flow
+      // that opens itself is also the one flow that ignores the switch a
+      // tester flipped to see the guest teaser.
+      const guest = debugForceGuestAnalyzer || !authState.isAuthenticated;
+      void openAnalyzeGoalPicker(guest ? 'guest' : 'authed');
+    })();
+    return () => { cancelled = true; };
+  }, [isOnLinkedInProfile, authState.isAuthenticated, debugForceGuestAnalyzer, openAnalyzeGoalPicker]);
 
   const closeGoalPicker = useCallback(() => {
     setShowGoalPicker(false);
@@ -887,21 +1011,60 @@ export const SidePanel: React.FC = () => {
     void liTeaserSignIn();
   }, [linkedInAnalysisId, liTeaserSignIn]);
 
+  /**
+   * Read the posting in front of the user right now and pin it for this run.
+   *
+   * Always re-reads — it does not short-circuit on `currentJob` being set,
+   * which is the behaviour that let a stale mirror reach the API. The read is
+   * on-device (DOM scrape plus the local keyword scan), so there is no credit
+   * and no AI call to save by skipping it.
+   *
+   * The tab URL is captured in the same breath as the posting so that
+   * everything keyed by URL later — the retailor cache, the saved record, the
+   * background task key — refers to the page the text actually came from,
+   * rather than to whatever tab happens to be focused when the run finishes.
+   */
+  const readJobForRun = useCallback(async (): Promise<{ job: JobInfo; url: string } | null> => {
+    let url = '';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      url = tab?.url || '';
+    } catch (_) {}
+
+    let job: JobInfo | null = null;
+    try {
+      const response = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
+      if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
+        job = response.jobInfo;
+        if (response?.success && response?.keywords) setKeywordAnalysis(response.keywords);
+      }
+    } catch (_) {}
+
+    if (!job) {
+      try {
+        const relay = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
+        if (relay && (relay.title || relay.company || relay.description)) job = relay;
+      } catch (_) {}
+    }
+
+    if (!job) return null;
+
+    setCurrentJob(job);
+    const pinned = { job, url };
+    verifiedJobRef.current = pinned;
+    console.log('[ProfileAI SidePanel] Pinned job for this run:', job.title, '| desc chars:', job.description?.length || 0, '|', url);
+    return pinned;
+  }, []);
+
   const handleAnalyzeMatch = useCallback(async () => {
     setShowMatchAnalysis(true);
     setMatchLoading(true);
     beginOp('match');
     try {
-      // Ensure we have a fresh job info + analysis.
-      let job = currentJob;
-      if (!job) {
-        const r = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
-        if (r?.jobInfo) {
-          job = r.jobInfo;
-          setCurrentJob(r.jobInfo);
-          if (r.success && r.keywords) setKeywordAnalysis(r.keywords);
-        }
-      }
+      // Re-read the page rather than trusting `currentJob`, which mirrors
+      // storage and can describe a posting the user has clicked away from.
+      // Same reason as handleTailor: the read is on-device and free.
+      const job = (await readJobForRun())?.job || currentJob;
       const resp = await chrome.runtime.sendMessage({
         type: 'ANALYZE_MATCH',
         data: {
@@ -921,46 +1084,33 @@ export const SidePanel: React.FC = () => {
       endOp('match');
       setMatchLoading(false);
     }
-  }, [currentJob]);
+  }, [currentJob, readJobForRun]);
 
   const handleTailor = useCallback(async () => {
-    // Get fresh job info — try ANALYZE_JOB_PAGE which uses executeScript (most reliable)
-    let freshJob = currentJob;
-    if (!freshJob) {
-      try {
-        const response = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
-        if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
-          freshJob = response.jobInfo;
-          setCurrentJob(response.jobInfo);
-          if (response?.success && response?.keywords) {
-            setKeywordAnalysis(response.keywords);
-          }
-        }
-      } catch (_) {}
-    }
-    if (!freshJob) {
-      try {
-        const relayResponse = await chrome.runtime.sendMessage({ type: 'GET_JOB_INFO_RELAY' });
-        if (relayResponse && (relayResponse.title || relayResponse.company || relayResponse.description)) {
-          freshJob = relayResponse;
-          setCurrentJob(relayResponse);
-        }
-      } catch (_) {}
-    }
+    // Re-read the page unconditionally. This used to refresh only when there
+    // was no job at all, so a `currentJob` left over from a posting the user
+    // had clicked away from was tailored against verbatim.
+    const pinned = await readJobForRun();
 
-    if (!freshJob) {
+    if (!pinned) {
       showNotification('Could not detect job info on this page', 'warning');
       return;
     }
 
-    // Check if already tailored for this job
+    const freshJob = pinned.job;
+
+    if (!(freshJob.description || '').trim()) {
+      showNotification('Could not read the job description on this page. Scroll the posting into view and try again.', 'warning');
+      return;
+    }
+
+    // Check if already tailored for this job — keyed by the URL the posting was
+    // read from, not by whichever tab is focused by now.
     try {
-      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const jobUrl = tabs[0]?.url || '';
-      if (jobUrl) {
+      if (pinned.url) {
         const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-        if (tailoredCache[jobUrl]) {
-          setRetailorConfirm({ jobUrl, jobTitle: freshJob.title || '', company: freshJob.company || '' });
+        if (tailoredCache[pinned.url]) {
+          setRetailorConfirm({ jobUrl: pinned.url, jobTitle: freshJob.title || '', company: freshJob.company || '' });
           return;
         }
       }
@@ -968,7 +1118,7 @@ export const SidePanel: React.FC = () => {
 
     // Show settings modal before proceeding
     setShowTailorSettings(true);
-  }, [currentJob]);
+  }, [readJobForRun]);
 
   const handleTailorSettingsContinue = useCallback(async (settings: TailorSettings) => {
     setTailorSettings(settings);
@@ -977,7 +1127,12 @@ export const SidePanel: React.FC = () => {
   }, [currentJob]);
 
   const proceedWithTailor = useCallback(async (settings?: TailorSettings | null) => {
-    if (!currentJob) return;
+    // The posting this run is committed to, read and pinned by handleTailor.
+    // Deliberately NOT `currentJob`: that is a live mirror of storage and can
+    // change under a run (the user clicks another card while the gap review is
+    // open), which would analyse one posting and tailor to another.
+    const pinnedJob = verifiedJobRef.current?.job || currentJob;
+    if (!pinnedJob) return;
     setRetailorConfirm(null);
     const activeSettings = settings || tailorSettings;
     
@@ -998,11 +1153,17 @@ export const SidePanel: React.FC = () => {
       const response = await chrome.runtime.sendMessage({
         type: 'ANALYZE_GAPS',
         data: {
-          jobDescription: currentJob.description || '',
-          jobTitle: currentJob.title,
-          company: currentJob.company,
+          jobDescription: pinnedJob.description || '',
+          jobTitle: pinnedJob.title,
+          company: pinnedJob.company,
+          forceRefresh: forceFreshRef.current,
         },
       });
+
+      if (response?.cached) {
+        // Say so rather than letting an identical report read as a no-op.
+        showNotification('Showing your saved gap analysis for this job — nothing changed since last time.', 'info');
+      }
 
       if (response?.success && response?.gaps?.length > 0) {
         // Show in-page modal (rendered below) instead of opening a popup window.
@@ -1021,6 +1182,9 @@ export const SidePanel: React.FC = () => {
     } finally {
       endOp('gaps');
       setIsAnalyzingGaps(false);
+      // One run, one bypass. Left set, the next ordinary tailor of a different
+      // job would also skip the cache and spend a credit it did not need to.
+      forceFreshRef.current = false;
     }
   }, [currentJob]);
 
@@ -1030,15 +1194,32 @@ export const SidePanel: React.FC = () => {
     acceptedGapObjects?: any[],
     settings?: TailorSettings | null
   ) => {
-    if (!currentJob) return;
+    // Same pinned posting the gap analysis ran against — see proceedWithTailor.
+    const pinnedJob = verifiedJobRef.current?.job || currentJob;
+    if (!pinnedJob) return;
 
-    // Capture the job URL up front so the background can persist progress/result
-    // by URL — this lets the panel recover state if it's closed mid-tailor.
-    let jobUrl = '';
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      jobUrl = tab?.url || '';
-    } catch (_) {}
+    // The URL the posting was READ FROM, not the tab that happens to be focused
+    // now. This is the key the background persists progress under, the key the
+    // retailor cache uses, and the `jobUrl` saved on the record — all three
+    // previously pointed at the active tab, so a tab switch during the gap
+    // review filed the result against the wrong page.
+    const jobUrl = verifiedJobRef.current?.url || '';
+
+    // Drop the stored result for this posting BEFORE the run. It is about to
+    // be replaced, and leaving it in place meant that any path which reads the
+    // cache while the run is in flight — reopening the panel, a tab switch and
+    // back — put the OLD tailored card back on screen, which is
+    // indistinguishable from the new run having produced nothing.
+    if (jobUrl) {
+      try {
+        const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
+        if (tailoredCache[jobUrl]) {
+          delete tailoredCache[jobUrl];
+          await chrome.storage.local.set({ tailoredCache });
+        }
+      } catch (_) {}
+    }
+    setTailoredProfile(null);
 
     setIsTailoring(true);
     markTailorStart(Date.now());
@@ -1061,9 +1242,9 @@ export const SidePanel: React.FC = () => {
       const response = await chrome.runtime.sendMessage({
         type: 'TAILOR_PROFILE',
         data: {
-          jobDescription: currentJob.description || '',
-          jobTitle: currentJob.title,
-          company: currentJob.company,
+          jobDescription: pinnedJob.description || '',
+          jobTitle: pinnedJob.title,
+          company: pinnedJob.company,
           jobUrl,
           gapSelections: gapSelections ? {
             ...gapSelections,
@@ -1094,6 +1275,7 @@ export const SidePanel: React.FC = () => {
 
   const handleAnalyzeKeywords = useCallback(async () => {
     setIsAnalyzing(true);
+    setAnalyzeHint(null);
     beginOp('keywords');
     try {
       // ANALYZE_JOB_PAGE extracts fresh job info via the scripting API and
@@ -1114,12 +1296,44 @@ export const SidePanel: React.FC = () => {
         throw new Error(response?.error || 'Analysis failed');
       }
     } catch (error) {
-      showNotification((error as Error).message || 'Keyword analysis failed', 'error');
+      const message = (error as Error).message || 'Keyword analysis failed';
+      // With no job on screen the failure has a button to point at, and the
+      // empty state is exactly where "this isn't a job posting" makes sense.
+      // Once a job card is showing, that anchor is gone and the toast is still
+      // the only place the message fits.
+      if (currentJobRef.current) showNotification(message, 'error');
+      else setAnalyzeHint({ message });
     } finally {
       endOp('keywords');
       setIsAnalyzing(false);
     }
   }, []);
+
+  useEffect(() => {
+    currentJobRef.current = currentJob;
+    // A job arrived — whatever the previous click failed to find is now moot.
+    if (currentJob) setAnalyzeHint(null);
+  }, [currentJob]);
+
+  /**
+   * The hint answers a click, so it outlasts the 3s toast by a wide margin —
+   * long enough to read the sentence, look at the page it is talking about,
+   * and look back. It also takes Escape and its own close button, because an
+   * explanation the user has already read should go when they say so rather
+   * than sit there for the rest of the countdown.
+   */
+  useEffect(() => {
+    if (!analyzeHint) return;
+    const timer = setTimeout(() => setAnalyzeHint(null), ANALYZE_HINT_TIMEOUT_MS);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAnalyzeHint(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [analyzeHint]);
 
   const showNotification = (message: string, type: 'success' | 'warning' | 'info' | 'error') => {
     setNotification({ message, type });
@@ -1127,44 +1341,32 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleCoverLetter = useCallback(async () => {
-    // Fetch job info on-demand if not already detected
-    if (!currentJob) {
-      try {
-        const response = await runOwnedOp('keywords', () => chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' }));
-        if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
-          setCurrentJob(response.jobInfo);
-          if (response?.success && response?.keywords) {
-            setKeywordAnalysis(response.keywords);
-          }
-        } else {
-          showNotification('Could not detect job info on this page', 'warning');
-          return;
-        }
-      } catch (_) {
-        showNotification('Could not detect job info on this page', 'warning');
-        return;
-      }
+    // Re-read the page, same as tailoring: a cover letter written against the
+    // posting the user was looking at a minute ago is as wrong as a resume.
+    const pinned = await readJobForRun();
+    if (!pinned) {
+      showNotification('Could not detect job info on this page', 'warning');
+      return;
     }
     setShowCoverLetterModal(true);
-  }, [currentJob]);
+  }, [readJobForRun]);
 
   const generateCoverLetter = useCallback(async (tone: string, length: string): Promise<string | null> => {
-    if (!currentJob) return null;
+    // The posting pinned when the modal opened — not the live mirror, and not
+    // whichever tab is focused by the time the user picks a tone.
+    const pinnedJob = verifiedJobRef.current?.job || currentJob;
+    if (!pinnedJob) return null;
     // The background caches the finished letter under this URL, so a panel
     // that reopens after the run finishes still finds it.
-    let jobUrl = '';
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      jobUrl = tab?.url || '';
-    } catch (_) {}
+    const jobUrl = verifiedJobRef.current?.url || '';
     beginOp('coverLetter');
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'GENERATE_COVER_LETTER',
         data: {
-          jobTitle: currentJob.title,
-          company: currentJob.company,
-          jobDescription: currentJob.description || '',
+          jobTitle: pinnedJob.title,
+          company: pinnedJob.company,
+          jobDescription: pinnedJob.description || '',
           jobUrl,
           tone,
           length,
@@ -1534,6 +1736,8 @@ export const SidePanel: React.FC = () => {
             <JobMatchSection 
               currentJob={currentJob} 
               onAnalyze={handleAnalyzeKeywords}
+              analyzeHint={analyzeHint?.message ?? null}
+              onDismissAnalyzeHint={() => setAnalyzeHint(null)}
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
               onTailor={handleTailor}
@@ -1613,7 +1817,7 @@ export const SidePanel: React.FC = () => {
                     <button className="retailor-btn keep" onClick={() => setRetailorConfirm(null)}>
                       Keep Existing
                     </button>
-                    <button className="retailor-btn retailor" onClick={() => { setRetailorConfirm(null); setShowTailorSettings(true); }}>
+                    <button className="retailor-btn retailor" onClick={() => { setRetailorConfirm(null); forceFreshRef.current = true; setShowTailorSettings(true); }}>
                       Tailor Again
                     </button>
                   </div>
