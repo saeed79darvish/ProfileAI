@@ -234,10 +234,22 @@ app.get('/health', (req, res) => {
      and a dated snapshot still sitting here after a migration is the thing
      you want to find before Anthropic's deadline does. */
   const { DEFAULT_MODEL, HAIKU_MODEL } = require('./services/ai/core');
+  /* The commit is here for the same reason the models are: "is my fix actually
+     live?" had no answer but a deploy log. Pushing to main and seeing the push
+     land on origin proves the REPO moved, not that production did — and this
+     repo has a history of pushes that did not auto-deploy. Render exposes the
+     deployed commit in RENDER_GIT_COMMIT, so a plain curl can now answer it.
+     Not a secret: the repo it names is already the one being deployed. */
+  const commit = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     models: { default: DEFAULT_MODEL, haiku: HAIKU_MODEL },
+    build: {
+      commit: commit ? commit.slice(0, 7) : 'unknown',
+      branch: process.env.RENDER_GIT_BRANCH || null,
+      startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
+    },
   });
 });
 
