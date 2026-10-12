@@ -156,19 +156,47 @@ const DUTY_OPENER =
 
 const MAX_LABEL = 72;
 
-/** Trims a bullet down to something that fits a card without losing the point. */
-function toLabel(raw: string): string {
-  let text = raw.replace(BULLET, '').trim();
-  text = text.replace(/\s+/g, ' ');
-  // Postings love "Experience with X, including a, b and c" — the clause after
-  // the first comma is nearly always elaboration.
-  if (text.length > MAX_LABEL) {
-    const cut = text.slice(0, MAX_LABEL);
-    const lastBreak = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' — '), cut.lastIndexOf('; '));
-    text = (lastBreak > 28 ? cut.slice(0, lastBreak) : cut).trim();
-  }
-  text = text.replace(/[.,;:]+$/, '').trim();
+/**
+ * Normalises a bullet into a requirement sentence. No truncation: this is the
+ * text the scorer reads.
+ *
+ * It used to shorten here, and the shortened string was then stored AS the
+ * requirement — so the matcher judged the candidate against the first 72
+ * characters of each bullet and silently discarded the rest. Any requirement
+ * whose distinguishing words fell past that cut could never be matched, which
+ * both mis-scored the posting and produced screening verdicts citing a
+ * requirement the tool could not state. Shortening is a rendering concern and
+ * now happens at the rendering boundary, in `toLabel`.
+ */
+function toRequirementText(raw: string): string {
+  const text = raw.replace(BULLET, '').trim().replace(/\s+/g, ' ').replace(/[.,;:]+$/, '').trim();
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Trims a requirement down to something that fits a card. DISPLAY ONLY.
+ *
+ * A hard cut at 72 characters produced "Experience working in fast-paced
+ * startup environments where you've built" — a sentence that stops mid-clause
+ * and reads, to the candidate, as the complete requirement they are failing.
+ * When there is no punctuation to break on, break on a word boundary and mark
+ * the elision, so a shortened requirement is visibly shortened.
+ */
+function toLabel(raw: string): string {
+  const text = toRequirementText(raw);
+  if (text.length <= MAX_LABEL) return text;
+
+  // Postings love "Experience with X, including a, b and c" — the clause after
+  // the first comma is nearly always elaboration, so cutting there loses
+  // nothing and needs no ellipsis.
+  const cut = text.slice(0, MAX_LABEL);
+  const clause = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' — '), cut.lastIndexOf('; '));
+  if (clause > 28) return cut.slice(0, clause).replace(/[.,;:]+$/, '').trim();
+
+  // No clause break: cut on whitespace rather than mid-word, and say so.
+  const word = cut.lastIndexOf(' ');
+  const stem = (word > 28 ? cut.slice(0, word) : cut).replace(/[.,;:]+$/, '').trim();
+  return `${stem}…`;
 }
 
 interface RawLine {
@@ -206,9 +234,10 @@ function collectLines(jobDescription: string): RawLine[] {
     // Long bullets sometimes pack two requirements behind a semicolon.
     const parts = bulleted && trimmed.includes('; ') ? trimmed.split('; ') : [trimmed];
     for (const part of parts) {
-      const label = toLabel(part);
-      if (label.length < 8) continue;
-      out.push({ text: label, section });
+      // FULL text — the scorer reads this. Shortening happens at render time.
+      const text = toRequirementText(part);
+      if (text.length < 8) continue;
+      out.push({ text, section });
     }
   }
   return out;
@@ -987,7 +1016,10 @@ export function analyzeJobMatchLocally(
   const blockers = must
     .filter((r) => r.coverage === 'none' && SCREENABLE_TYPES.has(r.type))
     .map((r) => ({
-      requirement: r.requirement,
+      // Shortened for display, like every other requirement the card shows —
+      // a screening verdict quoting a sentence that stops mid-clause reads as
+      // a broken product even when the verdict is right.
+      requirement: toLabel(r.requirement),
       type: r.type,
       why: r.whyBlocking || 'Listed as required and absent from your profile.',
     }));
@@ -1020,16 +1052,23 @@ export function analyzeJobMatchLocally(
     ...list.filter((r) => r.hardness === 'must'),
     ...list.filter((r) => r.hardness !== 'must'),
   ];
-  const label = (r: LocalRequirement) => r.requirement;
+  // The rendering boundary: requirements are carried at full length through
+  // scoring and shortened only here, for the card.
+  const label = (r: LocalRequirement) => toLabel(r.requirement);
   const present = byHardness(scored.filter((r) => r.coverage === 'strong')).map(label).slice(0, 24);
   const partial = byHardness(scored.filter((r) => r.coverage === 'partial')).map(label).slice(0, 12);
   const uncovered = byHardness(scored.filter((r) => r.coverage === 'none'));
   const missing = uncovered.map(label).slice(0, 16);
 
+  // Both sides key on the DISPLAY label, which is also what `missing` holds, so
+  // the card can look a priority up by the string it is rendering. Requirements
+  // travel at full length through scoring and are shortened at this boundary;
+  // keying one side on the full sentence and the other on the label would make
+  // every lookup miss and quietly downgrade every blocker to 'medium'.
   const blockerSet = new Set(blockers.map((b) => b.requirement.toLowerCase()));
   const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
   for (const r of uncovered) {
-    const key = r.requirement.toLowerCase();
+    const key = label(r).toLowerCase();
     priorities[key] = blockerSet.has(key) ? 'high' : r.hardness === 'must' ? 'medium' : 'low';
   }
 
