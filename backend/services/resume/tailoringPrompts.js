@@ -112,6 +112,20 @@ that only apply when there is a posting to tailor to.)
   the experience section shows backend ownership; a full-stack posting does not
   make the candidate full-stack, and relabelling is the cheapest possible
   fabrication because it costs no sentence anywhere else.
+- THIS RULE IS SYMMETRIC, AND UNDERSTATING IS ALSO A FAILURE. The identity must
+  not fall BELOW what the bullets demonstrate either. If the experience section
+  shows backend ownership — APIs designed and shipped, services and data layers
+  built, infrastructure run — then opening the summary with "Frontend-focused
+  engineer" against a posting that asks for depth in both is not caution, it is
+  throwing away a match the candidate has actually earned, and it is the first
+  line the recruiter reads. Describe the real shape of the work: lead with what
+  the bullets can defend, in full, and neither inflate it nor shrink it.
+- NEVER state a number of years the dated roles do not support. Add up the
+  dates in the experience section before writing any "N years" phrase, and if
+  the posting asks for more than the dates show, say nothing about years at all
+  rather than rounding up to clear the bar. This is checked in code against the
+  source dates and removed if it does not hold, so an inflated figure costs the
+  sentence it sits in and buys nothing.
   - Where the posting's core requirement is PARTIALLY supported, keep the honest
     identity and let the supporting bullets carry as much of the claim as they
     honestly can. That is the whole permitted move.
@@ -218,9 +232,12 @@ EDUCATION COMPLETENESS
   "UCSC Silicon Valley Extension", the output names it too — an entry that keeps
   the certificate but loses the school is worse than no entry, because it reads
   as a credential the candidate is hiding the source of.
-- Only add a placeholder ([add institution name], [add graduation year]) when
-  the SOURCE genuinely lacks that field. Never use one to replace a value you
-  dropped.
+- NEVER write a bracketed placeholder into any resume field. "[add institution
+  name]" on a finished resume is worse than an absent entry — it is visible to
+  the employer and reads as an unfinished document. When the source genuinely
+  lacks a field, leave that field as an empty string and say what is missing in
+  \`matchAnalysis\`; the candidate is asked about it separately. An entry with
+  neither an institution nor a degree is dropped, not padded with placeholders.
 - De-duplicating education means MERGING INTO the most complete entry — the one
   that has the institution — and deleting the thinner duplicate. It never means
   keeping the thin one. If merging two entries would lose any field present in
@@ -228,8 +245,9 @@ EDUCATION COMPLETENESS
 - Never output an incomplete education entry.
 
 PROJECT DATES
-- Always include year or year range for each project.
-- If missing, add placeholder: [add year]
+- Include the year or year range for each project when the source has one.
+- If the source has none, leave it out. Never write a bracketed placeholder
+  into the title or anywhere else the employer will read.
 - Format: Project Name (Year) or (Year – Year)
 
 SECTION ORDER
@@ -802,7 +820,7 @@ Return a JSON object with this exact structure:
   "experience": [
     {"company": "SAME", "title": "SAME", "period": "SAME", "description": "final tailored bullets only — reordered, varied in length, decisions already applied. No review notes, no suggestions, no bracketed commentary."}
   ],
-  "education": [{"school": "Institution or [add institution name]", "degree": "Degree", "field": "Field", "year": "Year or [add graduation year]"}],
+  "education": [{"school": "Institution exactly as the source names it", "degree": "Degree or certificate title", "field": "Field", "year": "Year, or an empty string if the source has none — never a placeholder"}],
   "projects": [{"title": "Project Name (Year)", "description": "tailored to surface JD-relevant aspects"}],
   "matchScore": 82,
   "requirementCoverage": [

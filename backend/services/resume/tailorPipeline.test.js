@@ -360,3 +360,52 @@ test('the verification block still reports the pre-existing checks', async () =>
     assert.ok(key in data.verification, `verification lost its ${key} section`);
   }
 });
+
+// ── Placeholders and tenure, end to end ─────────────────────────────────────
+// Both of these reached a real candidate's finished PDF.
+
+test('placeholder education never survives to the returned resume', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.education = [
+    { school: 'UCSC Silicon Valley Extension', degree: 'Full Stack Development Certificate', field: 'Bootcamp', year: '2018' },
+    { school: '[add institution name]', degree: '[add degree]', field: 'Computer Programming, Specific Applications', year: '[add graduation year]' },
+  ];
+  script(JSON.stringify(draft));
+
+  const { data } = await tailor();
+  assert.equal(data.education.length, 1, 'the placeholder entry shipped');
+  assert.ok(!/\[\s*add/i.test(JSON.stringify(data.education)), 'placeholder text survived');
+  // It becomes a question to the candidate rather than text on the resume.
+  assert.ok((data.openQuestions || []).some((q) => q.type === 'education_incomplete'));
+});
+
+test('a tenure claim the dates cannot support is removed from the summary', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  // PROFILE's dated roles run 2018 -> now; claim far beyond that.
+  draft.summary = 'Backend engineer who has spent eighteen years building billing systems in Go.';
+  script(JSON.stringify(draft));
+
+  const { data } = await tailor();
+  assert.ok(!/eighteen years/i.test(data.summary), `inflated claim survived: ${data.summary}`);
+  assert.equal(data.verification.tenure.compliant, false);
+  assert.ok(data.verification.tenure.removedAsUnsupported.length > 0);
+  assert.ok((data.openQuestions || []).some((q) => q.type === 'tenure_claim_removed'));
+  assert.ok(data.changelog.some((c) => c.action === 'tenure_corrected'));
+});
+
+test('an honest tenure claim is left alone', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.summary = 'Engineer with three years building billing systems in Go on Kubernetes.';
+  script(JSON.stringify(draft));
+
+  const { data } = await tailor();
+  assert.match(data.summary, /three years/);
+  assert.equal(data.verification.tenure.compliant, true);
+});
+
+test('the verification block reports tenure whether or not a claim was made', async () => {
+  script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  const { data } = await tailor();
+  assert.equal(typeof data.verification.tenure.yearsSupportedByDates, 'number');
+  assert.ok(Array.isArray(data.verification.tenure.claimsInSummary));
+});

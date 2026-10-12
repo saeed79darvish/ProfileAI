@@ -32,6 +32,7 @@ const {
   reconcileRequirementCoverage,
   requirementGapNote,
 } = require('./resume/jobRequirements');
+const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeHygiene');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -2622,6 +2623,60 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         tailoredData.company = targetCompany;
       }
 
+      // ── Placeholders and tenure, settled in code ─────────────────────────
+      // Both of these reached a real candidate's finished PDF.
+      //
+      // The education entry printed "[add institution name]" because the output
+      // contract showed placeholders as the example value and neither existing
+      // scrubber covers education. The summary claimed "eight years" on a work
+      // history whose own dates — printed directly beneath it — span 6.4,
+      // against a posting gated on "7+ years". The metrics auditor missed it
+      // because it looks for digits and "eight" is a word.
+      const hygieneQuestions = [];
+      {
+        const { questions, changed } = stripPlaceholderEntries(tailoredData);
+        hygieneQuestions.push(...questions);
+        if (changed.length > 0) {
+          console.log('[ProfilleAI] ⚠️ Stripped placeholder text from:', changed.join(', '));
+          tailoredData.changelog.push({
+            section: changed.join(', '),
+            action: 'placeholders_removed',
+            detail: 'Removed [add ...] placeholder text — the resume carries finished content; the missing fields travel as open questions instead',
+          });
+        }
+      }
+
+      // Tenure is checked against the SOURCE experience, not the draft's, so a
+      // rewritten period string cannot talk the check into agreeing with it.
+      const tenure = auditTenureClaims(tailoredData.summary, profileData.experience);
+      if (!tenure.clean) {
+        for (const claim of tenure.inflated) {
+          console.warn(
+            `[ProfilleAI] ⚠️ Summary claims "${claim.raw}" but the dates support ` +
+            `${tenure.actualYears} years — removing the claim`
+          );
+          // Deleted rather than corrected down: "6.4 years" is not a sentence
+          // anyone writes, and silently rewriting the number is the same class
+          // of edit as inflating it. The candidate is told, and decides.
+          tailoredData.summary = String(tailoredData.summary || '')
+            .replace(claim.raw, '')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/\s+([.,])/g, '$1')
+            .replace(/\b(spent|over|with|has)\s+([.,])/gi, '$2')
+            .trim();
+          hygieneQuestions.push({
+            type: 'tenure_claim_removed',
+            term: claim.raw,
+            question: `The summary said "${claim.raw}", but your dated roles add up to about ${tenure.actualYears} years. Removed it — if you have earlier experience not on the resume, add those roles and it can go back in.`,
+          });
+        }
+        tailoredData.changelog.push({
+          section: 'summary',
+          action: 'tenure_corrected',
+          detail: `Removed a tenure claim the dates do not support (claimed ${tenure.inflated.map((c) => c.raw).join(', ')}, dates show ~${tenure.actualYears} years)`,
+        });
+      }
+
       // Re-audit one last time so what ships to the candidate describes the
       // bytes being returned, not an earlier version of them.
       const finalReport = auditDraft({ draft: tailoredData, ...auditInput });
@@ -2642,7 +2697,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         term: typeof s === 'string' ? s : s.skill || String(s),
         question: `The posting asks for ${typeof s === 'string' ? s : s.skill || s}, and we could not trace it to your resume. Do you have real experience with it we should add, or does it stay a gap?`,
       }));
-      for (const q of [...finalReport.questions, ...skillsToConfirm, ...reviewMeta.questions]) {
+      for (const q of [...finalReport.questions, ...skillsToConfirm, ...reviewMeta.questions, ...hygieneQuestions]) {
         const key = `${q.type}|${String(q.term || '').toLowerCase()}`;
         if (seenQuestions.has(key)) continue;
         seenQuestions.add(key);
@@ -2730,6 +2785,14 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           max: finalReport.summary.maxSentences,
           copiedFromJd: finalReport.summary.copiedSpans,
           compliant: finalReport.summary.clean,
+        },
+        // The number a recruiter checks first, by subtracting the dates printed
+        // underneath it. Stated whether or not a claim was found.
+        tenure: {
+          yearsSupportedByDates: tenure.actualYears,
+          claimsInSummary: tenure.claims.map((c) => c.raw),
+          removedAsUnsupported: tenure.inflated.map((c) => c.raw),
+          compliant: tenure.clean,
         },
         // Not a pass/fail: a posting whose scope the candidate only partly
         // reaches is a normal, honest outcome. What matters is that the count
