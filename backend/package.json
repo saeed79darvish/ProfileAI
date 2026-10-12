@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "test": "node --test \"services/**/*.test.js\"",
     "dev": "nodemon server.js",
     "build:mcp-ui": "NODE_PATH=\"$(cd .. && pwd)/frontend/node_modules\" node mcp/ui/build.mjs",
     "worker": "node workers/submitWorker.js",

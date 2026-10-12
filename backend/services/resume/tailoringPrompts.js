@@ -66,9 +66,14 @@ STEP 3: REWRITE RULES
 Apply all of the following when rewriting:
 
 TITLE
-- Return the candidate's title mirrored to the JD's exact wording in the
-  \`title\` field (e.g. if the JD says "Senior Product Manager" use that, not
-  "Product Lead").
+- Return the posting's exact title in the \`title\` field — see TARGET ROLE
+  below, which is authoritative. Mirror the wording, do not paraphrase it: if
+  the posting says "Senior Product Manager", that is the title, not "Product
+  Lead".
+- The seniority band is part of the wording and is never substituted. Staff,
+  Principal, Senior, Lead, Director and Associate are distinct roles, not
+  synonyms, and swapping one for another is the single most visible error you
+  can make on this field — the candidate sees it first and so does the ATS.
 
 CONTACT INFO — NOT YOURS TO EDIT
 - Name, email, phone, LinkedIn, location and portfolio are attached by the
@@ -614,6 +619,11 @@ function getRoleBlock(group) {
  * @param {string} [options.originalResumeText] - Raw resume text (PATH A)
  * @param {Object} [options.profileData] - Structured profile data (PATH B)
  * @param {string} options.jobDescription - The job posting text
+ * @param {string} [options.targetTitle] - The posting's title, scraped from the
+ *   page header. The header is not inside the description element on most job
+ *   boards, so without this the title is frequently absent from the prompt
+ *   altogether and the model has to guess it.
+ * @param {string} [options.targetCompany] - The hiring company, same source.
  * @param {string} options.gapContext - Gap review decisions block
  * @param {string} options.settingsContext - User tailoring preferences block
  * @param {Object} options.extractedKeywords - Extracted keywords from JD
@@ -628,6 +638,8 @@ function buildTailoringPrompt(options) {
     originalResumeText,
     profileData,
     jobDescription,
+    targetTitle,
+    targetCompany,
     gapContext,
     settingsContext,
     extractedKeywords,
@@ -676,6 +688,71 @@ ${(extractedKeywords.preferred || []).length > 0 ? 'Preferred: ' + (extractedKey
 ${(extractedKeywords.domain || []).length > 0 ? 'Domain terms: ' + (extractedKeywords.domain || []).join(', ') : ''}
 ${orGroupsBlock}`;
 
+  // The requirements that are not tool names. These used to be dropped before
+  // the prompt ever saw them, which left the whole pipeline reasoning about a
+  // posting as if it were a list of technologies — so a Staff posting and a
+  // Senior one produced near-identical resumes. Scope, ownership and seniority
+  // are what differ, and they are all in here.
+  const requirements = (extractedKeywords.requirements || []).filter(
+    (r) => typeof r === 'string' && r.trim()
+  );
+  const requirementsBlock = requirements.length > 0 ? `
+═══ SUBSTANTIVE REQUIREMENTS (what this posting is actually hiring for) ═══
+These are not keywords to place. They are the things a recruiter reads this
+resume to find, and they outrank the keyword checklist above when the two
+compete for space:
+${requirements.map((r, i) => `  ${i + 1}. ${r}`).join('\n')}
+
+For EACH one:
+  - Find where the candidate's real history speaks to it and make that visible —
+    promote the bullet that demonstrates it, lead the role with it, give it the
+    words the posting uses for it IF the work genuinely matches.
+  - Scope and seniority requirements are demonstrated by EVIDENCE, not by
+    adjectives. "Owned the architecture across three teams" demonstrates scope;
+    "highly experienced architect" demonstrates nothing and reads as padding.
+  - Where the history does not reach it, say so in \`requirementCoverage\` with
+    status "partial" or "missing". Never close the distance with a stronger
+    adjective — an unmet scope requirement is a cover-letter problem, and
+    inflating it is the one thing an interview will catch.
+  - You must return one \`requirementCoverage\` entry for every requirement
+    listed above, using its exact wording.
+` : '';
+
+  // The target role, stated before the posting rather than left to be inferred
+  // from it. The seniority clause is explicit because substituting one band for
+  // another ("Staff" rendered as "Senior") is the exact failure this block was
+  // added for, and it is a substitution the model made silently while believing
+  // it had mirrored the title.
+  const cleanTitle = String(targetTitle || '').trim();
+  const cleanCompany = String(targetCompany || '').trim();
+  const targetRoleBlock = cleanTitle
+    ? `
+═══ TARGET ROLE (authoritative — taken from the posting's own header) ═══
+Job title: ${cleanTitle}
+${cleanCompany ? `Company: ${cleanCompany}\n` : ''}This is the title to mirror into the \`title\` field and to echo back in
+\`jobTitle\`. Use it VERBATIM. It overrides any title you think you see in the
+posting body below, and it is not yours to adjust:
+  - The seniority word is part of the title. "Staff" is not "Senior",
+    "Principal" is not "Lead", "Staff Software Engineer" is not "Senior
+    Software Engineer". Never substitute one band for another, in either
+    direction, and never drop the band.
+  - Do not soften, shorten, re-order or re-word it. If the header says
+    "Staff Software Engineer, Platform", that whole string is the title.
+  - Mirroring the title is an ATS matching rule and applies to the \`title\`
+    field only. It does NOT license the summary to claim a seniority the
+    bullets do not demonstrate — the identity rules below still govern the
+    prose, and a title the experience cannot carry belongs in
+    \`matchAnalysis.titleMatch\` as "Weak", not papered over.
+`
+    : `
+═══ TARGET ROLE ═══
+No title was supplied with this posting. Read the exact title out of the
+posting body below and use it verbatim in \`title\` and \`jobTitle\`, keeping its
+seniority band intact ("Staff" is not "Senior"). If the body does not state a
+title either, leave \`jobTitle\` as an empty string and keep the candidate's own
+title unchanged in \`title\` — do NOT invent a plausible-sounding one.
+`;
+
   // Build resume input section
   const resumeSection = hasResume
     ? `═══ CANDIDATE'S EXISTING RESUME ═══
@@ -688,10 +765,10 @@ ${JSON.stringify(profileData, null, 2)}`;
 ${roleBlock}
 
 ${resumeSection}
-
+${targetRoleBlock}
 ═══ TARGET JOB DESCRIPTION ═══
 ${jobDescription}
-${keywordsBlock}${taperingBlock}${gapContext}${settingsContext}
+${requirementsBlock}${keywordsBlock}${taperingBlock}${gapContext}${settingsContext}
 ═══ ADDITIONAL RULES ═══
 - PRECEDENCE: where a user preference below conflicts with an honesty rule or a
   hard cap above (summary at 3 sentences, 4 metrics, keyword at 2 uses), the
@@ -712,9 +789,9 @@ ${keywordsBlock}${taperingBlock}${gapContext}${settingsContext}
 ═══ OUTPUT FORMAT ═══
 Return a JSON object with this exact structure:
 {
-  "jobTitle": "exact job title from the JD",
-  "company": "company name from JD or empty string",
-  "title": "candidate's title adjusted to mirror JD title",
+  "jobTitle": "${cleanTitle || 'the posting\'s exact job title, seniority band included'}",
+  "company": "${cleanCompany || "company name from the posting, or empty string"}",
+  "title": "the TARGET ROLE title above, verbatim — same seniority band, same wording",
   "summary": "2-3 short plain sentences, no metrics, no phrases copied from the JD",
   "skills": {
     "Languages": ["Python", "TypeScript", "SQL"],
@@ -728,6 +805,9 @@ Return a JSON object with this exact structure:
   "education": [{"school": "Institution or [add institution name]", "degree": "Degree", "field": "Field", "year": "Year or [add graduation year]"}],
   "projects": [{"title": "Project Name (Year)", "description": "tailored to surface JD-relevant aspects"}],
   "matchScore": 82,
+  "requirementCoverage": [
+    {"requirement": "copy each SUBSTANTIVE REQUIREMENT verbatim", "status": "demonstrated | partial | missing", "evidence": "the bullet that demonstrates it, or what is missing"}
+  ],
   "matchAnalysis": {
     "keywordMatch": "X of Y critical JD keywords found",
     "titleMatch": "Exact / Close / Weak",
@@ -757,7 +837,7 @@ Return a JSON object with this exact structure:
     "educationCheck": "one line confirming every institution, degree and year in the source survived into the output"
   },
   "changelog": [
-    {"section": "title", "action": "matched", "detail": "Set title to match JD: Senior Software Engineer"},
+    {"section": "title", "action": "matched", "detail": "Set title to the posting's exact title"},
     {"section": "summary", "action": "rewritten", "detail": "Mirrored JD title, added keywords X and Y"},
     {"section": "experience_1", "action": "reordered", "detail": "Moved cloud migration bullet to top, added AWS context"},
     {"section": "experience_3", "action": "dropped_bullet", "detail": "Removed office-relocation bullet — no connection to this role"},

@@ -26,6 +26,12 @@ const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
 const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/reviewPrompt');
 const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./resume/draftAudit');
 const { auditProfile } = require('./resume/profileAudit');
+const { normalizeTitleForCompare, compareTitles } = require('./resume/titleMatch');
+const {
+  isValidRequirement,
+  reconcileRequirementCoverage,
+  requirementGapNote,
+} = require('./resume/jobRequirements');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -1674,6 +1680,24 @@ For each gap found, return a JSON array where each element has:
 - "description": A 1-sentence explanation of the gap
 - "learningResource": A specific suggestion for how to learn/acquire this (online course, project idea, certification name, etc.)
 
+6. SCOPE AND SENIORITY ARE GAPS TOO:
+   A posting is not just a list of tools, and a gap report made only of missing
+   technologies tells the candidate to go learn Kafka when the real finding is
+   that the posting wants multi-team ownership and the resume shows single-team
+   work. Include the non-tool requirements as gaps in their own right:
+   - Years or depth of experience the resume cannot show
+     (category "experience", e.g. "8+ years on distributed systems")
+   - Scope and ownership beyond what the resume demonstrates
+     (category "experience", e.g. "architecture ownership across teams")
+   - Leadership, mentoring and cross-team influence
+     (category "soft_skill" or "experience")
+   - Domain or regulatory experience (category "domain_knowledge")
+   Phrase these in the posting's own terms. For these, "learningResource" is
+   usually how to EVIDENCE it from work already done, not a course to take —
+   say so plainly when that is the case.
+   Do NOT flag a seniority gap merely because the job title says Staff or
+   Principal: judge it on the stated requirements and what the resume shows.
+
 Rules:
 - Include BOTH genuine gaps (suggest_adding: true) AND satisfied alternatives (suggest_adding: false) so the user can see the full picture
 - Do NOT list skills the candidate clearly already has as gaps
@@ -1732,8 +1756,13 @@ Return ONLY a valid JSON array, no additional text.`;
    * @param {string} jobDescription - The job posting text
    * @param {string|null} originalResumeText - Raw text from the candidate's uploaded resume (PDF/DOCX)
    * @param {Object} gapSelections - Optional gap selections: { acceptedGaps: string[], skippedGaps: string[] }
+   * @param {Object} tailorSettings - User tailoring preferences
+   * @param {Object} [jobContext] - { jobTitle, company } scraped from the posting
+   *   header. Supplied separately because the header is not part of the
+   *   description element on most job boards, so the title is often absent from
+   *   `jobDescription` entirely.
    */
-  async tailorProfileForJob(profileData, jobDescription, originalResumeText = null, gapSelections = null, tailorSettings = null) {
+  async tailorProfileForJob(profileData, jobDescription, originalResumeText = null, gapSelections = null, tailorSettings = null, jobContext = null) {
     // api.profilleai.com sits behind Cloudflare, which cuts a proxied request
     // off at 100 seconds and returns 524. The backend keeps working, but the
     // response has nowhere to go — the extension never hears back and the panel
@@ -1806,6 +1835,7 @@ Return JSON:
   "soft": ["soft skills — like 'cross-functional collaboration', 'mentoring', 'problem-solving'"],
   "domain": ["domain-specific technical terms — like 'distributed systems', 'microservices', 'data visualization'"],
   "orGroups": [["React", "Vue.js", "Angular"], ["AWS", "Azure", "GCP"]],
+  "requirements": ["the SUBSTANTIVE requirements that are not tool names — see the REQUIREMENTS RULE below"],
   "jobTitle": "exact job title from posting",
   "company": "company name if mentioned"
 }
@@ -1826,8 +1856,27 @@ include each individual skill in the required/preferred arrays AND also list the
 Each orGroup is an array of the alternative skills that satisfy the SAME requirement.
 If there are no OR-patterns, return "orGroups": [].
   
-Each item in the arrays must be a SHORT skill/tool name (1-5 words max). No sentences.`,
-          max_tokens: 1000,
+Each item in required/preferred/soft/domain must be a SHORT skill/tool name (1-5 words max). No sentences.
+
+REQUIREMENTS RULE — the "requirements" array is different, and it is where
+everything the rules above told you to EXCLUDE now belongs:
+A posting is not a list of tools. What separates a Staff posting from a Senior
+one is scope, ownership and seniority, and none of that is a tool name — so it
+was being discarded entirely. Put it here instead.
+INCLUDE in "requirements":
+  - Years and depth of experience: "8+ years building distributed systems"
+  - Scope and ownership: "own the architecture of a multi-team platform"
+  - Leadership and influence: "mentor senior engineers", "drive technical
+    direction across several teams", "lead design reviews"
+  - Domain experience: "experience in regulated fintech environments"
+  - Education and credentials where the posting makes them a requirement
+  - Core responsibilities that define the role, phrased as the posting does
+EXCLUDE from "requirements":
+  - Tool and technology names (those belong in required/preferred/domain)
+  - Benefits, perks, salary, EEO statements, company boilerplate
+Each entry is one requirement, phrased in the posting's own terms, 3-20 words.
+Aim for the 5-12 requirements that actually decide this hire. Do not pad.`,
+          max_tokens: 1600,
           temperature: 0.1
         });
         
@@ -1856,6 +1905,17 @@ Each item in the arrays must be a SHORT skill/tool name (1-5 words max). No sent
         extractedKeywords.preferred = (extractedKeywords.preferred || []).filter(isValidSkill);
         extractedKeywords.soft = (extractedKeywords.soft || []).filter(isValidSkill);
         extractedKeywords.domain = (extractedKeywords.domain || []).filter(isValidSkill);
+
+        // Requirements are judged by a DIFFERENT filter on purpose. isValidSkill
+        // drops anything over six words and anything mentioning years, which is
+        // right for a skills list and is exactly why "8+ years building
+        // distributed systems" and "own the architecture of a multi-team
+        // platform" never reached the prompt — the two things that distinguish
+        // a Staff posting from a Senior one were filtered out as malformed
+        // skill names. These need a length ceiling and a boilerplate screen,
+        // not a skill-shape screen.
+        extractedKeywords.requirements = (extractedKeywords.requirements || []).filter(isValidRequirement);
+        console.log('[ProfilleAI] Extracted substantive requirements:', extractedKeywords.requirements);
         
         console.log('[ProfilleAI] Extracted required keywords:', extractedKeywords.required);
         console.log('[ProfilleAI] Extracted preferred keywords:', extractedKeywords.preferred);
@@ -1864,6 +1924,25 @@ Each item in the arrays must be a SHORT skill/tool name (1-5 words max). No sent
       } catch (kwError) {
         console.error('[ProfilleAI] Keyword extraction failed, continuing with prompt-only approach:', kwError.message);
       }
+
+      // ── The target role, resolved once ────────────────────────────────────
+      // Two sources, and until now NEITHER reached the prompt. The scraped
+      // header is the more reliable of the two (it is the literal title element
+      // on the posting), so it wins; the keyword call's own reading of the title
+      // is the fallback for pasted job text that has no header to scrape. The
+      // keyword call has always returned `jobTitle` and nothing ever read it.
+      const targetTitle = String(
+        (jobContext && jobContext.jobTitle) || extractedKeywords.jobTitle || ''
+      ).trim();
+      const targetCompany = String(
+        (jobContext && jobContext.company) || extractedKeywords.company || ''
+      ).trim();
+      console.log(
+        `[ProfilleAI] Target role resolved: "${targetTitle || '(unknown)'}"` +
+        `${targetCompany ? ` @ ${targetCompany}` : ''}` +
+        ` (header: ${(jobContext && jobContext.jobTitle) ? 'yes' : 'no'}, ` +
+        `from JD text: ${extractedKeywords.jobTitle ? 'yes' : 'no'})`
+      );
 
       const allRequiredKeywords = [...(extractedKeywords.required || []), ...(extractedKeywords.preferred || [])];
       const allKeywords = [...allRequiredKeywords, ...(extractedKeywords.soft || []), ...(extractedKeywords.domain || [])];
@@ -1982,6 +2061,8 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         originalResumeText: hasUploadedResume ? originalResumeText : null,
         profileData,
         jobDescription,
+        targetTitle,
+        targetCompany,
         gapContext,
         settingsContext,
         extractedKeywords,
@@ -2474,6 +2555,39 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // unattended.
       applyDeterministicRepairs(tailoredData, originalSourceText, gapSelections);
 
+      // ── Title, settled in code rather than asked for ─────────────────────
+      // Mirroring the posting's title is a mechanical rule with one right
+      // answer, and three separate passes (tailoring, review, enforcement) can
+      // each rewrite the field. Asking three models to agree on a string we
+      // already hold is how "Staff Software Engineer" shipped as "Senior
+      // Software Engineer". When the title is known, it is assigned; the
+      // model's version is kept only as a record of what it would have said.
+      const titleAudit = {
+        target: targetTitle || null,
+        returnedByModel: typeof tailoredData.title === 'string' ? tailoredData.title : null,
+        overridden: false,
+      };
+      if (targetTitle) {
+        const drifted = normalizeTitleForCompare(tailoredData.title) !== normalizeTitleForCompare(targetTitle);
+        if (drifted) {
+          console.warn(
+            `[ProfilleAI] ⚠️ Title drift: model returned "${tailoredData.title}" ` +
+            `for a posting titled "${targetTitle}" — overriding with the posting's title`
+          );
+          tailoredData.changelog.push({
+            section: 'title',
+            action: 'title_corrected',
+            detail: `Model returned "${tailoredData.title || '(empty)'}"; replaced with the posting's own title "${targetTitle}"`,
+          });
+          titleAudit.overridden = true;
+        }
+        tailoredData.title = targetTitle;
+        tailoredData.jobTitle = targetTitle;
+      }
+      if (targetCompany) {
+        tailoredData.company = targetCompany;
+      }
+
       // Re-audit one last time so what ships to the candidate describes the
       // bytes being returned, not an earlier version of them.
       const finalReport = auditDraft({ draft: tailoredData, ...auditInput });
@@ -2511,6 +2625,17 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // model claims nothing is. `compliant` is the arithmetic, not a verdict —
       // when it is false the resume still ships, with the failures named.
       const bannedResidualHits = finalReport.banned.hits.map((h) => `${h.term} [${h.location}]`);
+
+      // Requirement coverage, reconciled rather than trusted: a requirement the
+      // model skipped comes back as `unassessed` and still travels to the
+      // candidate, so the list cannot look complete just because the model
+      // stopped early. Computed here because both the verification block below
+      // and the gap report further down read it.
+      const requirementCoverage = reconcileRequirementCoverage(
+        extractedKeywords.requirements || [],
+        tailoredData.requirementCoverage
+      );
+
       tailoredData.verification = {
         metrics: {
           count: finalReport.metrics.count,
@@ -2572,6 +2697,42 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           copiedFromJd: finalReport.summary.copiedSpans,
           compliant: finalReport.summary.clean,
         },
+        // Not a pass/fail: a posting whose scope the candidate only partly
+        // reaches is a normal, honest outcome. What matters is that the count
+        // is stated, so "we checked the requirements" is verifiable rather
+        // than asserted.
+        requirements: {
+          total: requirementCoverage.total,
+          demonstrated: requirementCoverage.demonstratedCount,
+          partial: requirementCoverage.coverage.filter((c) => c.status === 'partial').length,
+          missing: requirementCoverage.coverage.filter((c) => c.status === 'missing').length,
+          unassessed: requirementCoverage.coverage.filter((c) => c.status === 'unassessed').length,
+          // Every requirement the model failed to report on. A non-empty list
+          // means the assessment was incomplete, not that those are met.
+          notAssessed: requirementCoverage.coverage
+            .filter((c) => c.status === 'unassessed')
+            .map((c) => c.requirement),
+        },
+        // Measured over the bytes being returned, after the override above.
+        // The point of recording `returnedByModel` and `overridden` is that the
+        // previous failure was invisible: the title was wrong and no part of
+        // the response said so.
+        title: {
+          target: titleAudit.target,
+          onResume: tailoredData.title || null,
+          returnedByModel: titleAudit.returnedByModel,
+          correctedInCode: titleAudit.overridden,
+          ...(() => {
+            const cmp = compareTitles(titleAudit.target, tailoredData.title);
+            return {
+              seniorityBand: cmp.actualBand,
+              postingBand: cmp.targetBand,
+              bandMismatch: cmp.bandMismatch,
+              note: cmp.detail,
+              compliant: cmp.clean,
+            };
+          })(),
+        },
         compliant: finalReport.passed,
       };
 
@@ -2588,6 +2749,21 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         gapSeen.add(key);
         genuineGaps.push({ requirement, status, note });
       };
+      // The substantive requirements come first, because they are the ones the
+      // candidate most needs to see. A gap report made only of missing tool
+      // names reads as "learn Kafka" when the real finding is "this posting
+      // wants multi-team ownership and your resume shows single-team work".
+      for (const item of requirementCoverage.unmet) {
+        pushGap(
+          item.requirement,
+          item.status === 'partial' ? 'partially met' : item.status === 'unassessed' ? 'unassessed' : 'not evidenced',
+          item.evidence ? `${requirementGapNote(item.status)} ${item.evidence}` : requirementGapNote(item.status)
+        );
+      }
+      // Replaced with the reconciled version so the payload and the gap list
+      // cannot disagree about what was assessed.
+      tailoredData.requirementCoverage = requirementCoverage.coverage;
+
       for (const g of (tailoredData.matchAnalysis && tailoredData.matchAnalysis.gaps) || []) {
         pushGap(g, 'not evidenced', 'No support anywhere in the original resume.');
       }

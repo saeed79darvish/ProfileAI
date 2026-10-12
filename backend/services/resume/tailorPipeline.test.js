@@ -1,0 +1,362 @@
+/**
+ * End-to-end test of tailorProfileForJob with the AI calls scripted.
+ *
+ * `createMessage` from ai/core is stubbed in the require cache before
+ * resumeParserService is loaded, so every AI round in the pipeline returns text
+ * this test chose. That makes the parts of the pipeline that are NOT the model
+ * — the title override, the requirement reconciliation, the gap report, the
+ * verification block — testable, which is the point: the reported defect was a
+ * resume titled "Senior Software Engineer" for a Staff posting, and nothing in
+ * the pipeline measured the title at all.
+ */
+const { test, beforeEach } = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('path');
+
+// ── Stub ai/core before resumeParserService requires it ─────────────────────
+const corePath = require.resolve('../ai/core');
+const realCore = require('../ai/core');
+
+/** Queue of replies, consumed in order by each AI round. */
+let scripted = [];
+/** Every prompt the pipeline sent, for asserting on what the model was told. */
+let sentPrompts = [];
+
+require.cache[corePath] = {
+  id: corePath,
+  filename: corePath,
+  loaded: true,
+  exports: {
+    ...realCore,
+    supportsTemperature: () => false,
+    extractText: (response) => response.__text,
+    createMessage: async (_client, request) => {
+      sentPrompts.push(request);
+      if (scripted.length === 0) {
+        throw new Error(`unscripted AI call #${sentPrompts.length}`);
+      }
+      return { __text: scripted.shift() };
+    },
+  },
+};
+
+const servicePath = require.resolve('../resumeParserService');
+delete require.cache[servicePath];
+const resumeParserService = require('../resumeParserService');
+
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+const RESUME_TEXT = `
+Ada Lovelace — Senior Software Engineer
+
+Acme Corp, Senior Software Engineer, 2021 - Present
+• Built and operated billing services in Go on Kubernetes
+• Led the migration of the payments pipeline for a single team
+• Mentored two junior engineers
+
+Analytical Engines, Software Engineer, 2018 - 2021
+• Wrote backend services in Go
+`.trim();
+
+const PROFILE = {
+  title: 'Senior Software Engineer',
+  summary: 'Backend engineer.',
+  skills: ['Go', 'Kubernetes'],
+  location: 'Remote',
+  experience: [
+    { company: 'Acme Corp', title: 'Senior Software Engineer', startDate: '2021-01', current: true, description: 'Built billing services' },
+    { company: 'Analytical Engines', title: 'Software Engineer', startDate: '2018-01', endDate: '2021-01', description: 'Backend services' },
+  ],
+  education: [{ school: 'Somewhere', degree: 'BSc', field: 'Maths', year: '2018' }],
+};
+
+const JOB_DESCRIPTION = `
+We are hiring an engineer for our platform team. You will design distributed
+systems, own architecture across several teams, and mentor senior engineers.
+Requires 8+ years of professional software engineering experience, deep Go and
+Kubernetes knowledge, and experience in regulated fintech environments.
+`.trim();
+
+const REQUIREMENTS = [
+  '8+ years of professional software engineering experience',
+  'own architecture across several teams',
+  'mentor senior engineers',
+  'experience in regulated fintech environments',
+];
+
+const keywordReply = () =>
+  JSON.stringify({
+    required: ['Go', 'Kubernetes', 'distributed systems'],
+    preferred: [],
+    soft: ['mentoring'],
+    domain: ['distributed systems'],
+    orGroups: [],
+    requirements: REQUIREMENTS,
+    jobTitle: 'Staff Software Engineer',
+    company: 'Acme Corp',
+  });
+
+/**
+ * A tailored draft. `title` is a parameter because the whole question is what
+ * happens when the model returns the wrong one.
+ */
+const draftReply = ({ title, requirementCoverage }) =>
+  JSON.stringify({
+    jobTitle: title,
+    company: 'Acme Corp',
+    title,
+    summary: 'Backend engineer who builds billing systems in Go. Operates them on Kubernetes.',
+    skills: { Languages: ['Go'], Infrastructure: ['Kubernetes'] },
+    experience: [
+      { company: 'Acme Corp', title: 'Senior Software Engineer', period: '2021 - Present', description: '• Built and operated billing services in Go on Kubernetes\n• Mentored two junior engineers' },
+      { company: 'Analytical Engines', title: 'Software Engineer', period: '2018 - 2021', description: '• Wrote backend services in Go' },
+    ],
+    education: [{ school: 'Somewhere', degree: 'BSc', field: 'Maths', year: '2018' }],
+    projects: [],
+    matchScore: 74,
+    requirementCoverage,
+    matchAnalysis: {
+      keywordMatch: '3 of 3',
+      titleMatch: 'Close',
+      experienceMatch: 'Strong on Go, lighter on scope.',
+      top3Gaps: [],
+      strongMatches: ['Go', 'Kubernetes'],
+      gaps: [],
+      skillsToConfirm: [],
+      needsVerification: [],
+      locationFlag: null,
+      recommendation: 'Address the multi-team scope in the cover letter.',
+    },
+    selfAudit: {},
+    changelog: [],
+  });
+
+const tailor = (overrides = {}) =>
+  resumeParserService.tailorProfileForJob(
+    PROFILE,
+    JOB_DESCRIPTION,
+    RESUME_TEXT,
+    null,
+    null,
+    { jobTitle: 'Staff Software Engineer', company: 'Acme Corp', ...overrides }
+  );
+
+/** The user-message text of a recorded AI request. */
+const promptOf = (request) => request.messages[0].content;
+
+beforeEach(() => {
+  scripted = [];
+  sentPrompts = [];
+});
+
+/** Enough replies to satisfy every round the pipeline might take. */
+function script(draft) {
+  scripted = [keywordReply(), draft];
+  // The review/enforcement rounds are optional; if they fire, hand them back
+  // the same resume so they are accepted as no-ops rather than throwing.
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+}
+
+// ── The reported defect ─────────────────────────────────────────────────────
+
+test('a model that returns the wrong seniority band is corrected in code', async () => {
+  script(
+    draftReply({
+      // The exact failure: the posting is Staff, the model wrote Senior.
+      title: 'Senior Software Engineer',
+      requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
+    })
+  );
+
+  const result = await tailor();
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.data.title, 'Staff Software Engineer');
+  assert.equal(result.data.jobTitle, 'Staff Software Engineer');
+});
+
+test('the correction is recorded, not silent', async () => {
+  script(
+    draftReply({
+      title: 'Senior Software Engineer',
+      requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
+    })
+  );
+
+  const { data } = await tailor();
+  assert.equal(data.verification.title.correctedInCode, true);
+  assert.equal(data.verification.title.returnedByModel, 'Senior Software Engineer');
+  assert.equal(data.verification.title.target, 'Staff Software Engineer');
+  assert.equal(data.verification.title.postingBand, 'staff');
+  assert.equal(data.verification.title.compliant, true); // compliant AFTER the fix
+  const entry = data.changelog.find((c) => c.action === 'title_corrected');
+  assert.ok(entry, 'no changelog entry for the corrected title');
+  assert.match(entry.detail, /Staff Software Engineer/);
+});
+
+test('a model that gets the title right is left alone', async () => {
+  script(
+    draftReply({
+      title: 'Staff Software Engineer',
+      requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
+    })
+  );
+
+  const { data } = await tailor();
+  assert.equal(data.title, 'Staff Software Engineer');
+  assert.equal(data.verification.title.correctedInCode, false);
+  assert.ok(!data.changelog.some((c) => c.action === 'title_corrected'));
+});
+
+test('with no posting title the candidate’s own title is not overwritten', async () => {
+  scripted = [
+    JSON.stringify({ ...JSON.parse(keywordReply()), jobTitle: '', company: '' }),
+    draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] }),
+  ];
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+
+  const { data } = await tailor({ jobTitle: '', company: '' });
+  assert.equal(data.title, 'Senior Software Engineer');
+  assert.equal(data.verification.title.target, null);
+});
+
+test('the scraped header title beats the model’s reading of the posting body', async () => {
+  // The header is the literal title element on the page; the keyword call's
+  // `jobTitle` is an inference from body text that often omits the title.
+  scripted = [
+    JSON.stringify({ ...JSON.parse(keywordReply()), jobTitle: 'Senior Software Engineer' }),
+    draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] }),
+  ];
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+
+  const { data } = await tailor({ jobTitle: 'Staff Software Engineer' });
+  assert.equal(data.title, 'Staff Software Engineer');
+});
+
+// ── The target role actually reaching the prompt ────────────────────────────
+
+test('the tailoring prompt is told the target role', async () => {
+  script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  await tailor();
+
+  // Call 1 is keyword extraction; call 2 is the tailoring round.
+  const tailoringPrompt = promptOf(sentPrompts[1]);
+  assert.match(tailoringPrompt, /Job title: Staff Software Engineer/);
+  assert.match(tailoringPrompt, /"Staff" is not "Senior"/);
+});
+
+test('the substantive requirements reach the tailoring prompt', async () => {
+  script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  await tailor();
+
+  const tailoringPrompt = promptOf(sentPrompts[1]);
+  for (const r of REQUIREMENTS) {
+    assert.ok(tailoringPrompt.includes(r), `requirement never reached the prompt: ${r}`);
+  }
+});
+
+// ── Requirement coverage and the gap report ─────────────────────────────────
+
+test('unmet requirements become gaps the candidate can see', async () => {
+  script(
+    draftReply({
+      title: 'Staff Software Engineer',
+      requirementCoverage: [
+        { requirement: REQUIREMENTS[0], status: 'demonstrated', evidence: 'Two roles since 2018' },
+        { requirement: REQUIREMENTS[1], status: 'partial', evidence: 'single-team ownership only' },
+        { requirement: REQUIREMENTS[2], status: 'partial', evidence: 'mentored juniors, not seniors' },
+        { requirement: REQUIREMENTS[3], status: 'missing' },
+      ],
+    })
+  );
+
+  const { data } = await tailor();
+  const gapText = data.genuineGaps.map((g) => g.requirement);
+
+  assert.ok(gapText.includes(REQUIREMENTS[1]), 'multi-team scope gap missing from the report');
+  assert.ok(gapText.includes(REQUIREMENTS[2]), 'mentoring-seniors gap missing from the report');
+  assert.ok(gapText.includes(REQUIREMENTS[3]), 'fintech domain gap missing from the report');
+  // A demonstrated requirement is not a gap.
+  assert.ok(!gapText.includes(REQUIREMENTS[0]));
+
+  const scopeGap = data.genuineGaps.find((g) => g.requirement === REQUIREMENTS[1]);
+  assert.equal(scopeGap.status, 'partially met');
+  assert.match(scopeGap.note, /single-team ownership only/);
+});
+
+test('a requirement the model skipped is reported as unassessed, never as met', async () => {
+  script(
+    draftReply({
+      title: 'Staff Software Engineer',
+      // Only two of the four assessed — the pipeline must not infer the rest.
+      requirementCoverage: [
+        { requirement: REQUIREMENTS[0], status: 'demonstrated' },
+        { requirement: REQUIREMENTS[1], status: 'demonstrated' },
+      ],
+    })
+  );
+
+  const { data } = await tailor();
+  assert.equal(data.verification.requirements.total, 4);
+  assert.equal(data.verification.requirements.demonstrated, 2);
+  assert.equal(data.verification.requirements.unassessed, 2);
+  assert.deepEqual(data.verification.requirements.notAssessed.sort(), [REQUIREMENTS[2], REQUIREMENTS[3]].sort());
+
+  const gapText = data.genuineGaps.map((g) => g.requirement);
+  assert.ok(gapText.includes(REQUIREMENTS[2]));
+  assert.ok(gapText.includes(REQUIREMENTS[3]));
+});
+
+test('requirement coverage on the payload matches what was asked about', async () => {
+  script(
+    draftReply({
+      title: 'Staff Software Engineer',
+      requirementCoverage: [
+        { requirement: 'something nobody asked about', status: 'demonstrated' },
+        { requirement: REQUIREMENTS[0], status: 'demonstrated' },
+      ],
+    })
+  );
+
+  const { data } = await tailor();
+  assert.equal(data.requirementCoverage.length, 4);
+  assert.ok(!data.requirementCoverage.some((c) => /nobody asked/.test(c.requirement)));
+});
+
+// ── Regressions in the surrounding pipeline ─────────────────────────────────
+
+test('a truncated draft still yields a resume with the right title', async () => {
+  // repairTruncatedJSON recovers the resume and loses the metadata tail. The
+  // title override must still apply to what survives.
+  const full = draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] });
+  scripted = [keywordReply(), full.slice(0, Math.floor(full.length * 0.55))];
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+
+  const result = await tailor();
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.data.title, 'Staff Software Engineer');
+});
+
+test('keyword extraction failing does not lose the scraped title', async () => {
+  scripted = ['not json at all', draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] })];
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+
+  const { data } = await tailor();
+  // The header title is independent of the keyword call, so it still applies.
+  assert.equal(data.title, 'Staff Software Engineer');
+});
+
+test('tailoring without an original resume or a populated profile is refused', async () => {
+  const result = await resumeParserService.tailorProfileForJob({}, JOB_DESCRIPTION, null, null, null, {
+    jobTitle: 'Staff Software Engineer',
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error, /nothing to check the result against/);
+});
+
+test('the verification block still reports the pre-existing checks', async () => {
+  script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  const { data } = await tailor();
+  for (const key of ['metrics', 'phraseFrequency', 'bannedWords', 'jdLanguage', 'skills', 'identity', 'summary', 'title', 'requirements']) {
+    assert.ok(key in data.verification, `verification lost its ${key} section`);
+  }
+});

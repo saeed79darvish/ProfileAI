@@ -1541,7 +1541,13 @@ Return ONLY the rewritten field text. No explanations. No prefix. No quotes arou
 // @access  Private
 router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
   try {
-    const { profileData, jobDescription, gapSelections, tailorSettings } = req.body;
+    // jobTitle/company are scraped from the posting's header, which on most job
+    // boards (LinkedIn especially) lives OUTSIDE the description element — so
+    // the body text frequently does not contain the title at all. The extension
+    // has always sent them; this route used to drop them on the floor, leaving
+    // the model to infer the title from a description that did not state it.
+    // That is why a Staff posting came back titled Senior.
+    const { profileData, jobDescription, jobTitle, company, gapSelections, tailorSettings } = req.body;
 
     if (!profileData) {
       return res.status(400).json({ error: 'Profile data is required' });
@@ -1552,6 +1558,7 @@ router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), 
     }
 
     console.log(`Tailoring profile for job for user ${req.user.id}`);
+    console.log(`[Tailor] Target role: ${jobTitle || '(none supplied)'} @ ${company || '(none supplied)'}`);
     if (tailorSettings) {
       console.log(`[Tailor] User settings: tone=${tailorSettings.tone}, summaryLines=${tailorSettings.summaryLines}, experienceLines=${tailorSettings.experienceLines}, maxSkills=${tailorSettings.maxSkills}`);
     }
@@ -1577,7 +1584,14 @@ router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), 
       acceptedGapObjects: gapSelections.acceptedGapObjects || []
     } : null;
 
-    const result = await resumeParserService.tailorProfileForJob(profileData, jobDescription, originalResumeText, enrichedGapSelections, tailorSettings);
+    const result = await resumeParserService.tailorProfileForJob(
+      profileData,
+      jobDescription,
+      originalResumeText,
+      enrichedGapSelections,
+      tailorSettings,
+      { jobTitle, company }
+    );
 
     if (!result.success) {
       return res.status(400).json({ 
