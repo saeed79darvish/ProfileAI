@@ -2007,9 +2007,41 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
       }
 
-      // `let`, not `const`: the review pass in Step 4 replaces this wholesale
-      // with its corrected version.
-      let tailoredData = JSON.parse(jsonText);
+      /* `let`, not `const`: the review pass in Step 4 replaces this wholesale
+         with its corrected version.
+
+         The parse is guarded because this call runs right up against its
+         ceiling. The output contract asks for the whole resume plus
+         matchAnalysis, selfAudit and changelog, and on a long CV that does not
+         fit in max_tokens — the response stops mid-string and JSON.parse threw
+         "Unterminated string in JSON at position 16139", which the route turned
+         into a 400 the candidate read as a rejected job description.
+
+         Raising the ceiling is not available: output runs at ~114 tok/s, so
+         6000 tokens is already ~53s of the 85s this request has before
+         Cloudflare cuts it off at 100s.
+
+         What saves it is the field order. The resume fields are emitted first
+         and the metadata last, so a truncated response has a complete resume
+         and a severed tail. repairTruncatedJSON closes the structure and we
+         keep the resume, losing only commentary — the same helper the upload
+         and interview-prep paths already use for this. */
+      let tailoredData;
+      try {
+        tailoredData = JSON.parse(jsonText);
+      } catch (parseError) {
+        tailoredData = repairTruncatedJSON(jsonText);
+        if (!tailoredData) {
+          throw new Error(
+            `Tailoring returned JSON that could not be parsed or repaired (${jsonText.length} chars): ${parseError.message}`
+          );
+        }
+        console.warn(
+          `[ProfilleAI] ⚠️ Tailoring JSON was truncated at ${jsonText.length} chars ` +
+          `(${parseError.message}); recovered the resume via repairTruncatedJSON. ` +
+          `Sections lost: ${['matchAnalysis', 'selfAudit', 'changelog'].filter((k) => !tailoredData[k]).join(', ') || 'none'}`
+        );
+      }
 
       // Ensure changelog array exists (AI should have returned it, but be safe)
       if (!Array.isArray(tailoredData.changelog)) {
