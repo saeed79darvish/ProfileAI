@@ -31,7 +31,7 @@ test('the posting title reaches the prompt verbatim', () => {
     targetCompany: 'Acme Corp',
   });
   assert.match(prompt, /TARGET ROLE/);
-  assert.match(prompt, /Job title: Staff Software Engineer/);
+  assert.match(prompt, /Posting title: Staff Software Engineer/);
   assert.match(prompt, /Company: Acme Corp/);
 });
 
@@ -41,7 +41,7 @@ test('the prompt names the band substitution it must not make', () => {
   // was already being followed as the model understood it.
   const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
   assert.match(prompt, /"Staff" is not "Senior"/);
-  assert.match(prompt, /seniority word is part of the title/i);
+  assert.match(prompt, /seniority word is part of it/i);
 });
 
 test('no hardcoded example title can be echoed back as the answer', () => {
@@ -68,7 +68,7 @@ test('no hardcoded example title can be echoed back as the answer', () => {
 test('with no title supplied the prompt forbids inventing one', () => {
   const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: '', targetCompany: '' });
   assert.match(prompt, /No title was supplied/);
-  assert.match(prompt, /do NOT invent a plausible-sounding one/);
+  assert.match(prompt, /do NOT\s+invent a plausible-sounding one/);
   assert.ok(!/Job title: /.test(prompt));
 });
 

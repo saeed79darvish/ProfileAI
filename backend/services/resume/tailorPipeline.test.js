@@ -240,7 +240,7 @@ test('the tailoring prompt is told the target role', async () => {
 
   // Call 1 is keyword extraction; call 2 is the tailoring round.
   const tailoringPrompt = promptOf(sentPrompts[1]);
-  assert.match(tailoringPrompt, /Job title: Staff Software Engineer/);
+  assert.match(tailoringPrompt, /Posting title: Staff Software Engineer/);
   assert.match(tailoringPrompt, /"Staff" is not "Senior"/);
 });
 
@@ -459,4 +459,20 @@ test('the model is no longer asked to write out a selfAudit block', async () => 
   const contract = prompt.slice(prompt.indexOf('═══ OUTPUT FORMAT ═══'));
   // ~2,000 tokens nothing read, which pushed real resumes past max_tokens.
   assert.ok(!/"selfAudit"\s*:/.test(contract), 'selfAudit is still in the output contract');
+});
+
+test('the headline is the role; the team name stays with the employer', async () => {
+  script(draftReply({ title: 'Software Engineer, Agentic Runtime', requirementCoverage: [] }));
+  const { data } = await tailor({ jobTitle: 'Software Engineer, Agentic Runtime', company: 'Glean' });
+  assert.equal(data.title, 'Software Engineer', 'a team name reached the headline');
+  // The exact posting title is kept for the record and the filename.
+  assert.equal(data.jobTitle, 'Software Engineer, Agentic Runtime');
+  assert.equal(data.verification.title.compliant, true);
+});
+
+test('a posting with no seniority band does not get one', async () => {
+  script(draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] }));
+  const { data } = await tailor({ jobTitle: 'Software Engineer, Agentic Runtime', company: 'Glean' });
+  assert.equal(data.title, 'Software Engineer');
+  assert.equal(data.verification.title.correctedInCode, true);
 });

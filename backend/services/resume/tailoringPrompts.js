@@ -676,6 +676,9 @@ function getRoleBlock(group) {
  *   page header. The header is not inside the description element on most job
  *   boards, so without this the title is frequently absent from the prompt
  *   altogether and the model has to guess it.
+ * @param {string} [options.targetHeadline] - The ROLE from that title, with the
+ *   employer's team/org suffix removed ("Software Engineer" from "Software
+ *   Engineer, Agentic Runtime"). This is what goes in `title`.
  * @param {string} [options.targetCompany] - The hiring company, same source.
  * @param {string} options.gapContext - Gap review decisions block
  * @param {string} options.settingsContext - User tailoring preferences block
@@ -692,6 +695,7 @@ function buildTailoringPrompt(options) {
     profileData,
     jobDescription,
     targetTitle,
+    targetHeadline,
     targetCompany,
     gapContext,
     settingsContext,
@@ -777,21 +781,22 @@ For EACH one:
   // added for, and it is a substitution the model made silently while believing
   // it had mirrored the title.
   const cleanTitle = String(targetTitle || '').trim();
+  const cleanHeadline = String(targetHeadline || cleanTitle).trim();
   const cleanCompany = String(targetCompany || '').trim();
   const targetRoleBlock = cleanTitle
     ? `
 ═══ TARGET ROLE (authoritative — taken from the posting's own header) ═══
-Job title: ${cleanTitle}
-${cleanCompany ? `Company: ${cleanCompany}\n` : ''}This is the title to mirror into the \`title\` field and to echo back in
-\`jobTitle\`. Use it VERBATIM. It overrides any title you think you see in the
-posting body below, and it is not yours to adjust:
-  - The seniority word is part of the title. "Staff" is not "Senior",
-    "Principal" is not "Lead", "Staff Software Engineer" is not "Senior
-    Software Engineer". Never substitute one band for another, in either
-    direction, and never drop the band.
-  - Do not soften, shorten, re-order or re-word it. If the header says
-    "Staff Software Engineer, Platform", that whole string is the title.
-  - Mirroring the title is an ATS matching rule and applies to the \`title\`
+Posting title: ${cleanTitle}
+${cleanCompany ? `Company: ${cleanCompany}\n` : ''}Headline to put in the \`title\` field: ${cleanHeadline}
+${cleanHeadline !== cleanTitle ? `The posting title names the employer's team ("${cleanTitle.slice(cleanHeadline.length).replace(/^[\s,:|\-–—(\[]+/, '').replace(/[)\]]+$/, '')}"). That is their org chart, not a title the candidate holds — it stays off the resume. The headline is the role.
+` : ''}Use the headline VERBATIM. It is not yours to adjust:
+  - The seniority word is part of it. "Staff" is not "Senior", "Principal" is
+    not "Lead", and a posting with no band ("Software Engineer") does not get
+    one added. Never substitute a band, in either direction, and never drop one.
+  - Do not soften, re-order or re-word it.
+  - Echo the exact posting title back in \`jobTitle\`; it is used for the saved
+    record, not printed on the resume.
+  - Mirroring the headline is an ATS matching rule and applies to the \`title\`
     field only. It does NOT license the summary to claim a seniority the
     bullets do not demonstrate — the identity rules below still govern the
     prose, and a title the experience cannot carry belongs in
@@ -800,10 +805,12 @@ posting body below, and it is not yours to adjust:
     : `
 ═══ TARGET ROLE ═══
 No title was supplied with this posting. Read the exact title out of the
-posting body below and use it verbatim in \`title\` and \`jobTitle\`, keeping its
-seniority band intact ("Staff" is not "Senior"). If the body does not state a
-title either, leave \`jobTitle\` as an empty string and keep the candidate's own
-title unchanged in \`title\` — do NOT invent a plausible-sounding one.
+posting body below. Put the ROLE in \`title\` — seniority band and role noun as
+written, without the employer's team or org suffix ("Software Engineer" from
+"Software Engineer, Agentic Runtime") — and the full posting title in
+\`jobTitle\`. If the body does not state a title either, leave \`jobTitle\` as an
+empty string and keep the candidate's own title unchanged in \`title\` — do NOT
+invent a plausible-sounding one.
 `;
 
   // Build resume input section
@@ -844,7 +851,7 @@ Return a JSON object with this exact structure:
 {
   "jobTitle": "${cleanTitle || 'the posting\'s exact job title, seniority band included'}",
   "company": "${cleanCompany || "company name from the posting, or empty string"}",
-  "title": "the TARGET ROLE title above, verbatim — same seniority band, same wording",
+  "title": "${cleanHeadline || 'the role from the posting title — band and role noun as written, no team or org suffix'}",
   "summary": "2-3 short plain sentences; concrete scale is welcome, outcome percentages are not; no phrases copied from the JD",
   "skills": {
     "Languages": ["Python", "TypeScript", "SQL"],

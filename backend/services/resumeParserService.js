@@ -26,7 +26,7 @@ const { buildTailoringPrompt } = require('./resume/tailoringPrompts');
 const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/reviewPrompt');
 const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./resume/draftAudit');
 const { auditProfile } = require('./resume/profileAudit');
-const { normalizeTitleForCompare, compareTitles } = require('./resume/titleMatch');
+const { normalizeTitleForCompare, compareTitles, headlineFromPostingTitle } = require('./resume/titleMatch');
 const {
   isValidRequirement,
   reconcileRequirementCoverage,
@@ -2019,6 +2019,11 @@ Aim for the 5-12 requirements that actually decide this hire. Do not pad.`,
       const targetCompany = String(
         (jobContext && jobContext.company) || extractedKeywords.company || ''
       ).trim();
+      // The headline is the ROLE — "Software Engineer, Agentic Runtime" is a
+      // Software Engineer role on Glean's Agentic Runtime team, and the team
+      // belongs to Glean, not on the candidate's resume. The exact posting
+      // title is kept separately as `jobTitle` for the record and the filename.
+      const targetHeadline = headlineFromPostingTitle(targetTitle);
       console.log(
         `[ProfilleAI] Target role resolved: "${targetTitle || '(unknown)'}"` +
         `${targetCompany ? ` @ ${targetCompany}` : ''}` +
@@ -2144,6 +2149,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         profileData,
         jobDescription,
         targetTitle,
+        targetHeadline,
         targetCompany,
         gapContext,
         settingsContext,
@@ -2705,21 +2711,24 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         overridden: false,
       };
       if (targetTitle) {
-        const drifted = normalizeTitleForCompare(tailoredData.title) !== normalizeTitleForCompare(targetTitle);
+        const wanted = targetHeadline || targetTitle;
+        const drifted = normalizeTitleForCompare(tailoredData.title) !== normalizeTitleForCompare(wanted);
         if (drifted) {
           console.warn(
             `[ProfilleAI] ⚠️ Title drift: model returned "${tailoredData.title}" ` +
-            `for a posting titled "${targetTitle}" — overriding with the posting's title`
+            `for a posting titled "${targetTitle}" — setting headline "${wanted}"`
           );
           tailoredData.changelog.push({
             section: 'title',
             action: 'title_corrected',
-            detail: `Model returned "${tailoredData.title || '(empty)'}"; replaced with the posting's own title "${targetTitle}"`,
+            detail: `Model returned "${tailoredData.title || '(empty)'}"; headline set to "${wanted}" (the role from the posting "${targetTitle}", without the team name)`,
           });
           titleAudit.overridden = true;
         }
-        tailoredData.title = targetTitle;
+        tailoredData.title = wanted;
         tailoredData.jobTitle = targetTitle;
+        titleAudit.target = wanted;
+        titleAudit.postingTitle = targetTitle;
       }
       if (targetCompany) {
         tailoredData.company = targetCompany;

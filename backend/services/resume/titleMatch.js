@@ -125,4 +125,65 @@ function compareTitles(target, actual) {
   };
 }
 
-module.exports = { normalizeTitleForCompare, seniorityBand, compareTitles };
+
+/**
+ * The nouns a role title ends in. A title whose head (the part before a
+ * separator) ends in one of these is a complete role on its own, and whatever
+ * follows the separator is the employer's organisation of it.
+ */
+const ROLE_HEAD_RE = new RegExp(
+  '\\b(?:engineer|developer|programmer|architect|manager|designer|analyst|scientist|' +
+  'researcher|lead|director|head|consultant|specialist|administrator|admin|' +
+  'coordinator|strategist|writer|recruiter|accountant|controller|officer|' +
+  'associate|partner|intern|technician|sre|devops|cto|cfo|coo|ceo|vp)' +
+  '(?:\\s+(?:i{1,3}|iv|v|[1-5]))?\\.?\\s*$',
+  'i'
+);
+
+/** Trailing qualifiers that are about the posting, not the role. */
+const TRAILING_FURNITURE_RE =
+  /\s*[\(\[][^\)\]]*(?:remote|hybrid|on-?site|contract|full[\s-]?time|part[\s-]?time|temp|temporary|l\d|level\s*\d|m\d|\d{4,}|req|job\s*id)[^\)\]]*[\)\]]\s*$/i;
+
+/**
+ * The headline a resume should carry for a posting.
+ *
+ * Mirroring the posting's title verbatim was the rule, and it was wrong on
+ * exactly the postings big companies write: "Software Engineer, Agentic
+ * Runtime" is a Software Engineer role on Glean's Agentic Runtime team, and
+ * "Staff Software Engineer, Platform Infrastructure" is a Staff Software
+ * Engineer on a platform team. The part after the separator is the employer's
+ * org chart. Copying it onto the candidate's own headline reads as pasted from
+ * the posting, which is the one thing a tailored resume must never look like,
+ * and it is also simply false: the candidate does not hold a title with that
+ * company's team name in it.
+ *
+ * So the headline is the role: seniority band and role noun kept exactly as
+ * written, organisational suffix dropped. The posting's exact title is still
+ * returned as `jobTitle` for the saved record and the filename.
+ *
+ * Conservative on purpose: the suffix is dropped only when what remains is
+ * recognisably a complete role title. "Head of Platform, EMEA" keeps "Head of
+ * Platform"; a title with no recognisable role noun is left whole.
+ */
+function headlineFromPostingTitle(postingTitle) {
+  let t = String(postingTitle || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+
+  // Board furniture at the end: " - Easy Apply", "(Remote)", "[Hybrid]".
+  t = t.replace(/\s*[-–—|]\s*(?:easy apply|apply now|new|urgent(?:ly)? hiring|hiring now)\s*$/i, '').trim();
+  let prev;
+  do {
+    prev = t;
+    t = t.replace(TRAILING_FURNITURE_RE, '').trim();
+  } while (t !== prev);
+
+  // Organisational suffix after a separator, when the head is a whole role.
+  const sep = t.search(/\s*(?:,|:|\||\(|\[|\s[-–—]\s)\s*/);
+  if (sep > 0) {
+    const head = t.slice(0, sep).trim();
+    if (ROLE_HEAD_RE.test(head)) t = head;
+  }
+  return t.replace(/[\s,;:\-–—|]+$/, '').trim();
+}
+
+module.exports = { normalizeTitleForCompare, seniorityBand, compareTitles, headlineFromPostingTitle };

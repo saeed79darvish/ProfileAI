@@ -85,3 +85,39 @@ test('an empty resume title against a real posting is a mismatch', () => {
   assert.equal(cmp.clean, false);
   assert.equal(cmp.actual, null);
 });
+
+// ── Headline: the role, not the employer's org chart ────────────────────────
+const { headlineFromPostingTitle } = require('./titleMatch');
+
+test('the reported defect: a team name is not a job title', () => {
+  // "Agentic Runtime" is Glean's team. The candidate does not hold a title
+  // with another company's team name in it.
+  assert.equal(headlineFromPostingTitle('Software Engineer, Agentic Runtime'), 'Software Engineer');
+  assert.equal(headlineFromPostingTitle('Staff Software Engineer, Platform Infrastructure'), 'Staff Software Engineer');
+  assert.equal(headlineFromPostingTitle('Software Engineer, Extensibility Platform'), 'Software Engineer');
+});
+
+test('the seniority band and level survive', () => {
+  assert.equal(headlineFromPostingTitle('Staff Engineer: Infrastructure'), 'Staff Engineer');
+  assert.equal(headlineFromPostingTitle('Software Engineer II'), 'Software Engineer II');
+  assert.equal(headlineFromPostingTitle('Senior Software Engineer (L5)'), 'Senior Software Engineer');
+});
+
+test('board furniture and posting qualifiers are dropped', () => {
+  assert.equal(headlineFromPostingTitle('Staff Software Engineer - Easy Apply'), 'Staff Software Engineer');
+  assert.equal(headlineFromPostingTitle('Senior Software Engineer - Payments (Remote)'), 'Senior Software Engineer');
+  assert.equal(headlineFromPostingTitle('Product Designer | Growth'), 'Product Designer');
+});
+
+test('a title that is all role is left exactly as written', () => {
+  assert.equal(headlineFromPostingTitle('Senior Full Stack Software Engineer'), 'Senior Full Stack Software Engineer');
+  assert.equal(headlineFromPostingTitle('Developer Advocate'), 'Developer Advocate');
+  assert.equal(headlineFromPostingTitle('Engineering Manager'), 'Engineering Manager');
+});
+
+test('when the head is not recognisably a role, nothing is cut', () => {
+  // Better to keep a suffix than to guess a role wrong.
+  assert.equal(headlineFromPostingTitle('Head of Platform, EMEA'), 'Head of Platform, EMEA');
+  assert.equal(headlineFromPostingTitle(''), '');
+  assert.equal(headlineFromPostingTitle(null), '');
+});
