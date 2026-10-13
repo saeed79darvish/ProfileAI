@@ -33,6 +33,7 @@ const {
   requirementGapNote,
 } = require('./resume/jobRequirements');
 const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeHygiene');
+const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGaps');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -2633,6 +2634,30 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         tailoredData.company = targetCompany;
       }
 
+      // ── The candidate's accepted gaps, applied rather than requested ─────
+      // Asking the model to weave these in did not work: every surrounding rule
+      // tells it never to write a term it cannot trace to the original resume,
+      // so facing that conflict it added nothing. A candidate accepted eight
+      // gaps and got back a resume containing none of them, with all eight
+      // still listed as missing.
+      const acceptedGapList = (gapSelections && gapSelections.acceptedGaps) || [];
+      const acceptedGapResult = applyAcceptedGaps(tailoredData, acceptedGapList, {
+        isEvidenced: (term) => hasSupport(originalSourceText, term),
+      });
+      if (acceptedGapResult.added.length > 0) {
+        console.log(
+          `[ProfilleAI] Applied ${acceptedGapResult.added.length} accepted gap(s):`,
+          acceptedGapResult.added.join(', ')
+        );
+        tailoredData.changelog.push({
+          section: 'skills',
+          action: 'accepted_gaps_added',
+          detail:
+            `Added ${acceptedGapResult.added.join(', ')} at the candidate's request` +
+            (acceptedGapResult.group ? ` under "${acceptedGapResult.group}" — honest framing for a skill the resume cannot yet evidence` : ''),
+        });
+      }
+
       // ── Education is a record, and records are copied, not rewritten ─────
       // The prompt has always said tailoring "has no business editing"
       // education. It was still asking the model to reproduce it, and the model
@@ -2658,13 +2683,40 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
 
         if (sourceEducation.length > 0) {
           const before = JSON.stringify(tailoredData.education || []);
-          tailoredData.education = sourceEducation;
-          if (before !== JSON.stringify(sourceEducation)) {
-            console.log('[ProfilleAI] Education restored from the source record (model edits discarded)');
+          /* MERGE, never replace. Overwriting outright was worse than the bug
+             it fixed: the stored profile record can be THINNER than the resume
+             the model read from, so copying it over the draft replaced
+             "UCSC Silicon Valley Extension — Full Stack Development
+             Certificate, 2018" with a bare "Bootcamp". The rule that matters is
+             that no field is ever lost, so each field takes whichever side
+             actually has a value, preferring the stored record when both do. */
+          const draftEducation = Array.isArray(tailoredData.education) ? tailoredData.education : [];
+          const pick = (a, b) => {
+            const av = String(a == null ? '' : a).trim();
+            const bv = String(b == null ? '' : b).trim();
+            return av || bv;
+          };
+          tailoredData.education = sourceEducation.map((src, i) => {
+            const draftEntry = draftEducation[i] || {};
+            return {
+              school: pick(src.school, draftEntry.school || draftEntry.institution),
+              degree: pick(src.degree, draftEntry.degree),
+              field: pick(src.field, draftEntry.field),
+              year: pick(src.year, draftEntry.year || draftEntry.graduationYear),
+            };
+          });
+          // An entry the model produced beyond what the record holds is kept
+          // rather than discarded — it came from the resume text.
+          for (let i = sourceEducation.length; i < draftEducation.length; i++) {
+            const extra = draftEducation[i] || {};
+            if (extra.school || extra.degree) tailoredData.education.push(extra);
+          }
+          if (before !== JSON.stringify(tailoredData.education)) {
+            console.log('[ProfilleAI] Education reconciled with the stored record (no field dropped)');
             tailoredData.changelog.push({
               section: 'education',
               action: 'restored_from_source',
-              detail: 'Education copied verbatim from the stored profile — tailoring does not edit the record',
+              detail: 'Education reconciled against the stored profile — every institution, degree and year present in either version is kept',
             });
           }
         }
@@ -2924,7 +2976,10 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           `The posting reads as ${finalReport.identity.jdIdentity || finalReport.identity.qualifier}; the resume honestly reads as ${finalReport.identity.originalIdentity}. Kept the honest label rather than relabelling.`
         );
       }
-      tailoredData.genuineGaps = genuineGaps;
+      // An accepted gap is a decision the candidate already made, and it has
+      // just been applied above. Re-listing it under "still missing" is how the
+      // feature came to look broken.
+      tailoredData.genuineGaps = withoutAcceptedGaps(genuineGaps, acceptedGapList);
 
       tailoredData.reviewReport = {
         passed: finalReport.passed,

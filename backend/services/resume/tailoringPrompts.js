@@ -112,6 +112,22 @@ that only apply when there is a posting to tailor to.)
   the experience section shows backend ownership; a full-stack posting does not
   make the candidate full-stack, and relabelling is the cheapest possible
   fabrication because it costs no sentence anywhere else.
+- THE FIRST SENTENCE IS THE ONLY ONE MOST RECRUITERS READ. It must say what
+  this person is known for, at what scale, with the seniority their history
+  actually shows. Weak openers that waste it:
+    "Software engineer who builds and architects React applications..."
+    "Experienced developer with a background in..."
+    "Professional with expertise across..."
+  These describe a job category, not a person. Every engineer applying to this
+  posting could have written them. Open instead with the thing only THIS
+  candidate can say — the system they own, the scale it runs at, the teams that
+  depend on it:
+    "Architect of the component platform twenty internal applications at
+     Equinix are built on, and the video player UI serving a million users a
+     month at AWS."
+  Concrete nouns, real scale, no category labels. Then one or two sentences on
+  the range of the work and what they are known for by the people they work
+  with. Never open with "Software engineer who" or "Engineer with".
 - DO NOT OPEN THE SUMMARY WITH A HYPHENATED SELF-LABEL. "Frontend-focused
   engineer", "Frontend-leaning engineer", "Backend-oriented developer" — these
   are categories the candidate never chose, they are the first words the

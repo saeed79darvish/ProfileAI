@@ -137,3 +137,11 @@ test('the output contract never shows a placeholder as an example value', () => 
   assert.ok(!/\[add /i.test(contract), `the output contract still shows a placeholder: ${contract.match(/.{0,80}\[add .{0,40}/i)}`);
   assert.match(prompt, /NEVER write a bracketed placeholder into any resume field/);
 });
+
+test('the prompt rejects the generic summary openers', () => {
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  assert.match(prompt, /THE FIRST SENTENCE IS THE ONLY ONE MOST RECRUITERS READ/);
+  assert.match(prompt, /Never open with "Software engineer who" or "Engineer with"/);
+  // It must show what good looks like, not only what to avoid.
+  assert.match(prompt, /Concrete nouns, real scale, no category labels/);
+});
