@@ -123,4 +123,72 @@ function restoreUnselected(enhanced, original, sections) {
   return restored;
 }
 
-module.exports = { diffSections, restoreUnselected, wordChangeRatio, PROSE_THRESHOLD };
+
+const METRIC_RE = /\$?\d[\d,.]*\s?(?:%|[KMB]\b|x\b|ms\b|\+)?/g;
+const metricsIn = (text) => (String(text || '').match(METRIC_RE) || []).map((m) => m.replace(/\s+/g, '').toLowerCase());
+
+/**
+ * Enhancement may not make the record weaker. Enforced here because asking is
+ * the thing that has repeatedly not worked.
+ *
+ *   - skills: the union — nothing the candidate listed disappears
+ *   - experience / projects: an entry that lost a source metric, lost bullets,
+ *     or shrank below 85% of its source length is restored verbatim; an entry
+ *     dropped entirely is put back
+ *
+ * The summary is left to the prompt: it legitimately changes shape (the false
+ * "8+ years" must go), so length alone cannot judge it.
+ *
+ * @returns {{ restored: string[] }} human-readable list of what was put back
+ */
+function enforceAdditive(enhanced, original) {
+  const restored = [];
+  if (!enhanced || !original) return { restored };
+
+  // Skills: union, original order first.
+  const origSkills = flattenSkills(original.skills).map(String);
+  if (origSkills.length && enhanced.skills !== undefined) {
+    const have = new Set(flattenSkills(enhanced.skills).map((x) => String(x).toLowerCase().trim()));
+    const missing = origSkills.filter((x) => !have.has(x.toLowerCase().trim()));
+    if (missing.length) {
+      const flat = [...flattenSkills(enhanced.skills), ...missing];
+      enhanced.skills = Array.isArray(enhanced.skills) || !enhanced.skills ? flat : { ...enhanced.skills, Restored: missing };
+      if (enhanced.skillsGrouped) enhanced.skillsGrouped = { ...enhanced.skillsGrouped, Restored: missing };
+      restored.push(`skills: ${missing.join(', ')}`);
+    }
+  }
+
+  const bulletsOf = (text) => String(text || '').split(/\n/).map((l) => l.trim()).filter(Boolean).length;
+  const wc = (text) => words(text).length;
+
+  for (const key of ['experience', 'projects']) {
+    const src = Array.isArray(original[key]) ? original[key] : [];
+    if (!src.length || enhanced[key] === undefined) continue;
+    const out = Array.isArray(enhanced[key]) ? [...enhanced[key]] : [];
+    for (let i = 0; i < src.length; i++) {
+      const o = src[i] || {};
+      const e = out[i];
+      const label = o.company || o.title || o.name || `${key} ${i + 1}`;
+      if (!e || typeof e !== 'object') {
+        out[i] = { ...o };
+        restored.push(`${label}: entry dropped — restored`);
+        continue;
+      }
+      const od = describe(o);
+      const ed = describe(e);
+      const lostMetric = metricsIn(od).find((m) => !metricsIn(ed).includes(m));
+      const lostBullets = bulletsOf(ed) < bulletsOf(od);
+      const shrank = wc(od) > 8 && wc(ed) < wc(od) * 0.85;
+      if (lostMetric || lostBullets || shrank) {
+        out[i] = { ...e, description: od };
+        restored.push(
+          `${label}: ${lostMetric ? `lost "${lostMetric}"` : lostBullets ? 'lost a bullet' : `shrank to ${wc(ed)} of ${wc(od)} words`} — original bullets restored`
+        );
+      }
+    }
+    enhanced[key] = out;
+  }
+  return { restored };
+}
+
+module.exports = { diffSections, restoreUnselected, enforceAdditive, wordChangeRatio, PROSE_THRESHOLD };

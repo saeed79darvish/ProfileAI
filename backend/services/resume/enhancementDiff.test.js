@@ -131,3 +131,58 @@ test('every department group drops the template', () => {
     assert.ok(!/- Sentence 1: \[Title\] with \[X\] years/.test(prompt), `${group} still prescribes the template`);
   }
 });
+
+// ── Enhancement is additive ─────────────────────────────────────────────────
+const { enforceAdditive } = require('./enhancementDiff');
+const SRC = {
+  skills: ['React', 'TypeScript', 'GraphQL', 'Docker'],
+  experience: [
+    { company: 'Equinix', description: '• Architected the AI component library used by 20+ internal applications, cutting development time by 50%\n• Mentored junior engineers\n• Prototyped AI-driven features' },
+    { company: 'AWS', description: '• Built the Video Player UI serving 1M+ users per month under sub-100ms latency targets' },
+    { company: 'Threedy.ai', description: '• Built a VR project on the React VR framework' },
+  ],
+};
+
+test('the reported defect: a dropped metric is restored', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  out.experience[0].description = '• Architected the AI component library used by 20+ internal applications\n• Mentored junior engineers\n• Prototyped AI-driven features';
+  const { restored } = enforceAdditive(out, SRC);
+  assert.ok(restored.some((r) => /Equinix/.test(r) && /50%/.test(r)), restored.join(' | '));
+  assert.match(out.experience[0].description, /50%/);
+});
+
+test('an older role shortened to fewer bullets is restored', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  out.experience[0].description = '• Architected the AI component library used by 20+ internal applications, cutting development time by 50%';
+  enforceAdditive(out, SRC);
+  assert.equal(out.experience[0].description, SRC.experience[0].description);
+});
+
+test('a role dropped entirely is put back', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  out.experience = out.experience.slice(0, 2);
+  const { restored } = enforceAdditive(out, SRC);
+  assert.equal(out.experience.length, 3);
+  assert.equal(out.experience[2].company, 'Threedy.ai');
+  assert.ok(restored.some((r) => /Threedy/.test(r)));
+});
+
+test('a removed skill comes back', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  out.skills = ['React', 'TypeScript'];
+  enforceAdditive(out, SRC);
+  assert.ok(out.skills.includes('GraphQL') && out.skills.includes('Docker'));
+});
+
+test('a longer, sharper rewrite that keeps every number is accepted', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  out.experience[1].description = '• Led the Video Player UI for AWSTV, a React platform serving 1M+ users per month, and held it under sub-100ms latency targets while adding per-browser codec selection';
+  const { restored } = enforceAdditive(out, SRC);
+  assert.deepEqual(restored, []);
+  assert.match(out.experience[1].description, /codec selection/);
+});
+
+test('an untouched profile restores nothing', () => {
+  const out = JSON.parse(JSON.stringify(SRC));
+  assert.deepEqual(enforceAdditive(out, SRC).restored, []);
+});

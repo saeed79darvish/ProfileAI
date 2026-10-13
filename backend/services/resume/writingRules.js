@@ -299,7 +299,7 @@ const BANNED_BULLET_ENDINGS = `BANNED BULLET ENDINGS (abstract quality clauses)
   three. A list of technologies is not this — "React, TypeScript, and Node" is
   a fact about the stack; the banned shape is a list of virtues.`;
 
-const SENTENCE_STRUCTURE_VARIATION = `SENTENCE & STRUCTURE VARIATION
+const SENTENCE_STRUCTURE_VARIATION = (mode) => `SENTENCE & STRUCTURE VARIATION
 - Most bullets: [Action verb] + [what/how] + [outcome]. But do NOT force every
   bullet into that mold — a resume where all 14 lines share one grammatical
   shape reads as generated. Some bullets should be a single short clause.
@@ -316,8 +316,8 @@ const SENTENCE_STRUCTURE_VARIATION = `SENTENCE & STRUCTURE VARIATION
   that each run 18 to 20 words are a template even when every word is true.
   Word counts are measured per role; a role whose bullets all land within three
   words of each other is reported.
-- Older roles get FEWER and SHORTER bullets than recent ones — 2–3 compact
-  lines for a job from eight years ago, more for the current one. A resume
+${mode === 'tailor' ? `- Older roles get FEWER and SHORTER bullets than recent ones — 2–3 compact
+  lines for a job from eight years ago, more for the current one. A resume` : '- Every role keeps every bullet it came with. Shortening is a tailoring decision made per posting, not something done to the record.'}
   that gives equal weight to every role reads as a template, not a career.
 - Roles do not all need the same bullet count. Match the count to how much
   genuinely relevant material the role has.
@@ -574,19 +574,50 @@ an interviewer. For each one ask:
  * @param {string} opts.explanationField - where decisions are explained instead
  * @param {string} opts.unverifiableDestination - where undefendable numbers go
  */
+
+/**
+ * Enhancement is additive. The one rule the candidate asked for in so many
+ * words: "keep the strong things and add stronger things, not reshape it into
+ * something weaker." This is the master record every future resume draws from,
+ * so anything removed here is removed from all of them.
+ */
+function additiveRules(mode) {
+  if (mode !== 'enhance') return '';
+  return `ENHANCEMENT IS ADDITIVE — NOTHING THE CANDIDATE WROTE GETS WEAKER
+- Never delete a bullet, a role, a project, a skill, a metric or a keyword the
+  candidate wrote. Sharpen it, lead with it, add to it — never remove it. If a
+  bullet carries no concrete information, REWRITE it so it does, using what the
+  role's other bullets and the rest of the profile support; do not cut it.
+- Never make any section shorter than it came in. A role with six bullets
+  returns with six or more; a summary with three sentences does not come back
+  with two. Length is not the problem; vagueness is, and the fix for vagueness
+  is specificity, not deletion.
+- The ONLY permitted removal is a false claim: an inflated year count, a
+  figure widened into a range, a metric that appears nowhere in the source, a
+  self-rating with nothing behind it. Each is replaced with the true, specific
+  version — "8+ years" becomes the real figure, "25-30%" becomes the two
+  real numbers on their own bullets — never with silence.
+- All of this is enforced in code after you return: a bullet, metric or skill
+  that was in the source and is missing from your output is restored verbatim
+  and the restoration is reported to the candidate as something you dropped.
+  Dropping therefore cannot shorten the record; it only makes the output read
+  as less polished than it could have been.`;
+}
+
 function writingRules({ mode, explanationField, unverifiableDestination }) {
   return [
+    additiveRules(mode),
     antiFabrication(mode),
     BANNED_VOCABULARY,
     BANNED_BULLET_ENDINGS,
-    SENTENCE_STRUCTURE_VARIATION,
+    SENTENCE_STRUCTURE_VARIATION(mode),
     SUMMARY_DISCIPLINE,
     skillsRules(mode),
     metricRules(mode),
     CONSISTENCY_CHECKS,
     ATS_SAFE_FORMATTING,
     noAnnotations({ explanationField }),
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }
 
 /**

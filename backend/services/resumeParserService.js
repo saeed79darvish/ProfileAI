@@ -35,7 +35,7 @@ const {
 const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeHygiene');
 const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGaps');
 const { toAIProfile } = require('./resume/candidateProfile');
-const { diffSections, restoreUnselected } = require('./resume/enhancementDiff');
+const { diffSections, restoreUnselected, enforceAdditive } = require('./resume/enhancementDiff');
 const { totalExperienceYears } = require('./resume/resumeHygiene');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
@@ -1559,6 +1559,14 @@ Important guidelines:
       // identical to the original and the same skills in a new order.
       const original = toAIProfile(profileData);
       const restoredSections = restoreUnselected(enhancedData, original, options && options.sections);
+      // Nothing the candidate wrote may come back weaker. Whatever the model
+      // dropped is put back and reported, so the preview is honest about it.
+      const additive = enforceAdditive(enhancedData, original);
+      if (additive.restored.length) {
+        console.log('[ProfilleAI] Enhancement dropped content; restored:', additive.restored);
+        enhancedData.enhancements = enhancedData.enhancements && typeof enhancedData.enhancements === 'object' ? enhancedData.enhancements : {};
+        enhancedData.enhancements.restoredContent = additive.restored;
+      }
       const { changed: changedSections, unchanged: unchangedSections } = diffSections(original, enhancedData);
       console.log(
         `[ProfilleAI] Enhancement changed: [${changedSections.join(', ') || 'nothing'}]` +

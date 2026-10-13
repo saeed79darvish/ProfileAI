@@ -43,7 +43,7 @@ ${SHARED_WRITING_RULES}
 
 ═══ VOICE & TONE ═══
 - Write like a senior engineer speaking to a hiring manager — direct, specific, zero fluff
-- Every sentence must contain concrete information. If it doesn't, cut it.
+- Every sentence must contain concrete information. If one doesn't, rewrite it so it does — never delete a line the candidate wrote.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
@@ -142,7 +142,7 @@ ${SHARED_WRITING_RULES}
 
 ═══ VOICE & TONE ═══
 - Write like a top-performing rep talking to a VP of Sales — confident, number-forward, direct
-- Every sentence must carry concrete information — a real revenue figure, quota, or business outcome where one exists in the source, otherwise a specific description of the work. If a sentence carries neither, cut it.
+- Every sentence must carry concrete information — a real revenue figure, quota, or business outcome where one exists in the source, otherwise a specific description of the work. If a sentence carries neither, rewrite it until it does — never delete it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
@@ -241,7 +241,7 @@ ${SHARED_WRITING_RULES}
 
 ═══ VOICE & TONE ═══
 - Write like a sharp operator presenting to a leadership team — strategic, outcome-focused, clear
-- Every bullet must show impact on the business, user, or team. If it doesn't, cut it.
+- Every bullet must show impact on the business, user, or team. If one doesn't, rewrite it so it does — never delete it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
@@ -440,7 +440,7 @@ ${SHARED_WRITING_RULES}
 
 ═══ VOICE & TONE ═══
 - Write with professionalism and precision — like a trusted advisor presenting to the C-suite
-- Every bullet must show organizational impact, risk reduced, or people outcomes. If it doesn't, cut it.
+- Every bullet must show organizational impact, risk reduced, or people outcomes. If one doesn't, rewrite it so it does — never delete it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
@@ -541,7 +541,7 @@ ${SHARED_WRITING_RULES}
 
 ═══ VOICE & TONE ═══
 - Write with precision and authority — like a CFO presenting to a board
-- Every sentence must carry concrete information about the financial work done. If it carries none, cut it — but never manufacture a figure to save a bullet.
+- Every sentence must carry concrete information about the financial work done. If it carries none, rewrite it around the work actually done — never delete it, and never manufacture a figure to save it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
 - DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
