@@ -145,3 +145,13 @@ test('the prompt rejects the generic summary openers', () => {
   // It must show what good looks like, not only what to avoid.
   assert.match(prompt, /Concrete nouns, real scale, no category labels/);
 });
+
+test('the summary rules no longer forbid the scale that makes them specific', () => {
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  // The old blanket "NO METRICS IN THE SUMMARY" contradicted the instruction to
+  // open with concrete scale, and the model resolved the conflict by writing a
+  // generic sentence — the same generic sentence for every posting.
+  assert.ok(!/NO METRICS IN THE SUMMARY/.test(prompt), 'the blanket metric ban is still in the prompt');
+  assert.match(prompt, /NO OUTCOME METRICS IN THE SUMMARY/);
+  assert.match(prompt, /SCALE IS ALLOWED/);
+});

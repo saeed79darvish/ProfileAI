@@ -383,10 +383,17 @@ const SUMMARY_DISCIPLINE = `SUMMARY DISCIPLINE
 - Three sentences maximum. Shorter is better than padded. This is a CEILING,
   not a target, and no user preference raises it — a length setting governs the
   EXPERIENCE descriptions only.
-- NO METRICS IN THE SUMMARY. Not a percentage, not a dollar figure, not a
-  headcount, not "one proof point of scale". Numbers belong in bullets, where
-  the work that produced them is visible and the reader can judge them. A
-  number in the summary is a claim with its evidence one section away.
+- NO OUTCOME METRICS IN THE SUMMARY: no percentage, no dollar figure, no
+  before/after delta, no latency or duration. "Improved performance by 30%" is
+  a claim whose evidence sits a section away, and the reader cannot judge it
+  where it stands. Those belong in bullets, next to the work that produced them.
+- SCALE IS ALLOWED, AND IS USUALLY THE BEST THING IN THE SUMMARY. The size of
+  what the person built or runs — "a video player serving a million users a
+  month", "a component platform twenty internal applications are built on",
+  "four product teams" — is not an outcome claim. It is the most specific and
+  least interchangeable sentence a candidate can write about themselves, and it
+  must be visible in a bullet below like any other claim. Use it. A summary with
+  no concrete scale in it reads like every other summary for the same job.
 - No self-rating. "Expert in", "highly skilled", "exceptional", "extensive
   experience" — say what the person does and at what level, then stop.
 - No adjective stacking: "experienced, motivated, versatile engineer" is three

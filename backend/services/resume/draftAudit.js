@@ -237,7 +237,18 @@ function auditMetrics(draft, { originalText = null } = {}) {
     .filter(([, locs]) => locs.length > 1)
     .map(([value, locations]) => ({ value, locations }));
 
-  const inSummary = items.filter((i) => i.location === 'summary');
+  /* Scale is not an outcome claim.
+     The rule banning numbers from the summary exists because "improved
+     performance by 30%" is a claim whose evidence sits a section away — the
+     reader cannot judge it where it stands. "The video player serving a million
+     users a month" is a different thing: it is the SIZE of the system being
+     described, it is the most specific sentence a candidate can write about
+     themselves, and it is verifiable from the bullet directly below.
+     Banning both collapsed every summary into the same shape — "[category] who
+     builds [tech] for [domain]" — which is why one tailored resume read like
+     the last one whatever the posting was. Deltas stay out; scale may stay. */
+  const SCALE_KINDS = new Set(['count', 'scale']);
+  const inSummary = items.filter((i) => i.location === 'summary' && !SCALE_KINDS.has(i.kind));
 
   /* 4 was too few, and the cost fell on the strongest resumes.
      A candidate whose history genuinely carries eight verifiable numbers —

@@ -838,7 +838,7 @@ Return a JSON object with this exact structure:
   "jobTitle": "${cleanTitle || 'the posting\'s exact job title, seniority band included'}",
   "company": "${cleanCompany || "company name from the posting, or empty string"}",
   "title": "the TARGET ROLE title above, verbatim — same seniority band, same wording",
-  "summary": "2-3 short plain sentences, no metrics, no phrases copied from the JD",
+  "summary": "2-3 short plain sentences; concrete scale is welcome, outcome percentages are not; no phrases copied from the JD",
   "skills": {
     "Languages": ["Python", "TypeScript", "SQL"],
     "Frameworks": ["React", "FastAPI"],

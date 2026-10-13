@@ -728,9 +728,14 @@ export default function JobAIToolsPanel({ job }) {
   };
 
   const doTailoring = async (profileData, jobDescription, gapSelections, settings) => {
+    // jobTitle/company are sent explicitly: on most boards the posting's title
+    // is in the page header, not inside the description text, so without them
+    // the backend has to infer the role from a body that may never state it.
     const response = await profileAPI.tailorProfileForJob({
       profileData,
       jobDescription,
+      jobTitle: job?.title,
+      company: job?.company,
       gapSelections,
       tailorSettings: settings
     });
