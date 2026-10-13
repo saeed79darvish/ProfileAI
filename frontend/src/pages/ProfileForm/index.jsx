@@ -313,6 +313,7 @@ const ProfileForm = () => {
   const [enhancements, setEnhancements] = useState(null);
   const [showEnhancementDialog, setShowEnhancementDialog] = useState(false);
   const [showEnhancePrompt, setShowEnhancePrompt] = useState(false);
+  const [enhancementChangedSections, setEnhancementChangedSections] = useState(null);
   // First-time welcome modal (one-shot per user, persisted in localStorage)
   const [showWelcome, setShowWelcome] = useState(false);
   const [expandedSections, setExpandedSections] = useState({});
@@ -1467,7 +1468,7 @@ const ProfileForm = () => {
     }
   };
 
-  const handleEnhanceWithAI = async (customPrompt = '') => {
+  const handleEnhanceWithAI = async (choices = '') => {
     setShowEnhancePrompt(false);
     if (!requireAuthForAction()) return;
     setError('');
@@ -1478,9 +1479,22 @@ const ProfileForm = () => {
 
     try {
 
-      const response = await profileAPI.enhanceResumeData(profileData, customPrompt.trim() || undefined, { signal: controller.signal });
+      // Structured choices from the modal; a plain string still works.
+      const isText = typeof choices === 'string';
+      const response = await profileAPI.enhanceResumeData(
+        profileData,
+        isText ? (choices.trim() || undefined) : undefined,
+        { signal: controller.signal },
+        isText ? undefined : choices
+      );
       
+      if (response.data.success && response.data.noChanges) {
+        // Nothing worth applying, and the server did not charge a credit.
+        setSuccess(response.data.message || 'Your profile is already in good shape — no changes, no credit used.');
+        return;
+      }
       if (response.data.success) {
+        setEnhancementChangedSections(response.data.changedSections || null);
         setEnhancements(response.data.data);
         setShowEnhancementDialog(true);
         // Persist so results survive page refresh
@@ -3910,7 +3924,7 @@ const ProfileForm = () => {
         <EnhancePromptModal
           open={showEnhancePrompt}
           onClose={() => setShowEnhancePrompt(false)}
-          onEnhance={(combinedPrompt) => handleEnhanceWithAI(combinedPrompt)}
+          onEnhance={(choices) => handleEnhanceWithAI(choices)}
           formData={formData}
           onGoToExperience={scrollToExperience}
         />
@@ -3931,6 +3945,7 @@ const ProfileForm = () => {
           enhancements={enhancements}
           originalData={formData}
           saving={loading}
+          changedSections={enhancementChangedSections}
         />
 
         {/* 5.3: Per-section enhance Old vs New diff dialog */}

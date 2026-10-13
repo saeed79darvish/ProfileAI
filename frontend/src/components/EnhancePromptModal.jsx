@@ -8,9 +8,6 @@ import {
   TextField,
   Chip,
   IconButton,
-  Select,
-  MenuItem,
-  FormControl,
   Alert,
   Collapse,
   alpha,
@@ -23,21 +20,10 @@ import {
 } from '@mui/icons-material';
 
 // ── Options ──────────────────────────────────────────────────────────────
-const DEPARTMENT_OPTIONS = [
-  { value: 'engineering', label: 'Engineering / Software' },
-  { value: 'sales', label: 'Sales / Marketing / Growth' },
-  { value: 'product_ops', label: 'Product / Operations' },
-  { value: 'design', label: 'Design / UX / Creative' },
-  { value: 'people_legal', label: 'People / HR / Legal' },
-  { value: 'finance', label: 'Finance / Data Analytics' },
-];
-
-const EXPERIENCE_LEVELS = [
-  { value: '0-2', label: '0–2 years' },
-  { value: '3-5', label: '3–5 years' },
-  { value: '6-10', label: '6–10 years' },
-  { value: '10+', label: '10+ years' },
-];
+// Department and years of experience used to be asked for here. Both are
+// already known from the profile, and the experience dropdown defaulted to
+// "3-5 years" for everyone and was sent to the model as fact. The server now
+// derives both, so the modal asks only for things it cannot know.
 
 // Tone presets — single choice.
 const TONE_OPTIONS = [
@@ -48,7 +34,8 @@ const TONE_OPTIONS = [
 
 // Focus chips — multi-select.
 const FOCUS_OPTIONS = [
-  { id: 'metrics', label: 'Add metrics & impact' },
+  // Surfaces numbers already in your history — it never invents one.
+  { id: 'metrics', label: 'Lead with your metrics' },
   { id: 'leadership', label: 'Emphasize leadership' },
   { id: 'scope', label: 'Show scope & scale' },
   { id: 'verbs', label: 'Stronger action verbs' },
@@ -133,8 +120,6 @@ const SelectableChip = ({ active, label, onClick }) => (
 const EnhancePromptModal = ({ open, onClose, onEnhance, formData, onGoToExperience }) => {
   // Smart defaults
   const [targetRole, setTargetRole] = useState('');
-  const [experienceLevel, setExperienceLevel] = useState('3-5');
-  const [department, setDepartment] = useState('engineering');
   const [tone, setTone] = useState('professional');
   const [focus, setFocus] = useState(new Set(['metrics']));
   const [sections, setSections] = useState(
@@ -198,26 +183,17 @@ const EnhancePromptModal = ({ open, onClose, onEnhance, formData, onGoToExperien
 
   const handleEnhance = () => {
     if (blocking || sections.size === 0) return;
-    const parts = [];
-
-    if (targetRole.trim()) parts.push(`Target role: ${targetRole.trim()}`);
-    const lvl = EXPERIENCE_LEVELS.find((l) => l.value === experienceLevel);
-    if (lvl) parts.push(`Experience level: ${lvl.label}`);
-    const dept = DEPARTMENT_OPTIONS.find((d) => d.value === department);
-    if (dept) parts.push(`Department: ${dept.label}`);
-
-    const toneOpt = TONE_OPTIONS.find((t) => t.value === tone);
-    if (toneOpt) parts.push(`Tone: ${toneOpt.label} — ${toneOpt.hint}`);
-
-    const focusLabels = FOCUS_OPTIONS.filter((f) => focus.has(f.id)).map((f) => f.label);
-    if (focusLabels.length) parts.push(`Focus on: ${focusLabels.join(', ')}`);
-
-    const sectionLabels = SECTION_OPTIONS.filter((s) => sections.has(s.id)).map((s) => s.label);
-    if (sectionLabels.length) parts.push(`Sections to enhance: ${sectionLabels.join(', ')}`);
-
-    if (customNote.trim()) parts.push(`Additional instructions: ${customNote.trim()}`);
-
-    onEnhance(parts.join('. '));
+    // Structured, so the server can treat each choice as binding and restore
+    // the sections that were not selected. These used to be concatenated into
+    // one sentence that the model read as an optional postscript.
+    const options = {
+      targetRole: targetRole.trim() || undefined,
+      tone,
+      focus: FOCUS_OPTIONS.filter((f) => focus.has(f.id)).map((f) => f.id),
+      sections: SECTION_OPTIONS.filter((s) => sections.has(s.id)).map((s) => s.id),
+      customNote: customNote.trim() || undefined,
+    };
+    onEnhance(options);
     handleClose(true);
   };
 
@@ -296,51 +272,23 @@ const EnhancePromptModal = ({ open, onClose, onEnhance, formData, onGoToExperien
           </Alert>
         ))}
 
-        {/* Target role + level + department */}
+        {/* Target role — the one thing about the goal the profile can't tell us */}
         <Box sx={{ mb: 2 }}>
           <Typography
             variant="overline"
             sx={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: 1 }}
           >
-            About the role you're targeting
+            Role you're aiming for (optional)
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1.25, mt: 1, mb: 1 }}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Target role"
-              placeholder="e.g. Senior Product Manager"
-              value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value)}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 14 } }}
-            />
-            <FormControl size="small" sx={{ minWidth: 140 }}>
-              <Select
-                value={experienceLevel}
-                onChange={(e) => setExperienceLevel(e.target.value)}
-                sx={{ borderRadius: 2, fontSize: 14 }}
-              >
-                {EXPERIENCE_LEVELS.map((lvl) => (
-                  <MenuItem key={lvl.value} value={lvl.value}>
-                    {lvl.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-          <FormControl size="small" fullWidth>
-            <Select
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              sx={{ borderRadius: 2, fontSize: 14 }}
-            >
-              {DEPARTMENT_OPTIONS.map((d) => (
-                <MenuItem key={d.value} value={d.value}>
-                  {d.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="e.g. Staff Software Engineer"
+            value={targetRole}
+            onChange={(e) => setTargetRole(e.target.value)}
+            helperText="Your experience and field come from your profile — no need to enter them."
+            sx={{ mt: 1, '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 14 } }}
+          />
         </Box>
 
         {/* Tone */}

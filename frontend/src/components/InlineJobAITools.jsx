@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
+import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
 import {
   AutoAwesome as TailorIcon,
   Description as CoverLetterIcon,
@@ -528,6 +529,8 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
 
   // New modal states
   const [showTailoringProgress, setShowTailoringProgress] = useState(false);
+  const { startTask } = useBackgroundTasks();
+  const mountedRef = useMountedRef();
   const [tailoringStartStep, setTailoringStartStep] = useState(0);
   const [tailoringCompleted, setTailoringCompleted] = useState(false);
   const [showTailoredResults, setShowTailoredResults] = useState(false);
@@ -762,48 +765,65 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   };
 
   const doTailoring = async (gapSelections, tailorSettings) => {
-    // jobTitle/company are sent explicitly: on most boards the posting's title
-    // is in the page header, not inside the description text, so without them
-    // the backend has to infer the role from a body that may never state it.
-    const res = await profileAPI.tailorProfileForJob({
-      profileData: getProfileData(),
-      jobDescription: getJobDescription(),
-      jobTitle: job?.title,
-      company: job?.company,
-      gapSelections,
-      tailorSettings,
-    });
-    if (res.data.success) {
-      const tailored = res.data.data;
-      if (gapSelections?.acceptedGapObjects) {
-        tailored._skillGaps = gapSelections.acceptedGapObjects;
-        tailored._learningPlan = { acceptedGaps: gapSelections.acceptedGaps || [], skippedGaps: gapSelections.skippedGaps || [], createdAt: new Date().toISOString() };
-      }
-      setTailoredProfile(tailored);
-
-      // Auto-save tailored profile to DB
-      try {
-        await tailoredProfileAPI.save({
-          jobTitle: job.title,
-          companyName: job.company,
-          tailoredData: tailored,
-          originalProfileSnapshot: getProfileData(),
-          matchScore: tailored.matchAnalysis?.overallScore || null,
-          skillGaps: (tailored._skillGaps || []).map(g => ({ ...g, status: 'pending' })),
-          learningPlan: tailored._learningPlan || null,
+    // Runs as a background task: tailoring takes a minute or more, the
+    // progress modal can be hidden, and the user may well leave this job
+    // before it finishes. The request and the save both live in the task, so
+    // the resume is stored either way, and the indicator under the navbar says
+    // what is running and offers the result when it is done.
+    const taskId = `tailor:${job?.id || `${job?.title}|${job?.company}`}`;
+    const outcome = await startTask({
+      id: taskId,
+      label: `Tailoring your resume for ${job?.title || 'this job'}`,
+      doneLabel: `Resume tailored for ${job?.title || 'this job'}`,
+      openPath: '/profile?tab=tailored',
+      ownerAlive: () => mountedRef.current,
+      run: async () => {
+        // jobTitle/company are sent explicitly: on most boards the posting's
+        // title is in the page header, not inside the description text.
+        const res = await profileAPI.tailorProfileForJob({
+          jobDescription: getJobDescription(),
+          jobTitle: job?.title,
+          company: job?.company,
+          gapSelections,
+          tailorSettings,
         });
-      } catch (saveErr) {
-        // Non-blocking, continue even if save fails
-      }
+        if (!res.data.success) return { ok: false, error: res.data.error };
+        const tailored = res.data.data;
+        if (gapSelections?.acceptedGapObjects) {
+          tailored._skillGaps = gapSelections.acceptedGapObjects;
+          tailored._learningPlan = { acceptedGaps: gapSelections.acceptedGaps || [], skippedGaps: gapSelections.skippedGaps || [], createdAt: new Date().toISOString() };
+        }
+        // Saved inside the task, so it happens even if this page is gone.
+        try {
+          await tailoredProfileAPI.save({
+            jobTitle: job.title,
+            companyName: job.company,
+            tailoredData: tailored,
+            originalProfileSnapshot: getProfileData(),
+            matchScore: tailored.matchAnalysis?.overallScore || null,
+            skillGaps: (tailored._skillGaps || []).map(g => ({ ...g, status: 'pending' })),
+            learningPlan: tailored._learningPlan || null,
+          });
+        } catch (saveErr) {
+          // Non-blocking, continue even if save fails
+        }
+        return { ok: true, tailored };
+      },
+    });
 
-      // Pre-fetch resume preview in background so the download modal opens instantly
-      setPreloadedPreviewUrl('');
-      resumeAPI.preview('professional', null, tailored).then(previewRes => {
-        if (previewRes.data?.preview) setPreloadedPreviewUrl(previewRes.data.preview);
-      }).catch(() => {});
-    } else {
-      toast.error('Failed to tailor profile');
+    if (!mountedRef.current) return; // the indicator takes it from here
+    if (!outcome?.ok) {
+      toast.error(outcome?.error || 'Failed to tailor profile');
+      return;
     }
+    const tailored = outcome.tailored;
+    setTailoredProfile(tailored);
+
+    // Pre-fetch resume preview in background so the download modal opens instantly
+    setPreloadedPreviewUrl('');
+    resumeAPI.preview('professional', null, tailored).then(previewRes => {
+      if (previewRes.data?.preview) setPreloadedPreviewUrl(previewRes.data.preview);
+    }).catch(() => {});
   };
 
   const handleSaveTailored = async () => {

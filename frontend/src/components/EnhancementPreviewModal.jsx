@@ -49,8 +49,15 @@ const EnhancementPreviewModal = ({
   originalData,
   saving = false,
   showApplyOnly = false,
+  // Sections the server found genuinely different from the original. When
+  // present, ONLY those are offered: this preview used to present all six as
+  // "enhanced", including a title identical to the original and the same
+  // skills re-ordered, which read as the feature doing nothing.
+  changedSections = null,
 }) => {
-  const defaultSections = { title: true, summary: true, skills: true, experience: true, education: true, projects: true };
+  const ALL_SECTIONS = ['title', 'summary', 'skills', 'experience', 'education', 'projects'];
+  const visible = (key) => !Array.isArray(changedSections) || changedSections.includes(key);
+  const defaultSections = Object.fromEntries(ALL_SECTIONS.filter(visible).map((k) => [k, true]));
   const [sections, setSections] = useState(defaultSections);
   const [expanded, setExpanded] = useState({});
 
@@ -115,8 +122,15 @@ const EnhancementPreviewModal = ({
       </Box>
 
       <DialogContent dividers sx={{ px: 3 }}>
+        {Array.isArray(changedSections) && (
+          <Typography variant="body2" sx={{ color: '#64748b', mb: 2 }}>
+            Showing only sections that actually changed.
+            {ALL_SECTIONS.filter((k) => !visible(k) && enhancements[k] !== undefined).length > 0 &&
+              ` Already strong, left as is: ${ALL_SECTIONS.filter((k) => !visible(k) && enhancements[k] !== undefined).join(', ')}.`}
+          </Typography>
+        )}
         {/* ── Title ── */}
-        {enhancements.title && (
+        {visible('title') && enhancements.title && (
           <SectionBlock
             label="Professional Title"
             checked={sections.title}
@@ -130,7 +144,7 @@ const EnhancementPreviewModal = ({
         )}
 
         {/* ── Summary ── */}
-        {enhancements.summary && (
+        {visible('summary') && enhancements.summary && (
           <SectionBlock
             label="Professional Summary"
             checked={sections.summary}
@@ -145,7 +159,7 @@ const EnhancementPreviewModal = ({
         )}
 
         {/* ── Skills ── */}
-        {flatSkills(enhancements.skills).length > 0 && (
+        {visible('skills') && flatSkills(enhancements.skills).length > 0 && (
           <SectionBlock
             label={`Skills (${flatSkills(enhancements.skills).length} total)`}
             checked={sections.skills}
@@ -180,7 +194,7 @@ const EnhancementPreviewModal = ({
         )}
 
         {/* ── Experience ── */}
-        {enhancements.experience?.length > 0 && (
+        {visible('experience') && enhancements.experience?.length > 0 && (
           <SectionBlock
             label={`Experience (${enhancements.experience.length} entries)`}
             checked={sections.experience}
@@ -204,7 +218,7 @@ const EnhancementPreviewModal = ({
         )}
 
         {/* ── Education ── */}
-        {enhancements.education?.length > 0 && (
+        {visible('education') && enhancements.education?.length > 0 && (
           <SectionBlock
             label={`Education (${enhancements.education.length} entries)`}
             checked={sections.education}
@@ -228,7 +242,7 @@ const EnhancementPreviewModal = ({
         )}
 
         {/* ── Projects ── */}
-        {enhancements.projects?.length > 0 && (
+        {visible('projects') && enhancements.projects?.length > 0 && (
           <SectionBlock
             label={`Projects (${enhancements.projects.length} entries)`}
             checked={sections.projects}

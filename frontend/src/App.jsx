@@ -5,6 +5,8 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { BackgroundTasksProvider } from './contexts/BackgroundTasksContext';
+import BackgroundTasksIndicator from './components/BackgroundTasksIndicator';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import ImpersonationBanner from './components/ImpersonationBanner';
@@ -206,6 +208,9 @@ function AppContent() {
     <>
       <ImpersonationBanner />
       {!hideNavbar && <Navbar />}
+      {/* AI work that keeps running after its modal is hidden — visible on
+          every page, so leaving the page that started it loses nothing. */}
+      {!isOverlayMode && <BackgroundTasksIndicator />}
       {!isOverlayMode && <CookieConsentBanner />}
       {/* Global API failure banner. Outside the boundary on purpose: it has to
           survive a route crash, and it's what tells the user *why* the page
@@ -546,7 +551,11 @@ function App() {
           <AuthProvider>
             <ToastProvider>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <AppContent />
+              {/* Above the routes on purpose: a task must outlive the page that
+                  started it. */}
+              <BackgroundTasksProvider>
+                <AppContent />
+              </BackgroundTasksProvider>
             </Router>
             </ToastProvider>
           </AuthProvider>

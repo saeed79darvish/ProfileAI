@@ -86,6 +86,7 @@ import ResumePreviewModal from '@/components/ResumePreviewModal';
 import ProcessingModal from '@/components/ProcessingModal';
 import EnhancePromptModal from '@/components/EnhancePromptModal';
 import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
+import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
 import GapReviewDialog from '@/components/GapReviewDialog';
 import LoadFailure from '@/components/common/LoadFailure';
 import { extensionConfig } from '@/config/extension';
@@ -366,6 +367,13 @@ const Dashboard = () => {
   const [limitInfo, setLimitInfo] = useState(null);
   const [pendingEnhancements, setPendingEnhancements] = useState(null);
   const [showEnhancementPreview, setShowEnhancementPreview] = useState(false);
+  const [pendingChangedSections, setPendingChangedSections] = useState(null);
+  // Enhancement runs as a background task so it survives leaving this page:
+  // it used to live in this component, and navigating away lost the result
+  // while still charging the credit.
+  const { tasks: bgTasks, startTask, dismissTask } = useBackgroundTasks();
+  const mountedRef = useMountedRef();
+  const ENHANCE_TASK_ID = 'enhance-profile';
   const [enhanceSaving, setEnhanceSaving] = useState(false);
 
   // In-place Tips/Feedback state
@@ -886,17 +894,59 @@ const Dashboard = () => {
   };
 
   // In-place Enhancement: call API → show preview
-  const handleEnhanceInPlace = async (customPrompt = '') => {
+  /** One place that turns an enhancement response into what the user sees. */
+  const showEnhanceResult = (data) => {
+    if (!data || !data.success) {
+      setSnackbar({ open: true, message: (data && (data.error || data.message)) || 'Enhancement failed' });
+      return;
+    }
+    if (data.noChanges) {
+      // Nothing worth applying — and the server did not charge for it.
+      setSnackbar({ open: true, message: data.message || 'Your profile is already in good shape — no changes, no credit used.' });
+      return;
+    }
+    setPendingEnhancements(data.data);
+    setPendingChangedSections(data.changedSections || null);
+    setShowEnhancementPreview(true);
+  };
+
+  // An enhancement that finished while the user was on another page: pick it
+  // up the moment they return, instead of losing it.
+  useEffect(() => {
+    const task = bgTasks[ENHANCE_TASK_ID];
+    if (!task || task.status !== 'done' || !task.needsAttention) return;
+    dismissTask(ENHANCE_TASK_ID);
+    showEnhanceResult(task.result);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgTasks]);
+
+  const handleEnhanceInPlace = async (choices = {}) => {
     setShowEnhancePrompt(false);
     setEnhancing(true);
     try {
-      const response = await profileAPI.enhanceResumeData(profileData, customPrompt.trim() || undefined);
-      if (response.data.success) {
-        setPendingEnhancements(response.data.data);
-        setShowEnhancementPreview(true);
-      } else {
-        setSnackbar({ open: true, message: response.data.message || 'Enhancement failed' });
-      }
+      // The modal now hands over structured choices; a plain string still
+      // works for any caller that has not been updated.
+      const isText = typeof choices === 'string';
+      const data = await startTask({
+        id: ENHANCE_TASK_ID,
+        label: 'Enhancing your profile',
+        doneLabel: 'Your profile enhancement is ready',
+        openPath: '/profile',
+        ownerAlive: () => mountedRef.current,
+        // Only the response body is kept: it is what the page needs, and it
+        // is what survives a refresh in session storage.
+        run: async () =>
+          (await profileAPI.enhanceResumeData(
+            profileData,
+            isText ? (choices.trim() || undefined) : undefined,
+            undefined,
+            isText ? undefined : choices
+          )).data,
+      });
+      // Left the page meanwhile: the indicator offers the result instead.
+      if (!mountedRef.current) return;
+      dismissTask(ENHANCE_TASK_ID);
+      showEnhanceResult(data);
     } catch (err) {
       const limit = parseLimitError(err);
       if (limit) { setLimitInfo(limit); return; }
@@ -2839,6 +2889,7 @@ const Dashboard = () => {
         enhancements={pendingEnhancements}
         originalData={profileData}
         saving={enhanceSaving}
+        changedSections={pendingChangedSections}
         showApplyOnly
       />
 

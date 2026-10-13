@@ -350,7 +350,10 @@ export const profileAPI = {
   // header itself if present, so no auth is required to fire an event.
   trackAnalyticsEvent: (name, properties = {}, sessionId = null) =>
     api.post('/profiles/analytics-event', { name, properties, sessionId }),
-  enhanceResumeData: (profileData, customPrompt, config) => api.post('/profiles/enhance-resume', { profileData, customPrompt }, config),
+  // `options` carries the modal's choices as structured fields the server
+  // treats as binding; `customPrompt` (free text) is kept for older callers.
+  enhanceResumeData: (profileData, customPrompt, config, options) =>
+    api.post('/profiles/enhance-resume', { profileData, customPrompt, options }, config),
   getEnhancementSuggestions: (profileData, config) => api.post('/profiles/enhancement-suggestions', { profileData }, config),
   enhanceText: (text, type, context, config) => api.post('/profiles/enhance-text', { text, type, context }, config),
   // These no longer send the profile. The server loads the stored record
