@@ -35,6 +35,8 @@ const {
 const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeHygiene');
 const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGaps');
 const { toAIProfile } = require('./resume/candidateProfile');
+const { diffSections, restoreUnselected } = require('./resume/enhancementDiff');
+const { totalExperienceYears } = require('./resume/resumeHygiene');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -1378,7 +1380,13 @@ Important guidelines:
   /**
    * Enhance profile data with AI-powered improvements (department-aware)
    */
-  async enhanceProfileData(profileData, customPrompt = '') {
+  /**
+   * @param {Object} profileData
+   * @param {string} [customPrompt] - free-text instructions (older clients)
+   * @param {Object} [options] - structured modal choices:
+   *   { targetRole, tone, focus: string[], sections: string[], customNote }
+   */
+  async enhanceProfileData(profileData, customPrompt = '', options = null) {
     try {
       // Classify the candidate's department group for prompt selection
       const classification = classifyDepartment(profileData);
@@ -1405,7 +1413,16 @@ Important guidelines:
       const REVIEW_RESERVE_MS = 40000;
 
       // Get the department-specific enhancement prompt
-      const promptConfig = getDepartmentEnhancementPrompt(classification.group, profileData, customPrompt);
+      // Years come from the dated roles, not from the modal — its dropdown
+      // defaulted to "3-5 years" for everyone and sent that to the model as fact.
+      const derivedYears = totalExperienceYears(profileData.experience);
+      const promptConfig = getDepartmentEnhancementPrompt(
+        classification.group,
+        profileData,
+        customPrompt,
+        options,
+        { years: derivedYears }
+      );
 
       const responseText = await callAI({
         system: promptConfig.system,
@@ -1536,9 +1553,23 @@ Important guidelines:
         console.log('[ProfilleAI] ⚠️ Enhancement defects still standing:', auditReport.blocking.slice(0, 8));
       }
 
+      // Sections the candidate did not choose go back to exactly what they were,
+      // and only sections that genuinely moved are reported as changed. The
+      // preview used to present every section as "enhanced", including a title
+      // identical to the original and the same skills in a new order.
+      const original = toAIProfile(profileData);
+      const restoredSections = restoreUnselected(enhancedData, original, options && options.sections);
+      const { changed: changedSections, unchanged: unchangedSections } = diffSections(original, enhancedData);
+      console.log(
+        `[ProfilleAI] Enhancement changed: [${changedSections.join(', ') || 'nothing'}]` +
+        `${restoredSections.length ? ` · restored unselected: [${restoredSections.join(', ')}]` : ''}`
+      );
+
       return {
         success: true,
         data: enhancedData,
+        changedSections,
+        unchangedSections,
         // Counts, not claims. The product can surface these; nothing here is
         // asserted by the model that wrote the text.
         audit: {

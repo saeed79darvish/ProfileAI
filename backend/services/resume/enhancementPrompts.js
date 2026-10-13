@@ -46,12 +46,18 @@ ${SHARED_WRITING_RULES}
 - Every sentence must contain concrete information. If it doesn't, cut it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years of experience in [top specializations]
-- Sentence 2: Core technical strengths with 2–3 specific technologies or architectural patterns
-- Sentence 3, optional: what kind of systems this person builds and for whom.
-  NOT a number — no users served, no team size, no percentage. The summary
-  carries no metrics, and a scale claim is a metric written in words.
-- Banned: any adjective that cannot be proven
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the systems this engineer built or owns, how many people or teams depend on them, the stack in two or three named technologies.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -112,7 +118,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -135,15 +141,18 @@ ${SHARED_WRITING_RULES}
 - Every sentence must carry concrete information — a real revenue figure, quota, or business outcome where one exists in the source, otherwise a specific description of the work. If a sentence carries neither, cut it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years in [sales motion: SaaS/enterprise/SMB/inside/field]
-- Sentence 2: Core strengths — segment, deal type, market, methodology (MEDDIC, Challenger, SPIN)
-- Sentence 3, optional: what this rep sells and to whom. NO NUMBER — not quota
-  attainment, not revenue, not a ranking. The numbers are the bullets' job, and
-  a quota figure in the summary is the first line of a resume asking to be
-  taken on trust. This rule overrides any instinct that sales resumes open with
-  a number; the strongest figure still appears, one section down, attached to
-  the deal that produced it.
-- Banned: any claim the bullets below do not evidence
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the segment and motion they sell into (enterprise, mid-market, SMB; inside or field), the deal type, the size of the book or territory. Quota attainment and revenue are OUTCOMES: they go in the bullet that shows the deal, not here.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -204,7 +213,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -227,12 +236,18 @@ ${SHARED_WRITING_RULES}
 - Every bullet must show impact on the business, user, or team. If it doesn't, cut it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years driving [core function: product growth / go-to-market / operational efficiency]
-- Sentence 2: Domain expertise — market, product type, channels, or operational scope
-- Sentence 3, optional: the kind of problem this person is brought in to solve.
-  NOT a number — no revenue influenced, no user growth, no cost reduced. Those
-  belong in the bullet that shows the work behind them.
-- Banned: adjectives that can't be proven
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the product or market they own and the scope of it — product lines, markets, channels, the size of the user base.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -293,7 +308,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -316,11 +331,18 @@ ${SHARED_WRITING_RULES}
 - Every line should reflect craft, intention, and impact. Decorative language adds nothing.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years designing [product type: SaaS / consumer / enterprise / brand]
-- Sentence 2: Core strengths — design disciplines (UX, UI, motion, brand, systems) and tools
-- Sentence 3, optional: what this designer is known for. NOT a number — no
-  adoption figure, no team size, no research count.
-- Banned: anything that sounds like a mood board caption
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the products and users they design for, the disciplines they practise (UX, UI, systems, brand, motion), the scale of the product.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -382,7 +404,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -405,12 +427,18 @@ ${SHARED_WRITING_RULES}
 - Every bullet must show organizational impact, risk reduced, or people outcomes. If it doesn't, cut it.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years in [domain: HR / talent / legal / compliance / customer success]
-- Sentence 2: Core strengths — functional expertise, industry, type of organization
-- Sentence 3, optional: the kind of work this person is trusted with. NOT a
-  number — no headcount, no retention rate, no caseload. An org size is a
-  metric even when written as a phrase.
-- Banned: soft claims with no organizational evidence
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the organisations and populations they support and the scope of that responsibility.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -473,7 +501,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -496,12 +524,18 @@ ${SHARED_WRITING_RULES}
 - Every sentence must carry concrete information about the financial work done. If it carries none, cut it — but never manufacture a figure to save a bullet.
 
 ═══ SUMMARY SECTION (see SUMMARY DISCIPLINE above — it governs) ═══
-- Sentence 1: [Title] with [X] years in [domain: FP&A / corporate finance / accounting / audit / treasury]
-- Sentence 2: Core strengths — financial functions, tools (Excel, SQL, Tableau, NetSuite, SAP), and company stage (startup / public / enterprise)
-- Sentence 3, optional: the kind of finance work this person owns. NOT a
-  number — no budget managed, no cost saved, no audit outcome. Finance bullets
-  carry figures well; the summary still carries none.
-- Banned: any claim the bullets below do not evidence
+- DO NOT USE A TEMPLATE. "[Title] with [X] years of experience in [areas]" is the
+  sentence every profile on the platform already opens with — it describes a
+  job category, not this person, and re-enhancing a profile against that
+  template is why enhancement kept returning the text it was given.
+- Open with what only THIS person can say: the finance functions they own, the company stage and the size of the books or budgets in their remit.
+- Scale IS allowed and is usually the strongest thing in a summary; outcome
+  deltas (percentages, before/after, money saved) are not — they belong in the
+  bullet that shows the work behind them.
+- Never state a number of years the dated roles do not support. If unsure, say
+  nothing about years.
+- Banned: any adjective that cannot be proven, and any claim the bullets below
+  do not evidence.
 
 ═══ EXPERIENCE BULLET POINTS ═══
 - One accomplishment per bullet, maximum 2 lines
@@ -570,7 +604,7 @@ Return a JSON object:
 
 Return ONLY valid JSON.${customInstructions}`,
     max_tokens: 3000,
-    temperature: 0.7
+    temperature: 0.4
   };
 }
 
@@ -595,16 +629,77 @@ const ENHANCEMENT_PROMPT_MAP = {
  * @param {string} customPrompt - Optional custom instructions from the user
  * @returns {Object} { system, prompt, max_tokens, temperature }
  */
-function getDepartmentEnhancementPrompt(group, profileData, customPrompt = '') {
-  const customInstructions = customPrompt
-    ? `\n\nAdditional instructions from the user:\n"${customPrompt}"\nPlease incorporate these instructions into your enhancements while following the guidelines above.`
-    : '';
+/** The tones the modal offers, as instructions rather than labels. */
+const TONE_INSTRUCTIONS = {
+  professional: 'Clear and confident. Plain declarative sentences; no flourish.',
+  concise: 'Short and punchy. Cut every bullet to its working verb and its result; prefer one line over two.',
+  executive: 'Strategic and outcome-led. Lead each role with scope, decisions owned and the direction set; implementation detail comes second.',
+};
+
+/** What each emphasis chip actually asks for — honestly. */
+const FOCUS_INSTRUCTIONS = {
+  // "Add metrics" promised something the honesty rules forbid: no number may be
+  // invented. What the model CAN do is move the numbers already in the
+  // candidate's history to the front of their bullets, where they are read.
+  metrics: 'Lead with the numbers already in the candidate\'s history: move each existing metric to the front of its bullet and make sure none is buried mid-sentence. Never add a number that is not in the source.',
+  leadership: 'Surface leadership that is already evidenced: decisions owned, people mentored, standards set, cross-team work led. Lead each role with it where it exists.',
+  scope: 'Make the scale of each system explicit wherever the source states it: users served, teams or applications depending on it, size of the codebase or platform.',
+  verbs: 'Replace weak openers ("Responsible for", "Worked on", "Helped") with the specific verb for what was actually done.',
+};
+
+const SECTION_KEYS = ['title', 'summary', 'experience', 'projects', 'skills'];
+
+/**
+ * Turn the candidate's modal choices into BINDING instructions.
+ *
+ * They used to arrive as one free-text string appended after every rule with
+ * "please incorporate these ... while following the guidelines above". Placed
+ * last, framed as optional and subordinate to the template above it, they lost
+ * every conflict — which is why choosing "Staff", "Executive" or "Show scope"
+ * changed nothing about the result.
+ *
+ * Department and years of experience are NOT taken from the modal. The modal
+ * defaulted to "3-5 years" whatever the profile said and sent it to the model
+ * as fact; both are derived from the profile on the server instead.
+ */
+function buildCandidateChoices(options = {}, derived = {}) {
+  const lines = [];
+  const role = String(options.targetRole || '').trim();
+  if (role) lines.push(`- Target role: ${role}. Frame the profile toward it, using only what the history supports.`);
+  if (TONE_INSTRUCTIONS[options.tone]) lines.push(`- Tone: ${TONE_INSTRUCTIONS[options.tone]}`);
+  for (const f of Array.isArray(options.focus) ? options.focus : []) {
+    if (FOCUS_INSTRUCTIONS[f]) lines.push(`- ${FOCUS_INSTRUCTIONS[f]}`);
+  }
+  const sections = (Array.isArray(options.sections) ? options.sections : []).filter((x) => SECTION_KEYS.includes(x));
+  if (sections.length) {
+    lines.push(`- Rewrite ONLY these sections: ${sections.join(', ')}. Return every other section exactly as given — they are restored in code regardless.`);
+  }
+  if (typeof derived.years === 'number' && derived.years > 0) {
+    lines.push(`- The dated roles span about ${derived.years} years. Never state more than that.`);
+  }
+  const note = String(options.customNote || '').trim();
+  if (note) lines.push(`- The candidate's own instruction: ${note.slice(0, 500)}`);
+
+  if (!lines.length) return '';
+  return `\n\n═══ THE CANDIDATE'S CHOICES (binding — these outrank the templates above, never the honesty rules) ═══\n${lines.join('\n')}\n`;
+}
+
+function getDepartmentEnhancementPrompt(group, profileData, customPrompt = '', options = null, derived = {}) {
+  // Structured choices from the current modal; the free-text form is kept for
+  // older clients that still send one concatenated string.
+  const customInstructions = options
+    ? buildCandidateChoices(options, derived)
+    : customPrompt
+      ? `\n\nAdditional instructions from the candidate (follow them wherever they do not conflict with the honesty rules):\n"${customPrompt}"`
+      : '';
 
   const promptFn = ENHANCEMENT_PROMPT_MAP[group] || engineeringEnhancementPrompt;
   return promptFn(profileData, customInstructions);
 }
 
 module.exports = {
+  buildCandidateChoices,
+  SECTION_KEYS,
   getDepartmentEnhancementPrompt,
   ENHANCEMENT_PROMPT_MAP,
   // Individual exports for testing

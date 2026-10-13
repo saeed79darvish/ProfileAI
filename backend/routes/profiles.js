@@ -781,15 +781,17 @@ router.post('/coach/target', coachGuard, async (req, res) => {
 // @access  Private
 router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
   try {
-    const { profileData, customPrompt } = req.body;
+    // `options` is the structured form of the modal's choices; `customPrompt`
+    // is the older free-text form, still accepted from clients that send it.
+    const { profileData, customPrompt, options } = req.body;
 
     if (!profileData) {
       return res.status(400).json({ error: 'Profile data is required' });
     }
 
-    console.log(`Enhancing resume for user ${req.user.id}${customPrompt ? ' with custom prompt' : ''}`);
+    console.log(`Enhancing resume for user ${req.user.id}${options ? ' with structured options' : customPrompt ? ' with custom prompt' : ''}`);
 
-    const result = await resumeParserService.enhanceProfileData(profileData, customPrompt);
+    const result = await resumeParserService.enhanceProfileData(profileData, customPrompt, options || null);
 
     if (!result.success) {
       return res.status(400).json({ 
@@ -797,12 +799,24 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance'),
       });
     }
 
-    // Record AI usage
-    await recordAIUsage(req.user.id, 'profile_enhance');
+    // Nothing worth applying means nothing charged. Candidates were paying a
+    // credit for a preview whose every section matched what they already had.
+    const changedSections = Array.isArray(result.changedSections) ? result.changedSections : null;
+    const noChanges = Array.isArray(changedSections) && changedSections.length === 0;
+    if (!noChanges) {
+      await recordAIUsage(req.user.id, 'profile_enhance');
+    } else {
+      console.log(`[enhance-resume] No meaningful changes for user ${req.user.id} — credit not charged`);
+    }
 
     res.json({
       success: true,
-      message: 'Profile enhanced successfully',
+      noChanges,
+      changedSections: changedSections || undefined,
+      creditCharged: !noChanges,
+      message: noChanges
+        ? 'Your profile is already in good shape for these choices — nothing worth changing, and no credit was used.'
+        : 'Profile enhanced successfully',
       data: result.data,
       // Counted findings from the deterministic checker, plus anything only the
       // candidate can settle (a number we removed, a skill nothing evidences).
