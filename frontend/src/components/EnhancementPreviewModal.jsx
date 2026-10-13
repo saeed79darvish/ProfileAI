@@ -293,6 +293,19 @@ const EnhancementPreviewModal = ({
                 <strong>Skills:</strong> {enhancements.enhancements.skillsChanges}
               </Typography>
             )}
+            {enhancements.enhancements.restoredContent?.length > 0 && (
+              <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: '#fffbeb', border: '1px solid #fcd34d' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: '#92400e', mb: 0.5 }}>
+                  Kept as you wrote it
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#78350f', mb: 0.5 }}>
+                  The rewrite would have dropped these, so the originals were restored. Nothing you wrote gets weaker.
+                </Typography>
+                {enhancements.enhancements.restoredContent.map((line, i) => (
+                  <Typography key={i} variant="body2" sx={{ color: '#78350f', pl: 1.5 }}>• {line}</Typography>
+                ))}
+              </Box>
+            )}
             {enhancements.enhancements.overallTips?.length > 0 && (
               <Box sx={{ mt: 1.5 }}>
                 <Typography variant="body2" fontWeight="bold">💡 Additional Tips:</Typography>
