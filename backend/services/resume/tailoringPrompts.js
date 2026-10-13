@@ -198,7 +198,7 @@ PHRASE FREQUENCY LIMIT (hard rule, counted after you return)
 - ATS scoring matches on presence, not frequency. A third mention adds zero match score and costs credibility with the human who reads it next. There is no density target to hit.
 - Never repeat the same stock phrase across multiple roles ("cross-functional collaboration" in three jobs, "cloud-native architecture" in two). If two roles genuinely involved the same skill, describe each in the concrete terms of that job — different systems, different scope, different words.
 - A methodology phrase — "component-driven design", "test-driven development", "clean code", "best practices" — NEVER goes in the Skills list. Skills are tools and technologies a recruiter can verify. A way of working is evidenced by the bullet that shows it, and putting it in Skills is how these phrases collect the extra mentions that put them over this limit.
-- Before returning, count every phrase of two or more words you used more than once, and list each one with its count in \`selfAudit.repeatedPhrases\`. Anything at 3 or more: keep the two strongest placements and rewrite the rest.
+- Before returning, count every phrase of two or more words you used more than once. Anything at 3 or more: keep the two strongest placements and rewrite the rest. (Count it; do not write the count out.)
 
 ROLE TAPERING (bullet counts are not uniform)
 - A per-role bullet budget is given to you further down, computed from the dates
@@ -350,12 +350,19 @@ This step used to say "run these six checks and fix anything that fails". It
 was followed by output containing six metrics, the same percentage on three
 different companies, and one phrase repeated five times. Asserting that a check
 passed is not the same as running it, and only one of those two things can be
-verified. So this step is no longer a promise — it is arithmetic, and you show
-your work in the \`selfAudit\` field.
+verified. So this step is arithmetic, not a promise: actually run each check
+against the finished JSON before returning it.
 
-Go through the finished JSON and LIST, not summarise:
+DO NOT WRITE THE AUDIT INTO THE OUTPUT. It used to be returned as a
+\`selfAudit\` block that nothing downstream ever read — every one of these
+checks is re-run mechanically in code — and on a long resume it took a third of
+the output budget. That pushed the reply past its ceiling, the JSON was cut off
+mid-string, and the candidate got a parse error instead of a resume. The budget
+belongs to the resume.
 
-1. EVERY METRIC. Write out each number that survives, with the field it sits
+Go through the finished JSON and CHECK, item by item:
+
+1. EVERY METRIC. Take each number that survives, with the field it sits
    in, AND the line of the original resume it came from. Then count them. If the
    count is above 8, or two entries share a value, or any of them is in the
    summary, or they are all the same kind, or every percentage is a multiple of
@@ -400,8 +407,8 @@ Go through the finished JSON and LIST, not summarise:
    for and the ones a bullet demonstrates.
 3. EVERY TERM IN THE DRAFT THAT IS NOT IN THE ORIGINAL RESUME. Read the skills
    list and the summary against the source, term by term. Anything you cannot
-   point to a line of the original for goes in \`selfAudit.notInOriginal\` AND
-   comes out of the resume. Not softened. Out.
+   point to a line of the original for comes out of the resume. Not softened.
+   Out.
 4. EVERY TITLE. For each role, write the header title and any title mentioned
    inside its own bullets. They must be identical strings. The header wins.
 5. EVERY EDUCATION ENTRY, against the source. Any institution, degree, or year
@@ -412,10 +419,9 @@ Go through the finished JSON and LIST, not summarise:
    form; no bullet ending in an abstract quality clause; bullet lengths and
    shapes differ; older roles shorter than recent ones; one date format.
 
-An independent review pass runs on this output afterwards. It counts the same
-things mechanically and compares against what you reported here, so a
-\`selfAudit\` that claims three metrics on a draft carrying six does not get the
-draft through — it just makes the discrepancy the first thing anyone sees.
+An independent review pass runs on this output afterwards and counts the same
+things mechanically, so a check you skipped is found anyway — it just costs a
+second round to fix.
 
 What that pass does, so you know what is actually enforced rather than asked:
 every metric is counted, located, and its digits diffed against the original —
@@ -865,22 +871,6 @@ Return a JSON object with this exact structure:
     "needsVerification": ["metrics or claims from the source resume the candidate should confirm before submitting — kept verbatim in the resume, never edited"],
     "locationFlag": "null when there is no conflict, otherwise the conflict stated plainly as a question for the candidate — e.g. 'Posting requires on-site work in New York; profile location is San Francisco. Relocate, state willingness to relocate, or skip?'",
     "recommendation": "One specific action before submitting"
-  },
-  "selfAudit": {
-    "metrics": [{"value": "40%", "kind": "percentage", "location": "experience_1", "sourceLine": "the line of the ORIGINAL resume this number came from"}],
-    "metricCount": 3,
-    "bulletOpeners": [{"role": "experience_1", "openers": ["Built", "Cut", "Wrote"], "wordCounts": [21, 9, 14]}],
-    "skillsCount": 12,
-    "metricsDropped": [{"value": "25%", "replacedWith": "the concrete outcome you wrote instead"}],
-    "repeatedPhrases": [{"phrase": "design system", "count": 2, "locations": ["experience_1", "experience_2"]}],
-    "bannedWordScan": "clean, or the words you found and what you replaced them with",
-    "jdSpansCopied": ["four-word-or-longer runs shared with the posting — this list should be empty"],
-    "identityCheck": {"originalIdentity": "Frontend engineer", "summaryIdentity": "Frontend engineer", "shifted": false, "supportedBy": "which bullets carry it if it did shift"},
-    "skillsProvenance": [{"skill": "React", "evidence": "original resume, line in Wells Fargo role"}],
-    "bulletCounts": [{"role": "experience_1", "bullets": 5, "budget": 5}],
-    "notInOriginal": ["any term you could not trace to the source resume — these must ALSO be absent from the resume fields"],
-    "titleCheck": [{"role": "experience_1", "headerTitle": "Full Stack Web Developer", "titlesInBullets": []}],
-    "educationCheck": "one line confirming every institution, degree and year in the source survived into the output"
   },
   "changelog": [
     {"section": "title", "action": "matched", "detail": "Set title to the posting's exact title"},

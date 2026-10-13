@@ -392,11 +392,25 @@ function repairTruncatedJSON(text) {
     s = s.slice(0, lastSafeIndex + 1);
   }
 
+  // A cut inside a bare literal or number: `"locationFlag": nul`, `"x": tr`,
+  // `"score": 8.` or `"delta": -`. None of those is JSON. A partial literal is
+  // removed so the key-colon strip below can take the key with it; a partial
+  // number keeps its complete digits.
+  s = s.replace(/:\s*(?:t(?:ru?)?|f(?:a(?:ls?)?)?|n(?:ul?)?)\s*$/, ':');
+  s = s.replace(/(\d)[.eE][-+]?$/, '$1');
+  s = s.replace(/:\s*-\s*$/, ':');
   // Drop a trailing comma or dangling key like  "foo":  with no value.
   s = s.replace(/,\s*$/, '');
   s = s.replace(/"[^"]*"\s*:\s*$/, '');
-  // Drop a dangling key that has no colon/value yet, e.g.  ...,"suggestedApproach"
-  s = s.replace(/,\s*"[^"]*"\s*$/, '');
+  // Drop a dangling key that has no colon/value yet. Rolling back out of an
+  // unterminated value string lands on the closing quote of its KEY, so
+  //   {"company": "Equi    becomes    {"company"
+  // This used to strip that only when a comma preceded it, which missed the
+  // FIRST key of every object — `company` in each experience entry and
+  // `requirement` in each coverage entry — leaving `{"company"}`, which is not
+  // JSON. The repair then gave up and the candidate saw a raw parse error at
+  // the end of a tailoring run.
+  s = s.replace(/([{,])\s*"[^"]*"\s*$/, (_m, opener) => (opener === '{' ? '{' : ''));
   s = s.replace(/,\s*$/, '');
 
   // Rebuild the open-bracket stack against the (possibly trimmed) string.
@@ -2148,10 +2162,55 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         tailoredData = JSON.parse(jsonText);
       } catch (parseError) {
         tailoredData = repairTruncatedJSON(jsonText);
-        if (!tailoredData) {
-          throw new Error(
-            `Tailoring returned JSON that could not be parsed or repaired (${jsonText.length} chars): ${parseError.message}`
+        if (!tailoredData || typeof tailoredData !== 'object' || !tailoredData.summary) {
+          // The technical detail goes to the log; the candidate gets a sentence
+          // they can act on. They were being shown the raw parser message —
+          // "Unterminated string in JSON at position 16518 (line 236 column
+          // 18)" — on a phone, at the end of a run they had waited a minute for.
+          console.error(
+            `[ProfilleAI] Tailoring JSON unrecoverable (${jsonText.length} chars): ${parseError.message}`
           );
+          throw new Error(
+            'The tailored resume came back incomplete. Please try again — if it keeps happening, lower the bullets-per-role setting.'
+          );
+        }
+        // A cut can leave the last role half-written: a company and title with
+        // no bullets, or an empty object. Rendering that prints a role header
+        // with nothing under it, so incomplete trailing entries are dropped.
+        for (const key of ['experience', 'projects']) {
+          if (Array.isArray(tailoredData[key])) {
+            tailoredData[key] = tailoredData[key].filter(
+              (e) => e && typeof e === 'object' && String(e.description || '').trim()
+            );
+          }
+        }
+        // And roles the cut removed entirely come back from the source, with
+        // their original wording. Silently dropping the candidate's earlier
+        // jobs because the reply ran long is far worse than showing those few
+        // roles untailored.
+        const sourceRoles = Array.isArray(profileData.experience) ? profileData.experience : [];
+        const tailoredRoles = Array.isArray(tailoredData.experience) ? tailoredData.experience : [];
+        const fmt = (d) => {
+          if (!d) return '';
+          const date = new Date(d);
+          return Number.isNaN(date.getTime())
+            ? String(d)
+            : date.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+        };
+        const restored = [];
+        for (let i = tailoredRoles.length; i < sourceRoles.length; i++) {
+          const r = sourceRoles[i] || {};
+          if (!r.company && !r.title) continue;
+          restored.push({
+            company: r.company || '',
+            title: r.title || '',
+            period: `${fmt(r.startDate)}${r.startDate ? ' - ' : ''}${r.current ? 'Present' : fmt(r.endDate)}`.trim(),
+            description: r.description || '',
+          });
+        }
+        if (restored.length > 0) {
+          tailoredData.experience = [...tailoredRoles, ...restored];
+          console.warn(`[ProfilleAI] Truncation cut ${restored.length} role(s); restored them from the source untailored`);
         }
         console.warn(
           `[ProfilleAI] ⚠️ Tailoring JSON was truncated at ${jsonText.length} chars ` +
@@ -3274,3 +3333,7 @@ No commentary, no markdown fences — just the JSON object.`;
 }
 
 module.exports = new ResumeParserService();
+// Exposed for tests: truncation recovery is the difference between a resume and
+// a raw parse error on the candidate's screen, and it is only trustworthy if it
+// is exercised against every possible cut point, not a handful.
+module.exports.repairTruncatedJSON = repairTruncatedJSON;

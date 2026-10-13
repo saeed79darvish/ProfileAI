@@ -425,3 +425,38 @@ test('the verification block reports tenure whether or not a claim was made', as
   assert.equal(typeof data.verification.tenure.yearsSupportedByDates, 'number');
   assert.ok(Array.isArray(data.verification.tenure.claimsInSummary));
 });
+
+// ── Truncated replies ───────────────────────────────────────────────────────
+
+test('a reply cut inside the experience section restores the missing roles', async () => {
+  const full = draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] });
+  // Cut inside the SECOND role's first key — the exact shape of the reported
+  // failure ("company" is the first key of every experience entry).
+  const at = full.indexOf('"company":"Analytical Engines"') + '"company":"Analyt'.length;
+  scripted = [keywordReply(), full.slice(0, at)];
+  for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
+
+  const result = await tailor();
+  assert.equal(result.success, true, result.error);
+  // The role the cut removed comes back from the source rather than vanishing.
+  const companies = result.data.experience.map((e) => e.company);
+  assert.ok(companies.includes('Acme Corp'));
+  assert.ok(companies.includes('Analytical Engines'), 'a job silently disappeared from the resume');
+});
+
+test('an unrecoverable reply produces a readable error, not a parser message', async () => {
+  scripted = [keywordReply(), 'I am unable to produce that resume.'];
+  const result = await tailor();
+  assert.equal(result.success, false);
+  assert.ok(!/position \d+|Unterminated|JSON/.test(result.error), `raw parser text shown: ${result.error}`);
+  assert.match(result.error, /try again/i);
+});
+
+test('the model is no longer asked to write out a selfAudit block', async () => {
+  script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  await tailor();
+  const prompt = promptOf(sentPrompts[1]);
+  const contract = prompt.slice(prompt.indexOf('═══ OUTPUT FORMAT ═══'));
+  // ~2,000 tokens nothing read, which pushed real resumes past max_tokens.
+  assert.ok(!/"selfAudit"\s*:/.test(contract), 'selfAudit is still in the output contract');
+});
