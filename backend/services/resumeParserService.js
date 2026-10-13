@@ -34,6 +34,7 @@ const {
 } = require('./resume/jobRequirements');
 const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeHygiene');
 const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGaps');
+const { toAIProfile } = require('./resume/candidateProfile');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
   repairWrappedHyphens,
@@ -1567,7 +1568,7 @@ Important guidelines:
       const prompt = `You are an expert career coach. Review this profile and provide specific, actionable suggestions to improve it.
 
 Profile Data:
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 Provide suggestions in the following JSON format:
 {
@@ -1644,8 +1645,8 @@ Be specific and actionable. Return ONLY valid JSON.`;
       const hasResume = originalResumeText && originalResumeText.trim().length > 100;
 
       const candidateInfo = hasResume
-        ? `CANDIDATE'S RESUME:\n${originalResumeText}\n\nSTRUCTURED DATA (supplementary):\n${JSON.stringify(profileData, null, 2)}`
-        : `CANDIDATE'S PROFILE:\n${JSON.stringify(profileData, null, 2)}`;
+        ? `CANDIDATE'S RESUME:\n${originalResumeText}\n\nSTRUCTURED DATA (supplementary):\n${JSON.stringify(toAIProfile(profileData), null, 2)}`
+        : `CANDIDATE'S PROFILE:\n${JSON.stringify(toAIProfile(profileData), null, 2)}`;
 
       const prompt = `You are a career gap analyst. Compare the candidate's profile/resume against the job description and identify skill/requirement gaps — but you MUST correctly handle OR-patterns, preferred vs required language, and technology families.
 

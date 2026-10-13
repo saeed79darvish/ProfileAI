@@ -872,9 +872,37 @@ router.post('/enhancement-suggestions', authMiddleware, aiRateLimiter('career_su
 // The cache key hashes the PROFILE alongside the job text, so editing skills or
 // experience produces a different key and the next analysis is computed fresh.
 // Identical profile + identical job can only yield the same answer.
+/**
+ * Load the signed-in candidate's profile from the database for an AI call.
+ *
+ * The profile used to come from the REQUEST BODY on every AI endpoint. The
+ * server already holds it, and the client copy was worse than redundant: the
+ * extension sent its cached raw `/me` row — two embedding vectors and the full
+ * original resume text included — on every call, the copy went stale whenever
+ * the profile was edited elsewhere, and gap analysis pasted the lot into the
+ * prompt. Clients may still send `profileData` (older extension builds do); it
+ * is ignored here in favour of the stored record.
+ */
+async function withServerProfile(req, res, next) {
+  try {
+    const { Profile, User } = require('../models');
+    const { loadCandidateProfile, hasProfileContent } = require('../services/resume/candidateProfile');
+    const loaded = await loadCandidateProfile(req.user.id, { Profile, User });
+    if (!loaded || !hasProfileContent(loaded.profileData)) {
+      return res.status(400).json({ error: 'Profile not found. Please complete your profile first.' });
+    }
+    req.candidate = loaded;
+    return next();
+  } catch (error) {
+    console.error('[withServerProfile] failed to load profile:', error.message);
+    return res.status(500).json({ error: 'Could not load your profile. Please try again.' });
+  }
+}
+
 async function analyzeGapsCacheHit(req, res, next) {
   try {
-    const { profileData, jobDescription, forceRefresh } = req.body || {};
+    const { jobDescription, forceRefresh } = req.body || {};
+    const profileData = req.candidate && req.candidate.profileData;
     if (!profileData || !jobDescription) return next();
     // An explicit re-run is not a re-open. The cache exists so that OPENING a
     // job again does not re-spend a credit on an answer that cannot have
@@ -902,24 +930,16 @@ async function analyzeGapsCacheHit(req, res, next) {
   return next();
 }
 
-router.post('/analyze-gaps', authMiddleware, analyzeGapsCacheHit, aiRateLimiter('tailor_profile'), async (req, res) => {
+router.post('/analyze-gaps', authMiddleware, withServerProfile, analyzeGapsCacheHit, aiRateLimiter('tailor_profile'), async (req, res) => {
   try {
-    const { profileData, jobDescription } = req.body;
-
-    if (!profileData) {
-      return res.status(400).json({ error: 'Profile data is required' });
-    }
+    const { jobDescription } = req.body;
+    const { profileData, originalResumeText } = req.candidate;
 
     if (!jobDescription || jobDescription.trim().length < 50) {
       return res.status(400).json({ error: 'Please provide a detailed job description (at least 50 characters)' });
     }
 
     console.log(`Analyzing skill gaps for user ${req.user.id}`);
-
-    // Fetch stored resume text if available
-    const { Profile } = require('../models');
-    const userProfile = await Profile.findOne({ where: { userId: req.user.id }, attributes: ['originalResumeText'] });
-    const originalResumeText = userProfile?.originalResumeText || null;
 
     const result = await resumeParserService.analyzeResumeGaps(profileData, jobDescription, originalResumeText);
 
@@ -1549,7 +1569,7 @@ Return ONLY the rewritten field text. No explanations. No prefix. No quotes arou
 // @route   POST /api/profiles/tailor-for-job
 // @desc    Tailor profile for a specific job description
 // @access  Private
-router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
+router.post('/tailor-for-job', authMiddleware, withServerProfile, aiRateLimiter('tailor_profile'), async (req, res) => {
   try {
     // jobTitle/company are scraped from the posting's header, which on most job
     // boards (LinkedIn especially) lives OUTSIDE the description element — so
@@ -1557,11 +1577,9 @@ router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), 
     // has always sent them; this route used to drop them on the floor, leaving
     // the model to infer the title from a description that did not state it.
     // That is why a Staff posting came back titled Senior.
-    const { profileData, jobDescription, jobTitle, company, gapSelections, tailorSettings } = req.body;
-
-    if (!profileData) {
-      return res.status(400).json({ error: 'Profile data is required' });
-    }
+    const { jobDescription, jobTitle, company, gapSelections, tailorSettings } = req.body;
+    // The stored record, not the request body — see withServerProfile.
+    const { profileData, originalResumeText } = req.candidate;
 
     if (!jobDescription || jobDescription.trim().length < 50) {
       return res.status(400).json({ error: 'Please provide a detailed job description (at least 50 characters)' });
@@ -1572,11 +1590,6 @@ router.post('/tailor-for-job', authMiddleware, aiRateLimiter('tailor_profile'), 
     if (tailorSettings) {
       console.log(`[Tailor] User settings: tone=${tailorSettings.tone}, summaryLines=${tailorSettings.summaryLines}, experienceLines=${tailorSettings.experienceLines}, maxSkills=${tailorSettings.maxSkills}`);
     }
-
-    // Fetch the user's stored original resume text (from uploaded PDF/DOCX)
-    const { Profile } = require('../models');
-    const userProfile = await Profile.findOne({ where: { userId: req.user.id }, attributes: ['originalResumeText'] });
-    const originalResumeText = userProfile?.originalResumeText || null;
 
     if (originalResumeText) {
       console.log(`[Tailor] Using original resume text (${originalResumeText.length} chars) for user ${req.user.id}`);
@@ -2264,7 +2277,15 @@ router.get('/me', authMiddleware, async (req, res) => {
       }
     }
 
-    res.json(profile);
+    // Server-side fields no client reads. The two embedding vectors are ~12.7 KB
+    // of floats and the original resume text can be several more; the
+    // extension cached this whole response and sent it back on every AI call,
+    // where gap analysis pasted it into the prompt. They stay on the server.
+    const body = profile.toJSON();
+    for (const field of ['embedding', 'openaiEmbedding', 'embeddingUpdatedAt', 'openaiEmbeddingUpdatedAt', 'originalResumeText']) {
+      delete body[field];
+    }
+    res.json(body);
   } catch (error) {
     console.error('Error fetching profile:', error);
     res.status(500).json({ error: 'Server error' });
@@ -2377,13 +2398,11 @@ router.post(
 // @route   POST /api/profiles/keyword-optimization
 // @desc    Analyze job description keywords vs profile and suggest optimizations
 // @access  Private
-router.post('/keyword-optimization', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/keyword-optimization', authMiddleware, withServerProfile, aiRateLimiter('profile_enhance'), async (req, res) => {
   try {
-    const { profileData, jobDescription } = req.body;
-
-    if (!profileData) {
-      return res.status(400).json({ error: 'Profile data is required' });
-    }
+    const { jobDescription } = req.body;
+    // The stored record, not the request body — see withServerProfile.
+    const { profileData } = req.candidate;
 
     if (!jobDescription || jobDescription.trim().length < 50) {
       return res.status(400).json({ error: 'Please provide a detailed job description (at least 50 characters)' });
@@ -2452,13 +2471,11 @@ Return ONLY valid JSON.`;
 // asked "which keywords are missing", which is a vocabulary question — it could
 // not see that a UI architect and a customer marketing role are different jobs,
 // so it returned respectable-looking scores for applications nobody would pass.
-router.post('/job-match', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('profile_enhance'), async (req, res) => {
   try {
-    const { profileData, jobDescription, jobTitle } = req.body;
-
-    if (!profileData) {
-      return res.status(400).json({ error: 'Profile data is required' });
-    }
+    const { jobDescription, jobTitle } = req.body;
+    // The stored record, not the request body — see withServerProfile.
+    const { profileData } = req.candidate;
     // A score computed from a fragment is worse than no score: it looks
     // authoritative and is arbitrary. Demand enough text to hold requirements.
     if (!jobDescription || jobDescription.trim().length < 200) {

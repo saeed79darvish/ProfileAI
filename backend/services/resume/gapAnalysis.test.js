@@ -149,3 +149,20 @@ test('the prompt asks for scope and seniority gaps, not only tools', async () =>
   assert.match(prompt, /multi-team ownership/);
   assert.ok(prompt.includes(JD), 'the posting never reached the prompt');
 });
+
+test('the gap prompt never contains embedding vectors, whatever the caller sends', async () => {
+  // The extension used to send the raw /me row, and this prompt pasted it in
+  // whole as "supplementary" data — ~6,000 tokens of floats per call.
+  const raw = {
+    ...PROFILE,
+    embedding: Array.from({ length: 512 }, (_, i) => 0.012345 + i / 1e6),
+    openaiEmbedding: Array.from({ length: 512 }, (_, i) => 0.054321 + i / 1e6),
+    originalResumeText: 'should not be duplicated',
+  };
+  scripted = [gapArray(1)];
+  await resumeParserService.analyzeResumeGaps(raw, JD, 'Senior UI Platform Engineer at Acme. '.repeat(50));
+  const prompt = sentRequests[0].messages[0].content;
+  assert.ok(!prompt.includes('openaiEmbedding'), 'embedding key in the gap prompt');
+  assert.ok(!prompt.includes('0.012345'), 'embedding values in the gap prompt');
+  assert.ok(!prompt.includes('should not be duplicated'), 'resume text pasted twice');
+});

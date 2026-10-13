@@ -7,6 +7,7 @@
  */
 
 const { writingRules, readAloudCheck } = require('./writingRules');
+const { toAIProfile } = require('./candidateProfile');
 
 // Quality rules shared with the tailoring prompts, so the two paths can never
 // disagree about what good resume writing is. Enhancement is the general pass —
@@ -36,7 +37,7 @@ function engineeringEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert technical resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for technical roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 
@@ -125,7 +126,7 @@ function salesEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert sales resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for sales roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 
@@ -217,7 +218,7 @@ function productOpsEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for product, marketing, and operations roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 
@@ -306,7 +307,7 @@ function designEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for design roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 
@@ -395,7 +396,7 @@ function peopleLegalEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for people, HR, legal, compliance, and customer success roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 
@@ -486,7 +487,7 @@ function financeEnhancementPrompt(profileData, customInstructions) {
     prompt: `You are an expert finance resume writer embedded in a resume generation platform. Your job is to enhance the candidate's profile to be polished and ATS-friendly for finance and accounting roles.
 
 ═══ CANDIDATE'S CURRENT PROFILE ═══
-${JSON.stringify(profileData, null, 2)}
+${JSON.stringify(toAIProfile(profileData), null, 2)}
 
 ${SHARED_WRITING_RULES}
 

@@ -353,11 +353,20 @@ export const profileAPI = {
   enhanceResumeData: (profileData, customPrompt, config) => api.post('/profiles/enhance-resume', { profileData, customPrompt }, config),
   getEnhancementSuggestions: (profileData, config) => api.post('/profiles/enhancement-suggestions', { profileData }, config),
   enhanceText: (text, type, context, config) => api.post('/profiles/enhance-text', { text, type, context }, config),
-  analyzeGaps: ({ profileData, jobDescription }) => api.post('/profiles/analyze-gaps', { profileData, jobDescription }),
-  tailorProfileForJob: ({ profileData, jobDescription, gapSelections, tailorSettings }) => api.post('/profiles/tailor-for-job', { profileData, jobDescription, gapSelections, tailorSettings }),
+  // These no longer send the profile. The server loads the stored record
+  // itself, which is the same data, can't be stale, and doesn't upload it on
+  // every call. `profileData` is still accepted from callers so they need not
+  // change, and simply not forwarded.
+  analyzeGaps: ({ jobDescription }) => api.post('/profiles/analyze-gaps', { jobDescription }),
+  // jobTitle/company used to be dropped right here — the wrapper destructured
+  // four fields and forwarded those four, so a caller passing the posting's
+  // title had it silently discarded and the backend inferred the role from a
+  // description body that often never states it.
+  tailorProfileForJob: ({ jobDescription, jobTitle, company, gapSelections, tailorSettings }) =>
+    api.post('/profiles/tailor-for-job', { jobDescription, jobTitle, company, gapSelections, tailorSettings }),
   regenerateSections: ({ profileData, instructions }) => api.post('/profiles/regenerate-sections', { profileData, instructions }),
   generateCoverLetter: (data) => api.post('/profiles/generate-cover-letter', data),
-  keywordOptimization: ({ profileData, jobDescription }) => api.post('/profiles/keyword-optimization', { profileData, jobDescription })
+  keywordOptimization: ({ jobDescription }) => api.post('/profiles/keyword-optimization', { jobDescription })
 };
 
 // Smart Match API

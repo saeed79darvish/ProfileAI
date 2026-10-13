@@ -1260,13 +1260,10 @@ async function analyzeGapsForJob(jobDescription: string, forceRefresh = false) {
   }
   
   try {
-    if (!cachedProfile) {
-      await fetchProfile();
-    }
-    if (!cachedProfile) {
-      return { success: false, error: 'Profile not found. Please complete your profile first.' };
-    }
-
+    // No profile in the body: the server loads the stored record itself. This
+    // used to upload the cached raw /me row — embedding vectors and the full
+    // original resume text included — on every call, and a copy that went
+    // stale whenever the profile was edited on the web.
     const response = await fetch(`${CONFIG.API_BASE}/profiles/analyze-gaps`, {
       method: 'POST',
       headers: {
@@ -1274,7 +1271,6 @@ async function analyzeGapsForJob(jobDescription: string, forceRefresh = false) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        profileData: cachedProfile,
         jobDescription,
         // A deliberate "Tailor Again" must not be answered from the stored
         // analysis — identical gaps are what made re-tailoring look like a
@@ -1316,14 +1312,8 @@ async function tailorProfileForJob(
   }
   
   try {
-    // Ensure we have profile data before tailoring
-    if (!cachedProfile) {
-      await fetchProfile();
-    }
-    if (!cachedProfile) {
-      return { success: false, error: 'Profile not found. Please complete your profile first.' };
-    }
-
+    // No profile in the body — the server loads the stored record. See
+    // analyzeGapsForJob for why the client copy is no longer sent.
     const response = await fetch(`${CONFIG.API_BASE}/profiles/tailor-for-job`, {
       method: 'POST',
       headers: {
@@ -1331,7 +1321,6 @@ async function tailorProfileForJob(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        profileData: cachedProfile,
         jobDescription,
         jobTitle,
         company,

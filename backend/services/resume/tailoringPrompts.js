@@ -9,6 +9,7 @@
  */
 
 const { writingRules, readAloudCheck } = require('./writingRules');
+const { toAIProfile } = require('./candidateProfile');
 const { planRoleShapes, DEFAULT_SELECTED_BULLETS } = require('./roleShape');
 
 // Quality rules shared with the enhancement prompts. Kept in one module so the
@@ -810,7 +811,7 @@ title unchanged in \`title\` — do NOT invent a plausible-sounding one.
     ? `═══ CANDIDATE'S EXISTING RESUME ═══
 ${originalResumeText}`
     : `═══ CANDIDATE'S PROFILE DATA ═══
-${JSON.stringify(profileData, null, 2)}`;
+${JSON.stringify(toAIProfile(profileData), null, 2)}`;
 
   // Assemble the full prompt
   const prompt = `${MASTER_TAILORING_PROMPT}
