@@ -2208,9 +2208,19 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         //      stored profile is written by previous enhancement and tailoring
         //      passes, so anything fabricated once became its own evidence the
         //      next time round. The diff now runs against the original only.
-        const isFabricatedJdKeyword = (skill) => {
+        // EVERY skill is checked against the original, not only the ones the
+        // posting happens to mention.
+        //
+        // This used to bail out on `!jdKeywordsLower.has(skill)` — "only police
+        // JD-extracted terms" — which left the larger hole wide open: a skill
+        // the model invents that the posting never asked for was never verified
+        // at all. A resume shipped with "Golang" on it, a language absent from
+        // both the candidate's history and the posting. Nothing had any reason
+        // to look at it. The candidate is the one who gets asked about it in an
+        // interview, so the check is now universal.
+        const isFabricatedSkill = (skill) => {
           const skillLower = String(skill).toLowerCase().trim();
-          if (!jdKeywordsLower.has(skillLower)) return false; // only police JD-extracted terms
+          if (!skillLower) return true;
           if (acceptedGapsLower.has(skillLower)) return false; // user explicitly accepted this gap
           return !hasSupport(originalSourceText, skillLower);
         };
@@ -2218,13 +2228,13 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         const removedSkills = [];
         if (Array.isArray(tailoredData.skills)) {
           tailoredData.skills = tailoredData.skills.filter(s => {
-            if (isFabricatedJdKeyword(s)) { removedSkills.push(s); return false; }
+            if (isFabricatedSkill(s)) { removedSkills.push(s); return false; }
             return true;
           });
         } else if (tailoredData.skills && typeof tailoredData.skills === 'object') {
           for (const group of Object.keys(tailoredData.skills)) {
             tailoredData.skills[group] = (tailoredData.skills[group] || []).filter(s => {
-              if (isFabricatedJdKeyword(s)) { removedSkills.push(s); return false; }
+              if (isFabricatedSkill(s)) { removedSkills.push(s); return false; }
               return true;
             });
           }
@@ -2246,7 +2256,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           tailoredData.changelog.push({
             section: 'skills',
             action: 'removed_unsupported',
-            detail: `Removed ${removedSkills.join(', ')} from skills — not supported anywhere in the candidate's resume/profile`
+            detail: `Removed ${removedSkills.join(', ')} from skills — not traceable to anything in the candidate's original resume`
           });
         }
       }
@@ -2621,6 +2631,43 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       }
       if (targetCompany) {
         tailoredData.company = targetCompany;
+      }
+
+      // ── Education is a record, and records are copied, not rewritten ─────
+      // The prompt has always said tailoring "has no business editing"
+      // education. It was still asking the model to reproduce it, and the model
+      // dropped fields: an entry that read
+      //   "UCSC Silicon Valley Extension — Full Stack Development Certificate, 2018"
+      // came back as bare "Software Engineering Bootcamp" with the institution
+      // and the year gone. A credential with no school attached reads like one
+      // the candidate is hiding the source of.
+      //
+      // So it is no longer asked for. The source entries are copied over the
+      // model's version whenever the source has any, which makes losing a field
+      // impossible rather than forbidden.
+      if (Array.isArray(profileData.education) && profileData.education.length > 0) {
+        const sourceEducation = profileData.education
+          .filter((e) => e && typeof e === 'object')
+          .map((e) => ({
+            school: e.school || e.institution || '',
+            degree: e.degree || '',
+            field: e.field || '',
+            year: e.year || e.graduationYear || e.endDate || '',
+          }))
+          .filter((e) => e.school || e.degree);
+
+        if (sourceEducation.length > 0) {
+          const before = JSON.stringify(tailoredData.education || []);
+          tailoredData.education = sourceEducation;
+          if (before !== JSON.stringify(sourceEducation)) {
+            console.log('[ProfilleAI] Education restored from the source record (model edits discarded)');
+            tailoredData.changelog.push({
+              section: 'education',
+              action: 'restored_from_source',
+              detail: 'Education copied verbatim from the stored profile — tailoring does not edit the record',
+            });
+          }
+        }
       }
 
       // ── Placeholders and tenure, settled in code ─────────────────────────

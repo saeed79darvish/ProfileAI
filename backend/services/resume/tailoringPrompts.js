@@ -112,6 +112,13 @@ that only apply when there is a posting to tailor to.)
   the experience section shows backend ownership; a full-stack posting does not
   make the candidate full-stack, and relabelling is the cheapest possible
   fabrication because it costs no sentence anywhere else.
+- DO NOT OPEN THE SUMMARY WITH A HYPHENATED SELF-LABEL. "Frontend-focused
+  engineer", "Frontend-leaning engineer", "Backend-oriented developer" — these
+  are categories the candidate never chose, they are the first words the
+  recruiter reads, and against a posting that asks for breadth they read as the
+  candidate ruling themselves out in their own opening line. Open with the work
+  instead: what they build, at what scale, for whom. If a role name is needed,
+  use the one the candidate actually holds in their own history.
 - THIS RULE IS SYMMETRIC, AND UNDERSTATING IS ALSO A FAILURE. The identity must
   not fall BELOW what the bullets demonstrate either. If the experience section
   shows backend ownership — APIs designed and shipped, services and data layers
@@ -334,7 +341,7 @@ Go through the finished JSON and LIST, not summarise:
 
 1. EVERY METRIC. Write out each number that survives, with the field it sits
    in, AND the line of the original resume it came from. Then count them. If the
-   count is above 4, or two entries share a value, or any of them is in the
+   count is above 8, or two entries share a value, or any of them is in the
    summary, or they are all the same kind, or every percentage is a multiple of
    five, or any of them is a range or a hedge ("25-30%", "roughly 40%"), go back
    and drop the weakest until none of those is true, and re-list.
@@ -342,9 +349,14 @@ Go through the finished JSON and LIST, not summarise:
      citing its source is the check: if the citation cannot be written, the
      number does not go in the resume. Every figure is diffed against the
      original in code afterwards and removed if it is not there.
-   - The original resume's numbers are a menu, not a manifest. Carrying all five
-     of them through unchanged, run after run, is the failure this check exists
-     for: a tailored resume picks the 3–4 that matter to THIS posting.
+   - KEEP the original resume's numbers. They are the candidate's evidence, they
+     are already verified, and deleting one costs them the strongest line on the
+     page — "20+ internal applications", "cut development time by 50%" are
+     exactly what a recruiter is scanning for. Drop a number only when its whole
+     bullet has no bearing on this posting, when two bullets carry the same
+     value, or when you are genuinely over the ceiling. What this check is
+     really guarding against is every bullet ending in a percentage; it is not a
+     reason to throw away achievements the candidate earned.
    - A dropped metric becomes a concrete non-numeric outcome, not a hole. "Cut
      load time by 25%" becomes "Cut the dashboard's load time enough that support
      stopped fielding complaints about it" — something that happened, stated
@@ -424,7 +436,7 @@ BULLET REWRITE FOCUS
 - Lead with engineering action: Built, Reduced, Migrated, Architected, Shipped, Automated
 - Name the tech stack in the bullet where the JD emphasizes those tools and the
   candidate actually used them — subject to the 1–2 keyword frequency limit
-- When choosing which 3–4 metrics survive, prefer these types and mix them:
+- When you are genuinely over the ceiling, prefer keeping these types and mixing them:
   latency (ms), uptime (%), users, requests/sec, deploy frequency, cost saved.
   Only ever use numbers already present in the source resume.
 
@@ -488,7 +500,7 @@ BULLET REWRITE FOCUS
 - Operations: Streamlined, Reduced, Implemented, Scaled, Managed, Cut, Improved
 - Always connect initiative to business outcome — not just activity
 
-METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
+METRIC TYPES TO PREFER (source numbers only; keep the ones the candidate has)
 - Product: DAU/MAU, retention %, NPS, feature adoption, revenue impact, time to ship
 - Marketing: CAC, pipeline influenced, conversion rate, ROAS, traffic growth
 - Operations: cost savings, cycle time, error rate, SLA compliance, headcount supported
@@ -523,7 +535,7 @@ PORTFOLIO NOTE
 - If portfolio link exists in resume, ensure it appears prominently in tailored version
 - If missing, add a placeholder note: [Portfolio: add link before submitting]
 
-METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
+METRIC TYPES TO PREFER (source numbers only; keep the ones the candidate has)
 - Task completion rate, satisfaction score, conversion lift,
   design system adoption, components built, research participants,
   screens shipped, accessibility compliance
@@ -557,7 +569,7 @@ BULLET REWRITE FOCUS
 - Compliance: Implemented, Ensured, Reduced, Audited, Designed, Remediated
 - Customer Success: Retained, Grew, Reduced, Onboarded, Drove, Expanded, Managed
 
-METRIC TYPES TO PREFER (within the 3–4 metric cap, source numbers only)
+METRIC TYPES TO PREFER (source numbers only; keep the ones the candidate has)
 - HR: headcount supported, time-to-hire, offer acceptance, retention %, eNPS
 - Legal: contracts negotiated, deal value advised, risk exposure reduced
 - Compliance: audits passed, frameworks implemented, findings remediated

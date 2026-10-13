@@ -97,6 +97,18 @@ function hasSupport(sourceText, term) {
   // ("REST APIs" against a resume that says "REST" and "API").
   const words = t.split(/[\s/]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
   if (words.length > 1 && words.every((w) => containsTerm(sourceText, w))) return true;
+  // Plural/singular tolerance. A resume that says "microservice-based web
+  // applications" supports the skill "Microservices"; without this the term is
+  // judged unsupported and deleted, which is a false accusation of fabrication
+  // against the candidate's own words. Bias is deliberately toward KEEPING.
+  const stems = new Set();
+  if (t.endsWith('es') && t.length > 4) stems.add(t.slice(0, -2));
+  if (t.endsWith('s') && t.length > 3) stems.add(t.slice(0, -1));
+  stems.add(`${t}s`);
+  stems.add(`${t}es`);
+  for (const stem of stems) {
+    if (stem.length > 2 && containsTerm(sourceText, stem)) return true;
+  }
   return false;
 }
 
@@ -227,9 +239,20 @@ function auditMetrics(draft, { originalText = null } = {}) {
 
   const inSummary = items.filter((i) => i.location === 'summary');
 
+  /* 4 was too few, and the cost fell on the strongest resumes.
+     A candidate whose history genuinely carries eight verifiable numbers —
+     "20+ internal applications", "cut development time by 50%", "1M+ users per
+     month", "sub-100ms" — had half of them deleted, including the flagship
+     ones, because the cap counted metrics rather than metric DENSITY. The rule
+     exists to stop every bullet ending in a percentage, which is what reads as
+     invented; it was never meant to discard real, cited achievements. Source
+     numbers are now kept, and the density rules below (no repeated value, none
+     in the summary, more than one kind) do the work the cap was overreaching
+     to do. */
+  const cap = 8;
   return {
     count: items.length,
-    cap: 4,
+    cap,
     items,
     repeatedValues,
     inSummary,
@@ -240,7 +263,7 @@ function auditMetrics(draft, { originalText = null } = {}) {
     invented: originalText === null ? [] : findInventedMetrics(items, originalText),
     estimates: findEstimatedMetrics(draft),
     roundPercentages: findRoundPercentages(items),
-    overCap: items.length > 4,
+    overCap: items.length > cap,
     kindsUsed: [...new Set(items.map((i) => i.kind))],
     // A resume whose metrics are all percentages reads as invented even at
     // three of them, which is why METRIC DISCIPLINE asks for different kinds.
@@ -1426,7 +1449,7 @@ function hardClassDefects(report) {
 function buildBlockingList(r) {
   const out = [];
   if (r.metrics.overCap) {
-    out.push(`METRICS: ${r.metrics.count} present, cap is 4. Drop the weakest ${r.metrics.count - 4} by rephrasing their bullets without the number. Present: ${r.metrics.items.map((i) => `${i.value} [${i.location}]`).join('; ')}`);
+    out.push(`METRICS: ${r.metrics.count} present, cap is ${r.metrics.cap}. Drop the weakest ${r.metrics.count - r.metrics.cap} by rephrasing their bullets without the number. Present: ${r.metrics.items.map((i) => `${i.value} [${i.location}]`).join('; ')}`);
   }
   for (const rep of r.metrics.repeatedValues) {
     out.push(`METRICS: "${rep.value}" appears in ${rep.locations.join(' and ')}. Keep the single strongest placement and rewrite the others without a number.`);

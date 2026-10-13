@@ -373,10 +373,26 @@ test('placeholder education never survives to the returned resume', async () => 
   script(JSON.stringify(draft));
 
   const { data } = await tailor();
-  assert.equal(data.education.length, 1, 'the placeholder entry shipped');
   assert.ok(!/\[\s*add/i.test(JSON.stringify(data.education)), 'placeholder text survived');
-  // It becomes a question to the candidate rather than text on the resume.
-  assert.ok((data.openQuestions || []).some((q) => q.type === 'education_incomplete'));
+  // Education is copied from the stored record, so whatever the model wrote —
+  // placeholders included — is discarded wholesale rather than repaired.
+  assert.equal(data.education.length, 1);
+  assert.equal(data.education[0].school, 'Somewhere');
+  assert.equal(data.education[0].year, '2018');
+  assert.ok(data.changelog.some((c) => c.action === 'restored_from_source'));
+});
+
+test('education fields the model dropped are restored from the source', async () => {
+  // The reported defect: "UCSC Silicon Valley Extension — Full Stack
+  // Development Certificate, 2018" came back as bare "Software Engineering
+  // Bootcamp", with the institution and the year gone.
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.education = [{ school: '', degree: 'Software Engineering Bootcamp', field: '', year: '' }];
+  script(JSON.stringify(draft));
+
+  const { data } = await tailor();
+  assert.equal(data.education[0].school, 'Somewhere', 'the institution stayed dropped');
+  assert.equal(data.education[0].year, '2018', 'the year stayed dropped');
 });
 
 test('a tenure claim the dates cannot support is removed from the summary', async () => {

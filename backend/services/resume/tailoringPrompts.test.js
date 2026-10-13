@@ -113,3 +113,27 @@ test('the builder returns a usable call config', () => {
   assert.ok(cfg.max_tokens > 0);
   assert.ok(cfg.temperature >= 0 && cfg.temperature <= 1);
 });
+
+test('the prompt forbids the self-label opener the candidate objected to', () => {
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  assert.match(prompt, /DO NOT OPEN THE SUMMARY WITH A HYPHENATED SELF-LABEL/);
+  assert.match(prompt, /Frontend-focused/);
+});
+
+test('the prompt tells the model to KEEP source metrics, not ration them', () => {
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  assert.match(prompt, /KEEP the original resume's numbers/);
+  // The old "menu, not a manifest" framing actively instructed deletion.
+  assert.ok(!/menu, not a manifest/.test(prompt), 'the ration-the-metrics framing is still in the prompt');
+  assert.ok(!/3–4 metric cap/.test(prompt), 'the 3-4 cap is still quoted at the model');
+});
+
+test('the output contract never shows a placeholder as an example value', () => {
+  // Placeholders are still NAMED in the prompt — to forbid them. What must not
+  // happen is the output shape modelling one as an acceptable value, which is
+  // what put "[add institution name]" on a real candidate's PDF.
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  const contract = prompt.slice(prompt.indexOf('═══ OUTPUT FORMAT ═══'));
+  assert.ok(!/\[add /i.test(contract), `the output contract still shows a placeholder: ${contract.match(/.{0,80}\[add .{0,40}/i)}`);
+  assert.match(prompt, /NEVER write a bracketed placeholder into any resume field/);
+});
