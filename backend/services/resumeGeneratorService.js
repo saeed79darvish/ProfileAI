@@ -135,6 +135,56 @@ const headlineOf = (profile) => {
   return cleaned;
 };
 
+/**
+ * Last line of defence against placeholder text reaching an employer.
+ *
+ * The tailoring pipeline strips "[add institution name]" now, but every
+ * tailored resume SAVED BEFORE that fix still carries it, and those records are
+ * re-rendered whenever the candidate downloads them again. The renderer is the
+ * one place every path goes through — stored records, freshly tailored data and
+ * raw profiles alike — so it refuses placeholders itself rather than trusting
+ * whatever handed it the profile.
+ *
+ * An education entry with no institution AND no degree left after stripping
+ * carries nothing a reader can use, so it is dropped rather than printed as a
+ * row of empty brackets.
+ */
+const PLACEHOLDER = /\[\s*add[^\]]*\]/gi;
+const scrub = (v) =>
+  typeof v === 'string' ? v.replace(PLACEHOLDER, '').replace(/\s{2,}/g, ' ').trim() : v;
+
+const sanitizeForRender = (profile) => {
+  if (!profile || typeof profile !== 'object') return profile;
+  const out = { ...profile };
+  for (const key of ['title', 'headline', 'summary']) out[key] = scrub(out[key]);
+
+  if (Array.isArray(out.education)) {
+    out.education = out.education
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => ({
+        ...e,
+        school: scrub(e.school),
+        institution: scrub(e.institution),
+        degree: scrub(e.degree),
+        field: scrub(e.field),
+        year: scrub(e.year),
+        graduationYear: scrub(e.graduationYear),
+      }))
+      .filter((e) => (e.school || e.institution || e.degree));
+  }
+  if (Array.isArray(out.projects)) {
+    out.projects = out.projects
+      .filter((p) => p && typeof p === 'object')
+      .map((p) => ({ ...p, title: scrub(p.title), name: scrub(p.name), description: scrub(p.description) }));
+  }
+  if (Array.isArray(out.experience)) {
+    out.experience = out.experience
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => ({ ...e, title: scrub(e.title), company: scrub(e.company), period: scrub(e.period), description: scrub(e.description) }));
+  }
+  return out;
+};
+
 const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
   const pageMargin = 50;
   const contentWidth = 595.28 - (pageMargin * 2);
@@ -1189,8 +1239,9 @@ const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
 };
 
 // ─── Main dispatcher ───
-const generatePDF = async (profile, user, templateId = 'professional', accentColor, bulletStyle, sectionOrder) => {
+const generatePDF = async (rawProfile, user, templateId = 'professional', accentColor, bulletStyle, sectionOrder) => {
   console.log(`[Resume] Generating PDF with template: ${templateId}, accent: ${accentColor || 'default'}, bullets: ${bulletStyle || 'bullets'}`);
+  const profile = sanitizeForRender(rawProfile);
   switch (templateId) {
     case 'modern':
       return generateModernPDF(profile, user, accentColor || '#10b981', bulletStyle, sectionOrder);
@@ -1204,7 +1255,8 @@ const generatePDF = async (profile, user, templateId = 'professional', accentCol
 };
 
 // Generate Word Document
-const generateWord = async (profile, user, templateId = 'professional', sectionOrder) => {
+const generateWord = async (rawProfile, user, templateId = 'professional', sectionOrder) => {
+  const profile = sanitizeForRender(rawProfile);
   const template = templates[templateId] || templates.professional;
   const colors = template.colors;
   

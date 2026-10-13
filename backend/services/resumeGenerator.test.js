@@ -100,3 +100,27 @@ test('Word renders with and without a headline', async () => {
   assert.ok(withTitle.length > 1000, 'Word document looks empty');
   assert.ok(without.length > 1000, 'Word document failed without a title');
 });
+
+test('a saved record written before the hygiene fix still renders clean', async () => {
+  // Every resume tailored before placeholders were stripped still carries them,
+  // and those records are re-rendered on every later download.
+  const legacy = {
+    ...PROFILE,
+    education: [
+      { school: 'UCSC Silicon Valley Extension', degree: 'Full Stack Development Certificate', year: '2018' },
+      { school: '[add institution name]', degree: '[add degree]', field: 'Computer Programming, Specific Applications', year: '[add graduation year]' },
+    ],
+    projects: [{ title: 'Widget ([add year])', description: 'Built a widget.' }],
+  };
+  for (const templateId of TEMPLATES) {
+    const text = await renderText(templateId, legacy);
+    assert.ok(!/\[\s*add/i.test(text), `${templateId} printed placeholder text from a legacy record`);
+    assert.ok(text.includes('UCSC'), `${templateId} dropped the real education entry`);
+  }
+});
+
+test('Word strips placeholders from legacy records too', async () => {
+  const legacy = { ...PROFILE, title: '[add title]', education: [{ school: '[add institution name]', degree: '[add degree]' }] };
+  const buf = await generateWord(legacy, USER, 'professional');
+  assert.ok(buf.length > 1000, 'Word document failed on a legacy record');
+});
