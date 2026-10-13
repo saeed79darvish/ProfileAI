@@ -42,7 +42,10 @@ const DownloadPage: React.FC = () => {
         },
         body: JSON.stringify({
           format,
-          template: 'professional',
+          // `templateId`, not `template`: the route destructures `templateId`,
+          // so the old key was silently ignored and every extension download
+          // fell through to the default template whatever was chosen.
+          templateId: 'professional',
           tailoredProfileData: profileData,
         }),
       });

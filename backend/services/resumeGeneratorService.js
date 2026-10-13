@@ -115,6 +115,26 @@ const resolveSectionOrder = (order) => {
 // ─────────────────────────────────────────────────────────────────
 // CLASSIC TEMPLATE — Traditional single-column, ATS-friendly
 // ─────────────────────────────────────────────────────────────────
+/**
+ * The headline printed under the candidate's name.
+ *
+ * Three of the four PDF templates — including `professional`, the DEFAULT —
+ * rendered no headline at all, so the title the tailoring engine mirrors to the
+ * posting appeared nowhere on the page a human reads. It was correct in the
+ * data, correct in the saved record and correct in the .docx, and invisible in
+ * the file most candidates actually download.
+ */
+const headlineOf = (profile) => {
+  const raw = profile && (profile.title || profile.headline);
+  if (typeof raw !== 'string') return '';
+  // Never print a bracketed placeholder at an employer. The tailoring pipeline
+  // strips these, but this renderer also serves saved records written before
+  // that existed and raw profile data, so it refuses them itself rather than
+  // trusting its caller.
+  const cleaned = raw.replace(/\[\s*add[^\]]*\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+  return cleaned;
+};
+
 const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
   const pageMargin = 50;
   const contentWidth = 595.28 - (pageMargin * 2);
@@ -177,6 +197,14 @@ const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
       doc.fontSize(24).fillColor('#000000').font('Helvetica-Bold')
          .text(fullName, pageMargin, currentY, { width: contentWidth });
       currentY = doc.y + 2;
+
+      // HEADLINE
+      const classicHeadline = headlineOf(profile);
+      if (classicHeadline) {
+        doc.fontSize(11).fillColor('#333333').font('Helvetica')
+           .text(classicHeadline, pageMargin, currentY, { width: contentWidth });
+        currentY = doc.y + 3;
+      }
 
       // CONTACT
       const email = profile.email || user.email;
@@ -469,9 +497,9 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, 
       mainY = doc.y + 1;
 
       // Title
-      if (profile.title) {
+      if (headlineOf(profile)) {
         doc.fontSize(11).fillColor(accentColor).font('Helvetica')
-           .text(profile.title, rightX, mainY, { width: rightContentWidth });
+           .text(headlineOf(profile), rightX, mainY, { width: rightContentWidth });
         mainY = doc.y + 12;
       } else {
         mainY += 10;
@@ -652,6 +680,14 @@ const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
       doc.fontSize(20).fillColor('#111111').font('Helvetica-Bold')
          .text(spacedName, pageMargin, currentY, { width: contentWidth, align: 'center', characterSpacing: 2 });
       currentY = doc.y + 6;
+
+      // ─── HEADLINE (centered) ───
+      const minimalHeadline = headlineOf(profile);
+      if (minimalHeadline) {
+        doc.fontSize(10).fillColor('#555555').font('Helvetica')
+           .text(minimalHeadline, pageMargin, currentY, { width: contentWidth, align: 'center' });
+        currentY = doc.y + 5;
+      }
 
       // ─── CONTACT (centered, subtle) ───
       const email = profile.email || user.email;
@@ -956,6 +992,14 @@ const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
       doc.fontSize(24).fillColor('#000000').font('Helvetica-Bold')
          .text(fullName, pageMargin, currentY, { width: contentWidth, align: 'center' });
       currentY = doc.y + 4;
+
+      // ─── HEADLINE (centered) ───
+      const centeredHeadline = headlineOf(profile);
+      if (centeredHeadline) {
+        doc.fontSize(11).fillColor('#444444').font('Helvetica')
+           .text(centeredHeadline, pageMargin, currentY, { width: contentWidth, align: 'center' });
+        currentY = doc.y + 4;
+      }
 
       // ─── CONTACT LINE (centered, single line) ───
       const email = profile.email || user.email;
