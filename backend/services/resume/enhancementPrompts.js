@@ -54,8 +54,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 
@@ -149,8 +153,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 
@@ -244,8 +252,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 
@@ -339,8 +351,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 
@@ -435,8 +451,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 
@@ -532,8 +552,12 @@ ${SHARED_WRITING_RULES}
 - Scale IS allowed and is usually the strongest thing in a summary; outcome
   deltas (percentages, before/after, money saved) are not — they belong in the
   bullet that shows the work behind them.
-- Never state a number of years the dated roles do not support. If unsure, say
-  nothing about years.
+- State the years the dated roles actually support (the figure is supplied
+  below); never more. The source may say "8+" on a six-year history — write the
+  true number, not the inflated one and not nothing.
+- Keep the competency phrases the bullets evidence (component systems, state
+  management, API design, performance work); drop the self-rating around them,
+  not the phrases. End on a claim, never on a list of employer names.
 - Banned: any adjective that cannot be proven, and any claim the bullets below
   do not evidence.
 

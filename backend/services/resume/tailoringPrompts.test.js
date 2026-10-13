@@ -155,3 +155,10 @@ test('the summary rules no longer forbid the scale that makes them specific', ()
   assert.match(prompt, /NO OUTCOME METRICS IN THE SUMMARY/);
   assert.match(prompt, /SCALE IS ALLOWED/);
 });
+
+test('the summary rules keep competency nouns and true years, and forbid employer-list closers', () => {
+  const { prompt } = buildTailoringPrompt({ ...BASE, targetTitle: 'Staff Software Engineer' });
+  assert.match(prompt, /COMPETENCY NOUNS ARE NOT SELF-RATING, AND THEY STAY/);
+  assert.match(prompt, /STATE THE YEARS WHEN THE DATES SUPPORT THEM/);
+  assert.match(prompt, /THE LAST SENTENCE IS A CLAIM, NOT A LIST/);
+});

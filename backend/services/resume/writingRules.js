@@ -396,6 +396,21 @@ const SUMMARY_DISCIPLINE = `SUMMARY DISCIPLINE
   no concrete scale in it reads like every other summary for the same job.
 - No self-rating. "Expert in", "highly skilled", "exceptional", "extensive
   experience" — say what the person does and at what level, then stop.
+- COMPETENCY NOUNS ARE NOT SELF-RATING, AND THEY STAY. "Component systems,
+  state management, performance optimization, full-stack product work" are the
+  phrases a recruiter scans a summary for, and the summary is the first place
+  the scan lands. What is banned is the rating wrapped around them ("deep
+  expertise in", "proven"); the nouns themselves belong in the summary whenever
+  a bullet below evidences them. A summary that drops them to avoid sounding
+  boastful has thrown away its keyword value for nothing — the dry version of
+  the original is not an improvement on it.
+- STATE THE YEARS WHEN THE DATES SUPPORT THEM. "Six years" on a 6.4-year
+  history is accurate, and recruiters look for the figure. The rule against
+  years is a rule against inflation ("8+" on 6.4), not against the number.
+- THE LAST SENTENCE IS A CLAIM, NOT A LIST. "Earlier full-stack work at
+  Autodesk, PayPal, and Wells Fargo" names employers and says nothing. Say what
+  that work was — the services built, the stack, the scope — or end a sentence
+  earlier.
 - No adjective stacking: "experienced, motivated, versatile engineer" is three
   words that survive being deleted.
 - EVERY CLAIM IN THE SUMMARY MUST BE VISIBLE IN A BULLET BELOW IT. Before
