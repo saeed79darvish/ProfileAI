@@ -883,7 +883,15 @@ Return ONLY valid JSON.`;
   return {
     system: 'You are an expert resume tailoring engine. You tailor resumes to maximize ATS keyword match while making the result read exactly like the candidate wrote it themselves — natural, varied, human phrasing with no keyword-stuffing or robotic patterns a recruiter would flag as fake. You reorder, reframe, and surface buried relevance. You APPLY every tailoring decision rather than annotating it: the resume fields you return contain finished resume text with no review notes, suggestions, or commentary — those go in changelog and matchAnalysis. You never invent skills, metrics, or experience, and you never add a term the candidate could not defend in an interview. Return valid JSON only.',
     prompt,
-    temperature: 0.5,
+    /* 0.5 was sampling creativity into a task whose whole job is fidelity.
+       At that setting the same resume and the same posting produced a
+       materially different document on every run — one run opened
+       "Frontend-leaning engineer", the next "Frontend-focused engineer"; one
+       run listed Golang, the next did not — so re-tailoring was a reroll
+       rather than an improvement, and the candidate could not tell whether a
+       change came from a fix or from the dice. Faithfulness to the source is
+       the product here; variation is not a feature of it. */
+    temperature: 0.2,
     max_tokens: 6000
   };
 }
