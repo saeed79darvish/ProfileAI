@@ -293,6 +293,29 @@ const getProfileSlug = (user, profile) => {
 
 // ============ MAIN COMPONENT ============
 
+
+// A company for a tailored-profile card when none was saved. Every Ashby
+// posting was saved without one until the extension learned to read Ashby's
+// "Role @ Company" tab title, so its card showed a bare job title among other
+// bare job titles. The hosted ATSes carry the employer in the URL.
+const companyFromJobUrl = (jobUrl) => {
+  try {
+    const u = new URL(String(jobUrl || ''));
+    const host = u.hostname.replace(/^www\./, '');
+    const cap = (x) => x.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    if (/myworkdayjobs\.com$/.test(host)) return cap(host.split('.')[0]);
+    if (/(ashbyhq\.com|greenhouse\.io|lever\.co|workable\.com|breezy\.hr|jobvite\.com|smartrecruiters\.com)$/.test(host)) {
+      const seg = u.pathname.split('/').filter(Boolean)[0] || '';
+      return seg && !/^(jobs?|careers?|embed|apply)$/i.test(seg) && !/^[0-9a-f-]{20,}$/i.test(seg) ? cap(seg) : '';
+    }
+    if (/linkedin|indeed|glassdoor|ziprecruiter/.test(host)) return '';
+    const parts = host.split('.');
+    return parts.length >= 2 ? cap(parts[parts.length - 2]) : '';
+  } catch (_) {
+    return '';
+  }
+};
+const cardCompany = (t) => (t?.companyName && String(t.companyName).trim()) || companyFromJobUrl(t?.jobUrl) || '';
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1605,9 +1628,9 @@ const Dashboard = () => {
                     <WorkIcon fontSize="small" color="primary" sx={{ flexShrink: 0 }} />
                     <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                       <Typography variant="body2" noWrap fontWeight={500} sx={{ color: '#13152a', display: 'block' }}>
-                        {tailored.companyName || tailored.jobTitle}
+                        {cardCompany(tailored) || tailored.jobTitle}
                       </Typography>
-                      {tailored.companyName && (
+                      {cardCompany(tailored) && (
                         <Typography variant="caption" color="#7b7f9e" noWrap sx={{ display: 'block' }}>
                           {tailored.jobTitle}
                         </Typography>
@@ -1950,7 +1973,7 @@ const Dashboard = () => {
                                 </Box>
                                 <Box sx={{ flex: 1, minWidth: 0 }}>
                                   <Typography variant="subtitle1" fontWeight="bold" noWrap>
-                                    {tailored.companyName || tailored.jobTitle}
+                                    {cardCompany(tailored) || tailored.jobTitle}
                                   </Typography>
                                   <Typography variant="body2" color="#7b7f9e" noWrap>
                                     {tailored.companyName ? tailored.jobTitle : ''}

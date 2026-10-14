@@ -67,11 +67,17 @@ router.post('/', auth, async (req, res) => {
       education: currentProfile.education
     } : null;
 
-    const tailoredProfile = await TailoredProfile.create({
+    // A record saved without a company (every Ashby posting, until the
+    // extension learned to read "Role @ Company") is labelled from the job URL
+    // so it is recognisable in the list.
+    const { companyFromJobUrl } = require('../services/resume/companyFromUrl');
+    const resolvedCompany = (companyName && String(companyName).trim()) || companyFromJobUrl(jobUrl) || null;
+
+    const values = {
       userId: req.user.id,
       jobTitle,
       jobUrl: jobUrl || null,
-      companyName: companyName || null,
+      companyName: resolvedCompany,
       tailoredData,
       originalProfileSnapshot,
       matchScore: matchScore || null,
@@ -79,7 +85,23 @@ router.post('/', auth, async (req, res) => {
       skillGaps: skillGaps || [],
       learningPlan: learningPlan || null,
       isActive: true
-    });
+    };
+
+    // Re-tailoring the same posting replaces that posting's card instead of
+    // adding another identical one. Keyed on the job URL, which is the only
+    // stable identity a posting has; a save with no URL still creates.
+    let tailoredProfile = null;
+    if (jobUrl) {
+      const existing = await TailoredProfile.findOne({
+        where: { userId: req.user.id, jobUrl, isActive: true },
+        order: [['createdAt', 'DESC']],
+      });
+      if (existing) {
+        await existing.update(values);
+        tailoredProfile = existing;
+      }
+    }
+    if (!tailoredProfile) tailoredProfile = await TailoredProfile.create(values);
 
     // Tailoring a resume FOR a specific posting is strong evidence the user is
     // actually working on that application — much stronger than opening the ATS

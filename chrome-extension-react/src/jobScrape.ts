@@ -255,7 +255,15 @@ export function scrapeJobFromDocument(): ScrapedJob {
   // "(3) " unread-count prefix.
   if (!title || !company) {
     const docTitle = (document.title || '').replace(/^\(\d+\)\s*/, '');
-    const parts = docTitle.split(/\s*[|·–—]\s*/).map((p) => p.trim());
+    // "Job Title | Company | LinkedIn", "Job Title - Company", and Ashby's
+    // "Job Title @ Company" / "Job Title at Company". The @ form was not
+    // split before, so every Ashby posting was saved with no company and its
+    // tailored resume was unrecognisable in the list.
+    let parts = docTitle.split(/\s*[|·–—]\s*/).map((p) => p.trim());
+    if (parts.length < 2) {
+      const m = docTitle.match(/^(.{3,200}?)\s+(?:@|at)\s+(.{2,120}?)\s*$/i);
+      if (m) parts = [m[1].trim(), m[2].trim()];
+    }
     if (parts.length >= 2) {
       if (!title && parts[0] && parts[0].length < 200) {
         title = parts[0];
@@ -264,6 +272,17 @@ export function scrapeJobFromDocument(): ScrapedJob {
       if (!company && parts[1] && parts[1] !== 'LinkedIn' && parts[1].length < 200) {
         company = parts[1];
         companyVia = 'document.title';
+      }
+    }
+    // Last resort: the page's own declared site name.
+    if (!company) {
+      const meta =
+        document.querySelector('meta[property="og:site_name"]') ||
+        document.querySelector('meta[name="application-name"]');
+      const name = (meta && meta.getAttribute('content') || '').trim();
+      if (name && name.length < 120 && !/linkedin|indeed|glassdoor|greenhouse|lever|ashby|workday/i.test(name)) {
+        company = name;
+        companyVia = 'meta';
       }
     }
   }

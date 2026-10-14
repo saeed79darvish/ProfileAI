@@ -238,3 +238,25 @@ test('quality ranks a named selector above an h1 above the browser tab', () => {
   assert.ok(rank({ title: 'h1' }) > rank({ title: 'document.title' }));
   assert.equal(scrapeQuality({ title: '', via: {} }).titleRank, 0);
 });
+
+test('an Ashby posting gets its company from the "Role @ Company" tab title', () => {
+  // Every Solace tailoring was saved with no company because the title was
+  // only split on | · – —, and Ashby writes "Staff Software Engineer @ Solace".
+  withPage(
+    `<!doctype html><html><head><title>Staff Software Engineer @ Solace</title></head>
+     <body><h1>Staff Software Engineer</h1><div class="job-description">${'Own the platform. '.repeat(40)}</div></body></html>`,
+    'https://jobs.ashbyhq.com/solace/87748158-42b6-4c55-91ca-8f3d95799ee9'
+  );
+  const job = scrapeJobFromDocument();
+  assert.equal(job.title, 'Staff Software Engineer');
+  assert.equal(job.company, 'Solace');
+});
+
+test('og:site_name is the last resort for a company name', () => {
+  withPage(
+    `<!doctype html><html><head><title>Careers</title><meta property="og:site_name" content="Northwind"></head>
+     <body><h1>Platform Engineer</h1><div class="job-description">${'Build things. '.repeat(40)}</div></body></html>`,
+    'https://careers.northwind.example/jobs/1'
+  );
+  assert.equal(scrapeJobFromDocument().company, 'Northwind');
+});
