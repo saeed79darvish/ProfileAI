@@ -27,6 +27,7 @@ const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/review
 const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./resume/draftAudit');
 const { auditProfile } = require('./resume/profileAudit');
 const { normalizeTitleForCompare, compareTitles, headlineFromPostingTitle } = require('./resume/titleMatch');
+const { buildTailoredSummary, enforceFoundationBullets, mergeEducation } = require('./resume/foundation');
 const {
   isValidRequirement,
   reconcileRequirementCoverage,
@@ -2151,6 +2152,15 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       const classification = classifyDepartment(profileData);
       console.log(`[ProfilleAI] Department classification: group=${classification.group}, confidence=${classification.confidence}`);
 
+      // The candidate's own summary with the title swapped: the model is shown
+      // it as fixed text and asked only for an addition. It is assembled again
+      // in code after every AI round, so nothing the model does can change it.
+      const foundationSummary = buildTailoredSummary({
+        originalSummary: profileData.summary,
+        headline: targetHeadline || targetTitle,
+        addition: '',
+      }).foundation;
+
       const tailoringConfig = buildTailoringPrompt({
         group: classification.group,
         originalResumeText: hasUploadedResume ? originalResumeText : null,
@@ -2158,6 +2168,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         jobDescription,
         targetTitle,
         targetHeadline,
+        foundationSummary,
         targetCompany,
         gapContext,
         settingsContext,
@@ -2766,66 +2777,17 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         });
       }
 
-      // ── Education is a record, and records are copied, not rewritten ─────
-      // The prompt has always said tailoring "has no business editing"
-      // education. It was still asking the model to reproduce it, and the model
-      // dropped fields: an entry that read
-      //   "UCSC Silicon Valley Extension — Full Stack Development Certificate, 2018"
-      // came back as bare "Software Engineering Bootcamp" with the institution
-      // and the year gone. A credential with no school attached reads like one
-      // the candidate is hiding the source of.
-      //
-      // So it is no longer asked for. The source entries are copied over the
-      // model's version whenever the source has any, which makes losing a field
-      // impossible rather than forbidden.
-      if (Array.isArray(profileData.education) && profileData.education.length > 0) {
-        const sourceEducation = profileData.education
-          .filter((e) => e && typeof e === 'object')
-          .map((e) => ({
-            school: e.school || e.institution || '',
-            degree: e.degree || '',
-            field: e.field || '',
-            year: e.year || e.graduationYear || e.endDate || '',
-          }))
-          .filter((e) => e.school || e.degree);
-
-        if (sourceEducation.length > 0) {
+      // ── Education: the most specific record wins, field by field ─────────
+      // The stored record can be thinner than the resume the model read
+      // ("Bootcamp" vs "UCSC Silicon Valley Extension"); preferring the record
+      // outright printed "Bootcamp". Nothing present in either is dropped.
+      {
+        const merged = mergeEducation(profileData.education, tailoredData.education);
+        if (merged.length) {
           const before = JSON.stringify(tailoredData.education || []);
-          /* MERGE, never replace. Overwriting outright was worse than the bug
-             it fixed: the stored profile record can be THINNER than the resume
-             the model read from, so copying it over the draft replaced
-             "UCSC Silicon Valley Extension — Full Stack Development
-             Certificate, 2018" with a bare "Bootcamp". The rule that matters is
-             that no field is ever lost, so each field takes whichever side
-             actually has a value, preferring the stored record when both do. */
-          const draftEducation = Array.isArray(tailoredData.education) ? tailoredData.education : [];
-          const pick = (a, b) => {
-            const av = String(a == null ? '' : a).trim();
-            const bv = String(b == null ? '' : b).trim();
-            return av || bv;
-          };
-          tailoredData.education = sourceEducation.map((src, i) => {
-            const draftEntry = draftEducation[i] || {};
-            return {
-              school: pick(src.school, draftEntry.school || draftEntry.institution),
-              degree: pick(src.degree, draftEntry.degree),
-              field: pick(src.field, draftEntry.field),
-              year: pick(src.year, draftEntry.year || draftEntry.graduationYear),
-            };
-          });
-          // An entry the model produced beyond what the record holds is kept
-          // rather than discarded — it came from the resume text.
-          for (let i = sourceEducation.length; i < draftEducation.length; i++) {
-            const extra = draftEducation[i] || {};
-            if (extra.school || extra.degree) tailoredData.education.push(extra);
-          }
-          if (before !== JSON.stringify(tailoredData.education)) {
-            console.log('[ProfilleAI] Education reconciled with the stored record (no field dropped)');
-            tailoredData.changelog.push({
-              section: 'education',
-              action: 'restored_from_source',
-              detail: 'Education reconciled against the stored profile — every institution, degree and year present in either version is kept',
-            });
+          tailoredData.education = merged;
+          if (before !== JSON.stringify(merged)) {
+            tailoredData.changelog.push({ section: 'education', action: 'restored_from_source', detail: 'Education reconciled field by field — the most specific institution, degree, field and year from either the stored profile or the resume text' });
           }
         }
       }
@@ -2853,35 +2815,54 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         }
       }
 
-      // Tenure is checked against the SOURCE experience, not the draft's, so a
-      // rewritten period string cannot talk the check into agreeing with it.
-      const tenure = auditTenureClaims(tailoredData.summary, profileData.experience);
-      if (!tenure.clean) {
-        for (const claim of tenure.inflated) {
-          console.warn(
-            `[ProfilleAI] ⚠️ Summary claims "${claim.raw}" but the dates support ` +
-            `${tenure.actualYears} years — removing the claim`
-          );
-          // Deleted rather than corrected down: "6.4 years" is not a sentence
-          // anyone writes, and silently rewriting the number is the same class
-          // of edit as inflating it. The candidate is told, and decides.
-          tailoredData.summary = String(tailoredData.summary || '')
-            .replace(claim.raw, '')
-            .replace(/\s{2,}/g, ' ')
-            .replace(/\s+([.,])/g, '$1')
-            .replace(/\b(spent|over|with|has)\s+([.,])/gi, '$2')
-            .trim();
-          hygieneQuestions.push({
-            type: 'tenure_claim_removed',
-            term: claim.raw,
-            question: `The summary said "${claim.raw}", but your dated roles add up to about ${tenure.actualYears} years. Removed it — if you have earlier experience not on the resume, add those roles and it can go back in.`,
-          });
-        }
-        tailoredData.changelog.push({
-          section: 'summary',
-          action: 'tenure_corrected',
-          detail: `Removed a tenure claim the dates do not support (claimed ${tenure.inflated.map((c) => c.raw).join(', ')}, dates show ~${tenure.actualYears} years)`,
+      // ── The summary: the candidate's foundation plus the model's addition ──
+      // Assembled here, after every AI round, so no pass can rewrite it. The
+      // model's `summary` field is ignored; only `summaryAddition` is used.
+      const built = buildTailoredSummary({
+        originalSummary: profileData.summary,
+        headline: targetHeadline || targetTitle,
+        addition: tailoredData.summaryAddition,
+      });
+      const modelSummary = String(tailoredData.summary || '');
+      tailoredData.summary = built.summary || modelSummary; // no original summary at all: keep the model's
+      delete tailoredData.summaryAddition;
+      tailoredData.changelog.push({
+        section: 'summary',
+        action: 'foundation_kept',
+        detail: built.foundation
+          ? `Kept the candidate's own summary${built.titleSwapped ? ', title swapped to the posting\'s' : ''}${built.addition ? '; added one line for this posting' : ''}`
+          : 'No stored summary; used the model\'s',
+      });
+
+      // Tenure. A figure in the candidate's OWN summary is theirs: it is kept
+      // and flagged for them to confirm. Only a figure the model introduced in
+      // its addition is removed when the dates cannot support it.
+      const tenure = auditTenureClaims(built.foundation, profileData.experience);
+      const tenureAdded = auditTenureClaims(built.addition, profileData.experience);
+      for (const claim of tenure.inflated) {
+        hygieneQuestions.push({
+          type: 'tenure_verify',
+          term: claim.raw,
+          question: `Your summary says "${claim.raw}", but the dated roles on the resume add up to about ${tenure.actualYears} years. Kept as you wrote it — if there is earlier experience not listed, consider adding those roles so the figure is backed.`,
         });
+      }
+      if (!tenureAdded.clean) {
+        let addition = built.addition;
+        for (const claim of tenureAdded.inflated) addition = addition.replace(claim.raw, '').replace(/\s{2,}/g, ' ').trim();
+        tailoredData.summary = [built.foundation, addition].filter(Boolean).join(' ').trim();
+        tailoredData.changelog.push({ section: 'summary', action: 'tenure_corrected', detail: `Removed a year count the model added that the dates do not support (${tenureAdded.inflated.map((c) => c.raw).join(', ')})` });
+      }
+
+      // ── Experience: every original bullet survives; skills: nothing lost ──
+      {
+        const { restored } = enforceFoundationBullets(tailoredData, profileData.experience);
+        const additive = enforceAdditive(tailoredData, toAIProfile(profileData));
+        const all = [...restored, ...additive.restored];
+        if (all.length) {
+          console.log('[ProfilleAI] Tailoring altered the foundation; restored:', all);
+          tailoredData.changelog.push({ section: 'experience, skills', action: 'foundation_restored', detail: all.join('; ') });
+          tailoredData.restoredContent = all;
+        }
       }
 
       // Re-audit one last time so what ships to the candidate describes the

@@ -436,15 +436,6 @@ function skillsRules(mode) {
 - Never pad. Every entry must be traceable to something the candidate actually
   used — the list is diffed against the source in code afterwards, and anything
   untraceable is deleted before the candidate sees it.`;
-  if (mode === 'tailor') {
-    return `SKILLS DISCIPLINE
-${shared}
-- AT MOST 15 ENTRIES across all categories combined, counted after you return.
-  A 30-item list is not a stronger match; it is a list nobody reads, and it
-  buries the eight terms this posting actually asked for. Keep the ones this JD
-  prioritises and the ones a bullet demonstrates, and drop the rest — they are
-  still in the candidate's stored profile for the next application.`;
-  }
   return `SKILLS DISCIPLINE
 ${shared}
 - No cap here. This is the candidate's record, not one application's shortlist,

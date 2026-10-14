@@ -374,12 +374,12 @@ test('placeholder education never survives to the returned resume', async () => 
 
   const { data } = await tailor();
   assert.ok(!/\[\s*add/i.test(JSON.stringify(data.education)), 'placeholder text survived');
-  // Education is copied from the stored record, so whatever the model wrote —
-  // placeholders included — is discarded wholesale rather than repaired.
+  // The placeholder-only entry is dropped; the real one keeps its most
+  // specific values from either side (the record says "Somewhere", the
+  // resume text says UCSC — the real name wins).
   assert.equal(data.education.length, 1);
-  assert.equal(data.education[0].school, 'Somewhere');
+  assert.equal(data.education[0].school, 'UCSC Silicon Valley Extension');
   assert.equal(data.education[0].year, '2018');
-  assert.ok(data.changelog.some((c) => c.action === 'restored_from_source'));
 });
 
 test('education fields the model dropped are restored from the source', async () => {
@@ -395,29 +395,7 @@ test('education fields the model dropped are restored from the source', async ()
   assert.equal(data.education[0].year, '2018', 'the year stayed dropped');
 });
 
-test('a tenure claim the dates cannot support is removed from the summary', async () => {
-  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
-  // PROFILE's dated roles run 2018 -> now; claim far beyond that.
-  draft.summary = 'Backend engineer who has spent eighteen years building billing systems in Go.';
-  script(JSON.stringify(draft));
 
-  const { data } = await tailor();
-  assert.ok(!/eighteen years/i.test(data.summary), `inflated claim survived: ${data.summary}`);
-  assert.equal(data.verification.tenure.compliant, false);
-  assert.ok(data.verification.tenure.removedAsUnsupported.length > 0);
-  assert.ok((data.openQuestions || []).some((q) => q.type === 'tenure_claim_removed'));
-  assert.ok(data.changelog.some((c) => c.action === 'tenure_corrected'));
-});
-
-test('an honest tenure claim is left alone', async () => {
-  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
-  draft.summary = 'Engineer with three years building billing systems in Go on Kubernetes.';
-  script(JSON.stringify(draft));
-
-  const { data } = await tailor();
-  assert.match(data.summary, /three years/);
-  assert.equal(data.verification.tenure.compliant, true);
-});
 
 test('the verification block reports tenure whether or not a claim was made', async () => {
   script(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
@@ -499,4 +477,60 @@ test('accepted gaps do not come back under still-missing in the list the extensi
   assert.deepEqual(result.data.matchAnalysis.top3Gaps, ['regulated environment']);
   // And they are on the resume, under honest framing.
   assert.ok(result.data.skills.includes('NestJS') && result.data.skills.includes('GCP'));
+});
+
+test('a year count the model ADDS is removed; the candidate\'s own is kept and flagged', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.summaryAddition = 'Brings eighteen years of billing platform work to this role.';
+  script(JSON.stringify(draft));
+  const { data } = await tailor();
+  assert.ok(!/eighteen years/i.test(data.summary), `model-added inflation survived: ${data.summary}`);
+  assert.ok(data.changelog.some((c) => c.action === 'tenure_corrected'));
+});
+
+test('the candidate\'s own tenure figure is kept and flagged, never deleted', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  script(JSON.stringify(draft));
+  const result = await resumeParserService.tailorProfileForJob(
+    // The fixture's dated roles span ~8.75 years, so "15+" is a figure the
+    // dates cannot support — and it is still the candidate's own sentence.
+    { ...PROFILE, summary: 'Senior Software Engineer with 15+ years of experience building billing systems.' },
+    JOB_DESCRIPTION, RESUME_TEXT, null, null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' }
+  );
+  assert.match(result.data.summary, /^Staff Software Engineer with 15\+ years of experience building billing systems\./, 'the candidate\'s own figure was altered');
+  assert.ok((result.data.openQuestions || []).some((q) => q.type === 'tenure_verify'), 'the candidate was not asked to confirm the figure');
+});
+
+test('an honest tenure claim in the addition is left alone', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.summaryAddition = 'Three years of that time went to billing systems in Go on Kubernetes.';
+  script(JSON.stringify(draft));
+  const { data } = await tailor();
+  assert.match(data.summary, /Three years/);
+});
+
+test('the foundation survives tailoring end to end', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  // The model ignores every instruction: rewrites the summary, rewrites and
+  // drops bullets, thins education, drops a skill.
+  draft.summary = 'Architect of billing platforms.';
+  draft.summaryAddition = 'Recent work centres on multi-team billing features.';
+  draft.experience = [{ company: 'Acme Corp', title: 'Senior Software Engineer', period: '2021 - Present', description: '• Owned billing services end to end' }];
+  draft.education = [{ school: 'Bootcamp', degree: 'BSc' }];
+  draft.skills = { Languages: ['Go'] };
+  script(JSON.stringify(draft));
+
+  const original = { ...PROFILE, summary: 'Senior Software Engineer with 8+ years building billing systems.', education: [{ school: 'Somewhere', degree: 'BSc', field: 'Maths', year: '2018' }] };
+  const { data } = await resumeParserService.tailorProfileForJob(original, JOB_DESCRIPTION, RESUME_TEXT, null, null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' });
+
+  assert.ok(data.summary.startsWith('Staff Software Engineer with 8+ years building billing systems.'), data.summary);
+  assert.match(data.summary, /multi-team billing features/);
+  const acme = data.experience.find((e) => e.company === 'Acme Corp');
+  assert.match(acme.description, /Built billing services/, 'the original bullet was lost');
+  assert.match(acme.description, /Owned billing services end to end/, 'the addition was lost');
+  assert.ok(data.experience.some((e) => e.company === 'Analytical Engines'), 'a role was dropped');
+  assert.equal(data.education[0].school, 'Somewhere');
+  assert.equal(data.education[0].year, '2018');
+  assert.ok(data.skills.includes('Kubernetes'), 'a listed skill was dropped');
+  assert.ok(Array.isArray(data.restoredContent) && data.restoredContent.length > 0);
 });

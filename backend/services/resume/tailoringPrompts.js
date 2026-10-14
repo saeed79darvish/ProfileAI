@@ -697,6 +697,7 @@ function buildTailoringPrompt(options) {
     targetTitle,
     targetHeadline,
     targetCompany,
+    foundationSummary,
     gapContext,
     settingsContext,
     extractedKeywords,
@@ -717,13 +718,7 @@ function buildTailoringPrompt(options) {
     selected: selectedBullets,
     now,
   });
-  const taperingBlock = rolePlan.length > 0 ? `
-═══ PER-ROLE BULLET BUDGET (ceilings, computed from the dates) ═══
-${rolePlan.map((r) => `  ${r.index + 1}. ${r.company || 'role'}${r.title ? ` — ${r.title}` : ''}${r.period ? ` (${r.period})` : ''}: at most ${r.allowance.max} bullet${r.allowance.max === 1 ? '' : 's'} — ${r.allowance.reason}`).join('\n')}
-The candidate's chosen bullet count for recent roles is ${selectedBullets}. These
-are ceilings: a role with less genuinely relevant material gets fewer lines, and
-never gets a line invented to fill its budget.
-` : '';
+  const taperingBlock = '';
 
   // Build OR-groups block
   const orGroups = extractedKeywords.orGroups || [];
@@ -813,6 +808,45 @@ empty string and keep the candidate's own title unchanged in \`title\` — do NO
 invent a plausible-sounding one.
 `;
 
+  const foundationBlock = `
+═══ THE FOUNDATION IS FIXED — THIS OUTRANKS EVERY REWRITE RULE ABOVE ═══
+This resume was written by the candidate. Tailoring ADDS to it for this
+posting; it does not rebuild it. Section by section:
+
+TITLE: the headline given under TARGET ROLE. Nothing else changes.
+
+SUMMARY: the candidate's own summary, title already swapped, is below. Copy it
+into \`summary\` EXACTLY. Then write \`summaryAddition\`: one sentence, two at
+most, that speaks to this posting's key requirements using only facts the
+bullets evidence. Plain words a person would use; no phrase of four or more
+consecutive words copied from the posting. The summary is assembled from these
+two in code after you return — a rewritten \`summary\` is simply discarded.
+${foundationSummary ? `
+  FOUNDATION SUMMARY:
+  ${foundationSummary}
+` : `  (The candidate has no stored summary; write \`summary\` as 2–3 plain sentences from the bullets and leave \`summaryAddition\` empty.)
+`}
+EXPERIENCE: every bullet the candidate wrote stays, with its numbers exactly
+as written. You MAY reorder bullets within a role, surface a posting keyword
+inside an existing bullet where the work genuinely supports it (change as few
+words as possible), and ADD a bullet where the profile evidences something the
+posting asks for. You may NOT rewrite a bullet in your own words, condense two
+into one, shorten a role, or drop anything. Every original bullet is checked
+for after you return and restored if missing.
+
+EDUCATION: copied from the record. Return it as given.
+
+SKILLS: every listed skill stays. Reorder so this posting's terms come first;
+add a term only when a bullet evidences it or the candidate accepted it as a
+gap. No cap.
+
+VOICE: the additions must read like the candidate wrote them — the same plain
+register as the bullets around them. Nothing that sounds generated: no
+"leveraged", "spearheaded", "robust", "seamless", "cutting-edge", "passionate",
+"results-driven", no "responsible for", no sentence that could sit on anyone's
+resume.
+`;
+
   // Build resume input section
   const resumeSection = hasResume
     ? `═══ CANDIDATE'S EXISTING RESUME ═══
@@ -825,7 +859,7 @@ ${JSON.stringify(toAIProfile(profileData), null, 2)}`;
 ${roleBlock}
 
 ${resumeSection}
-${targetRoleBlock}
+${foundationBlock}${targetRoleBlock}
 ═══ TARGET JOB DESCRIPTION ═══
 ${jobDescription}
 ${requirementsBlock}${keywordsBlock}${taperingBlock}${gapContext}${settingsContext}
@@ -838,8 +872,7 @@ ${requirementsBlock}${keywordsBlock}${taperingBlock}${gapContext}${settingsConte
   what they have done. The JD tells you what to emphasise, never what to claim.
   Any term you cannot locate in the resume above does not enter the output —
   it goes to GENUINE GAPS instead.
-- This resume has ${expCount} experience entries. They do not all get the same treatment: follow the PER-ROLE BULLET BUDGET above exactly. Equal bullet counts across the whole history is a defect the checker measures, not a stylistic preference.
-- Reorder bullets within each role so the most JD-relevant appears first.
+- Reorder bullets within each role so the most JD-relevant appears first. Every bullet the candidate wrote stays — reordered, lightly keyword-surfaced, or untouched — and roles never get shorter.
 - Never change a number that appears in the source. You may drop a metric by rephrasing its bullet without it; you may never alter, round, re-derive, or relocate one.
 - For skills the candidate doesn't have direct experience with but are in accepted gaps, use honest framing: "familiar with", "exposure to".
 - Do not add any skill or keyword to the skills list unless it already appears, or is honestly implied, somewhere in the candidate's actual resume/profile content. When in doubt, leave it out and note it in the gap report instead.
@@ -852,7 +885,8 @@ Return a JSON object with this exact structure:
   "jobTitle": "${cleanTitle || 'the posting\'s exact job title, seniority band included'}",
   "company": "${cleanCompany || "company name from the posting, or empty string"}",
   "title": "${cleanHeadline || 'the role from the posting title — band and role noun as written, no team or org suffix'}",
-  "summary": "2-3 short plain sentences; concrete scale is welcome, outcome percentages are not; no phrases copied from the JD",
+  "summary": "${foundationSummary ? 'the FOUNDATION SUMMARY above, copied exactly' : '2-3 plain sentences from the bullets'}",
+  "summaryAddition": "one or two sentences for this posting, in the candidate\'s own plain register — assembled onto the foundation in code",
   "skills": {
     "Languages": ["Python", "TypeScript", "SQL"],
     "Frameworks": ["React", "FastAPI"],
@@ -860,7 +894,7 @@ Return a JSON object with this exact structure:
     "Tools": ["Git", "Jira", "Datadog"]
   },
   "experience": [
-    {"company": "SAME", "title": "SAME", "period": "SAME", "description": "final tailored bullets only — reordered, varied in length, decisions already applied. No review notes, no suggestions, no bracketed commentary."}
+    {"company": "SAME", "title": "SAME", "period": "SAME", "description": "the candidate's bullets — every one of them, reordered or lightly keyword-surfaced, plus any added bullet; one per line with a leading •"}
   ],
   "education": [{"school": "Institution exactly as the source names it", "degree": "Degree or certificate title", "field": "Field", "year": "Year, or an empty string if the source has none — never a placeholder"}],
   "projects": [{"title": "Project Name (Year)", "description": "tailored to surface JD-relevant aspects"}],
@@ -884,7 +918,6 @@ Return a JSON object with this exact structure:
     {"section": "title", "action": "matched", "detail": "Set title to the posting's exact title"},
     {"section": "summary", "action": "rewritten", "detail": "Mirrored JD title, added keywords X and Y"},
     {"section": "experience_1", "action": "reordered", "detail": "Moved cloud migration bullet to top, added AWS context"},
-    {"section": "experience_3", "action": "dropped_bullet", "detail": "Removed office-relocation bullet — no connection to this role"},
     {"section": "skills", "action": "grouped", "detail": "Grouped into Languages/Frameworks/Infrastructure/Tools, reordered per JD"}
   ]
 }
