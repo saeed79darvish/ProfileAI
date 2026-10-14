@@ -133,7 +133,20 @@ function describesAcceptedGap(line, acceptedTokenSets) {
   const head = norm(line).split(/\s*(?::|\(|—|–| - )\s*/)[0];
   const headTokens = new Set(tokens(head));
   if (!headTokens.size) return false;
-  return acceptedTokenSets.some((set) => set.length > 0 && set.every((t) => headTokens.has(t)));
+  // At least half of the accepted term's tokens appear in the head, and at
+  // least one of them is a real word (4+ chars) rather than "ui" or "js".
+  // Strict every-token matching missed "Tailwind CSS and shadcn/ui" against
+  // "Tailwind and shadcn", and "Startup 0-to-1 experience" against "Startup
+  // experience building products from scratch" — the same requirement, written
+  // by two different models.
+  return acceptedTokenSets.some((set) => {
+    const shared = set.filter((t) => headTokens.has(t));
+    if (!shared.length) return false;
+    // Every token present is a match whatever its length — "GCP", "AWS", "Go".
+    if (shared.length === set.length) return true;
+    // A partial overlap needs half the tokens and one real word among them.
+    return shared.length / set.length >= 0.5 && shared.some((t) => t.length >= 4);
+  });
 }
 
 /**
