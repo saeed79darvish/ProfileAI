@@ -476,3 +476,27 @@ test('a posting with no seniority band does not get one', async () => {
   assert.equal(data.title, 'Software Engineer');
   assert.equal(data.verification.title.correctedInCode, true);
 });
+
+test('accepted gaps do not come back under still-missing in the list the extension shows', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.matchAnalysis.gaps = [
+    'NestJS and TypeORM (required stack): no NestJS anywhere',
+    'GCP (stack item): the resume shows AWS only.',
+    'Experience operating services in a regulated environment: not evidenced',
+  ];
+  draft.matchAnalysis.top3Gaps = ['NestJS', 'GCP', 'regulated environment'];
+  script(JSON.stringify(draft));
+
+  const result = await resumeParserService.tailorProfileForJob(
+    PROFILE, JOB_DESCRIPTION, RESUME_TEXT,
+    { acceptedGaps: ['NestJS', 'GCP'], skippedGaps: [], acceptedGapObjects: [] },
+    null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' }
+  );
+  const gaps = result.data.matchAnalysis.gaps;
+  assert.ok(!gaps.some((g) => /^NestJS/.test(g)), `accepted NestJS still listed: ${gaps}`);
+  assert.ok(!gaps.some((g) => /^GCP/.test(g)), `accepted GCP still listed: ${gaps}`);
+  assert.ok(gaps.some((g) => /regulated/.test(g)), 'a real gap was removed');
+  assert.deepEqual(result.data.matchAnalysis.top3Gaps, ['regulated environment']);
+  // And they are on the resume, under honest framing.
+  assert.ok(result.data.skills.includes('NestJS') && result.data.skills.includes('GCP'));
+});

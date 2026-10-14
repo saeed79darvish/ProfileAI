@@ -114,28 +114,47 @@ function applyAcceptedGaps(draft, acceptedGaps, { isEvidenced = () => false } = 
   return { added, alreadyPresent, group: familiar.length > 0 ? FAMILIAR_GROUP : null };
 }
 
+const STOP = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'in', 'for', 'with', 'to', 'on', 'experience', 'stack', 'item', 'required', 'requirement', 'nice', 'have']);
+const tokens = (v) =>
+  norm(v).split(/[^a-z0-9+#.]+/).filter((w) => w.length > 1 && !STOP.has(w));
+
+/**
+ * Does a still-missing line describe one of the accepted gaps?
+ *
+ * The two sides are written by different models. The accepted name comes from
+ * gap analysis ("NestJS", "Postgres"); the line comes from tailoring ("NestJS
+ * and TypeORM (required stack): the resume shows no NestJS"). So the match is
+ * on the HEAD of the line — the part before the explanation — and holds when
+ * every significant token of the accepted term appears there. "Postgres" ⊆
+ * "Postgres and relational database architecture"; "NestJS/TypeORM" ⊆ "NestJS
+ * and TypeORM". An exact-prefix rule missed most of these.
+ */
+function describesAcceptedGap(line, acceptedTokenSets) {
+  const head = norm(line).split(/\s*(?::|\(|—|–| - )\s*/)[0];
+  const headTokens = new Set(tokens(head));
+  if (!headTokens.size) return false;
+  return acceptedTokenSets.some((set) => set.length > 0 && set.every((t) => headTokens.has(t)));
+}
+
 /**
  * An accepted gap is a decision, not an outstanding gap.
  *
  * Re-listing it under "STILL MISSING" tells the candidate their choice was
- * ignored — which, before `applyAcceptedGaps` existed, it had been.
+ * ignored — which, before `applyAcceptedGaps` existed, it had been. Works on
+ * both shapes the pipeline carries: `genuineGaps` ({requirement, ...}) and
+ * `matchAnalysis.gaps` (plain strings — the list the extension renders).
  *
- * @param {Array<{requirement: string}>} gaps
+ * @param {Array<{requirement: string}|string>} gaps
  * @param {string[]} acceptedGaps
  */
 function withoutAcceptedGaps(gaps, acceptedGaps) {
-  const accepted = new Set((Array.isArray(acceptedGaps) ? acceptedGaps : []).map(norm));
-  if (accepted.size === 0) return Array.isArray(gaps) ? gaps : [];
-  return (Array.isArray(gaps) ? gaps : []).filter((g) => {
-    const text = norm(g && g.requirement);
+  const list = Array.isArray(gaps) ? gaps : [];
+  const sets = (Array.isArray(acceptedGaps) ? acceptedGaps : []).map(tokens).filter((t) => t.length);
+  if (!sets.length) return list;
+  return list.filter((g) => {
+    const text = typeof g === 'string' ? g : g && g.requirement;
     if (!text) return true;
-    // Exact match, or the gap line is the accepted term plus an explanation
-    // ("NestJS (hard blocker): no NestJS anywhere in the resume").
-    for (const term of accepted) {
-      if (text === term) return false;
-      if (term.length > 2 && text.startsWith(term)) return false;
-    }
-    return true;
+    return !describesAcceptedGap(text, sets);
   });
 }
 

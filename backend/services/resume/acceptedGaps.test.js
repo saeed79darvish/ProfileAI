@@ -114,3 +114,31 @@ test('nothing accepted leaves the gap list untouched', () => {
   assert.deepEqual(withoutAcceptedGaps(gaps, []), gaps);
   assert.deepEqual(withoutAcceptedGaps(gaps, null), gaps);
 });
+
+// ── The list the extension renders, with the wording the models actually use ─
+test('the reported defect: accepted gaps vanish from matchAnalysis.gaps (plain strings)', () => {
+  const stillMissing = [
+    'NestJS and TypeORM (required stack): the resume shows no NestJS',
+    'Postgres and relational database architecture (required): only MongoDB',
+    'Redis (stack item, not an explicit requirement): no usage in the resume',
+    'Tailwind and shadcn (stack item): design system and components are custom',
+    'GCP (stack item): the resume shows AWS only.',
+    'Startup experience building products from scratch (required): Threedy.ai only',
+    '10+ years of experience: the dated roles span about six',
+  ];
+  const accepted = ['NestJS', 'TypeORM', 'Postgres', 'Redis', 'Tailwind CSS and shadcn/ui', 'GCP', 'Startup 0-to-1 experience'];
+  const left = withoutAcceptedGaps(stillMissing, accepted);
+  assert.deepEqual(left, ['10+ years of experience: the dated roles span about six']);
+});
+
+test('the accepted name and the gap line need not share wording exactly', () => {
+  assert.deepEqual(withoutAcceptedGaps(['NestJS and TypeORM (required stack): none'], ['NestJS/TypeORM']), []);
+  assert.deepEqual(withoutAcceptedGaps(['Postgres and relational database architecture'], ['PostgreSQL']), ['Postgres and relational database architecture'],
+    'a different spelling is not guessed at — better to leave a line than to hide a real gap');
+});
+
+test('a line that only mentions the accepted term in its explanation is kept', () => {
+  // The head is "Database architecture"; Postgres appears only in the reason.
+  const line = 'Database architecture (required): no Postgres or schema design in the resume';
+  assert.deepEqual(withoutAcceptedGaps([line], ['Postgres']), [line]);
+});

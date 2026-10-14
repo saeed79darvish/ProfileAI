@@ -3088,6 +3088,18 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       // just been applied above. Re-listing it under "still missing" is how the
       // feature came to look broken.
       tailoredData.genuineGaps = withoutAcceptedGaps(genuineGaps, acceptedGapList);
+      // The list the extension actually renders under "still missing" is
+      // matchAnalysis.gaps — the earlier fix filtered only genuineGaps, which
+      // nothing displays, so every accepted gap kept showing as missing.
+      if (tailoredData.matchAnalysis && Array.isArray(tailoredData.matchAnalysis.gaps)) {
+        const before = tailoredData.matchAnalysis.gaps.length;
+        tailoredData.matchAnalysis.gaps = withoutAcceptedGaps(tailoredData.matchAnalysis.gaps, acceptedGapList);
+        const removed = before - tailoredData.matchAnalysis.gaps.length;
+        if (removed) console.log(`[ProfilleAI] Removed ${removed} accepted gap(s) from matchAnalysis.gaps`);
+        if (Array.isArray(tailoredData.matchAnalysis.top3Gaps)) {
+          tailoredData.matchAnalysis.top3Gaps = withoutAcceptedGaps(tailoredData.matchAnalysis.top3Gaps, acceptedGapList);
+        }
+      }
 
       tailoredData.reviewReport = {
         passed: finalReport.passed,
