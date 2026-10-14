@@ -118,11 +118,13 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
     return words.length > 0 && words.every((w) => tailoredText.includes(w));
   };
 
+  // Never fall back to `gapObjects` here: those are the gaps the candidate
+  // ACCEPTED, which the backend has already applied to the resume and removed
+  // from this list. An empty list means nothing is still missing — showing the
+  // accepted gaps in its place told the candidate their choices were ignored.
   const reportedGaps = tailoredProfile.matchAnalysis?.gaps?.length
     ? tailoredProfile.matchAnalysis.gaps
-    : gapObjects.length > 0
-      ? gapObjects.map((g) => g.skill)
-      : (tailoredProfile.suggestions || []);
+    : (tailoredProfile.suggestions || []);
 
   const longTermGaps = reportedGaps.filter((g) => g && !coveredByDraft(g));
 

@@ -2355,13 +2355,14 @@ const Dashboard = () => {
                       )}
 
                       {/* Gaps */}
-                      {(selectedTailored.tailoredData?.matchAnalysis?.gaps?.length > 0 || selectedTailored.skillGaps?.length > 0) && (
+                      {selectedTailored.tailoredData?.matchAnalysis?.gaps?.length > 0 && (
                         <Box sx={{ mb: 1.5 }}>
                           <Typography variant="caption" fontWeight="bold" sx={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                             <ErrorIcon sx={{ fontSize: 14 }} /> Gaps to Address
                           </Typography>
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {(selectedTailored.tailoredData?.matchAnalysis?.gaps || selectedTailored.skillGaps?.map(g => g.skill) || []).map((g, i) => (
+                            {/* skillGaps are the ACCEPTED gaps, already applied to the resume — never a fallback for "still missing" */}
+                            {(selectedTailored.tailoredData?.matchAnalysis?.gaps || []).map((g, i) => (
                               <Chip key={i} label={typeof g === 'string' ? g : g.skill || g} size="small" sx={{ fontSize: '11px', height: 24, bgcolor: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca' }} />
                             ))}
                           </Box>
