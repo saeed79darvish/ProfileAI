@@ -534,3 +534,14 @@ test('the foundation survives tailoring end to end', async () => {
   assert.ok(data.skills.includes('Kubernetes'), 'a listed skill was dropped');
   assert.ok(Array.isArray(data.restoredContent) && data.restoredContent.length > 0);
 });
+
+test('a first-person addition under a third-person summary is flagged', async () => {
+  const draft = JSON.parse(draftReply({ title: 'Staff Software Engineer', requirementCoverage: [] }));
+  draft.summaryAddition = 'Alongside the frontend work, I have built and shipped Node.js services.';
+  script(JSON.stringify(draft));
+  const { data } = await resumeParserService.tailorProfileForJob(
+    { ...PROFILE, summary: 'Senior Software Engineer with 8+ years building billing systems.' },
+    JOB_DESCRIPTION, RESUME_TEXT, null, null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' }
+  );
+  assert.equal(data.verification.summary.voiceMismatch, true);
+});

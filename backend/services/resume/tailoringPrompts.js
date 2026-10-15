@@ -819,7 +819,10 @@ SUMMARY: the candidate's own summary, title already swapped, is below. Copy it
 into \`summary\` EXACTLY. Then write \`summaryAddition\`: one sentence, two at
 most, that speaks to this posting's key requirements using only facts the
 bullets evidence. Plain words a person would use; no phrase of four or more
-consecutive words copied from the posting. The summary is assembled from these
+consecutive words copied from the posting. SAME VOICE AS THE FOUNDATION: if
+the foundation has no "I" or "my", the addition has none either — write it
+the way the sentence before it is written ("Has also built…", "Also ships…"),
+never switching to first person mid-summary. The summary is assembled from these
 two in code after you return — a rewritten \`summary\` is simply discarded.
 ${foundationSummary ? `
   FOUNDATION SUMMARY:

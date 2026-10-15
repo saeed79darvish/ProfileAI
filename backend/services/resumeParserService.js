@@ -2824,6 +2824,12 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         addition: tailoredData.summaryAddition,
       });
       const modelSummary = String(tailoredData.summary || '');
+      // The addition must read in the foundation's voice. A first-person
+      // addition under a third-person summary is the first thing a reader
+      // notices; it is reported so the preview can show it.
+      const firstPerson = /\b(?:I|I'm|I've|my|me)\b/;
+      const voiceMismatch = Boolean(built.foundation) && !firstPerson.test(built.foundation) && firstPerson.test(built.addition);
+      if (voiceMismatch) console.warn('[ProfilleAI] ⚠️ Summary addition switched to first person');
       tailoredData.summary = built.summary || modelSummary; // no original summary at all: keep the model's
       delete tailoredData.summaryAddition;
       tailoredData.changelog.push({
@@ -2969,6 +2975,7 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
           compliant: finalReport.tapering.clean,
         },
         summary: {
+          voiceMismatch,
           sentences: finalReport.summary.sentenceCount,
           max: finalReport.summary.maxSentences,
           copiedFromJd: finalReport.summary.copiedSpans,

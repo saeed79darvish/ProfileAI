@@ -86,11 +86,36 @@ module.exports = { swapLeadingTitle, buildTailoredSummary, cleanAddition, LEADIN
 
 // ── Experience: every original bullet survives ──────────────────────────────
 
-const bulletsOf = (description) =>
-  String(description || '')
-    .split(/\n+/)
-    .map((l) => l.replace(/^\s*[•\-*–—]\s*/, '').trim())
+const LEADING_MARKERS = /^[\s•\-*–—·]+/;
+
+/**
+ * A description broken into the units a reader sees as bullets.
+ *
+ * The first version split on newlines only. The stored profile holds each
+ * role as one PARAGRAPH, so the whole paragraph became a single "bullet" that
+ * no model line could carry, was restored whole, and every model line was
+ * then appended as an addition — each role came back as its paragraph plus a
+ * near-duplicate rewrite. And the model separates bullets with inline "•"
+ * as often as with newlines, which left stray markers inside lines.
+ *
+ * So: split on newlines AND inline markers, strip any run of leading markers,
+ * and break a long multi-sentence line into sentences — which is how the PDF
+ * renderer already displays a paragraph description.
+ */
+function splitUnits(description) {
+  const lines = String(description || '')
+    .split(/\n+|\s+(?=[•·])/)
+    .map((l) => l.replace(LEADING_MARKERS, '').trim())
     .filter(Boolean);
+  const units = [];
+  for (const line of lines) {
+    const sentences = line.split(/(?<=[.!?])\s+(?=[A-Z"'(])/).map((x) => x.trim()).filter(Boolean);
+    if (sentences.length > 1 && line.length > 160) units.push(...sentences);
+    else units.push(line);
+  }
+  return units;
+}
+const bulletsOf = splitUnits;
 
 const sig = (text) =>
   String(text || '')
@@ -99,26 +124,31 @@ const sig = (text) =>
     .split(/\s+/)
     .filter((w) => w.length > 2);
 
-/**
- * Does tailored bullet `t` still carry original bullet `o`? Light keyword
- * surfacing is allowed ("…in React" becoming "…in React and TypeScript"), so
- * the test is that nearly all of the original's words — and every number — are
- * still present, not that the strings are equal.
- */
-function carries(t, o) {
-  const ow = sig(o);
-  if (!ow.length) return true;
-  const tw = new Set(sig(t));
-  const kept = ow.filter((w) => tw.has(w)).length / ow.length;
-  const numbersKept = (o.match(/\d[\d,.]*%?/g) || []).every((n) => t.includes(n));
-  return kept >= 0.85 && numbersKept;
+/** Share of `a`'s significant words that appear in `b`. */
+function coverage(a, b) {
+  const aw = sig(a);
+  if (!aw.length) return 1;
+  const bw = new Set(sig(b));
+  return aw.filter((w) => bw.has(w)).length / aw.length;
 }
 
 /**
- * For each role: every original bullet is kept (as the tailored line that still
- * carries it, so keyword surfacing survives; otherwise verbatim), tailored
- * lines that carry no original bullet are kept as ADDITIONS after them, and a
- * role the model dropped comes back whole.
+ * Does tailored unit `t` still carry original unit `o`? Light keyword
+ * surfacing is allowed, so the test is that nearly all of the original's words
+ * and every number are still present — not that the strings are equal.
+ */
+function carries(t, o) {
+  const numbersKept = (o.match(/\d[\d,.]*%?/g) || []).every((n) => t.includes(n));
+  return coverage(o, t) >= 0.85 && numbersKept;
+}
+
+/**
+ * For each role, every original unit is kept — as the tailored line that still
+ * carries it (so keyword surfacing survives) or verbatim. A tailored line that
+ * carries no original is kept as an ADDITION only when it says something new:
+ * a line whose words are mostly already in the originals is a rewrite of them,
+ * and the original it rewrites is already being kept, so it is dropped rather
+ * than printed twice. A role the model dropped comes back whole.
  *
  * @returns {{ restored: string[] }}
  */
@@ -127,29 +157,41 @@ function enforceFoundationBullets(draft, originalExperience) {
   const src = Array.isArray(originalExperience) ? originalExperience : [];
   if (!src.length) return { restored };
   const out = Array.isArray(draft.experience) ? [...draft.experience] : [];
+  const render = (units) => units.map((b) => `• ${b}`).join('\n');
 
   for (let i = 0; i < src.length; i++) {
     const o = src[i] || {};
     const label = o.company || o.title || `role ${i + 1}`;
-    const origBullets = bulletsOf(o.description);
+    const origUnits = splitUnits(o.description);
     const entry = out[i] && typeof out[i] === 'object' ? out[i] : null;
     if (!entry) {
-      out[i] = { company: o.company || '', title: o.title || '', period: o.period || '', description: origBullets.map((b) => `• ${b}`).join('\n') };
+      out[i] = { company: o.company || '', title: o.title || '', period: o.period || '', description: render(origUnits) };
       restored.push(`${label}: role was dropped — restored`);
       continue;
     }
-    const tailored = bulletsOf(entry.description);
+    const tailored = splitUnits(entry.description);
     const used = new Set();
     const kept = [];
     let lost = 0;
-    for (const ob of origBullets) {
+    for (const ob of origUnits) {
       const idx = tailored.findIndex((tb, k) => !used.has(k) && carries(tb, ob));
       if (idx >= 0) { used.add(idx); kept.push(tailored[idx]); }
       else { kept.push(ob); lost++; }
     }
-    const additions = tailored.filter((_, k) => !used.has(k));
-    if (lost) restored.push(`${label}: ${lost} bullet(s) rewritten or dropped — originals restored`);
-    out[i] = { ...entry, description: [...kept, ...additions].map((b) => `• ${b}`).join('\n') };
+    const originalText = origUnits.join(' ');
+    const additions = [];
+    let rewrites = 0;
+    tailored.forEach((tb, k) => {
+      if (used.has(k)) return;
+      // Mostly made of words already in this role's originals: a rewrite, not
+      // new content. The original is kept above; this would print it twice.
+      if (coverage(tb, originalText) >= 0.7) { rewrites++; return; }
+      if (additions.some((a) => coverage(tb, a) >= 0.85)) return; // model repeated itself
+      additions.push(tb);
+    });
+    if (lost) restored.push(`${label}: ${lost} line(s) rewritten or dropped — originals restored`);
+    if (rewrites) restored.push(`${label}: ${rewrites} rewritten duplicate(s) not printed`);
+    out[i] = { ...entry, description: render([...kept, ...additions]) };
   }
   draft.experience = out;
   return { restored };
