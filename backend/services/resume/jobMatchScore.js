@@ -128,14 +128,17 @@ const EDUCATION_ALTERNATIVE =
 const YEARS_IN_TEXT = /\b\d{1,2}\s*(?:\+|-|–|to)?\s*(?:\d{1,2})?\s*\+?\s*years?\b/i;
 
 /**
- * The model labels a years minimum `experience` about as often as it uses the
- * schema's `experience_years`. Read as the generic label, "7+ years of
- * frontend" was weighted like any skill and could never be a knockout.
+ * The type is decided by the text, in both directions. The model labels a
+ * years minimum `experience` about as often as `experience_years`, which kept
+ * "7+ years of frontend" from ever being a knockout; and it also labels plain
+ * experience lines `experience_years` ("Solving complex permissions
+ * problems"), which made a skill line an automatic knockout. A years
+ * requirement is one that states a number of years.
  */
 function normalizeType(r) {
-  if (r?.type === 'experience' && YEARS_IN_TEXT.test(String(r?.requirement || ''))) {
-    return { ...r, type: 'experience_years' };
-  }
+  const states = YEARS_IN_TEXT.test(String(r?.requirement || ''));
+  if (r?.type === 'experience' && states) return { ...r, type: 'experience_years' };
+  if (r?.type === 'experience_years' && !states) return { ...r, type: 'experience' };
   return r;
 }
 
@@ -151,7 +154,7 @@ function normalizeType(r) {
  * shown as one — but it is not a knockout unless the model judged it the core
  * of the role (Swift for an iOS role, people management for a manager role).
  */
-function isKnockout(r) {
+function isKnockout(r, roleFit = 0) {
   if (r?.hardness !== 'must' || r?.coverage !== 'none') return false;
   if (KNOCKOUT_TYPES.has(r?.type)) return true;
   // A degree line is usually a preference: on a 19-posting check, capping on
@@ -161,8 +164,15 @@ function isKnockout(r) {
   if (r?.type === 'education') {
     return r?.knockout === true && !EDUCATION_ALTERNATIVE.test(String(r?.requirement || ''));
   }
-  return SCREENABLE_TYPES.has(r?.type) && r?.knockout === true;
+  // A skill knocks an application out only across job families (Swift for an
+  // engineer applying to iOS, Python for ML). Within the candidate's own family
+  // the model still flagged single items ("permissions problems in UI") and
+  // capped a like-for-like role at 49; one skill there is a gap, not a filter.
+  return SCREENABLE_TYPES.has(r?.type) && r?.knockout === true && roleFit < SAME_FAMILY_ROLE_FIT;
 }
+
+/** Role fit at or above this is the candidate's own job family. */
+const SAME_FAMILY_ROLE_FIT = 0.9;
 
 /**
  * Type-weighted coverage over a requirement set.
@@ -338,7 +348,7 @@ function scoreJobMatch(read, profile = null) {
 
   // Blockers: the required items that fail the application on their own.
   const blockers = must
-    .filter(isKnockout)
+    .filter((r) => isKnockout(r, roleFit))
     .map((r) => ({
       requirement: r.requirement,
       type: r.type,
@@ -360,7 +370,7 @@ function scoreJobMatch(read, profile = null) {
     { weight: WEIGHTS.must, value: projectedMust.ratio },
     { weight: WEIGHTS.nice, value: projectedNice.ratio },
   ]);
-  const projectedBlockers = projectedRequirements.filter(isKnockout);
+  const projectedBlockers = projectedRequirements.filter((r) => isKnockout(r, roleFit));
   // Capped at 95: a rewrite closing every surfaceable gap still leaves the
   // parts of a screen a resume can't control. Promising 100% is a tell.
   const projectedRaw = Math.min(95, Math.round(100 * projectedCoverage * modifiers));

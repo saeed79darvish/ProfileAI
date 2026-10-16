@@ -22,22 +22,35 @@ function buildJobMatchPrompt({ jobTitle, jobDescription, profile }) {
           .join('; ')
       : '';
 
-  // Experience is the evidence base for the whole score, so it goes in far more
-  // fully than the old keyword prompt allowed (it truncated each role to 200
-  // chars, which threw away the very bullets that prove a requirement).
+  // Experience is the evidence base for the whole score, so each role goes in
+  // whole. It was cut at 1,200 characters, which on a typical senior resume
+  // dropped the last third of four of seven roles — the model then reported
+  // "no evidence" for things the candidate's own bullets state. The cap is a
+  // guard against pathological input, not a budget: a long role is ~2,000.
   const experience = (profile.experience || [])
     .map((e, i) => {
       const period = [e.startDate, e.current ? 'Present' : e.endDate].filter(Boolean).join(' to ');
-      return `[${i + 1}] ${e.title || 'Role'} at ${e.company || 'Unknown'}${period ? ` (${period})` : ''}\n${(e.description || '').slice(0, 1200)}`;
+      const bullets = [e.achievements, e.highlights, e.bullets, e.responsibilities]
+        .filter(Array.isArray)
+        .flat()
+        .map((b) => (typeof b === 'string' ? b : b?.text || b?.description || ''))
+        .filter(Boolean);
+      const body = [e.description || '', ...bullets.map((b) => `• ${b}`)].filter(Boolean).join('\n');
+      return `[${i + 1}] ${e.title || 'Role'} at ${e.company || 'Unknown'}${period ? ` (${period})` : ''}\n${body.slice(0, 6000)}`;
     })
     .join('\n\n');
+
+  const certifications = (profile.certifications || [])
+    .map((c) => (typeof c === 'string' ? c : [c?.name, c?.issuer, c?.year].filter(Boolean).join(', ')))
+    .filter(Boolean)
+    .join('; ');
 
   const education = (profile.education || [])
     .map((e) => [e.degree, e.field, e.school, e.year].filter(Boolean).join(', '))
     .join('; ');
 
   const projects = (profile.projects || [])
-    .map((p) => `${p.title || 'Project'}: ${(p.description || '').slice(0, 300)}`)
+    .map((p) => `${p.title || p.name || 'Project'}: ${(p.description || '').slice(0, 1500)}`)
     .join('; ');
 
   const prompt = `Screen this candidate against this job posting.
@@ -47,9 +60,10 @@ ${jobTitle ? `Title: ${jobTitle}\n` : ''}${jobDescription.slice(0, 12000)}
 
 ═══ CANDIDATE ═══
 Current title: ${profile.title || profile.headline || 'Not stated'}
-Summary: ${(profile.summary || '').slice(0, 800)}
+Summary: ${(profile.summary || '').slice(0, 3000)}
 Skills: ${skills || 'None listed'}
 Education: ${education || 'Not stated'}
+Certifications: ${certifications || 'None listed'}
 Projects: ${projects || 'None listed'}
 
 Experience (newest first):
@@ -131,10 +145,13 @@ Rules:
 
 ═══ STEP 3: JUDGE THE FIT DIMENSIONS ═══
 - "roleFit" (0-1): is this the same job family and track as the candidate's
-  career? Judge it by what the duties describe, not only the title: when the
-  work centres on a specialization the candidate has never done (3D graphics
-  or rendering engines, geospatial, ML modeling, native mobile, SRE), roleFit
-  is at most 0.6 even if the title matches. 1.0 = same role, same discipline. 0.7 = adjacent role in the same
+  career? Judge the job family and track only (engineer vs designer vs
+  manager vs sales; frontend vs backend vs mobile vs ML). Do NOT lower it for
+  specific skills or specializations the candidate lacks: those are already
+  scored as requirements, and counting them again here double-penalizes.
+  A frontend engineer applying to any frontend engineering role — including a
+  specialized one (graphics, maps, design systems) — is 1.0; a level apart
+  (Senior to Staff) is still 1.0, since seniority is scored separately. 1.0 = same role, same discipline. 0.7 = adjacent role in the same
   discipline (backend engineer applying to platform engineer). 0.4 = same
   industry, different function (engineer applying to technical program manager).
   0.1 = different function entirely (engineer applying to a marketing or sales
@@ -146,8 +163,10 @@ Rules:
   bonus — score it down. This is a FALLBACK: when the posting states a years
   minimum and the profile carries dates, the scorer computes this from the
   numbers and ignores what you put here.
-- "recency" (0-1): how current the matched skills are. 1.0 = the core matched
-  skills are in the current role. 0.3 = the match rests on work from 6+ years ago.
+- "recency" (0-1): how current the matched skills are, judged ONLY over the
+  requirements you marked "strong" or "partial" — gaps never lower it. 1.0 =
+  those skills are in the current or most recent role. 0.3 = the match rests
+  on work from 6+ years ago.
 - "verdict": one sentence a person would actually say about this application,
   naming the single biggest reason for the score.
 

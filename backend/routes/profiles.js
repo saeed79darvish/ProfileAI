@@ -2521,9 +2521,11 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('job_
     const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
     try {
       const cached = await getCachedAnalysis({
-        // v3: v2 rows were scored with a cap on ANY missing required item and
-        // an older reading prompt; serving one would show the old number.
-        kind: 'job_match_v3',
+        // v5: earlier rows lowered roleFit for missing skills (v4), cut roles at
+        // 1,200 characters (v3)
+        // or with a cap on any missing required item (v2); serving one would
+        // show the old number.
+        kind: 'job_match_v5',
         userId: req.user.id,
         profileData,
         jobDescription,
@@ -2605,7 +2607,7 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('job_
     };
 
     await setCachedAnalysis({
-      kind: 'job_match_v3',
+      kind: 'job_match_v5',
       userId: req.user.id,
       profileData,
       jobDescription,

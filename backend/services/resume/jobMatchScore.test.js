@@ -32,9 +32,10 @@ test('one missing tool costs its share but does not cap the score', () => {
   assert.equal(r.components.cappedByBlockers, false);
 });
 
-test('a missing core requirement the model marks as a knockout still caps', () => {
+test('a missing core requirement the model marks as a knockout caps across job families', () => {
   const read = {
     ...strongWithOneGap,
+    roleFit: 0.4,
     requirements: [...strongWithOneGap.requirements.slice(0, 5), req('Swift for native iOS', { coverage: 'none', knockout: true })],
   };
   const r = scoreJobMatch(read);
@@ -46,8 +47,12 @@ test('a stated years minimum is a knockout even when typed as generic experience
   const years = normalizeType({ requirement: '7+ years of frontend experience', type: 'experience' });
   assert.equal(years.type, 'experience_years');
   assert.equal(isKnockout({ ...years, hardness: 'must', coverage: 'none' }), true);
-  // Without a number it stays an ordinary requirement.
+  // Without a number it stays an ordinary requirement...
   assert.equal(normalizeType({ requirement: 'Experience shipping consumer apps', type: 'experience' }).type, 'experience');
+  // ...even when the model labelled it a years minimum.
+  const mislabelled = normalizeType({ requirement: 'Solving complex permissions problems in UI', type: 'experience_years' });
+  assert.equal(mislabelled.type, 'experience');
+  assert.equal(isKnockout({ ...mislabelled, hardness: 'must', coverage: 'none' }, 1), false);
 });
 
 test('a degree caps only when read as a hard requirement with no experience substitute', () => {
@@ -59,6 +64,17 @@ test('a degree caps only when read as a hard requirement with no experience subs
   // Experience substitutes, whatever the model said.
   assert.equal(isKnockout({ ...degree, requirement: 'BS in CS or equivalent practical experience', knockout: true }), false);
   assert.equal(isKnockout({ ...degree, requirement: "Bachelor's degree or equivalent experience", knockout: true }), false);
+});
+
+test('within the candidate\'s own job family a single skill never knocks out', () => {
+  const read = {
+    ...strongWithOneGap,
+    roleFit: 1,
+    requirements: [...strongWithOneGap.requirements.slice(0, 5), req('Complex permissions UIs', { coverage: 'none', knockout: true })],
+  };
+  const r = scoreJobMatch(read);
+  assert.equal(r.blockers.length, 0);
+  assert.ok(r.score > BLOCKED_SCORE_CAP);
 });
 
 test('nice-to-haves, soft skills and covered items are never knockouts', () => {
