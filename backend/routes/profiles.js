@@ -2495,6 +2495,99 @@ Return ONLY valid JSON.`;
   }
 });
 
+/**
+ * Cache namespace for job-match results. Bump it whenever the prompt or the
+ * scoring changes, so no one is shown a number computed by the old logic.
+ *   v5: roleFit no longer lowered for missing skills; v4: roles were cut at
+ *   1,200 characters; v3/v2: a cap on any missing required item.
+ */
+const JOB_MATCH_CACHE_KIND = 'job_match_v5';
+
+/** The text a job is scored on, when we hold the posting ourselves. The list,
+ *  the detail page and "Score top 5" all score by id, so they all hash the
+ *  same text and find each other's results in the cache. */
+const externalJobText = (job) => [job.description, job.requirements].filter(Boolean).join('\n\n');
+
+/**
+ * Resolves what to score: a posting we hold (`externalJobId`, from the web
+ * app) or the text a client read off a page (`jobDescription`, from the
+ * extension).
+ */
+async function resolveJobMatchInput(req, res, next) {
+  try {
+    const { externalJobId, jobDescription, jobTitle } = req.body || {};
+    if (externalJobId) {
+      const { ExternalJob } = require('../models');
+      const job = await ExternalJob.findByPk(externalJobId, { attributes: ['id', 'title', 'description', 'requirements'] });
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      req.jobMatch = { jobDescription: externalJobText(job), jobTitle: job.title };
+    } else {
+      req.jobMatch = { jobDescription: String(jobDescription || ''), jobTitle };
+    }
+    // A score computed from a fragment is worse than no score: it looks
+    // authoritative and is arbitrary. Demand enough text to hold requirements.
+    if (req.jobMatch.jobDescription.trim().length < 200) {
+      return res.status(400).json({ error: 'Job description is too short to score against' });
+    }
+    return next();
+  } catch (error) {
+    console.error('[job-match] could not resolve the posting:', error.message);
+    return res.status(500).json({ error: 'Error scoring this job' });
+  }
+}
+
+/** Served before the allowance check: re-opening a scored job costs nothing,
+ *  even for someone who has used their allowance up. */
+async function jobMatchCacheHit(req, res, next) {
+  try {
+    const { getCachedAnalysis } = require('../services/aiAnalysisCacheService');
+    const cached = await getCachedAnalysis({
+      kind: JOB_MATCH_CACHE_KIND,
+      userId: req.user.id,
+      profileData: req.candidate.profileData,
+      jobDescription: req.jobMatch.jobDescription,
+    });
+    if (cached) {
+      console.log(`[job-match] cache hit for user ${req.user.id} — no credit spent`);
+      return res.json(cached);
+    }
+  } catch (e) {
+    console.warn('[job-match] cache probe failed, continuing:', e.message);
+  }
+  return next();
+}
+
+// @route   POST /api/profiles/job-match/cached
+// @desc    Stored match scores for a page of jobs: { externalJobIds } →
+//          { scores: { [id]: data } }, hits only. Spends nothing; the job list
+//          uses it so a badge shows a real score or none at all.
+// @access  Private
+router.post('/job-match/cached', authMiddleware, withServerProfile, async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.externalJobIds) ? req.body.externalJobIds : [])
+      .filter((id) => id !== null && id !== undefined && id !== '')
+      .slice(0, 100);
+    if (ids.length === 0) return res.json({ scores: {} });
+    const { ExternalJob } = require('../models');
+    const jobs = await ExternalJob.findAll({ where: { id: ids }, attributes: ['id', 'description', 'requirements'] });
+    const { getCachedAnalyses } = require('../services/aiAnalysisCacheService');
+    const hits = await getCachedAnalyses({
+      kind: JOB_MATCH_CACHE_KIND,
+      userId: req.user.id,
+      profileData: req.candidate.profileData,
+      items: jobs.map((j) => ({ id: j.id, jobDescription: externalJobText(j) })),
+    });
+    const scores = {};
+    for (const [id, payload] of Object.entries(hits)) {
+      if (payload?.data && typeof payload.data.score === 'number') scores[id] = payload.data;
+    }
+    return res.json({ scores });
+  } catch (error) {
+    console.error('[job-match/cached] failed:', error.message);
+    return res.json({ scores: {} });
+  }
+});
+
 // @route   POST /api/profiles/job-match
 // @desc    Score a candidate against a posting: requirements extracted from the
 //          JD, evidence located in the profile, role/seniority fit, and the
@@ -2507,36 +2600,12 @@ Return ONLY valid JSON.`;
 // so it returned respectable-looking scores for applications nobody would pass.
 // Its own allowance: it ran on profile_enhance (2-50 a month by plan), so scoring
 // a handful of postings used up the allowance for enhancing the profile itself.
-router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('job_match'), async (req, res) => {
+router.post('/job-match', authMiddleware, withServerProfile, resolveJobMatchInput, jobMatchCacheHit, aiRateLimiter('job_match'), async (req, res) => {
   try {
-    const { jobDescription, jobTitle } = req.body;
+    const { jobDescription, jobTitle } = req.jobMatch;
     // The stored record, not the request body — see withServerProfile.
     const { profileData } = req.candidate;
-    // A score computed from a fragment is worse than no score: it looks
-    // authoritative and is arbitrary. Demand enough text to hold requirements.
-    if (!jobDescription || jobDescription.trim().length < 200) {
-      return res.status(400).json({ error: 'Job description is too short to score against' });
-    }
-
-    const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
-    try {
-      const cached = await getCachedAnalysis({
-        // v5: earlier rows lowered roleFit for missing skills (v4), cut roles at
-        // 1,200 characters (v3)
-        // or with a cap on any missing required item (v2); serving one would
-        // show the old number.
-        kind: 'job_match_v5',
-        userId: req.user.id,
-        profileData,
-        jobDescription,
-      });
-      if (cached) {
-        console.log(`[job-match] cache hit for user ${req.user.id} — no credit spent`);
-        return res.json(cached);
-      }
-    } catch (e) {
-      console.warn('[job-match] cache probe failed, continuing:', e.message);
-    }
+    const { setCachedAnalysis } = require('../services/aiAnalysisCacheService');
 
     const { buildJobMatchPrompt, JOB_MATCH_SYSTEM } = require('../services/resume/jobMatchPrompt');
     const { scoreJobMatch } = require('../services/resume/jobMatchScore');
@@ -2607,7 +2676,7 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('job_
     };
 
     await setCachedAnalysis({
-      kind: 'job_match_v5',
+      kind: JOB_MATCH_CACHE_KIND,
       userId: req.user.id,
       profileData,
       jobDescription,

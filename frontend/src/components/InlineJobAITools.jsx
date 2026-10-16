@@ -28,7 +28,8 @@ import LimitReachedModal from './LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
 import TailorSettingsModal from './TailorSettingsModal';
 import CoverLetterModal from './CoverLetterModal';
-import JobMatchAnalysis from './JobMatchAnalysis';
+import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
+import { matchTier } from '@/utils/jobMatchScore';
 import TailoringProgressModal from './TailoringProgressModal';
 import TailoredResultsModal from './TailoredResultsModal';
 import ResumePreviewModal from './ResumePreviewModal';
@@ -500,6 +501,12 @@ function MatchBillboard() {
 export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const { user } = useAuth();
   const toast = useToast();
+  // The match score — the same one the job list and the extension show. Only
+  // for postings we hold, which are scored by id so every surface agrees.
+  const isExternalJob = !!(job?._isExternal && job?.id);
+  const jobMatches = useJobMatches(isExternalJob ? [job.id] : []);
+  const aiMatch = isExternalJob ? jobMatches[job.id] : null;
+  const [scoreLoading, setScoreLoading] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [activePanel, setActivePanel] = useState(null); // 'tailor' | 'coverLetter' | 'skillGap' | 'match'
@@ -656,6 +663,13 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   // === Skill Gap Analysis ===
   const handleSkillGap = async () => {
     setShowMatchModal(true);
+    // The score runs beside the gap list; a stored score is free and instant.
+    if (isExternalJob && !aiMatch) {
+      setScoreLoading(true);
+      scoreJob(job.id)
+        .catch((err) => toast.error(err.message))
+        .finally(() => setScoreLoading(false));
+    }
     setGapLoading(true);
     try {
       const res = await profileAPI.analyzeGaps({ profileData: getProfileData(), jobDescription: getJobDescription() });
@@ -910,22 +924,6 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
     );
   }
 
-  // Match analysis handler for JobMatchAnalysis component
-  const handleMatchAnalyze = async () => {
-    try {
-      const res = await profileAPI.keywordOptimization({ profileData: getProfileData(), jobDescription: getJobDescription() });
-      if (res.data.success) {
-        return res.data.data;
-      }
-      throw new Error('Failed to analyze match');
-    } catch (err) {
-      if (!handleRateLimit(err)) {
-        toast.error(err.response?.data?.error || err.message || 'Match analysis failed');
-      }
-      throw err;
-    }
-  };
-
   const isLoading = gapLoading || tailorLoading || coverLoading;
 
   return (
@@ -980,6 +978,25 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
           </div>
         </div>
         <DialogContent style={{ padding: '20px' }}>
+          {isExternalJob && (scoreLoading || aiMatch) && (() => {
+            if (scoreLoading && !aiMatch) {
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', marginBottom: 16, background: '#F9FAFB', borderRadius: 12, border: '1px solid #EAECF0', fontSize: 13, color: '#667085' }}>
+                  <CircularProgress size={16} /> Checking each requirement against your profile…
+                </div>
+              );
+            }
+            const tier = matchTier(aiMatch.score);
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px', marginBottom: 16, background: '#F9FAFB', borderRadius: 12, border: '1px solid #EAECF0' }}>
+                <div style={{ fontSize: 28, fontWeight: 800, color: tier.color, flexShrink: 0 }}>{Math.round(aiMatch.score)}%</div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: tier.color }}>{tier.label} — {tier.advice}</div>
+                  {aiMatch.verdict && <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5, marginTop: 2 }}>{aiMatch.verdict}</div>}
+                </div>
+              </div>
+            );
+          })()}
           {gapLoading ? (
             <MatchBillboard />
           ) : gapResult ? (

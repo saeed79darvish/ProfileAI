@@ -180,6 +180,8 @@ import {
 import { ROUTES, WITHDRAWABLE_STATUSES, STATUS_CONFIG, THRESHOLDS, TEXT, SALARY_OPTIONS } from './constants';
 import { formatSalary, formatTimeAgo, formatJobPostedTime } from './utils';
 import { externalJobAPI, profileAPI } from '@/services/api';
+import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
+import { matchTier, orderByMatch, matchLists } from '@/utils/jobMatchScore';
 
 // Company name -> domain mapping for logo resolution
 const COMPANY_DOMAINS = {
@@ -416,7 +418,6 @@ const CandidateJobs = () => {
   const [selectedJobForAgent, setSelectedJobForAgent] = useState(null);
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
   const [matchDialogJob, setMatchDialogJob] = useState(null);
-  const [matchBreakdown, setMatchBreakdown] = useState(null);
   // Default to the Discover tab so candidates land on the populated external
   // job corpus instead of the (typically empty) internal recruiter postings.
   // The "All" tab only contains jobs posted directly via /api/jobs, which is
@@ -429,6 +430,14 @@ const CandidateJobs = () => {
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const [applicationToWithdraw, setApplicationToWithdraw] = useState(null);
   const [externalJobs, setExternalJobs] = useState([]);
+  // Real match scores — each requirement in the posting graded against the
+  // stored profile — for the jobs on screen. Stored ones load free; a job
+  // without one shows no percentage rather than a guessed one.
+  const jobMatchScores = useJobMatches(
+    isAuthenticated ? [...externalJobs.map((j) => j.id), selectedJob?._isExternal ? selectedJob.id : null].filter(Boolean) : [],
+  );
+  const [scoringTop, setScoringTop] = useState(false);
+  const [scoringDialog, setScoringDialog] = useState(false);
   const [externalJobsLoading, setExternalJobsLoading] = useState(false);
   // Separate spinner state for "Load more" so the existing list doesn't
   // disappear under the user when fetching the next page.
@@ -1822,172 +1831,74 @@ const CandidateJobs = () => {
     return null;
   };
 
-  // Single source of truth for what the percentage on a match badge
-  // means in words.
-  //
-  // The score is NOT raw cosine similarity. Raw cosine occupies a very narrow
-  // band (a frontend role scored ~0.54 against a "Frontend Engineer" query
-  // while a SALES role scored ~0.46), so shown directly it labelled genuinely
-  // unrelated jobs a "Good match". The backend now stretches that band onto
-  // 0-100 before returning it, so these thresholds describe real differences
-  // in fit. Below "Possible match" the badge is suppressed entirely rather
-  // than advertising a weak signal.
-  //
-  //   >=78  → "NN% · Excellent match"
-  //   >=65  → "NN% · Strong match"
-  //   >=50  → "Good match"           (no % — reads as middling)
-  //   >=30  → "Possible match"       (no %)
-  //   <30   → null                   (suppress badge)
-  const formatMatchBadge = (rawScore) => {
-    const pct = Math.round(rawScore || 0);
-    if (pct >= 78) return { text: `${pct}% · Excellent match`, mobile: `${pct}%`, tier: 'excellent' };
-    if (pct >= 65) return { text: `${pct}% · Strong match`,    mobile: `${pct}%`, tier: 'strong' };
-    if (pct >= 50) return { text: 'Good match',                 mobile: 'Good',    tier: 'good' };
-    if (pct >= 30) return { text: 'Possible match',             mobile: 'Maybe',   tier: 'possible' };
+  // What a card's match badge says. The percentage is the real match score
+  // (utils/jobMatchScore) or nothing. It used to come from search relevance,
+  // which saturates whenever a title contains the search words — every
+  // "Frontend Engineer" title read "100% · Excellent match". A job that only
+  // matches the search says so, without a number.
+  const formatMatchBadge = (job) => {
+    const ai = jobMatchScores[job?.id];
+    const tier = matchTier(ai?.score);
+    if (tier) {
+      const pct = Math.round(ai.score);
+      return { text: `${pct}% · ${tier.label}`, mobile: `${pct}%`, tier: tier.tier };
+    }
+    if ((job?.relevanceScore || 0) >= 50) return { text: 'Matches your search', mobile: null, tier: 'search' };
     return null;
   };
-  // Tooltip copy reused on every match badge — spelled out once here so
-  // tweaks don't drift between desktop / mobile renderings.
-  const MATCH_BADGE_TITLE = 'How closely this job matches your profile and role. Recency affects the order of the list, not this score. Click to see why.';
+  const MATCH_BADGE_TITLE = 'Your match score: each requirement in the posting checked against your profile. Click for the breakdown.';
 
-  const getMatchColor = (score) => {
-    if (score >= 70) return '#027A48';
-    if (score >= 50) return '#6941C6';
-    if (score >= 25) return '#B54708';
-    return '#667085';
-  };
-
-  const handleMatchClick = async (e, job) => {
+  const handleMatchClick = (e, job) => {
     e?.stopPropagation();
     setMatchDialogJob(job);
     setMatchDialogOpen(true);
-    setMatchBreakdown(null);
+  };
 
+  /** One AI read for one job. Spends one job-match allowance. */
+  const handleScoreJob = async (job) => {
+    if (!job?.id) return;
+    setScoringDialog(true);
     try {
-      const profileRes = await profileAPI.getMyProfile();
-      const p = profileRes.data;
-
-      // Extract candidate skills
-      const rawSkills = p.skills || [];
-      let candidateSkills = [];
-      if (Array.isArray(rawSkills)) {
-        candidateSkills = rawSkills.map(s => (typeof s === 'string' ? s : s.name || '').toLowerCase()).filter(Boolean);
-      } else if (typeof rawSkills === 'object') {
-        candidateSkills = Object.values(rawSkills).flat().map(s => (typeof s === 'string' ? s : '').toLowerCase()).filter(Boolean);
-      }
-
-      // This breakdown counts skill mentions across the WHOLE posting, but
-      // cards come from the list payload, which carries only a description
-      // preview. Scoring the preview would silently under-report matched
-      // skills and make the match look worse than it is, so pull the full
-      // record first whenever the API told us we only have a snippet.
-      let fullJob = job;
-      if (job?.descriptionTruncated && job?.id) {
-        try {
-          const { data } = await externalJobAPI.getById(job.id);
-          fullJob = { ...job, ...data };
-        } catch {
-          // Fall back to the preview rather than failing the whole dialog —
-          // an approximate breakdown beats an error state.
-        }
-      }
-
-      // Build job text for matching
-      const jobText = [fullJob.title || '', fullJob.description || '', fullJob.requirements || '', ...(Array.isArray(fullJob.skills) ? fullJob.skills : [])].join(' ').toLowerCase();
-
-      // Match skills
-      const matched = [];
-      const unmatched = [];
-      for (const skill of candidateSkills) {
-        if (jobText.includes(skill)) {
-          matched.push(skill);
-        }
-      }
-
-      // Job required skills not in profile
-      const jobSkills = Array.isArray(job.skills) ? job.skills : [];
-      for (const js of jobSkills) {
-        const jsLower = js.toLowerCase();
-        if (!candidateSkills.some(cs => jsLower.includes(cs) || cs.includes(jsLower))) {
-          unmatched.push(js);
-        }
-      }
-
-      // Title match
-      const profileTitle = (p.title || '').toLowerCase();
-      const jobTitleLower = (job.title || '').toLowerCase();
-      const profileTitleWords = profileTitle.split(/\s+/).filter(w => w.length > 2);
-      const titleMatches = profileTitleWords.filter(w => jobTitleLower.includes(w));
-      const titleMatchPct = profileTitleWords.length > 0 ? Math.round((titleMatches.length / profileTitleWords.length) * 100) : 0;
-
-      // Location
-      const pLoc = (p.location || '').toLowerCase();
-      const jLoc = (job.location || '').toLowerCase();
-      const locationType = job.locationType || '';
-      let locationMatch = 'none';
-      if (locationType === 'remote') locationMatch = 'remote';
-      else if (pLoc && jLoc && (jLoc.includes(pLoc) || pLoc.includes(jLoc))) locationMatch = 'exact';
-      else if (pLoc && jLoc) {
-        const pParts = pLoc.split(/[,\s]+/).filter(Boolean);
-        const jParts = jLoc.split(/[,\s]+/).filter(Boolean);
-        if (pParts.some(pp => jParts.some(jp => jp.includes(pp) || pp.includes(jp)))) locationMatch = 'partial';
-      }
-
-      // Experience level, handle both startDate/endDate and period formats
-      const expEntries = p.experience || [];
-      let totalMonths = 0;
-      for (const entry of expEntries) {
-        let start = entry.startDate ? new Date(entry.startDate) : null;
-        let end = entry.current ? new Date() : (entry.endDate ? new Date(entry.endDate) : null);
-
-        // Fallback: parse "period" field (e.g. "2018 - Present", "Jan 2020 - Dec 2022")
-        if (!start && entry.period) {
-          const parts = entry.period.split(/\s*[-–—]\s*/);
-          if (parts.length >= 1) {
-            const yearMatch = parts[0].match(/(\d{4})/);
-            if (yearMatch) start = new Date(yearMatch[1], 0);
-          }
-          if (parts.length >= 2) {
-            if (/present|current|now/i.test(parts[1])) {
-              end = new Date();
-            } else {
-              const yearMatch = parts[1].match(/(\d{4})/);
-              if (yearMatch) end = new Date(yearMatch[1], 11);
-            }
-          }
-        }
-
-        if (start && end && !isNaN(start) && !isNaN(end)) totalMonths += Math.max(0, (end - start) / (1000 * 60 * 60 * 24 * 30));
-      }
-      const yearsExp = Math.round(totalMonths / 12);
-
-      // Fall back to a locally-computed score when the server didn't return
-      // a relevanceScore (e.g. job opened via direct link/detail fetch,
-      // which doesn't carry the search-time ranking). Mirrors the fallback
-      // used by the inline "Match Card V2" panel on the job detail view —
-      // without this, the dialog showed "0%" while the panel right above it
-      // showed a real score, for the same job.
-      const serverScore = job.relevanceScore ? Math.round(job.relevanceScore) : 0;
-      let effectiveScore = serverScore;
-      if (!effectiveScore && matched.length > 0) {
-        effectiveScore = Math.min(95, Math.round((matched.length / Math.max(candidateSkills.length, 1)) * 100));
-      }
-
-      setMatchBreakdown({
-        matchedSkills: matched,
-        missingSkills: unmatched,
-        titleMatchPct,
-        titleMatches,
-        locationMatch,
-        jobLocation: job.location,
-        locationType,
-        yearsExp,
-        jobExpLevel: job.experienceLevel,
-        effectiveScore,
-      });
+      await scoreJob(job.id);
     } catch (err) {
-      console.error('Failed to compute match breakdown:', err);
+      toast?.error?.(err.message);
+    } finally {
+      setScoringDialog(false);
     }
+  };
+
+  /**
+   * Scores the top five jobs on screen that have no score yet, three at a
+   * time. An allowance running out stops the batch with the server's message
+   * instead of failing the rest one by one.
+   */
+  const handleScoreTop = async () => {
+    const ordered = sortMode === 'recommended' ? orderByMatch(externalJobs, jobMatchScores) : externalJobs;
+    const todo = ordered.filter((j) => !jobMatchScores[j.id]).slice(0, 5);
+    if (todo.length === 0) {
+      toast?.info?.('The top jobs already have a match score.');
+      return;
+    }
+    setScoringTop(true);
+    let done = 0;
+    let stopped = null;
+    const queue = [...todo];
+    const worker = async () => {
+      while (queue.length && !stopped) {
+        const job = queue.shift();
+        try {
+          await scoreJob(job.id);
+          done += 1;
+        } catch (err) {
+          if (err.status === 429 || err.status === 403) stopped = err.message;
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    setScoringTop(false);
+    if (stopped) toast?.error?.(stopped);
+    else if (done > 0) toast?.success?.(`Scored ${done} job${done === 1 ? '' : 's'}`);
+    else toast?.error?.('The match scores could not be computed. Please try again.');
   };
 
   // Extract company info, prefer companyInfo from API, fallback to metadata
@@ -2889,6 +2800,22 @@ const CandidateJobs = () => {
                       <strong style={{ color: '#101828', fontWeight: 700 }}>
                         {externalJobsPagination.total.toLocaleString()}
                       </strong>{' '}jobs
+                      {isAuthenticated && externalJobs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleScoreTop}
+                          disabled={scoringTop}
+                          title="Scores the top 5 jobs that don't have a match score yet: each requirement checked against your profile. Uses 1 job-match credit each; scores you already have are free."
+                          style={{
+                            marginLeft: 10, padding: '3px 9px', borderRadius: 999,
+                            fontSize: 11, fontWeight: 600, cursor: scoringTop ? 'default' : 'pointer',
+                            border: '1px solid #E9D5FF', background: '#F9F5FF', color: '#6941C6',
+                            opacity: scoringTop ? 0.7 : 1,
+                          }}
+                        >
+                          {scoringTop ? 'Scoring…' : 'Score top 5'}
+                        </button>
+                      )}
                     </div>
                     {/* Real control, not a caption. "Best match" is banded:
                         relevance decides the band, and within a band the newest
@@ -3009,16 +2936,20 @@ const CandidateJobs = () => {
                   <JobsGrid>
                     {(() => {
                       let lastSection = null;
-                      return externalJobs.map(job => {
-                        const matchLevel = getMatchLevel(job.relevanceScore);
+                      // "Best match": real scores lead or trail, unscored jobs keep the
+                      // server's relevance order between them (utils/jobMatchScore).
+                      const ordered = sortMode === 'recommended' ? orderByMatch(externalJobs, jobMatchScores) : externalJobs;
+                      return ordered.map(job => {
+                        const aiMatch = jobMatchScores[job.id];
+                        const matchLevel = getMatchLevel(aiMatch ? aiMatch.score : 0);
                         const jobSkillsPreview = Array.isArray(job.skills) ? job.skills : [];
                         const visibleSkills = jobSkillsPreview.slice(0, 3);
                         const remainingCount = Math.max(0, jobSkillsPreview.length - 3);
-                        const pct = Math.round(job.relevanceScore || 0);
+                        const pct = aiMatch ? Math.round(aiMatch.score) : 0;
 
                         // Determine section group for mobile headers
                         let sectionLabel = null;
-                        const currentSection = pct >= 78 ? 'strong' : pct >= 50 ? 'good' : 'other';
+                        const currentSection = pct >= 70 ? 'strong' : pct >= 50 ? 'good' : 'other';
                         if (currentSection !== lastSection && pct > 0) {
                           lastSection = currentSection;
                           if (currentSection === 'strong') sectionLabel = { label: 'STRONG MATCHES', color: '#10B981' };
@@ -3211,7 +3142,7 @@ const CandidateJobs = () => {
                                     {formatJobPostedTime(job)}
                                   </PostedTime>
                                   {(() => {
-                                    const badge = formatMatchBadge(job.relevanceScore);
+                                    const badge = formatMatchBadge(job);
                                     if (!badge) return null;
                                     return (
                                       <MatchBadge
@@ -3227,8 +3158,8 @@ const CandidateJobs = () => {
                                 </JobFooter>
                                 {/* Mobile match badge (positioned absolute top-right via CSS) */}
                                 {(() => {
-                                  const badge = formatMatchBadge(job.relevanceScore);
-                                  if (!badge) return null;
+                                  const badge = formatMatchBadge(job);
+                                  if (!badge || !badge.mobile) return null;
                                   return (
                                     <MatchBadge
                                       $level={matchLevel || 'default'}
@@ -3562,20 +3493,31 @@ const CandidateJobs = () => {
           )}
 
           {/* Match Card V2 */}
-          {selectedJob?._isExternal && isAuthenticated && userSkills.length > 0 && (() => {
-            const serverScore = selectedJob.relevanceScore ? Math.round(selectedJob.relevanceScore) : 0;
-            // Compute local score if no server score
-            let score = serverScore;
-            const jobSkills = selectedJob.skills || [];
-            const jobText = [selectedJob.title || '', selectedJob.description || '', selectedJob.requirements || '', ...jobSkills].join(' ').toLowerCase();
-            const localMatched = userSkills.filter(us => jobText.includes(us));
-            if (!score && localMatched.length > 0) {
-              score = Math.min(95, Math.round((localMatched.length / Math.max(userSkills.length, 1)) * 100));
+          {selectedJob?._isExternal && isAuthenticated && (() => {
+            // The real match score, or an offer to compute it — never a number
+            // derived from search relevance or skill-word overlap.
+            const ai = jobMatchScores[selectedJob.id];
+            const tier = matchTier(ai?.score);
+            if (!tier) {
+              return (
+                <MobileMatchCardV2>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#101828', marginBottom: 4 }}>No match score yet</div>
+                  <div style={{ fontSize: 12.5, color: '#667085', lineHeight: 1.5, marginBottom: 10 }}>
+                    Checks each requirement in this posting against your profile. Uses 1 job-match credit.
+                  </div>
+                  <button type="button"
+                    onClick={() => handleScoreJob(selectedJob)}
+                    disabled={scoringDialog}
+                    style={{ padding: '7px 14px', background: '#7C3AED', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: scoringDialog ? 0.7 : 1 }}
+                  >
+                    {scoringDialog ? 'Checking each requirement…' : 'Get my match score'}
+                  </button>
+                </MobileMatchCardV2>
+              );
             }
-            if (score <= 0) return null;
-            const tailoredScore = Math.min(99, score + Math.round((100 - score) * 0.6));
-            const localMissing = jobSkills.filter(s => !userSkills.some(us => us.includes(s.toLowerCase()) || s.toLowerCase().includes(us)));
-            const localMatchedSkills = jobSkills.length - localMissing.length;
+            const score = Math.round(ai.score);
+            const tailoredScore = Math.max(score, Math.round(ai.projectedScore || score));
+            const aiGaps = matchLists(ai).gaps;
             return (
               <MobileMatchCardV2>
                 <MobileMatchTopRow>
@@ -3584,7 +3526,7 @@ const CandidateJobs = () => {
                       <circle cx="36" cy="36" r="30" fill="none" stroke="#EAECF0" strokeWidth="6" />
                       <circle
                         cx="36" cy="36" r="30" fill="none"
-                        stroke={score >= 70 ? '#7C3AED' : '#F59E0B'}
+                        stroke={tier.color}
                         strokeWidth="6"
                         strokeDasharray={`${(score / 100) * 188.5} 188.5`}
                         strokeLinecap="round"
@@ -3599,14 +3541,11 @@ const CandidateJobs = () => {
                   </MobileMatchRingV2>
                   <MobileMatchDetails>
                     <div className="match-title-row">
-                      <span className="match-label">{score >= 70 ? 'Strong match' : 'Good match'}</span>
-                      <span className="tailor-badge">→ {tailoredScore}% if tailored</span>
+                      <span className="match-label">{tier.label}</span>
+                      {tailoredScore > score && <span className="tailor-badge">→ ~{tailoredScore}% if tailored</span>}
                     </div>
                     <div className="match-sub">
-                      {localMissing.length > 0
-                        ? <>{localMissing.length} skill{localMissing.length !== 1 ? 's' : ''} missing, {Math.max(localMissing.length, localMatchedSkills)} bullet{Math.max(localMissing.length, localMatchedSkills) !== 1 ? 's' : ''} to sharpen. Tap <strong>Tailor first</strong> below.</>
-                        : <>Based on your skills, experience, and preferences.</>
-                      }
+                      {tier.advice}{aiGaps.length > 0 ? ` ${aiGaps.length} requirement${aiGaps.length !== 1 ? 's' : ''} not on your resume.` : ''}
                     </div>
                   </MobileMatchDetails>
                 </MobileMatchTopRow>
@@ -3923,150 +3862,91 @@ const CandidateJobs = () => {
               </button>
             </div>
 
-            {/* Score */}
+            {/* Score: the AI read of the requirements, or an offer to run it */}
             {matchDialogJob && (() => {
-              // Prefer the locally-computed fallback score (matchBreakdown.effectiveScore)
-              // over the raw server relevanceScore, which can be 0/missing when the
-              // job wasn't opened from a search result (e.g. direct link). Falls back
-              // to relevanceScore while matchBreakdown is still loading.
-              const displayScore = matchBreakdown?.effectiveScore ?? (matchDialogJob.relevanceScore || 0);
-              return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '16px 20px', background: '#F9FAFB', borderRadius: 12, marginBottom: 20, border: '1px solid #EAECF0' }}>
-                <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
-                  <svg width="72" height="72" viewBox="0 0 72 72">
-                    <circle cx="36" cy="36" r="30" fill="none" stroke="#EAECF0" strokeWidth="6" />
-                    <circle cx="36" cy="36" r="30" fill="none" stroke={getMatchColor(displayScore)} strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 30} strokeDashoffset={2 * Math.PI * 30 * (1 - displayScore / 100)} transform="rotate(-90 36 36)" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
-                  </svg>
-                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: '#101828' }}>{Math.round(displayScore)}</div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: '#98A2B3' }}>%</div>
+              const ai = jobMatchScores[matchDialogJob.id];
+              const tier = matchTier(ai?.score);
+              if (!tier) {
+                return (
+                  <div style={{ padding: '18px 20px', background: '#F9FAFB', borderRadius: 12, border: '1px solid #EAECF0' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#101828', marginBottom: 6 }}>No match score yet</div>
+                    <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.6, marginBottom: 14 }}>
+                      This job is listed because it matches your search. To see how well it fits your resume,
+                      ProfilleAI checks each requirement in the posting against your profile. It takes about
+                      15 seconds and uses 1 job-match credit.
+                    </div>
+                    <button type="button"
+                      onClick={() => handleScoreJob(matchDialogJob)}
+                      disabled={scoringDialog}
+                      style={{ padding: '8px 18px', background: '#7C3AED', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: scoringDialog ? 'default' : 'pointer', opacity: scoringDialog ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <AutoAwesomeIcon style={{ fontSize: 14 }} /> {scoringDialog ? 'Checking each requirement…' : 'Get my match score'}
+                    </button>
+                  </div>
+                );
+              }
+              const pct = Math.round(ai.score);
+              const lists = matchLists(ai);
+              const chip = (bg, color, border) => ({ padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: bg, color, border: `1px solid ${border}`, lineHeight: 1.4 });
+              const group = (title, color, icon, items, style) => items.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color, marginBottom: 8 }}>
+                    {icon} {title} ({items.length})
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {items.map((r, i) => <span key={i} title={r.evidence || undefined} style={style}>{r.requirement}</span>)}
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: getMatchColor(displayScore), marginBottom: 4 }}>
-                    {displayScore >= 70 ? 'Excellent Match' : displayScore >= 50 ? 'Strong Match' : displayScore >= 25 ? 'Good Match' : 'Low Match'}
-                  </div>
-                  <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5 }}>
-                    Based on your skills, experience, and career preferences.
-                  </div>
-                </div>
-              </div>
               );
-            })()}
-
-            {/* Why this is a match */}
-            {matchBreakdown ? (() => {
-              const bd = matchBreakdown;
-              const reasons = [];
-              const details = [];
-
-              // Title/Role
-              if (bd.titleMatchPct >= 50) {
-                reasons.push({ icon: '🎯', text: 'Your job title closely matches this role', detail: `Your profile title shares key terms with "${matchDialogJob?.title}", signaling strong role alignment to recruiters and ATS systems.`, color: '#027A48' });
-              } else if (bd.titleMatchPct > 0) {
-                reasons.push({ icon: '🎯', text: 'Your job title partially overlaps with this role', detail: 'Some keywords in your title match, but tailoring your resume headline could improve visibility.', color: '#D97706' });
-              }
-
-              // Skills
-              if (bd.matchedSkills.length > 0 && bd.missingSkills.length === 0) {
-                reasons.push({ icon: '⚡', text: `You have all ${bd.matchedSkills.length} key skills they require`, detail: 'Your skill set fully covers what this job asks for, a strong signal for both ATS screening and recruiter review.', color: '#027A48' });
-              } else if (bd.matchedSkills.length > 0) {
-                const total = bd.matchedSkills.length + bd.missingSkills.length;
-                reasons.push({ icon: '⚡', text: `You match ${bd.matchedSkills.length} of ${total} required skills`, detail: `You cover most of the technical requirements. The ${bd.missingSkills.length} missing skill${bd.missingSkills.length > 1 ? 's' : ''} could be addressed by highlighting related experience in your resume.`, color: bd.missingSkills.length <= 2 ? '#027A48' : '#D97706' });
-              }
-
-              // Location
-              if (bd.locationMatch === 'remote') {
-                reasons.push({ icon: '📍', text: 'Remote position, open to your location', detail: 'This role supports remote work, so your current location is not a barrier.', color: '#027A48' });
-              } else if (bd.locationMatch === 'exact') {
-                reasons.push({ icon: '📍', text: `Located in ${bd.jobLocation}, matches your profile`, detail: 'Being in the same location gives you an advantage for onsite or hybrid positions.', color: '#027A48' });
-              } else if (bd.locationMatch === 'partial') {
-                reasons.push({ icon: '📍', text: `Near ${bd.jobLocation}, partial location match`, detail: 'You\'re in a nearby area. Consider mentioning willingness to relocate or commute in your application.', color: '#D97706' });
-              } else if (bd.jobLocation) {
-                reasons.push({ icon: '📍', text: `This role is in ${bd.jobLocation}`, detail: 'Your profile location doesn\'t match. If you\'re open to relocation, mention it in your cover letter.', color: '#667085' });
-              }
-
-              // Experience
-              if (bd.jobExpLevel) {
-                const levelLabels = { entry: 'Entry-level', mid: 'Mid-level', senior: 'Senior', lead: 'Lead/Staff', executive: 'Executive' };
-                const levelYears = { entry: 2, mid: 5, senior: 8, lead: 12, executive: 15 };
-                const expected = levelYears[bd.jobExpLevel] || 5;
-                const label = levelLabels[bd.jobExpLevel] || bd.jobExpLevel;
-                if (bd.yearsExp >= expected) {
-                  reasons.push({ icon: '📊', text: `${bd.yearsExp} years experience, exceeds ${label} expectations`, detail: `This is a ${label} role typically seeking ${expected}+ years. Your ${bd.yearsExp} years of experience make you a strong candidate.`, color: '#027A48' });
-                } else if (bd.yearsExp >= expected * 0.7) {
-                  reasons.push({ icon: '📊', text: `${bd.yearsExp} years experience, fits this ${label} role`, detail: `This ${label} position typically expects around ${expected} years. Your experience is within range, focus on impact and achievements in your resume.`, color: '#027A48' });
-                } else if (bd.yearsExp > 0) {
-                  reasons.push({ icon: '📊', text: `${bd.yearsExp} years experience for a ${label} role (${expected}+ expected)`, detail: `You have less experience than typically expected. Highlight leadership, complex projects, and measurable impact to compensate.`, color: '#D97706' });
-                }
-              } else if (bd.yearsExp > 0) {
-                reasons.push({ icon: '📊', text: `You bring ${bd.yearsExp} years of professional experience`, detail: 'No specific experience level was listed for this role, but your background adds credibility.', color: '#027A48' });
-              }
-
               return (
                 <div>
-                  {/* Why it's a match, detailed */}
-                  {reasons.length > 0 && (
-                    <div style={{ marginBottom: 20 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#344054', marginBottom: 10 }}>Why this is a match</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {reasons.map((r, i) => (
-                          <div key={i} style={{ padding: '12px 14px', background: '#F9FAFB', borderRadius: 10, border: '1px solid #EAECF0' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                              <span style={{ fontSize: 16 }}>{r.icon}</span>
-                              <span style={{ fontSize: 13, color: r.color, fontWeight: 600 }}>{r.text}</span>
-                            </div>
-                            <div style={{ fontSize: 12, color: '#667085', lineHeight: 1.6, paddingLeft: 26 }}>{r.detail}</div>
-                          </div>
-                        ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '16px 20px', background: '#F9FAFB', borderRadius: 12, marginBottom: 20, border: '1px solid #EAECF0' }}>
+                    <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
+                      <svg width="72" height="72" viewBox="0 0 72 72">
+                        <circle cx="36" cy="36" r="30" fill="none" stroke="#EAECF0" strokeWidth="6" />
+                        <circle cx="36" cy="36" r="30" fill="none" stroke={tier.color} strokeWidth="6" strokeLinecap="round" strokeDasharray={2 * Math.PI * 30} strokeDashoffset={2 * Math.PI * 30 * (1 - pct / 100)} transform="rotate(-90 36 36)" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+                      </svg>
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: '#101828' }}>{pct}</div>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#98A2B3' }}>%</div>
                       </div>
                     </div>
-                  )}
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: tier.color, marginBottom: 4 }}>{tier.label} — {tier.advice}</div>
+                      {ai.verdict && <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5 }}>{ai.verdict}</div>}
+                    </div>
+                  </div>
 
-                  {/* Matched Skills */}
-                  {bd.matchedSkills.length > 0 && (
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#027A48', marginBottom: 10 }}>
-                        <CheckCircleOutlineIcon style={{ fontSize: 16 }} /> Your Matching Skills ({bd.matchedSkills.length})
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {bd.matchedSkills.map((skill, i) => (
-                          <span key={i} style={{ padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#ECFDF3', color: '#027A48', border: '1px solid #A6F4C5', textTransform: 'capitalize' }}>{skill}</span>
-                        ))}
-                      </div>
+                  {lists.knockouts.length > 0 && (
+                    <div style={{ marginBottom: 16, padding: '12px 14px', background: '#FEF3F2', borderRadius: 10, border: '1px solid #FECDCA' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#B42318', marginBottom: 6 }}>Likely to fail screening</div>
+                      {lists.knockouts.map((b, i) => (
+                        <div key={i} style={{ fontSize: 12.5, color: '#7A271A', lineHeight: 1.5, marginTop: i ? 6 : 0 }}>
+                          <strong>{b.requirement}</strong>{b.why ? ` — ${b.why}` : ''}
+                        </div>
+                      ))}
                     </div>
                   )}
-
-                  {/* Missing Skills */}
-                  {bd.missingSkills.length > 0 && (
-                    <div style={{ marginBottom: 20 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#B54708', marginBottom: 10 }}>
-                        <WarningAmberIcon style={{ fontSize: 16 }} /> Skills to Develop ({bd.missingSkills.length})
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {bd.missingSkills.map((skill, i) => (
-                          <span key={i} style={{ padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89' }}>{skill}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {group('You meet', '#027A48', <CheckCircleOutlineIcon style={{ fontSize: 16 }} />, lists.met, chip('#ECFDF3', '#027A48', '#A6F4C5'))}
+                  {group('Partly shown on your resume', '#B54708', <WarningAmberIcon style={{ fontSize: 16 }} />, lists.partial, chip('#FFFAEB', '#B54708', '#FEDF89'))}
+                  {group('Not on your resume', '#B42318', <CloseIcon style={{ fontSize: 16 }} />, lists.gaps, chip('#FEF3F2', '#B42318', '#FECDCA'))}
 
                   {/* Tailor Resume CTA */}
                   <div style={{ padding: '16px 18px', background: 'linear-gradient(135deg, #F9F5FF, #F0F4FF)', borderRadius: 12, border: '1px solid #E9D5FF' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <AutoAwesomeIcon style={{ fontSize: 18, color: '#7C3AED' }} />
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#1D2939' }}>Improve Your Match</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#1D2939' }}>
+                        Improve your match{typeof ai.projectedScore === 'number' && ai.projectedScore > pct ? ` — tailoring can reach ~${Math.round(ai.projectedScore)}%` : ''}
+                      </span>
                     </div>
                     <div style={{ fontSize: 12, color: '#475467', lineHeight: 1.6, marginBottom: 12 }}>
-                      Use <strong>Tailor Resume</strong> to automatically rewrite your profile for this role. It will analyze gaps between your experience and this job's requirements, then adjust your bullet points, skills, and summary to better align, helping you pass ATS filters and stand out to recruiters.
+                      <strong>Tailor Resume</strong> rewords your resume to surface experience you already have for the items marked "partly shown". Gaps you don't have stay gaps.
                     </div>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                       <button type="button"
                         onClick={() => {
                           setMatchDialogOpen(false);
-                          if (matchDialogJob) {
-                            setSelectedJob({ ...matchDialogJob, _isExternal: true });
-                          }
+                          if (matchDialogJob) setSelectedJob({ ...matchDialogJob, _isExternal: true });
                         }}
                         style={{ padding: '8px 20px', background: 'white', color: '#344054', border: '1px solid #D0D5DD', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                       >
@@ -4091,11 +3971,7 @@ const CandidateJobs = () => {
                   </div>
                 </div>
               );
-            })() : (
-              <div style={{ textAlign: 'center', padding: '20px 0', color: '#667085', fontSize: 13 }}>
-                Loading breakdown...
-              </div>
-            )}
+            })()}
           </div>
         </DialogContent>
       </Dialog>

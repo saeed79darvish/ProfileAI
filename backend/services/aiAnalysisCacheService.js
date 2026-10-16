@@ -92,4 +92,35 @@ async function setCachedAnalysis({ kind, userId, profileData, jobDescription, re
   }
 }
 
-module.exports = { getCachedAnalysis, setCachedAnalysis, hashAnalysisInput };
+/**
+ * Batch lookup: cached results for many postings against one profile, in one
+ * query. `items` is [{ id, jobDescription }]; returns { [id]: result } for the
+ * hits only. Used by the job list to show real match scores without spending
+ * anything. Never throws.
+ */
+async function getCachedAnalyses({ kind, userId, profileData, items }) {
+  try {
+    const { AiAnalysisCache } = require('../models');
+    const byKey = new Map();
+    for (const item of items || []) {
+      if (!item?.jobDescription) continue;
+      byKey.set(buildKey(kind, userId, hashAnalysisInput(profileData, item.jobDescription)), item.id);
+    }
+    if (byKey.size === 0) return {};
+    const rows = await AiAnalysisCache.findAll({
+      where: {
+        cacheKey: { [Op.in]: Array.from(byKey.keys()) },
+        [Op.or]: [{ expiresAt: null }, { expiresAt: { [Op.gt]: new Date() } }],
+      },
+      attributes: ['cacheKey', 'resultJson'],
+    });
+    const out = {};
+    for (const row of rows) out[byKey.get(row.cacheKey)] = row.resultJson;
+    return out;
+  } catch (err) {
+    console.warn('[AiAnalysisCache] batch read failed:', err.message);
+    return {};
+  }
+}
+
+module.exports = { getCachedAnalysis, getCachedAnalyses, setCachedAnalysis, hashAnalysisInput };

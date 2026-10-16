@@ -369,7 +369,13 @@ export const profileAPI = {
     api.post('/profiles/tailor-for-job', { jobDescription, jobTitle, company, gapSelections, tailorSettings }),
   regenerateSections: ({ profileData, instructions }) => api.post('/profiles/regenerate-sections', { profileData, instructions }),
   generateCoverLetter: (data) => api.post('/profiles/generate-cover-letter', data),
-  keywordOptimization: ({ jobDescription }) => api.post('/profiles/keyword-optimization', { jobDescription })
+  keywordOptimization: ({ jobDescription }) => api.post('/profiles/keyword-optimization', { jobDescription }),
+  // The one match score: requirements read and graded against the stored
+  // profile. By id for postings we hold, so every surface scores the same text.
+  jobMatch: ({ externalJobId, jobDescription, jobTitle }) =>
+    api.post('/profiles/job-match', { externalJobId, jobDescription, jobTitle }),
+  // Stored scores only, for a page of jobs. Spends nothing.
+  jobMatchCached: (externalJobIds) => api.post('/profiles/job-match/cached', { externalJobIds })
 };
 
 // Smart Match API
