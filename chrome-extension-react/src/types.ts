@@ -82,9 +82,12 @@ export interface KeywordAnalysis {
    *  Absent on the on-device pass, which has no notion of evidence strength. */
   partial?: string[];
   missing: string[];
+  /** Requirements the on-device scorer could not judge, left out of its score.
+   *  Always empty on the AI pass, which reads every requirement. */
+  unchecked?: string[];
   totalKeywords: number;
-  /** Where this came from. Scoring is on-device now, so 'local' is the normal
-   *  case; 'ai' remains for results restored from an older cached task. */
+  /** Where this came from. 'local' is the normal on-device score; 'ai' is the
+   *  opt-in AI analysis the user ran from the card. */
   source?: 'local' | 'ai';
   /** Importance per keyword (lowercased key) from the AI pass. The local pass
    *  has no notion of importance and leaves this undefined. */
@@ -120,6 +123,8 @@ export interface KeywordAnalysis {
     /** Requirements that carried weight, and responsibilities that didn't. */
     scoredCount: number;
     unscoredCount: number;
+    /** On-device only: requirements it could not judge, left out of the score. */
+    uncheckedCount?: number;
     /** 'dates' when seniority came from the profile's dates against a stated
      *  minimum, 'model' when the posting named no years and we fell back. */
     seniorityBasis: 'dates' | 'model';
@@ -170,6 +175,7 @@ export type MessageType =
   | 'CHECK_AUTH_SILENT'
   | 'SYNC_AUTH_FROM_WEB'
   | 'ANALYZE_KEYWORDS'
+  | 'DEEP_JOB_MATCH'
   | 'GENERATE_AI_ANSWERS'
   | 'LOGIN_WITH_CREDENTIALS'
   | 'REGISTER'

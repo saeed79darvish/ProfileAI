@@ -50,6 +50,10 @@ export interface LocalRequirement {
   evidence: string;
   hasRelatedEvidence: boolean;
   whyBlocking?: string;
+  /** Names nothing in the vocabulary and shares no wording with the profile,
+   *  so on-device matching has no way to judge it either way. Left out of the
+   *  score and the blockers rather than counted as a gap the scorer can't see. */
+  unchecked?: boolean;
 }
 
 /** The vocabulary and matching rules, supplied by the caller so the job-page
@@ -84,8 +88,12 @@ const HEADINGS: Array<{ kind: SectionKind; re: RegExp }> = [
     re: /\b(benefits?|perks?|compensation|salary|pay range|equal opportunity|eeo|e\.e\.o|about (?:us|the company|our)|our (?:mission|values|culture|team)|why (?:join|work)|how to apply|application process|interview process|what we offer|diversity)\b/i,
   },
   {
+    // "haves?" because the plural is how plenty of postings write it ("Nice to
+    // Haves"), and the singular alone stops matching at the "s". Missing it
+    // left the section on the requirements heading above, so every preferred
+    // item was scored as required — and listed as failing the screen.
     kind: 'nice',
-    re: /\b(preferred|nice[-\s]to[-\s]have|bonus|pluses|a plus|desirable|desired|good to have|extra credit|additional qualifications|even better|stand ?out)\b/i,
+    re: /\b(preferred|nice[-\s]to[-\s]haves?|bonus|pluses|a plus|desirable|desired|good to have|extra credit|additional qualifications|even better|stand ?out)\b/i,
   },
   {
     // The conditional "you might be a good fit if you:" family matters as much
@@ -249,8 +257,18 @@ const YEARS_RE = /(\d{1,2})\s*(?:\+|-|–|to)?\s*(\d{1,2})?\s*\+?\s*years?/i;
 const DEGREE_RE = /\b(bachelor'?s?|master'?s?|ba|bs|b\.s|m\.s|ms|mba|phd|ph\.d|doctorate|degree|diploma)\b/i;
 const CREDENTIAL_RE = /\b(certif\w+|licen[cs]\w+|clearance|accredit\w+|pmp|cpa|cissp|cfa|scrum master)\b/i;
 const TITLE_RE = /\b(?:experience|worked|working|has been)\s+(?:as|in the role of)\s+an?\s+([a-z\s]{3,30})/i;
+/**
+ * Traits rather than skills. The craft/taste group ("eye for detail",
+ * "pixel-perfect", "product grit") is how design-heavy frontend postings phrase
+ * the same thing "attention to detail" says; read as skills they had no
+ * vocabulary to match on and turned into screening blockers nobody can act on.
+ *
+ * "Collaborative" is excluded when it names a kind of software ("collaborative
+ * systems", "collaborative editing") — that is a CRDT/sync requirement, and
+ * reading it as teamwork credited it on profile wording alone.
+ */
 const SOFT_RE =
-  /\b(communicat\w+|collaborat\w+|teamwork|team player|interpersonal|ownership|self[-\s]starter|detail[-\s]oriented|attention to detail|problem[-\s]solv\w+|critical thinking|adaptab\w+|curious|curiosity|passion\w*|proactive|autonom\w+|organiz\w+ skills|time management|written and verbal|stakeholder management)\b/i;
+  /\b(communicat\w+|collaborat\w+(?!\s+(?:systems?|editing|software|tools?|platforms?|apps?|applications?|engines?))|teamwork|team player|interpersonal|ownership|self[-\s]starter|detail[-\s]oriented|attention to detail|eye for detail|pixel[-\s]perfect|visual polish|craftsmanship|product (?:grit|sense|taste)|problem[-\s]solv\w+|critical thinking|adaptab\w+|curious|curiosity|passion\w*|proactive|autonom\w+|organiz\w+ skills|time management|written and verbal|stakeholder management)\b/i;
 const DOMAIN_RE =
   /\b(fintech|financial services|healthcare|health tech|insurtech|e[-\s]?commerce|retail|saas|b2b|b2c|marketplace|gaming|edtech|adtech|logistics|supply chain|telecom|automotive|aerospace|biotech|pharma|govern\w+|public sector|non[-\s]?profit|media|travel|real estate|cyber\s?security)\b/i;
 
@@ -369,6 +387,13 @@ function candidateYears(experience: any[]): number | null {
   return covered / MS_PER_YEAR;
 }
 
+/**
+ * Short terms with no other reading in prose. "Worked with the UX team" is
+ * evidence of UX; skipping it told a frontend engineer who'd partnered with UX
+ * for years that UX "does not appear in your profile".
+ */
+const PROSE_SAFE_SHORT = new Set(['ux', 'ui', 'qa', '3d', 'vr', 'd3']);
+
 function indexProfile(profile: any, vocab: Vocabulary, flatSkills: string[]): ProfileIndex {
   const skillTerms = new Set<string>();
   const recentTerms = new Set<string>();
@@ -390,9 +415,10 @@ function indexProfile(profile: any, vocab: Vocabulary, flatSkills: string[]): Pr
     const recent = isRecent(role);
     const where = `[${i + 1}] ${role?.title || role?.position || 'Role'}${role?.company ? ` at ${role.company}` : ''}`;
     for (const keyword of vocab.keywords) {
-      // Two-letter terms ("ai", "go", "ux") hit far too easily inside prose
-      // like "go-to-market", so only an explicit skills entry claims them.
-      if (keyword.length <= 2) continue;
+      // Two-letter terms ("ai", "go") hit far too easily inside prose like
+      // "go-to-market", so only an explicit skills entry claims them — except
+      // the few that mean one thing wherever they appear.
+      if (keyword.length <= 2 && !PROSE_SAFE_SHORT.has(keyword)) continue;
       if (!vocab.contains(text, keyword)) continue;
       const canonical = vocab.canonical(keyword);
       (recent ? recentTerms : datedTerms).add(canonical);
@@ -463,6 +489,10 @@ const SKILL_FAMILIES: string[][] = [
   ['figma', 'sketch', 'adobe xd'],
   ['ci/cd', 'jenkins', 'github actions', 'circleci', 'gitlab ci'],
   ['machine learning', 'ai', 'nlp', 'deep learning', 'data science'],
+  ['three.js', 'webgl', 'webgpu', 'opengl', 'shaders', 'canvas', 'svg', 'd3', '3d', 'vr'],
+  ['deck.gl', 'mapbox', 'maplibre', 'leaflet', 'openlayers', 'cesium', 'gis', 'postgis', 'geospatial', 'vector tiles'],
+  ['crdt', 'yjs', 'automerge', 'operational transforms', 'websocket', 'webrtc'],
+  ['redux', 'mobx', 'zustand', 'recoil', 'jotai', 'react query', 'swr', 'xstate'],
 ];
 
 const familyOf = (term: string): string[] | null =>
@@ -662,7 +692,11 @@ function gradeRequirement(
     if (words.length > 0 && hits / words.length >= 0.5) {
       return { ...base, coverage: 'partial', evidence: 'Wording overlaps your profile' };
     }
-    return { ...base, coverage: 'none', evidence: '', hasRelatedEvidence: false };
+    // No overlap is not evidence of absence here: "Understanding of coordinate
+    // system conversions" can't be matched by a keyword list at all. Scoring it
+    // as a required gap capped a Staff frontend engineer at 49 for "Eye for
+    // Detail" — so it is recorded as unjudged and left for the AI analysis.
+    return { ...base, coverage: 'none', evidence: '', hasRelatedEvidence: false, unchecked: true };
   }
 
   const graded = terms.map((term) => ({ term, coverage: termCoverage(term, idx) }));
@@ -738,11 +772,24 @@ const ADJACENT: Array<[string, string]> = [
   ['data', 'finance'],
 ];
 
+/** Engineering specialties that settle the family on their own. Generic
+ *  "Software" is deliberately absent: "Platform Software Engineer" is platform. */
+const ENGINEERING_SPECIALTY = /\b(front[-\s]?end|back[-\s]?end|full[-\s]?stack|mobile|ios|android|web|ui)\b/;
+
 function familyFromTitle(title: string): string | null {
   const lower = ` ${title.toLowerCase()} `;
+  const isEngineer = ROLE_FAMILIES.engineering.test(lower);
   // Most specific first: "engineering manager" is management, not engineering.
   for (const key of ['management', 'platform', 'qa', 'data', 'product', 'design']) {
-    if (ROLE_FAMILIES[key].test(lower)) return key;
+    if (!ROLE_FAMILIES[key].test(lower)) continue;
+    // An engineer title naming its product is not a change of family:
+    // "Staff Frontend Engineer - Mapping & Spatial Platform" is frontend work,
+    // and "Senior UI Engineer" builds UI rather than designing it. Both were
+    // read as other families, costing a like-for-like candidate 30% of the
+    // score through role fit.
+    if (isEngineer && key === 'design') continue;
+    if (isEngineer && key === 'platform' && ENGINEERING_SPECIALTY.test(lower)) continue;
+    return key;
   }
   for (const [key, re] of Object.entries(ROLE_FAMILIES)) {
     if (re.test(lower)) return key;
@@ -870,7 +917,7 @@ function coverageOf(requirements: LocalRequirement[]): CoverageResult {
   let partial = 0;
   for (const r of requirements) {
     const w = TYPE_WEIGHT[r.type] ?? 1;
-    if (w <= 0) continue;
+    if (w <= 0 || r.unchecked) continue;
     weight += w;
     earned += w * COVERAGE_CREDIT[r.coverage];
     counted += 1;
@@ -937,6 +984,8 @@ export interface LocalMatchResult {
   present: string[];
   partial: string[];
   missing: string[];
+  /** Requirements on-device matching could not judge; excluded from the score. */
+  unchecked: string[];
   totalKeywords: number;
   source: 'local';
   provisional: false;
@@ -986,6 +1035,15 @@ export function analyzeJobMatchLocally(
 
   const requirements = classified.map((r) => gradeRequirement(r, idx, vocab, stated));
 
+  // Every scoreable line was beyond what keyword matching can judge. A score
+  // from what's left would be a number built from nothing.
+  if (!requirements.some((r) => (TYPE_WEIGHT[r.type] ?? 1) > 0 && !r.unchecked)) {
+    return {
+      unscorable:
+        "None of this posting's requirements name skills we can check on-device. Run the AI analysis for a score.",
+    };
+  }
+
   const must = requirements.filter((r) => r.hardness === 'must');
   const nice = requirements.filter((r) => r.hardness !== 'must');
   const mustCoverage = coverageOf(must);
@@ -1014,7 +1072,7 @@ export function analyzeJobMatchLocally(
   const raw = Math.round(100 * coverage * modifiers);
 
   const blockers = must
-    .filter((r) => r.coverage === 'none' && SCREENABLE_TYPES.has(r.type))
+    .filter((r) => r.coverage === 'none' && !r.unchecked && SCREENABLE_TYPES.has(r.type))
     .map((r) => ({
       // Shortened for display, like every other requirement the card shows —
       // a screening verdict quoting a sentence that stops mid-clause reads as
@@ -1037,7 +1095,7 @@ export function analyzeJobMatchLocally(
     { weight: WEIGHTS.nice, value: coverageOf(projected.filter((r) => r.hardness !== 'must')).ratio },
   ]);
   const projectedBlockers = projected.filter(
-    (r) => r.hardness === 'must' && r.coverage === 'none' && SCREENABLE_TYPES.has(r.type),
+    (r) => r.hardness === 'must' && r.coverage === 'none' && !r.unchecked && SCREENABLE_TYPES.has(r.type),
   );
   const projectedRaw = Math.min(95, Math.round(100 * projectedCoverage * modifiers));
   const projectedScore = Math.max(
@@ -1047,7 +1105,8 @@ export function analyzeJobMatchLocally(
 
   // Lists for the card. Responsibilities are left out: the score excludes them,
   // so showing them as gaps would hand the user work no screen checks.
-  const scored = requirements.filter((r) => (TYPE_WEIGHT[r.type] ?? 1) > 0);
+  const weighted = requirements.filter((r) => (TYPE_WEIGHT[r.type] ?? 1) > 0);
+  const scored = weighted.filter((r) => !r.unchecked);
   const byHardness = (list: LocalRequirement[]) => [
     ...list.filter((r) => r.hardness === 'must'),
     ...list.filter((r) => r.hardness !== 'must'),
@@ -1059,6 +1118,7 @@ export function analyzeJobMatchLocally(
   const partial = byHardness(scored.filter((r) => r.coverage === 'partial')).map(label).slice(0, 12);
   const uncovered = byHardness(scored.filter((r) => r.coverage === 'none'));
   const missing = uncovered.map(label).slice(0, 16);
+  const unchecked = byHardness(weighted.filter((r) => r.unchecked)).map(label).slice(0, 12);
 
   // Both sides key on the DISPLAY label, which is also what `missing` holds, so
   // the card can look a priority up by the string it is rendering. Requirements
@@ -1086,6 +1146,7 @@ export function analyzeJobMatchLocally(
     present,
     partial,
     missing,
+    unchecked,
     totalKeywords: scored.length,
     source: 'local',
     provisional: false,
@@ -1105,6 +1166,7 @@ export function analyzeJobMatchLocally(
       partialCount: mustCoverage.partial + niceCoverage.partial,
       scoredCount: scored.length,
       unscoredCount: requirements.length - scored.length,
+      uncheckedCount: weighted.length - scored.length,
       seniorityBasis: derivedSeniority === null ? 'unstated' : 'dates',
       candidateYears: idx.years === null ? null : Number(idx.years.toFixed(1)),
       requiredYears: stated,

@@ -580,6 +580,12 @@ async function handleMessage(
         break;
       }
 
+      case 'DEEP_JOB_MATCH': {
+        const deepData = message.data as { jobDescription: string; jobTitle?: string };
+        sendResponse(await deepJobMatch(deepData.jobDescription, deepData.jobTitle));
+        break;
+      }
+
       case 'ANALYZE_KEYWORDS':
         const keywordData = message.data as { jobDescription: string; jobTitle?: string };
         const keywordResult = await analyzeKeywords(keywordData.jobDescription, keywordData.jobTitle);
@@ -1692,6 +1698,84 @@ async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
 }
 
 /**
+ * The AI read of a posting, on request.
+ *
+ * The on-device scorer matches against a keyword list, so a requirement phrased
+ * in plain language ("understanding of coordinate system conversions") is beyond
+ * it, and it can't see that "rebuilt the component library" evidences design
+ * systems. /profiles/job-match has the model extract each requirement and cite
+ * the evidence for it, then runs the same arithmetic as the local scorer — so
+ * the two numbers are comparable, and this one is the better-informed.
+ *
+ * Opt-in rather than automatic: it spends an AI credit, which is why the
+ * automatic second pass was removed in the first place.
+ */
+async function deepJobMatch(jobDescription: string, jobTitle?: string) {
+  if (!authToken) {
+    return { success: false, error: 'Sign in to run the AI analysis' };
+  }
+  try {
+    // No profile in the body — the server scores against the stored record.
+    const response = await fetch(`${CONFIG.API_BASE}/profiles/job-match`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jobDescription, jobTitle }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'AI analysis failed');
+    }
+    const { data } = await response.json();
+    return { success: true, keywords: shapeServerJobMatch(data) };
+  } catch (error) {
+    console.error('[ProfileAI] Deep job match error:', error);
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/** The server's job-match payload in the shape the match card renders —
+ *  the same lists and priority rules the local scorer produces. */
+function shapeServerJobMatch(data: any) {
+  const requirements: any[] = Array.isArray(data?.requirements) ? data.requirements : [];
+  // Responsibilities carry no weight on the server either; showing them as
+  // gaps would hand the user work no screen checks.
+  const scored = requirements.filter((r) => r?.type !== 'responsibility' && r?.requirement);
+  const byHardness = (list: any[]) => [
+    ...list.filter((r) => r.hardness === 'must'),
+    ...list.filter((r) => r.hardness !== 'must'),
+  ];
+  const names = (coverage: string) =>
+    byHardness(scored.filter((r) => r.coverage === coverage)).map((r) => String(r.requirement));
+  const blockers: Array<{ requirement: string; type: string; why: string }> = Array.isArray(data?.blockers)
+    ? data.blockers
+    : [];
+  const blockerSet = new Set(blockers.map((b) => b.requirement.toLowerCase()));
+  const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
+  for (const r of scored.filter((q) => q.coverage === 'none')) {
+    const key = String(r.requirement).toLowerCase();
+    priorities[key] = blockerSet.has(key) ? 'high' : r.hardness === 'must' ? 'medium' : 'low';
+  }
+  return {
+    matchScore: Number(data?.score) || 0,
+    projectedScore: Number(data?.projectedScore) || 0,
+    present: names('strong'),
+    partial: names('partial'),
+    missing: names('none'),
+    unchecked: [],
+    totalKeywords: scored.length,
+    source: 'ai' as const,
+    provisional: false,
+    priorities,
+    blockers,
+    components: data?.components,
+    verdict: typeof data?.verdict === 'string' ? data.verdict : '',
+  };
+}
+
+/**
  * The AI second pass is gone.
  *
  * The match card used to show an instant on-device keyword ratio and then
@@ -1700,7 +1784,7 @@ async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
  * a second AI run on an unchanged posting). Scoring now happens on-device in
  * jobMatch/localJobMatch.ts, so there is one pass, no credit spent, no cache to
  * keep coherent, and no failure mode where the score never arrives. The server
- * endpoint still exists for the web app.
+ * endpoint is still reachable on request — see deepJobMatch above.
  */
 
 // Generic soft-skill / business terms that show up in nearly every JD as filler.
@@ -1752,8 +1836,18 @@ const KNOWN_KEYWORDS = [
   'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt', 'gatsby',
   'html', 'css', 'sass', 'less', 'tailwind', 'bootstrap', 'material ui',
   'webpack', 'vite', 'rollup', 'babel', 'storybook',
-  'redux', 'mobx', 'zustand', 'recoil',
+  'redux', 'mobx', 'zustand', 'recoil', 'jotai', 'xstate',
+  'react query', 'tanstack query', 'swr',
   'frontend', 'front-end', 'front end',
+  // Graphics, mapping & real-time collaboration — without these a graphics or
+  // geospatial posting had nothing to match on, and every requirement in it
+  // fell through to raw word overlap.
+  'webgl', 'webgpu', 'three.js', 'threejs', 'opengl', 'glsl', 'shaders', 'shader',
+  'canvas', 'svg', 'd3', 'd3.js', '3d', 'vr', 'virtual reality', 'webxr',
+  'deck.gl', 'mapbox', 'maplibre', 'leaflet', 'openlayers', 'cesium',
+  'gis', 'postgis', 'geospatial', 'vector tiles', 'mvt',
+  'crdt', 'yjs', 'automerge', 'operational transforms', 'operational transformation',
+  'webrtc', 'web workers', 'webassembly', 'wasm',
   // Backend
   'node.js', 'nodejs', 'express', 'fastify', 'nestjs', 'django', 'flask', 'fastapi',
   'spring', 'spring boot', '.net', 'asp.net', 'rails', 'ruby on rails', 'laravel',
@@ -1847,6 +1941,9 @@ const KEYWORD_ALIASES: Record<string, string> = {
   'natural language processing': 'nlp',
   'artificial intelligence': 'ai',
   'machine-learning': 'machine learning',
+  'threejs': 'three.js', 'd3.js': 'd3', 'shader': 'shaders', 'glsl': 'shaders',
+  'tanstack query': 'react query', 'virtual reality': 'vr', 'wasm': 'webassembly',
+  'mvt': 'vector tiles', 'operational transformation': 'operational transforms',
 };
 
 /** Canonical form of a keyword ("nodejs" and "node.js" are the same thing). */

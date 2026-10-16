@@ -207,3 +207,119 @@ test('the score stays inside 0..100', () => {
     assert.ok(r.matchScore >= 0 && r.matchScore <= 100, `out of range: ${r.matchScore}`);
   }
 });
+
+// ── A Staff frontend engineer reading a frontend posting at 21% ─────────────
+//
+// Reported on a Verkada "Staff Frontend Engineer - Mapping & Spatial Platform"
+// posting. A like-for-like candidate scored 21% because: the "Nice to Haves"
+// heading wasn't recognised, so preferred items were scored as required; the
+// word "Platform" in the title and "UI" in the candidate's titles moved both
+// into other role families; and trait lines ("Eye for Detail") with nothing to
+// match on were listed as failing the screen.
+
+const SPATIAL_VOCAB = {
+  ...vocab,
+  keywords: [...KEYWORDS, 'javascript', 'ux', 'three.js', 'webgl', 'deck.gl', 'postgis', 'yjs', 'crdt'],
+};
+
+const SPATIAL_POSTING = `
+What You Bring
+• 5+ years of experience building complex, customer-facing web applications.
+• Mastery of Web Technologies: JavaScript fundamentals and React expertise.
+• Eye for Detail: Pixel-perfect execution — you notice the half-pixel misalignment, the 16ms jank.
+• Product Grit: Ability to bridge the gap between CAD-level precision and consumer-grade UX.
+• Spatial Reasoning: Understanding of coordinate system conversions and projections.
+Nice to Haves
+• Graphics Stack: Experience with Deck.gl, MapLibre, Three.js, or raw WebGL/WebGPU.
+• Collaborative Systems: Experience with real-time sync architectures (e.g., Yjs).
+• Geospatial Mastery: Familiarity with PostGIS and GIS workflows.
+`.trim();
+
+const UI_ENGINEER = {
+  ...PROFILE,
+  title: 'Senior UI Software Architect Engineer',
+  skills: [...PROFILE.skills, 'JavaScript'],
+  experience: [
+    { ...PROFILE.experience[0], title: 'Senior UI Software Architect Engineer',
+      description: 'Built React and TypeScript design systems in partnership with the UX team.' },
+    { ...PROFILE.experience[1], title: 'Lead UI Software Development Engineer' },
+  ],
+};
+
+const runSpatial = (profile = UI_ENGINEER) =>
+  analyzeJobMatchLocally({
+    jobDescription: SPATIAL_POSTING,
+    jobTitle: 'Staff Frontend Engineer - Mapping & Spatial Platform',
+    profile,
+    vocab: SPATIAL_VOCAB,
+  });
+
+const reqNamed = (r, prefix) => r.requirements.find((q) => q.requirement.startsWith(prefix));
+
+test('"Nice to Haves" (plural) is read as a preferred section', () => {
+  const r = runSpatial();
+  for (const prefix of ['Graphics Stack', 'Collaborative Systems', 'Geospatial Mastery']) {
+    assert.equal(reqNamed(r, prefix)?.hardness, 'nice', `${prefix} scored as required`);
+  }
+  assert.ok(
+    !r.blockers.some((b) => /Graphics Stack|Geospatial/.test(b.requirement)),
+    'a preferred item is listed as failing the screen',
+  );
+});
+
+test('a product name in an engineering title does not change the role family', () => {
+  const r = runSpatial();
+  assert.equal(r.components.roleFit, 1, `role fit ${r.components.roleFit} (${r.components.roleFitBasis})`);
+});
+
+test('a genuinely different platform role is still adjacent, not the same', () => {
+  const r = analyzeJobMatchLocally({
+    jobDescription: SPATIAL_POSTING,
+    jobTitle: 'Senior Platform Software Engineer',
+    profile: UI_ENGINEER,
+    vocab: SPATIAL_VOCAB,
+  });
+  assert.equal(r.components.roleFit, 0.7);
+});
+
+test('trait requirements never fail the screen', () => {
+  const r = runSpatial();
+  for (const prefix of ['Eye for Detail', 'Product Grit']) {
+    assert.equal(reqNamed(r, prefix)?.type, 'soft', `${prefix} read as a hard skill`);
+    assert.ok(!r.blockers.some((b) => b.requirement.startsWith(prefix)), `${prefix} listed as a blocker`);
+  }
+});
+
+test('"collaborative systems" is a technical requirement, not teamwork', () => {
+  assert.equal(reqNamed(runSpatial(), 'Collaborative Systems')?.type, 'skill');
+});
+
+test('UX named in a role description is evidence of UX', () => {
+  const r = runSpatial();
+  assert.notEqual(reqNamed(r, 'Product Grit')?.evidence, 'Not stated either way in your profile');
+  const terms = r.requirements.filter((q) => /\bUX\b/.test(q.requirement));
+  assert.ok(terms.every((q) => q.coverage !== 'none'), 'UX in a role description was ignored');
+});
+
+test('a requirement nothing on-device can judge is left out, not failed', () => {
+  const r = runSpatial();
+  const spatial = reqNamed(r, 'Spatial Reasoning');
+  assert.equal(spatial?.unchecked, true);
+  assert.ok(!r.blockers.some((b) => b.requirement.startsWith('Spatial Reasoning')));
+  assert.ok(r.unchecked.some((u) => u.startsWith('Spatial Reasoning')));
+  assert.ok(!r.missing.some((m) => m.startsWith('Spatial Reasoning')), 'shown as a gap as well');
+  assert.equal(r.components.uncheckedCount, 1);
+});
+
+test('a posting where nothing can be checked is unscorable, not 0%', () => {
+  const r = analyzeJobMatchLocally({
+    jobDescription: `What You Bring
+• Understanding of coordinate system conversions and projections.
+• Intuition for numerical stability under floating point error.
+• Comfort reasoning about quaternions and homogeneous coordinates.`,
+    jobTitle: 'Staff Frontend Engineer',
+    profile: UI_ENGINEER,
+    vocab: SPATIAL_VOCAB,
+  });
+  assert.ok('unscorable' in r, `scored ${r.matchScore} from nothing`);
+});
