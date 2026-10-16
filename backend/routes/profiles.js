@@ -479,6 +479,9 @@ router.delete('/delete-image', authMiddleware, async (req, res) => {
     
     if (result.result === 'ok' || result.result === 'not found') {
       console.log(`Deleted profile image from Cloudinary: ${publicId}`);
+      // Clear the reference too. Deleting the file while the profile still
+      // pointed at it left every avatar showing a broken image.
+      await userProfile.update({ profilePicture: null });
       res.json({ success: true, message: 'Image deleted successfully' });
     } else {
       console.error('Cloudinary delete result:', result);
@@ -2273,6 +2276,23 @@ router.get('/me', authMiddleware, async (req, res) => {
 
     if (!profile) {
       return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    // Repair a stored LinkedIn photo link: an expired one is replaced with the
+    // account's working sign-in photo (or cleared), a still-valid one is copied
+    // to Cloudinary before it can expire. Saving through the instance runs the
+    // model hook, which does the copy.
+    {
+      const { resolveAvatar } = require('../services/avatarService');
+      const { url, needsUpdate } = resolveAvatar(profile.profilePicture, req.user?.profilePictureUrl);
+      if (needsUpdate) {
+        try {
+          await profile.update({ profilePicture: url });
+        } catch (repairErr) {
+          console.warn('Avatar repair failed:', repairErr.message);
+          profile.profilePicture = url;
+        }
+      }
     }
 
     // Backfill avatar from OAuth provider photo (User.profilePictureUrl)

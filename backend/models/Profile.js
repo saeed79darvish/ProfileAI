@@ -155,6 +155,17 @@ const Profile = sequelize.define('Profile', {
 }, {
   timestamps: true,
   hooks: {
+    // LinkedIn photo links expire (a signed `e=` timestamp in the URL), so one
+    // is never stored as-is: it is copied to Cloudinary on the way in. Every
+    // write path — LinkedIn import, sign-in seeding, profile saves — passes
+    // through here, which is why the fix lives in the hook and not at each one.
+    beforeSave: async (profile) => {
+      if (!profile.changed('profilePicture')) return;
+      const { isLinkedInCdnUrl, persistAvatar } = require('../services/avatarService');
+      if (isLinkedInCdnUrl(profile.profilePicture)) {
+        profile.profilePicture = await persistAvatar(profile.profilePicture, { userId: profile.userId });
+      }
+    },
     afterSave: async (profile, options) => {
       // Auto-generate embeddings when embedding-relevant fields change.
       const embeddingFields = ['title', 'headline', 'summary', 'skills', 'aiKeywords', 'experience'];

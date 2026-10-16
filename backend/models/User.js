@@ -141,6 +141,15 @@ const User = sequelize.define('User', {
 }, {
   timestamps: true,
   hooks: {
+    // Same rule as Profile: a LinkedIn sign-in photo link expires, so it is
+    // copied to Cloudinary before it is stored.
+    beforeSave: async (user) => {
+      if (!user.changed('profilePictureUrl')) return;
+      const { isLinkedInCdnUrl, persistAvatar } = require('../services/avatarService');
+      if (isLinkedInCdnUrl(user.profilePictureUrl)) {
+        user.profilePictureUrl = await persistAvatar(user.profilePictureUrl, { userId: `user-${user.id}` });
+      }
+    },
     beforeCreate: async (user) => {
       if (user.password) {
         const salt = await bcrypt.genSalt(10);
