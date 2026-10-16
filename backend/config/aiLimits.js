@@ -29,6 +29,7 @@
  *   career_suggestions  ~$0.020  (Claude Haiku — ~$0.006)
  *   post_enhance        ~$0.015  (Claude Haiku — ~$0.004)
  *   interview_prep      ~$0.145  (8k token response — Pro+ only)
+ *   job_match           ~$0.036  (Sonnet 5.5, measured; repeats are cached free)
  *   job_enhance         ~$0.026  (recruiter only)
  */
 
@@ -48,6 +49,7 @@ const AI_LIMITS = {
       career_suggestions: { lifetime: 10, weekly: -1 }, // guide them through
       profile_coach:      { lifetime: 80, weekly: -1 }, // the coach IS onboarding
       interview_prep:     { lifetime: 0,  weekly: 0  }, // Pro feature
+      job_match:          { lifetime: 15, weekly: -1 }, // score jobs while building the profile
     },
     // ── FREE (post-onboarding) ──────────────────────────────────────────
     free: {
@@ -59,6 +61,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: 10, weekly: -1 },
       profile_coach:      { monthly: 30, weekly: -1 },
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro+ only
+      job_match:          { monthly: 15, weekly: -1 },
     },
     // ── STARTER ($6.99/month) ──────────────────────────────────────────
     starter: {
@@ -70,6 +73,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 }, // unlimited
       profile_coach:      { monthly: 100, weekly: -1 },
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro only
+      job_match:          { monthly: 60, weekly: -1 },
     },
     // ── PRO ($14.99/month) ─────────────────────────────────────────────
     pro: {
@@ -81,6 +85,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
       interview_prep:     { monthly: 3,  weekly: -1 },
+      job_match:          { monthly: 200, weekly: -1 },
     },
     // ── PRO+ ($29.99/month) ────────────────────────────────────────────
     // ApplyPilot auto-apply is gated separately at the feature level.
@@ -93,6 +98,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1,  weekly: -1 },
       profile_coach:      { monthly: -1,  weekly: -1 },
       interview_prep:     { monthly: 10,  weekly: -1 },
+      job_match:          { monthly: 500, weekly: -1 },
     },
     // ── ENTERPRISE (legacy) ────────────────────────────────────────────
     // Retained for existing rows. New signups use pro_plus.
@@ -105,6 +111,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
       interview_prep:     { monthly: -1, weekly: -1 },
+      job_match:          { monthly: -1, weekly: -1 },
     }
   },
   // Recruiter limits kept for future use
@@ -150,6 +157,7 @@ const FEATURE_NAMES = {
   job_enhance: 'Job Description Enhancement',
   career_suggestions: 'Career Suggestions',
   interview_prep: 'Interview Preparation',
+  job_match: 'Job Match Analysis',
   analyze_gaps: 'Skill Gap Analysis',
   generate_answers: 'Application Answer Generation',
 };
@@ -167,6 +175,7 @@ const ESTIMATED_COSTS = {
   job_enhance: 0.007,        // Haiku  — recruiter-only
   career_suggestions: 0.006, // Haiku  — ~70% cheaper than Sonnet ($0.020)
   interview_prep: 0.145,     // Sonnet — 8k token response, Pro+ only
+  job_match: 0.036,          // Sonnet 5.5 — measured: ~6k in / ~2.4k out per posting
   analyze_gaps: 0.015,       // Sonnet — complex analysis
   generate_answers: 0.025,   // Sonnet — personalized content
 };

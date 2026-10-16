@@ -2,7 +2,6 @@
 import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
 import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
-import { analyzeJobMatchLocally, type Vocabulary } from '../jobMatch/localJobMatch';
 import { scrapeJobFromDocument, mergeScrapes } from '../jobScrape';
 
 // Any task that was still running when a previous worker generation was torn
@@ -468,10 +467,14 @@ async function handleMessage(
 
       case 'ANALYZE_JOB_PAGE': {
         // Runs as a durable task so closing the side panel mid-analysis does not
-        // kill the page extraction, which is the slow part — the scoring itself
-        // is on-device and immediate.
+        // lose the result. Scoring is an AI call that spends an allowance, so it
+        // runs only when asked for (`score: true` — the Analyze button). Tailor,
+        // answers and the match modal re-read the page for its text alone.
         const pageKey = await activeTabJobKey();
-        const jobPageResult = await runBackgroundTask('keywords', pageKey, undefined, analyzeActiveJobPage);
+        const wantScore = !!(message.data as { score?: boolean } | undefined)?.score;
+        const jobPageResult = await runBackgroundTask('keywords', pageKey, undefined, () =>
+          analyzeActiveJobPage(wantScore),
+        );
         sendResponse(jobPageResult);
         break;
       }
@@ -577,12 +580,6 @@ async function handleMessage(
           () => analyzeGapsForJob(gapData.jobDescription, gapData.forceRefresh),
         );
         sendResponse(gapResult);
-        break;
-      }
-
-      case 'DEEP_JOB_MATCH': {
-        const deepData = message.data as { jobDescription: string; jobTitle?: string };
-        sendResponse(await deepJobMatch(deepData.jobDescription, deepData.jobTitle));
         break;
       }
 
@@ -1497,7 +1494,7 @@ async function generateCoverLetter(data: {
  * script second, stored info as a fallback) and runs the keyword analysis on
  * it. Returns the response shape the side panel expects.
  */
-async function analyzeActiveJobPage(): Promise<any> {
+async function analyzeActiveJobPage(score = false): Promise<any> {
   let pageJobInfo: any = null;
   let resolvedTabId: number | null = null;
   // The page this analysis is about. Used to reject a stored posting that
@@ -1627,92 +1624,51 @@ async function analyzeActiveJobPage(): Promise<any> {
 
   console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
   // The title carries the role-fit judgement, so it goes in with the body.
+  if (!score) return { success: true, jobInfo: pageJobInfo };
   const analysisResult = await analyzeKeywords(pageJobInfo.description, pageJobInfo.title);
   return { ...analysisResult, jobInfo: pageJobInfo };
 }
 
 /**
- * The vocabulary the local scorer reads with. Handed over explicitly so the
- * job-page keyword scan and the match scorer can never drift onto two
- * different keyword lists — that split is what once made 147 terms detectable
- * in a posting but never in a candidate's own profile.
- */
-// Built on demand rather than at module scope: the keyword lists it points at
-// are declared further down the file, so an eager const would read them before
-// they are assigned.
-const localVocabulary = (): Vocabulary => ({
-  keywords: KNOWN_KEYWORDS,
-  canonical: canonicalKeyword,
-  contains: containsKeyword,
-});
-
-/**
- * Scores the candidate against a posting on-device.
+ * Scores the candidate against a posting — one score, from the AI read.
  *
- * Reads the posting into requirements, grades the evidence for each against
- * the profile, and applies the same weights the server uses. No AI call, so
- * there is no credit spent, no quota to run out of, and no second pass to wait
- * for — the number is there as soon as the page has been read.
+ * /profiles/job-match has the model extract each requirement and grade the
+ * evidence for it; the server's fixed arithmetic turns that into the number.
+ * There used to be a second, on-device score from keyword matching beside it,
+ * and two numbers for one posting meant neither could be trusted.
  *
- * When the posting can't be read into requirements (a single prose paragraph,
- * no qualifications section) it falls back to the vocabulary scan and marks the
- * result provisional with a reason. That path shows the terms it found and
- * declines to put a score on them, because a number derived from word overlap
- * reads as authoritative and isn't.
+ * When the AI read can't run (signed out, allowance used up, the service
+ * failing) the card gets the vocabulary scan with the reason and NO number:
+ * a guessed score in place of the real one is the thing this replaced.
  */
 async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
   try {
-    // Always refresh profile to get latest skills
-    await fetchProfile();
-
-    const profile = cachedProfile || {} as any;
-
-    const result = analyzeJobMatchLocally({
-      jobDescription,
-      jobTitle,
-      profile,
-      vocab: localVocabulary(),
-    });
-
-    if ('unscorable' in result) {
-      console.log('[ProfileAI] Local match: posting not scoreable —', result.unscorable);
-      const scan = extractKeywordsLocal(jobDescription, profile);
-      return { success: true, keywords: { ...scan, reason: result.unscorable } };
+    const result = await deepJobMatch(jobDescription, jobTitle);
+    if (result.success && result.keywords) {
+      console.log('[ProfileAI] Job match:', {
+        score: result.keywords.matchScore,
+        projected: result.keywords.projectedScore,
+        requirements: result.keywords.totalKeywords,
+        blockers: result.keywords.blockers.length,
+        components: result.keywords.components,
+      });
+      return { success: true, keywords: result.keywords };
     }
-
-    console.log('[ProfileAI] Local match analysis:', {
-      score: result.matchScore,
-      projected: result.projectedScore,
-      requirements: result.totalKeywords,
-      evidenced: result.present.length,
-      partial: result.partial.length,
-      blockers: result.blockers.length,
-      components: result.components,
-    });
-
-    return { success: true, keywords: result };
+    await fetchProfile();
+    const scan = extractKeywordsLocal(jobDescription, cachedProfile || ({} as any));
+    return { success: true, keywords: { ...scan, reason: result.error || 'The match score could not be computed.' } };
   } catch (error) {
-    console.error('[ProfileAI] Keyword analysis error:', error);
+    console.error('[ProfileAI] Job match error:', error);
     return { success: false, error: (error as Error).message };
   }
 }
 
-/**
- * The AI read of a posting, on request.
- *
- * The on-device scorer matches against a keyword list, so a requirement phrased
- * in plain language ("understanding of coordinate system conversions") is beyond
- * it, and it can't see that "rebuilt the component library" evidences design
- * systems. /profiles/job-match has the model extract each requirement and cite
- * the evidence for it, then runs the same arithmetic as the local scorer — so
- * the two numbers are comparable, and this one is the better-informed.
- *
- * Opt-in rather than automatic: it spends an AI credit, which is why the
- * automatic second pass was removed in the first place.
- */
+/** One AI read of a posting against the stored profile. Spends a job-match
+ *  allowance, except when the server answers from its cache (same posting,
+ *  unchanged profile). */
 async function deepJobMatch(jobDescription: string, jobTitle?: string) {
   if (!authToken) {
-    return { success: false, error: 'Sign in to run the AI analysis' };
+    return { success: false, error: 'Sign in to see your match score for this job.' };
   }
   try {
     // No profile in the body — the server scores against the stored record.
@@ -1726,18 +1682,19 @@ async function deepJobMatch(jobDescription: string, jobTitle?: string) {
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'AI analysis failed');
+      // A used-up allowance answers with a short `error` ("Lifetime trial used")
+      // and the sentence the user needs in `message`.
+      throw new Error(errorData.message || errorData.error || 'The match score could not be computed.');
     }
     const { data } = await response.json();
     return { success: true, keywords: shapeServerJobMatch(data) };
   } catch (error) {
-    console.error('[ProfileAI] Deep job match error:', error);
+    console.error('[ProfileAI] Job match request failed:', error);
     return { success: false, error: (error as Error).message };
   }
 }
 
-/** The server's job-match payload in the shape the match card renders —
- *  the same lists and priority rules the local scorer produces. */
+/** The server's job-match payload in the shape the match card renders. */
 function shapeServerJobMatch(data: any) {
   const requirements: any[] = Array.isArray(data?.requirements) ? data.requirements : [];
   // Responsibilities carry no weight on the server either; showing them as
@@ -1756,7 +1713,10 @@ function shapeServerJobMatch(data: any) {
   const priorities: Record<string, 'high' | 'medium' | 'low'> = {};
   for (const r of scored.filter((q) => q.coverage === 'none')) {
     const key = String(r.requirement).toLowerCase();
-    priorities[key] = blockerSet.has(key) ? 'high' : r.hardness === 'must' ? 'medium' : 'low';
+    // Every unmet required item is high impact — knockouts are listed apart,
+    // and a required gap that doesn't knock the application out still costs
+    // its full share of the score.
+    priorities[key] = blockerSet.has(key) || r.hardness === 'must' ? 'high' : 'low';
   }
   return {
     matchScore: Number(data?.score) || 0,
@@ -1764,7 +1724,6 @@ function shapeServerJobMatch(data: any) {
     present: names('strong'),
     partial: names('partial'),
     missing: names('none'),
-    unchecked: [],
     totalKeywords: scored.length,
     source: 'ai' as const,
     provisional: false,
@@ -1774,18 +1733,6 @@ function shapeServerJobMatch(data: any) {
     verdict: typeof data?.verdict === 'string' ? data.verdict : '',
   };
 }
-
-/**
- * The AI second pass is gone.
- *
- * The match card used to show an instant on-device keyword ratio and then
- * replace it seconds later with a server-scored result from /profiles/job-match
- * (shaped by a `shapeJobMatch` helper, cached here for a day to avoid spending
- * a second AI run on an unchanged posting). Scoring now happens on-device in
- * jobMatch/localJobMatch.ts, so there is one pass, no credit spent, no cache to
- * keep coherent, and no failure mode where the score never arrives. The server
- * endpoint is still reachable on request — see deepJobMatch above.
- */
 
 // Generic soft-skill / business terms that show up in nearly every JD as filler.
 // We require ≥2 occurrences for these to count, otherwise a single mention of

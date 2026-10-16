@@ -28,7 +28,8 @@ const AIUsage = sequelize.define('AIUsage', {
       'generate_answers',
       'generate_cover_letter',
       'job_enhance',
-      'interview_prep'
+      'interview_prep',
+      'job_match'
     ),
     allowNull: false
   },

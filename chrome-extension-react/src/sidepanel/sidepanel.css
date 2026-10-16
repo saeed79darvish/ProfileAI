@@ -5535,33 +5535,6 @@ html, body, #root {
 }
 .jm-retry:hover:not(:disabled) { border-color: var(--text-muted); }
 .jm-retry:disabled { opacity: 0.6; cursor: default; }
-.jm-deep {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px dashed var(--border-color);
-  background: var(--bg-secondary);
-}
-.jm-deep-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-.jm-deep-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.45;
-  margin: 0;
-}
-.jm-deep-note {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: 10px 0 0;
-}
 .jm-score-big {
   flex-shrink: 0;
   display: flex;

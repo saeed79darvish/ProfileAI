@@ -21,9 +21,6 @@ interface JobMatchSectionProps {
    *  card itself is the place errors belong. */
   analyzeHint?: string | null;
   onDismissAnalyzeHint?: () => void;
-  /** Re-score with the AI read of the posting. Opt-in: it spends a credit. */
-  onDeepAnalyze?: () => void;
-  isDeepAnalyzing?: boolean;
 }
 
 const impactLabel: Record<Impact, string> = {
@@ -47,62 +44,13 @@ const ScoringSkeleton: React.FC = () => (
     <div className="jm-score-detail">
       <span className="jm-skel jm-skel-verdict" />
       <span className="jm-skel jm-skel-row" />
-      <p className="jm-source-note">Reading the posting's requirements…</p>
+      <p className="jm-source-note">Reading each requirement and checking your evidence…</p>
       <p className="jm-scoring-hint">
-        Scoring runs on your device. You can close the panel; reading the page keeps running.
+        This takes about 10–20 seconds. You can close the panel; scoring keeps running.
       </p>
     </div>
   </div>
 );
-
-/**
- * The way out of the on-device scorer's blind spot. It matches skill names, so
- * a requirement written in plain language can't be judged on-device — those
- * are left out of the local score and listed here, next to the one action that
- * can judge them. Once the AI has scored the posting, this becomes a note
- * saying so, so nobody wonders which of two numbers they are looking at.
- */
-const DeepAnalysis: React.FC<{
-  source?: 'local' | 'ai';
-  provisional?: boolean;
-  unchecked: string[];
-  uncheckedCount: number;
-  onRun: () => void;
-  running?: boolean;
-  disabled?: boolean;
-}> = ({ source, provisional, unchecked, uncheckedCount, onRun, running, disabled }) => {
-  if (source === 'ai') {
-    return (
-      <p className="jm-deep-note">
-        Scored by AI — each requirement read in context and checked against your full profile.
-      </p>
-    );
-  }
-  const title = provisional
-    ? 'Score this posting with AI'
-    : uncheckedCount > 0
-      ? `${uncheckedCount} requirement${uncheckedCount === 1 ? '' : 's'} couldn't be checked on-device`
-      : 'Want a closer read?';
-  return (
-    <div className="jm-deep">
-      <p className="jm-deep-title">{title}</p>
-      {uncheckedCount > 0 && (
-        <div className="jm-chips">
-          {unchecked.map((u) => (
-            <span key={u} className="kw-chip muted">{u}</span>
-          ))}
-        </div>
-      )}
-      <p className="jm-deep-sub">
-        The on-device score matches known skill names{uncheckedCount > 0 ? ' and leaves these out' : ''}. The AI
-        analysis reads every requirement in context and cites your evidence for each. Uses 1 AI credit.
-      </p>
-      <button className="jm-retry" onClick={onRun} disabled={running || disabled}>
-        {running ? 'Analyzing with AI…' : 'Analyze with AI'}
-      </button>
-    </div>
-  );
-};
 
 /**
  * The terminal state for a posting we couldn't read into requirements — a wall
@@ -125,8 +73,8 @@ const ScoreUnavailable: React.FC<{ reason: string; onRetry: () => void; disabled
     </div>
     <p className="jm-unavailable-why">{reason}</p>
     <p className="jm-unavailable-sub">
-      The terms below come from an on-device scan of the posting's vocabulary. It doesn't
-      know your seniority or what a requirement is, so it isn't a score.
+      The terms below are a quick scan of the posting's vocabulary against your profile.
+      They aren't a match score.
     </p>
     <button className="jm-retry" onClick={onRetry} disabled={disabled}>
       Try scoring again
@@ -169,8 +117,6 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   hasTailored,
   analyzeHint,
   onDismissAnalyzeHint,
-  onDeepAnalyze,
-  isDeepAnalyzing,
 }) => {
   const [showAllMissing, setShowAllMissing] = useState(false);
   const busy = !!isAnalyzing;
@@ -279,8 +225,6 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
     projectedScore,
     verdict: verdictLine,
     reason,
-    unchecked,
-    source,
   } = keywordAnalysis;
   const verdict = scoreVerdict(matchScore);
   const partialCount = partial?.length || 0;
@@ -343,7 +287,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
               <span className="jm-progress-pct">{matchScore}%</span>
             </div>
             <p className="jm-source-note">
-              {source === 'ai' ? 'AI-scored' : 'Scored'} against your title, experience and skills
+              Scored against your title, experience and skills
               {components?.seniorityBasis === 'dates' && components.requiredYears
                 ? ` — ${components.candidateYears} yrs against the ${components.requiredYears}+ this posting asks for`
                 : ''}
@@ -356,18 +300,6 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             )}
           </div>
         </div>
-      )}
-
-      {onDeepAnalyze && (
-        <DeepAnalysis
-          source={source}
-          provisional={provisional}
-          unchecked={unchecked || []}
-          uncheckedCount={components?.uncheckedCount ?? unchecked?.length ?? 0}
-          onRun={onDeepAnalyze}
-          running={isDeepAnalyzing}
-          disabled={busy}
-        />
       )}
 
       {/* ATS blockers — required, unevidenced, and of a kind a screen filters on */}

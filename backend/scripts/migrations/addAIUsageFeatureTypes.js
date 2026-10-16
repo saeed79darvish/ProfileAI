@@ -11,6 +11,7 @@
  *   - generate_answers      (routes/profiles.js  /generate-answers)
  *   - generate_cover_letter (routes/profiles.js  /generate-cover-letter)
  *   - job_enhance           (routes/jobs.js      /ai/*)
+ *   - job_match             (routes/profiles.js  /job-match)
  *
  * Postgres ENUMs require ALTER TYPE ... ADD VALUE; this is idempotent via
  * IF NOT EXISTS (Postgres 9.6+).
@@ -25,6 +26,7 @@ const NEW_VALUES = [
   'generate_answers',
   'generate_cover_letter',
   'job_enhance',
+  'job_match',
 ];
 
 async function up() {

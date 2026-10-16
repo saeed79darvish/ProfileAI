@@ -2505,7 +2505,9 @@ Return ONLY valid JSON.`;
 // asked "which keywords are missing", which is a vocabulary question — it could
 // not see that a UI architect and a customer marketing role are different jobs,
 // so it returned respectable-looking scores for applications nobody would pass.
-router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('profile_enhance'), async (req, res) => {
+// Its own allowance: it ran on profile_enhance (2-50 a month by plan), so scoring
+// a handful of postings used up the allowance for enhancing the profile itself.
+router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('job_match'), async (req, res) => {
   try {
     const { jobDescription, jobTitle } = req.body;
     // The stored record, not the request body — see withServerProfile.
@@ -2519,10 +2521,9 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('prof
     const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
     try {
       const cached = await getCachedAnalysis({
-        // v2 namespace: rows written before the weighting rewrite hold scores
-        // computed with the old free-credit-for-an-empty-bucket arithmetic, and
-        // serving one would hand the user an inflated number from cache.
-        kind: 'job_match_v2',
+        // v3: v2 rows were scored with a cap on ANY missing required item and
+        // an older reading prompt; serving one would show the old number.
+        kind: 'job_match_v3',
         userId: req.user.id,
         profileData,
         jobDescription,
@@ -2575,7 +2576,7 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('prof
       return res.status(502).json({ error: 'This posting states no checkable requirements to score against' });
     }
 
-    await recordAIUsage(req.user.id, 'profile_enhance');
+    await recordAIUsage(req.user.id, 'job_match');
 
     console.log(
       '[job-match] user=%s score=%d roleFit=%s must=%d/%s seniority=%s(%s) blockers=%d',
@@ -2599,12 +2600,12 @@ router.post('/job-match', authMiddleware, withServerProfile, aiRateLimiter('prof
         components: scored.components,
         blockers: scored.blockers,
         surfaceable: scored.surfaceable,
-        requirements: read.requirements,
+        requirements: scored.requirements,
       },
     };
 
     await setCachedAnalysis({
-      kind: 'job_match_v2',
+      kind: 'job_match_v3',
       userId: req.user.id,
       profileData,
       jobDescription,

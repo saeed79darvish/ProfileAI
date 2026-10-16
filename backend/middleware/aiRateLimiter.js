@@ -392,7 +392,8 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
     'tailor_profile',
     'cover_letter',
     'post_enhance',
-    'career_suggestions'
+    'career_suggestions',
+    'job_match'
   ];
 
   const promoBonus = await getActivePromoBonus(userId);

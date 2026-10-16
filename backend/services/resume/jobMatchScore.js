@@ -116,6 +116,55 @@ const clamp01 = (n) => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 0));
 const SCREENABLE_TYPES = new Set(['skill', 'credential', 'experience_years', 'title', 'education']);
 
 /**
+ * Types a recruiter rejects on by themselves: a stated years minimum, a
+ * licence or clearance, having held the role. Missing one is a knockout.
+ */
+const KNOCKOUT_TYPES = new Set(['experience_years', 'credential', 'title']);
+
+/** "Degree in CS or equivalent experience" can never be a filter. */
+const EDUCATION_ALTERNATIVE =
+  /\b(?:or\s+(?:equivalent|comparable|related)\s+(?:practical\s+|professional\s+|work\s+)?experience|equivalent\s+(?:practical\s+|professional\s+|work\s+)?experience)\b/i;
+
+const YEARS_IN_TEXT = /\b\d{1,2}\s*(?:\+|-|–|to)?\s*(?:\d{1,2})?\s*\+?\s*years?\b/i;
+
+/**
+ * The model labels a years minimum `experience` about as often as it uses the
+ * schema's `experience_years`. Read as the generic label, "7+ years of
+ * frontend" was weighted like any skill and could never be a knockout.
+ */
+function normalizeType(r) {
+  if (r?.type === 'experience' && YEARS_IN_TEXT.test(String(r?.requirement || ''))) {
+    return { ...r, type: 'experience_years' };
+  }
+  return r;
+}
+
+/**
+ * A required item that, missing, fails the application on its own — and so
+ * caps the score below the "plausible candidate" line.
+ *
+ * Deliberately narrower than "required and absent". Capping on any single gap
+ * put a senior React engineer at 49% for one unlisted tool (Webpack), the same
+ * number as a role they genuinely can't do; in a 19-posting check, 5 of 7
+ * like-for-like frontend roles came back at exactly 49. A single tool, library
+ * or practice is a real gap — it still costs its share of the score and is
+ * shown as one — but it is not a knockout unless the model judged it the core
+ * of the role (Swift for an iOS role, people management for a manager role).
+ */
+function isKnockout(r) {
+  if (r?.hardness !== 'must' || r?.coverage !== 'none') return false;
+  if (KNOCKOUT_TYPES.has(r?.type)) return true;
+  // A degree line is usually a preference: on a 19-posting check, capping on
+  // it put an 8-year engineer at 49% on two frontend roles that list "Degree in
+  // CS or related field" among ordinary qualifications. It caps only when the
+  // model read it as a hard requirement, and never when experience substitutes.
+  if (r?.type === 'education') {
+    return r?.knockout === true && !EDUCATION_ALTERNATIVE.test(String(r?.requirement || ''));
+  }
+  return SCREENABLE_TYPES.has(r?.type) && r?.knockout === true;
+}
+
+/**
  * Type-weighted coverage over a requirement set.
  *
  * Returns `ratio: null` when there is nothing to measure — no requirements, or
@@ -263,7 +312,7 @@ function isSurfaceable(r) {
  * @param {Object} [profile] - the candidate profile, for date-derived seniority
  */
 function scoreJobMatch(read, profile = null) {
-  const requirements = Array.isArray(read?.requirements) ? read.requirements : [];
+  const requirements = (Array.isArray(read?.requirements) ? read.requirements : []).map(normalizeType);
   const must = requirements.filter((r) => r?.hardness === 'must');
   const nice = requirements.filter((r) => r?.hardness !== 'must');
 
@@ -287,9 +336,9 @@ function scoreJobMatch(read, profile = null) {
 
   const raw = Math.round(100 * coverage * modifiers);
 
-  // Blockers: required, uncovered, and of a kind a screen actually filters on.
+  // Blockers: the required items that fail the application on their own.
   const blockers = must
-    .filter((r) => r?.coverage === 'none' && SCREENABLE_TYPES.has(r?.type))
+    .filter(isKnockout)
     .map((r) => ({
       requirement: r.requirement,
       type: r.type,
@@ -311,9 +360,7 @@ function scoreJobMatch(read, profile = null) {
     { weight: WEIGHTS.must, value: projectedMust.ratio },
     { weight: WEIGHTS.nice, value: projectedNice.ratio },
   ]);
-  const projectedBlockers = projectedRequirements.filter(
-    (r) => r?.hardness === 'must' && r?.coverage === 'none' && SCREENABLE_TYPES.has(r?.type),
-  );
+  const projectedBlockers = projectedRequirements.filter(isKnockout);
   // Capped at 95: a rewrite closing every surfaceable gap still leaves the
   // parts of a screen a resume can't control. Promising 100% is a tell.
   const projectedRaw = Math.min(95, Math.round(100 * projectedCoverage * modifiers));
@@ -355,6 +402,9 @@ function scoreJobMatch(read, profile = null) {
       cappedByBlockers: blockers.length > 0 && raw > BLOCKED_SCORE_CAP,
     },
     surfaceable: requirements.filter(isSurfaceable).map((r) => r.requirement),
+    /** The requirements as scored — with types normalized, so the lists the
+     *  client builds agree with the arithmetic. */
+    requirements,
   };
 }
 
@@ -367,7 +417,10 @@ module.exports = {
   RECENCY_FLOOR,
   BLOCKED_SCORE_CAP,
   SCREENABLE_TYPES,
+  KNOCKOUT_TYPES,
   // exported for tests
+  isKnockout,
+  normalizeType,
   candidateYears,
   requiredYears,
   seniorityFitFrom,

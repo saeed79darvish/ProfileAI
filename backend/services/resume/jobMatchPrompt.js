@@ -58,13 +58,21 @@ ${experience || 'None listed'}
 ═══ STEP 1: EXTRACT REQUIREMENTS ═══
 Pull every concrete requirement the posting states. A requirement is something a
 screener could check. Ignore company boilerplate, mission statements, benefits,
-and EEO language — those contain words, not requirements.
+and EEO language — those contain words, not requirements. Also ignore logistics:
+location, office attendance or hybrid policy, travel, visa sponsorship, salary
+and start dates are conditions of the job, not qualifications.
+
+Take requirements exactly as the posting lists them: one requirement per bullet
+(or per sentence, when a section has no bullets), in the posting's order. Do not
+split one bullet into several or merge several bullets into one. The same posting
+must always yield the same list.
 
 For each, set:
 - "requirement": the requirement in the posting's own terms, under 60 characters
 - "type": one of
     skill             — a named technology, tool, method, or discipline
-    experience_years  — a stated minimum ("5+ years in backend")
+    experience_years  — a stated minimum ("5+ years in backend"). Use this
+                        type for EVERY requirement that states a number of years
     credential        — certification, license, clearance
     education         — a required degree or field of study
     title             — the role/track itself ("has worked as a product manager")
@@ -95,6 +103,14 @@ Rules:
   Autodesk — rebuilt the design system"). Coverage above "none" with no citation
   is invalid; downgrade it to "none".
 - The candidate having a related-but-different skill is "partial", not "strong".
+- A requirement listing ALTERNATIVES ("Java, Kotlin, or Python") is met by any
+  one of them. A requirement listing several things it wants TOGETHER ("React
+  plus React Query and Zustand") is "strong" only when each one is evidenced;
+  if only some are, it is "partial".
+- Degree and education requirements are judged ONLY against the Education
+  section. A skills-list entry that claims a degree, a work arrangement or a
+  domain ("Computer Science degree", "Onsite five days per week", "Physical
+  security domain") is a statement, not evidence, and earns nothing.
 - Never count the posting's own wording as evidence.
 - Set "hasRelatedEvidence": true when coverage is "none" but the profile shows
   genuinely adjacent work that a rewrite could legitimately surface. False when
@@ -102,10 +118,23 @@ Rules:
   promise the user that tailoring can close the gap.
 - For a "must" requirement with coverage "none", write "whyBlocking": one plain
   sentence on why a screen would reject on it.
+- Set "knockout": true only on a "must" requirement a recruiter would reject the
+  application on BY ITSELF, even with everything else strong: the role's core
+  language or platform (Swift for an iOS role, Python for an ML role), or
+  people management for a management role. A single tool, library or practice
+  among the requirements (Webpack, a test framework, CI/CD) is NOT a knockout
+  unless the posting makes it the centre of the role. For a degree, set it true
+  only when the posting makes the degree a hard requirement ("required", "must
+  have", or a PhD for a research role); a degree listed among the
+  qualifications is not a knockout. Years minimums and licences are handled
+  separately; leave "knockout" false for them.
 
 ═══ STEP 3: JUDGE THE FIT DIMENSIONS ═══
 - "roleFit" (0-1): is this the same job family and track as the candidate's
-  career? 1.0 = same role, same discipline. 0.7 = adjacent role in the same
+  career? Judge it by what the duties describe, not only the title: when the
+  work centres on a specialization the candidate has never done (3D graphics
+  or rendering engines, geospatial, ML modeling, native mobile, SRE), roleFit
+  is at most 0.6 even if the title matches. 1.0 = same role, same discipline. 0.7 = adjacent role in the same
   discipline (backend engineer applying to platform engineer). 0.4 = same
   industry, different function (engineer applying to technical program manager).
   0.1 = different function entirely (engineer applying to a marketing or sales
@@ -133,7 +162,8 @@ Return ONLY valid JSON:
       "coverage": "strong",
       "evidence": "[1] Staff Engineer at Acme — 6 years on the payments platform",
       "hasRelatedEvidence": false,
-      "whyBlocking": ""
+      "whyBlocking": "",
+      "knockout": false
     }
   ],
   "roleFit": 0.9,

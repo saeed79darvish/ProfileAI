@@ -22,7 +22,6 @@ export const OUT_DIR = resolve(root, '.test-build');
 const ENTRIES = [
   { entry: 'src/jobScrape.ts', name: 'jobScrape' },
   { entry: 'src/sidepanel/downloadPayload.ts', name: 'downloadPayload' },
-  { entry: 'src/jobMatch/localJobMatch.ts', name: 'localJobMatch' },
 ];
 
 let built = false;

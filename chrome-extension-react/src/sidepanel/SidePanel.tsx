@@ -242,7 +242,6 @@ export const SidePanel: React.FC = () => {
   // tailored result can show an honest before → after comparison.
   const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // Cover-letter generation that belongs to a background task rather than to
   // this panel instance — set when we reopen on top of a run that is still
@@ -1295,9 +1294,9 @@ export const SidePanel: React.FC = () => {
     setAnalyzeHint(null);
     beginOp('keywords');
     try {
-      // ANALYZE_JOB_PAGE extracts fresh job info via the scripting API and
-      // scores it on-device in one step — there is no second pass to trigger.
-      const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE' });
+      // ANALYZE_JOB_PAGE reads the page and, with `score`, runs the AI match
+      // read on it — the one score the card shows.
+      const response = await chrome.runtime.sendMessage({ type: 'ANALYZE_JOB_PAGE', data: { score: true } });
 
       // Update the job card with fresh info (accept if it has description, title, or company)
       if (response?.jobInfo && (response.jobInfo.title || response.jobInfo.company || response.jobInfo.description)) {
@@ -1325,29 +1324,6 @@ export const SidePanel: React.FC = () => {
       setIsAnalyzing(false);
     }
   }, []);
-
-  /**
-   * The opt-in AI read of the posting. The page is re-read first so the AI
-   * scores the posting in front of the user, not whatever `currentJob` last
-   * mirrored from storage.
-   */
-  const handleDeepAnalyze = useCallback(async () => {
-    setIsDeepAnalyzing(true);
-    try {
-      const job = (await readJobForRun())?.job;
-      if (!job?.description?.trim()) throw new Error('Could not read the job description from this page');
-      const response = await chrome.runtime.sendMessage({
-        type: 'DEEP_JOB_MATCH',
-        data: { jobDescription: job.description, jobTitle: job.title },
-      });
-      if (response?.success && response?.keywords) setKeywordAnalysis(response.keywords);
-      else throw new Error(response?.error || 'AI analysis failed');
-    } catch (error) {
-      showNotification((error as Error).message || 'AI analysis failed', 'error');
-    } finally {
-      setIsDeepAnalyzing(false);
-    }
-  }, [readJobForRun]);
 
   useEffect(() => {
     currentJobRef.current = currentJob;
@@ -1780,8 +1756,6 @@ export const SidePanel: React.FC = () => {
               onDismissAnalyzeHint={() => setAnalyzeHint(null)}
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
-              onDeepAnalyze={handleDeepAnalyze}
-              isDeepAnalyzing={isDeepAnalyzing}
               onTailor={handleTailor}
               isTailoring={isTailoring || isAnalyzingGaps}
               hasTailored={!!tailoredProfile}

@@ -32,6 +32,7 @@ export const FEATURE_LABELS = {
   job_enhance: 'Job Description Enhancement',
   career_suggestions: 'Career Suggestions',
   interview_prep: 'Interview Preparation',
+  job_match: 'Job Match Analysis',
   analyze_gaps: 'Skill Gap Analysis',
   generate_answers: 'Application Answer Generation',
   // Tier-gated features rather than metered ones; they reach the same modal
