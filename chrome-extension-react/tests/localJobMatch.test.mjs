@@ -323,3 +323,15 @@ test('a posting where nothing can be checked is unscorable, not 0%', () => {
   });
   assert.ok('unscorable' in r, `scored ${r.matchScore} from nothing`);
 });
+
+test('the verdict only says "capped" when the cap lowered the score', () => {
+  const r = runSpatial();
+  if (!r.blockers.length) return;
+  assert.equal(/^Capped/.test(r.verdict), r.components.cappedByBlockers, r.verdict);
+});
+
+test('blocker reasons read as a sentence', () => {
+  for (const b of runSpatial().blockers) {
+    assert.ok(!/\b\w+, \w+ is listed\b/.test(b.why), `ungrammatical: ${b.why}`);
+  }
+});

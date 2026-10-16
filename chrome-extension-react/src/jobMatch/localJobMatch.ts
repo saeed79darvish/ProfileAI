@@ -495,6 +495,19 @@ const SKILL_FAMILIES: string[][] = [
   ['redux', 'mobx', 'zustand', 'recoil', 'jotai', 'react query', 'swr', 'xstate'],
 ];
 
+/** How a canonical term is written in a sentence the user reads. */
+const TERM_DISPLAY: Record<string, string> = {
+  '3d': '3D', '2d': '2D', ux: 'UX', ui: 'UI', qa: 'QA', vr: 'VR', ai: 'AI', d3: 'D3', go: 'Go',
+  gis: 'GIS', aws: 'AWS', gcp: 'GCP', sql: 'SQL', api: 'API', mvt: 'MVT', crdt: 'CRDT',
+  css: 'CSS', html: 'HTML', nlp: 'NLP', sre: 'SRE',
+};
+
+/** "3D and geospatial are" rather than "3d, geospatial is". */
+function termPhrase(terms: string[]): { list: string; verb: 'is' | 'are' } {
+  const shown = terms.slice(0, 2).map((t) => TERM_DISPLAY[t] || t);
+  return { list: shown.join(' and '), verb: shown.length > 1 ? 'are' : 'is' };
+}
+
 const familyOf = (term: string): string[] | null =>
   SKILL_FAMILIES.find((family) => family.includes(term)) || null;
 
@@ -576,7 +589,7 @@ function gradeRequirement(
         ...base,
         coverage: 'none',
         evidence: '',
-        whyBlocking: `The ${need}-year minimum is specifically in ${subjects.slice(0, 2).join(', ')}, which your profile doesn't evidence.`,
+        whyBlocking: `The ${need}-year minimum is specifically in ${termPhrase(subjects).list}, which your profile doesn't evidence.`,
       };
     }
 
@@ -736,7 +749,9 @@ function gradeRequirement(
     hasRelatedEvidence: related,
     whyBlocking:
       req.hardness === 'must'
-        ? `${terms.slice(0, 2).join(', ')} is listed as required and does not appear in your profile.`
+        ? (({ list, verb }) => `${list} ${verb} listed as required and ${verb === 'are' ? "don't" : "doesn't"} appear in your profile.`)(
+            termPhrase(terms),
+          )
         : undefined,
   };
 }
@@ -949,15 +964,22 @@ function buildVerdict(args: {
   required: number | null;
   blockers: Array<{ requirement: string }>;
   strongTerms: string[];
+  /** The blocker cap lowered the score, rather than the score already sitting under it. */
+  capped: boolean;
 }): string {
-  const { roleFit, seniorityFit, years, required, blockers, strongTerms, coverage } = args;
+  const { roleFit, seniorityFit, years, required, blockers, strongTerms, coverage, capped } = args;
 
   if (roleFit.value <= 0.35) {
     return `This is a different kind of role from your background (${roleFit.basis}) — the overlap in wording won't get past a screen.`;
   }
   if (blockers.length > 0) {
     const first = blockers[0].requirement;
-    return `Capped by a required item you can't evidence: ${first}${blockers.length > 1 ? ` (and ${blockers.length - 1} more)` : ''}.`;
+    const more = blockers.length > 1 ? ` (and ${blockers.length - 1} more)` : '';
+    // "Capped" claims the score would be higher without it. At 42% under a 49
+    // cap nothing was capped, and saying so sent people looking for the cap.
+    return capped
+      ? `Capped by a required item you can't evidence: ${first}${more}.`
+      : `A required item you can't evidence will fail the screen: ${first}${more}.`;
   }
   if (seniorityFit !== null && seniorityFit < 0.6 && years !== null && required !== null) {
     return years < required
@@ -1181,6 +1203,7 @@ export function analyzeJobMatchLocally(
       required: stated,
       blockers,
       strongTerms,
+      capped: blockers.length > 0 && raw > BLOCKED_SCORE_CAP,
     }),
     requirements,
   };
