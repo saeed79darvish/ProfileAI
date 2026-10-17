@@ -117,8 +117,7 @@ const isThinkingComplaint = (err) =>
 const THINKING_HEADROOM = 16000;
 const MAX_OUTPUT_TOKENS = 32000;
 
-function withThinkingOff(request) {
-  const index = thinkingOffByModel.get(request.model) ?? 0;
+function withThinkingOff(request, index = thinkingOffByModel.get(request.model) ?? 0) {
   const form = THINKING_OFF_FORMS[index];
   if (form) return { ...request, thinking: form };
   return {
@@ -127,13 +126,20 @@ function withThinkingOff(request) {
   };
 }
 
-/** Records that `model` refused its current form. Returns false once we have
- *  run out of things to try, which makes the error a real one. */
-function noteThinkingRefused(model) {
-  const index = thinkingOffByModel.get(model) ?? 0;
-  if (index >= THINKING_OFF_FORMS.length) return false;
-  thinkingOffByModel.set(model, index + 1);
-  return true;
+/**
+ * Records that `model` refused the form at `triedIndex`. Returns false once
+ * there is nothing left to try, which makes the error a real one.
+ *
+ * Advances only past the form that was actually refused. Concurrent first
+ * calls to a new model all fail on the same form; when each one stepped the
+ * shared index forward, four parallel requests skipped every form — including
+ * the one that works — and the model was left thinking on every call, at about
+ * four times the output tokens and three times the latency.
+ */
+function noteThinkingRefused(model, triedIndex) {
+  const current = thinkingOffByModel.get(model) ?? 0;
+  if (current === triedIndex) thinkingOffByModel.set(model, triedIndex + 1);
+  return triedIndex < THINKING_OFF_FORMS.length;
 }
 
 /**
@@ -143,10 +149,11 @@ function noteThinkingRefused(model) {
  */
 async function createMessage(client, request) {
   for (;;) {
+    const index = thinkingOffByModel.get(request.model) ?? 0;
     try {
-      return await client.messages.create(withThinkingOff(request));
+      return await client.messages.create(withThinkingOff(request, index));
     } catch (err) {
-      if (!isThinkingComplaint(err) || !noteThinkingRefused(request.model)) throw err;
+      if (!isThinkingComplaint(err) || !noteThinkingRefused(request.model, index)) throw err;
       console.warn(
         `[ProfilleAI] ${request.model} refused that thinking setting; trying the next one`
       );

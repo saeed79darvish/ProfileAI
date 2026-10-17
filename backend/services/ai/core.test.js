@@ -112,6 +112,19 @@ test('a model that takes between_tools is asked once, with no wasted call', asyn
   assert.deepEqual(client.calls[0].thinking, { type: 'between_tools' });
 });
 
+test('concurrent first calls still land on the form that works', async () => {
+  // Four requests in flight before any of them has learned the answer. Each
+  // stepping the shared choice forward used to skip "disabled" altogether and
+  // leave the model thinking on every call.
+  const client = refuses(['between_tools']);
+  const run = () => createMessage(client, { model: 'probe-concurrent', max_tokens: 4000, messages: [] });
+  const results = await Promise.all([run(), run(), run(), run()]);
+  assert.ok(results.every((r) => r.content[0].text === 'ok'));
+  const accepted = client.calls.filter((c) => c.thinking?.type !== 'between_tools');
+  assert.ok(accepted.every((c) => c.thinking?.type === 'disabled'), 'a call went out with thinking left on');
+  assert.ok(accepted.every((c) => c.max_tokens === 4000), 'a call was given thinking headroom');
+});
+
 test('a model that refuses it falls through to disabled, then remembers', async () => {
   const client = refuses(['between_tools']);
   await createMessage(client, { model: 'probe-disabled', max_tokens: 6000, messages: [] });
