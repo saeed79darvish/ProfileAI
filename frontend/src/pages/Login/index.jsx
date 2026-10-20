@@ -54,7 +54,13 @@ const Login = () => {
   const redirectTarget = safeRedirect(location.state?.from) || safeRedirect(searchParams.get('redirect')) || null;
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Which sign-in method is in flight: 'google' | 'linkedin' | 'password' | null.
+  // This was a single shared boolean, which made every button spin at once:
+  // clicking "Sign in with LinkedIn" also put a spinner on the Google button.
+  // Tracking the provider lets each button show only its own spinner, while
+  // `loading` still disables the others so two sign-ins can't run at once.
+  const [pendingProvider, setPendingProvider] = useState(null);
+  const loading = pendingProvider !== null;
   const [showPassword, setShowPassword] = useState(false);
   const [fromExtension] = useState(isFromExtension());
   // When opened from the extension with a session already present, don't auto-
@@ -111,7 +117,7 @@ const Login = () => {
   // --- OAuth ---
   const handleGoogleSuccess = async (payload) => {
     setError('');
-    setLoading(true);
+    setPendingProvider('google');
     try {
       const response = await authAPI.googleLogin(
         payload?.credential ? { credential: payload.credential } : payload
@@ -147,7 +153,7 @@ const Login = () => {
         setError(err.response?.data?.error || TEXT.ERROR_GOOGLE_LOGIN);
       }
     } finally {
-      setLoading(false);
+      setPendingProvider(null);
     }
   };
 
@@ -163,7 +169,7 @@ const Login = () => {
   // that for a session token via /api/auth/linkedin.
   const handleLinkedInSuccess = async ({ code, redirectUri }) => {
     setError('');
-    setLoading(true);
+    setPendingProvider('linkedin');
     try {
       const response = await authAPI.linkedinLogin(code, redirectUri);
       const { token, user } = response.data;
@@ -194,7 +200,7 @@ const Login = () => {
         setError(err.response?.data?.error || TEXT.ERROR_LINKEDIN_LOGIN);
       }
     } finally {
-      setLoading(false);
+      setPendingProvider(null);
     }
   };
 
@@ -206,7 +212,7 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setPendingProvider('password');
     try {
       const result = await login(formData);
       const { user, token } = result;
@@ -225,7 +231,7 @@ const Login = () => {
     } catch (err) {
       setError(err.response?.data?.error || TEXT.ERROR_LOGIN);
     } finally {
-      setLoading(false);
+      setPendingProvider(null);
     }
   };
 
@@ -305,13 +311,15 @@ const Login = () => {
       <Box sx={socialButtonsContainerSx}>
         <GoogleAuthButton
           label="Sign in with Google"
-          loading={loading}
+          loading={pendingProvider === 'google'}
+          disabled={loading && pendingProvider !== 'google'}
           onSuccess={(payload) => handleGoogleSuccess(payload)}
           onError={handleGoogleError}
         />
         <LinkedInAuthButton
           label={TEXT.SIGN_IN_LINKEDIN}
-          loading={loading}
+          loading={pendingProvider === 'linkedin'}
+          disabled={loading && pendingProvider !== 'linkedin'}
           onSuccess={handleLinkedInSuccess}
           onError={handleLinkedInError}
         />
@@ -374,7 +382,7 @@ const Login = () => {
 
       <MobileStickyFooter>
         <GradientButton type="submit" form="login-form" fullWidth size="large" sx={submitButtonSx} disabled={loading}>
-          {loading ? TEXT.BUTTON_LOADING : TEXT.BUTTON_SUBMIT}
+          {pendingProvider === 'password' ? TEXT.BUTTON_LOADING : TEXT.BUTTON_SUBMIT}
         </GradientButton>
 
         <Typography variant="body2" color="text.secondary" sx={footerTextSx}>
