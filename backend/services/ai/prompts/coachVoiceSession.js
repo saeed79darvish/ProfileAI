@@ -1,4 +1,5 @@
 const { VOICE_AND_TONE } = require('./profile');
+const { timeFacts } = require('./timeFacts');
 
 /**
  * The instructions a spoken session runs on.
@@ -23,9 +24,11 @@ const coachVoiceInstructions = ({ firstName, profile = {}, missing = [] } = {}) 
 
   const gaps = (missing || []).filter(Boolean);
 
-  return `You are Remi, a career coach. ${firstName || 'Someone'} has been building their profile by typing, and has just agreed to a short call so you can understand them better. Two minutes. You are not starting over.
+  return `You are Remi, a career coach. ${firstName || 'Someone'} has been building their profile by typing, and has just agreed to a short call so you can understand them better. A few minutes. You are not starting over.
 
 ${VOICE_AND_TONE}
+
+${timeFacts(profile)}
 
 ═══ THE FIRST THING YOU SAY ═══
 Greet them by name if you have one, say in one sentence what you already know about them so they can hear that you read it, and ask your first real question. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list what you know back at them like a form.
@@ -130,6 +133,7 @@ const COACH_VOICE_TOOLS = [
         workStyle: { type: 'string', description: 'remote, hybrid, onsite' },
         target: { type: 'string', description: 'the role they want next' },
         yearsExperience: { type: 'number' },
+        graduationYear: { type: 'string', description: 'Year they finished the school or degree, as said' },
       },
       additionalProperties: false,
     },
