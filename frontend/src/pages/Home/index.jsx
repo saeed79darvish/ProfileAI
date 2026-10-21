@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
-  Box, Container, Grid, Typography, Chip, Button, Card, Link, Divider,
+  Box, Container, Grid, Typography, Chip, Button, Card, Link, Divider, CircularProgress,
 } from '@mui/material';
 import {
   AutoAwesome as SparkleIcon, Check as CheckIcon,
@@ -116,6 +116,20 @@ const Home = () => {
   const [statMatches, statMatchesRef] = useCounter(STATS.MATCHES);
   const [statApps, statAppsRef] = useCounter(STATS.APPLICATIONS);
 
+  // /jobs is a lazy chunk, and the router keeps this page on screen until it
+  // arrives. On a slow connection that read as a dead button: the URL changed
+  // and nothing else did. Fetch the chunk while the visitor reads the hero,
+  // and show progress on the button if they click before it lands.
+  const [openingJobs, setOpeningJobs] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => { import('../CandidateJobs').catch(() => {}); }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+  const browseJobs = () => {
+    setOpeningJobs(true);
+    navigate('/jobs');
+  };
+
   return (
     <Box sx={S.pageContainerSx}>
       <SEO
@@ -157,7 +171,7 @@ const Home = () => {
                 name: 'Is ProfilleAI free?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Enterprise plans unlock higher tailoring limits, AI negotiation coaching, and recruiter matching.',
+                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Pro+ plans unlock higher tailoring limits, AI negotiation coaching, and recruiter matching.',
                 },
               },
               {
@@ -204,7 +218,8 @@ const Home = () => {
                       {HERO_BUTTONS.GET_STARTED}
                     </Button>
                     <Button variant="outlined" size="large"
-                      onClick={() => navigate('/jobs')} sx={S.heroOutlinedBtnSx}>
+                      onClick={browseJobs} aria-busy={openingJobs} sx={S.heroOutlinedBtnSx}
+                      startIcon={openingJobs ? <CircularProgress size={18} color="inherit" /> : null}>
                       {HERO_BUTTONS.BROWSE_JOBS}
                     </Button>
                   </>
@@ -226,7 +241,8 @@ const Home = () => {
                       {HERO_BUTTONS.MY_PROFILE}
                     </Button>
                     <Button variant="outlined" size="large"
-                      onClick={() => navigate('/jobs')} sx={S.heroOutlinedBtnSx}>
+                      onClick={browseJobs} aria-busy={openingJobs} sx={S.heroOutlinedBtnSx}
+                      startIcon={openingJobs ? <CircularProgress size={18} color="inherit" /> : null}>
                       {HERO_BUTTONS.BROWSE_JOBS}
                     </Button>
                   </>

@@ -200,7 +200,7 @@ const TermsOfService = () => {
         <Section number="4" title="Payment Terms and Refund Policy" icon={<Payment color="primary" />}>
           <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Subscription Plans</Typography>
           <Typography variant="body1" paragraph>
-            ProfilleAI offers free and paid subscription plans. Paid plans ("Pro" and "Enterprise") 
+            ProfilleAI offers free and paid subscription plans. Paid plans ("Pro" and "Pro+") 
             provide access to premium features including enhanced AI capabilities, priority support, 
             and advanced analytics.
           </Typography>
@@ -276,17 +276,17 @@ const TermsOfService = () => {
             <ListItem>
               <ListItemText
                 primary="Statutory consumer rights"
-                secondary="If you are a consumer in the European Union, United Kingdom, or another jurisdiction whose local law grants you a mandatory right of withdrawal or refund, that right applies regardless of this policy. To exercise it, contact billing@profileai.com within the statutory window."
+                secondary="If you are a consumer in the European Union, United Kingdom, or another jurisdiction whose local law grants you a mandatory right of withdrawal or refund, that right applies regardless of this policy. To exercise it, contact billing@profilleai.com within the statutory window."
               />
             </ListItem>
             <ListItem>
               <ListItemText
                 primary="Contact us first \u2014 don\u2019t chargeback"
-                secondary="If something goes wrong, please email billing@profileai.com before disputing the charge with your bank. Chargebacks or payment disputes initiated without first giving us a chance to resolve the issue may result in permanent account suspension and forfeiture of any remaining balance."
+                secondary="If something goes wrong, please email billing@profilleai.com before disputing the charge with your bank. Chargebacks or payment disputes initiated without first giving us a chance to resolve the issue may result in permanent account suspension and forfeiture of any remaining balance."
               />
             </ListItem>
             <ListItem>
-              <ListItemText primary="How to request a refund" secondary="Email billing@profileai.com from the address on your account, with your order or ticket reference. We aim to respond within 3 business days." />
+              <ListItemText primary="How to request a refund" secondary="Email billing@profilleai.com from the address on your account, with your order or ticket reference. We aim to respond within 3 business days." />
             </ListItem>
           </List>
 
@@ -410,7 +410,7 @@ const TermsOfService = () => {
           <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Informal Resolution</Typography>
           <Typography variant="body1" paragraph>
             Before filing any formal legal claim, you agree to contact us at{' '}
-            <Link href="mailto:legal@profileai.com">legal@profileai.com</Link> to attempt to resolve 
+            <Link href="mailto:legal@profilleai.com">legal@profilleai.com</Link> to attempt to resolve 
             the dispute informally. We will work in good faith to resolve any issues within 30 days.
           </Typography>
 
@@ -473,11 +473,11 @@ const TermsOfService = () => {
           <Box sx={{ bgcolor: '#f5f5f5', p: 2, borderRadius: 2, mt: 2 }}>
             <Typography variant="body2">
               <strong>Email:</strong>{' '}
-              <Link href="mailto:legal@profileai.com">legal@profileai.com</Link>
+              <Link href="mailto:legal@profilleai.com">legal@profilleai.com</Link>
             </Typography>
             <Typography variant="body2" sx={{ mt: 1 }}>
               <strong>Support:</strong>{' '}
-              <Link href="mailto:support@profileai.com">support@profileai.com</Link>
+              <Link href="mailto:support@profilleai.com">support@profilleai.com</Link>
             </Typography>
           </Box>
         </Section>
@@ -495,7 +495,7 @@ const TermsOfService = () => {
           </Typography>
           <Box sx={{ mt: 2 }}>
             <Link href="/privacy" sx={{ mr: 2 }}>Privacy Policy</Link>
-            <Link href="mailto:legal@profileai.com">Contact Legal</Link>
+            <Link href="mailto:legal@profilleai.com">Contact Legal</Link>
           </Box>
         </Box>
       </Paper>

@@ -18,7 +18,7 @@
 
 const { ATSBoard } = require('../models');
 
-const UA = 'ProfileAI/1.0 (job-aggregator; +https://profileai.com)';
+const UA = 'ProfileAI/1.0 (job-aggregator; +https://www.profilleai.com)';
 const YC_COMPANIES_URL = 'https://www.ycombinator.com/companies';
 
 // ─── YC Algolia config ──────────────────────────────────────────────────────

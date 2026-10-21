@@ -286,7 +286,7 @@ const PrivacyPolicy = () => {
           </List>
           <Typography variant="body2" sx={{ mt: 2 }}>
             To exercise these rights, please contact us at{' '}
-            <Link href="mailto:privacy@profileai.com">privacy@profileai.com</Link> or use the 
+            <Link href="mailto:privacy@profilleai.com">privacy@profilleai.com</Link> or use the 
             Account Settings page in your dashboard.
           </Typography>
         </Section>
@@ -321,11 +321,11 @@ const PrivacyPolicy = () => {
           <Box sx={{ bgcolor: '#f5f5f5', p: 2, borderRadius: 2 }}>
             <Typography variant="body2">
               <strong>Email:</strong>{' '}
-              <Link href="mailto:privacy@profileai.com">privacy@profileai.com</Link>
+              <Link href="mailto:privacy@profilleai.com">privacy@profilleai.com</Link>
             </Typography>
             <Typography variant="body2" sx={{ mt: 1 }}>
               <strong>Data Protection Officer:</strong>{' '}
-              <Link href="mailto:dpo@profileai.com">dpo@profileai.com</Link>
+              <Link href="mailto:dpo@profilleai.com">dpo@profilleai.com</Link>
             </Typography>
           </Box>
         </Section>

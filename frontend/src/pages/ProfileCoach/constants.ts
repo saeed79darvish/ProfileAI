@@ -48,11 +48,6 @@ export {
 
 export const TEXT = {
   LOGO: 'ProfilleAI',
-  VOICE_ON: 'Voice on',
-  VOICE_OFF: 'Voice off',
-  // v1 ships without voice. The button stays visible but disabled so the
-  // affordance is discoverable and the layout does not shift when it lands.
-  VOICE_COMING_SOON: 'Voice answers are coming soon',
   DICTATE_START: 'Speak your answer',
   DICTATE_STOP: 'Stop listening',
   DICTATE_UNSUPPORTED: 'This browser cannot do speech input — try Chrome',

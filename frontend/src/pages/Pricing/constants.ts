@@ -34,7 +34,7 @@ export const TEXT = {
   SNACKBAR_CREDITS_ADDED: 'Credits added to your account!',
   SNACKBAR_FAILED: 'Failed to purchase. Please try again.',
   SNACKBAR_SUBSCRIBED: 'Successfully subscribed! Redirecting...',
-  CONTACT_EMAIL: 'support@profileai.com',
+  CONTACT_EMAIL: 'support@profilleai.com',
 } as const;
 
 // Application credit packs — only sell repeat-use credits (tailor + cover letter
@@ -61,7 +61,7 @@ export const COMPARE_FEATURES = [
 
 export const FAQS = [
   { question: 'How does the Free plan work?', answer: 'Free includes 3 lifetime resume tailorings, 1 resume parse and 1 profile enhancement per month, and 2 cover letters per month. It\'s designed as a trial — once you\'ve used your 3 tailorings, upgrade to Pro or buy an Apply credit pack to keep going.' },
-  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo) gives you 50 tailored resumes and 30 cover letters per month — plenty for an active job search. Pro+ ($29.99/mo) raises that to 200 tailored resumes and 200 cover letters a month, and adds batch tailoring and unlimited interview prep.' },
+  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo billed monthly, or $9.92/mo billed annually at $119/yr) gives you 50 tailored resumes and 30 cover letters per month — plenty for an active job search. Pro+ ($29.99/mo billed monthly, or $19.92/mo billed annually at $239/yr) raises that to 200 tailored resumes and 200 cover letters a month, and adds batch tailoring and unlimited interview prep.' },
   { question: 'What are credit packs?', answer: 'One-time purchases that give you extra application credits (1 tailored resume + 1 cover letter each). Credits never expire and are used automatically when your subscription limits are reached. Useful if you\'re between jobs but don\'t want a recurring plan.' },
   { question: 'Can I change plans later?', answer: 'Yes, you can upgrade or downgrade your plan at any time. Changes will be reflected in your next billing cycle.' },
   { question: 'What payment methods do you accept?', answer: 'We accept all major credit cards via Stripe, plus PayPal.' },

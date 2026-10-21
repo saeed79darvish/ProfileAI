@@ -8,6 +8,8 @@
 //    bots which do NOT execute JavaScript still get unique, indexable
 //    metadata for each public route.
 
+import { isSpaRoute, LEGACY_REDIRECTS } from './spaRoutes.js';
+
 const BACKEND_ORIGIN = 'https://api.profilleai.com';
 const SITE_URL = 'https://www.profilleai.com';
 
@@ -24,7 +26,7 @@ const ROUTE_META = {
       'Tailor your resume to any job in seconds, find roles matched to your profile, and practice salary negotiation with AI agents — all from your single ProfilleAI profile.',
   },
   '/pricing': {
-    title: 'Pricing — Free, Pro & Enterprise Plans | ProfilleAI',
+    title: 'Pricing — Free, Pro & Pro+ Plans | ProfilleAI',
     description:
       'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching.',
   },
@@ -62,11 +64,11 @@ const ROUTE_META = {
     description:
       'Sign up free to tailor your resume with AI, auto-apply to jobs, and practice salary negotiation with AI agents.',
   },
-  '/privacy-policy': {
+  '/privacy': {
     title: 'Privacy Policy | ProfilleAI',
     description: 'How ProfilleAI collects, uses, and protects your data.',
   },
-  '/terms-of-service': {
+  '/terms': {
     title: 'Terms of Service | ProfilleAI',
     description: 'The terms governing your use of ProfilleAI.',
   },
@@ -126,10 +128,41 @@ function isAssetRequest(pathname) {
 // Patch headers on a response without consuming the body. Used to force
 // browsers to revalidate index.html on every refresh so stale HTML (which
 // references obsolete hashed chunks) cannot survive a deploy.
-function withHeaders(response, headers) {
-  const next = new Response(response.body, response);
+function withHeaders(response, headers, status) {
+  const next = new Response(response.body, {
+    status: status ?? response.status,
+    statusText: status ? '' : response.statusText,
+    headers: response.headers,
+  });
   for (const [k, v] of Object.entries(headers)) next.headers.set(k, v);
   return next;
+}
+
+const NO_CACHE = {
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+// Sent on every HTML document. The API already sends its own.
+const SECURITY_HEADERS = {
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), geolocation=(), microphone=(self)',
+};
+
+// The Chrome extension iframes /resume/download?overlay=1 on top of whatever
+// page the user is on, so that one route must stay frameable.
+const FRAMEABLE_PATHS = ['/resume/download'];
+
+function htmlHeaders(pathname) {
+  const headers = { ...NO_CACHE, ...SECURITY_HEADERS };
+  if (!FRAMEABLE_PATHS.includes(pathname)) {
+    headers['X-Frame-Options'] = 'DENY';
+    headers['Content-Security-Policy'] = "frame-ancestors 'none'";
+  }
+  return headers;
 }
 
 export default {
@@ -150,6 +183,11 @@ export default {
         url.protocol = 'https:';
         url.hostname = canonicalHost;
         url.port = '';
+        return Response.redirect(url.toString(), 301);
+      }
+      const legacy = LEGACY_REDIRECTS[url.pathname];
+      if (legacy) {
+        url.pathname = legacy;
         return Response.redirect(url.toString(), 301);
       }
     }
@@ -183,15 +221,16 @@ export default {
 
     if (response.status !== 404) {
       // Force HTML documents to revalidate on every load. Hashed JS/CSS
-      // assets keep their long-lived immutable caching (set by the static
-      // assets binding) since their URLs change on every build.
+      // under /assets/ change URL on every build, so they can be cached
+      // forever. Set here because public/_headers is not applied to assets
+      // served through the worker: they were going out as no-store, so every
+      // visit re-downloaded the whole bundle.
+      if (response.ok && url.pathname.startsWith('/assets/')) {
+        return withHeaders(response, { 'Cache-Control': 'public, max-age=31536000, immutable' });
+      }
       const ct = response.headers.get('content-type') || '';
       if (ct.includes('text/html')) {
-        let html = withHeaders(response, {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-          Expires: '0',
-        });
+        let html = withHeaders(response, htmlHeaders(url.pathname));
         const meta = ROUTE_META[url.pathname];
         if (isBot && meta) {
           html = rewriteHtmlForBot(html, meta, canonicalUrl);
@@ -219,11 +258,10 @@ export default {
     const rootUrl = new URL(url.toString());
     rootUrl.pathname = '/';
     const fallback = await env.ASSETS.fetch(new Request(rootUrl.toString(), request));
-    let withCache = withHeaders(fallback, {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      Pragma: 'no-cache',
-      Expires: '0',
-    });
+    // Unknown paths still get the SPA shell (it renders the not-found page),
+    // but with a 404 status so crawlers stop indexing every typo as a page.
+    const status = fallback.ok && !isSpaRoute(url.pathname) ? 404 : undefined;
+    let withCache = withHeaders(fallback, htmlHeaders(url.pathname), status);
     // Bot hitting a client-side route: rewrite meta if we have an entry,
     // otherwise leave the global defaults from index.html in place (still
     // far better than the old empty shell).

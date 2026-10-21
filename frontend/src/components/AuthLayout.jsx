@@ -417,7 +417,7 @@ const AuthLayout = ({ children }) => {
           </MobileTopBar>
 
           <MobileHero>
-            <MobileHeroPill>Join 12,000+ professionals</MobileHeroPill>
+            <MobileHeroPill>Join 12,500+ professionals</MobileHeroPill>
             <Typography
               sx={{
                 color: '#0f172a',

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Mic as MicIcon,
   Send as SendIcon,
-  VolumeUp as VoiceIcon,
   Tune as TuneIcon,
   Extension as ExtensionIcon,
   MailOutline as MailIcon,
@@ -1779,12 +1778,6 @@ const ProfileCoach = () => {
               <span className="label">{TEXT.VOICE_START}</span>
             </TalkButton>
           )}
-          {/* v1 has no voice. Shown but disabled so the affordance is
-              discoverable and the layout doesn't shift when it ships. */}
-          <TopButton type="button" disabled $muted title={TEXT.VOICE_COMING_SOON}>
-            <VoiceIcon fontSize="small" />
-            <span className="label">{TEXT.VOICE_ON}</span>
-          </TopButton>
           {/* During the intro "skip" means skip the intro — bailing to the
               editor from here would hand over a completely empty draft. */}
           <TopButton

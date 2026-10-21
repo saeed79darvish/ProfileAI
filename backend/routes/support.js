@@ -64,7 +64,7 @@ Additional rules to cite when relevant:
 - No refunds are prorated for partial months, unused credits, or unused features.
 - Annual plans: full refund inside 7 days if eligible. After 7 days, access continues until the annual term ends but no partial-year refund.
 - Users in the EU, UK, and other jurisdictions with statutory withdrawal or refund rights retain those rights regardless of the above.
-- All refund requests go to billing@profileai.com from the account email, with the ticket or order reference.
+- All refund requests go to billing@profilleai.com from the account email, with the ticket or order reference.
 - Chargebacks initiated without contacting billing first may result in permanent account suspension.
 
 ═══ CANCELLATION ═══

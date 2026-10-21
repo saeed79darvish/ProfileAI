@@ -1,9 +1,11 @@
 import { Link as RouterLink } from 'react-router-dom';
 import { Container, Box, Typography, Button } from '@mui/material';
 import { SentimentDissatisfied, Home as HomeIcon } from '@mui/icons-material';
+import SEO from '../../components/SEO';
 
 const NotFound = () => (
   <Container maxWidth="md" sx={{ py: { xs: 6, md: 10 } }}>
+    <SEO title="Page not found" noIndex />
     <Box sx={{ textAlign: 'center' }}>
       <SentimentDissatisfied sx={{ fontSize: 96, color: 'primary.main', mb: 2 }} />
       <Typography variant="h2" component="h1" sx={{ fontWeight: 800, mb: 1 }}>

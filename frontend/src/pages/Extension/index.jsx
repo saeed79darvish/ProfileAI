@@ -28,12 +28,14 @@ const HOW_IT_WORKS = [
   {
     icon: DownloadIcon,
     title: 'Add it to Chrome',
-    desc: 'Install the ProfileAI extension from the Chrome Web Store in one click — no setup required.',
+    desc: extensionConfig.isPublished
+      ? 'Install the ProfilleAI extension from the Chrome Web Store in one click — no setup required.'
+      : 'The extension is coming soon to the Chrome Web Store. Once it is live, installing takes one click with no setup.',
   },
   {
     icon: LoginIcon,
     title: 'Sign in once',
-    desc: 'Open ProfileAI in your browser and sign in. The extension securely picks up your profile automatically.',
+    desc: 'Open ProfilleAI in your browser and sign in. The extension securely picks up your profile automatically.',
   },
   {
     icon: TouchAppIcon,
@@ -96,12 +98,12 @@ export default function ExtensionPage() {
   // can browse the Web Store but can't add extensions; iOS Safari/Chrome can't
   // at all), so on mobile we swap the install CTA for "email me the link"
   // instead of pointing at a button that can't do anything.
-  const installEmailHref = `mailto:?subject=${encodeURIComponent('Install the ProfileAI Chrome extension')}&body=${encodeURIComponent(`Open this on your computer to install the ProfileAI Chrome extension:\n\n${typeof window !== 'undefined' ? window.location.href : ''}`)}`;
+  const installEmailHref = `mailto:?subject=${encodeURIComponent('Install the ProfilleAI Chrome extension')}&body=${encodeURIComponent(`Open this on your computer to install the ProfilleAI Chrome extension:\n\n${typeof window !== 'undefined' ? window.location.href : ''}`)}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
-    name: 'ProfileAI — Job Application Assistant',
+    name: 'ProfilleAI — Job Application Assistant',
     applicationCategory: 'BrowserApplication',
     operatingSystem: 'Chrome',
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
@@ -112,10 +114,10 @@ export default function ExtensionPage() {
   return (
     <Box sx={{ background: '#0f0f14', color: '#fff', minHeight: '100vh' }}>
       <SEO
-        title="ProfileAI Chrome Extension — Apply to Any Job, Anywhere"
-        description="The ProfileAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page."
+        title="ProfilleAI Chrome Extension — Apply to Any Job, Anywhere"
+        description="The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page."
         path="/extension"
-        keywords="ProfileAI chrome extension, job application autofill, AI resume tailoring extension, auto apply jobs"
+        keywords="ProfilleAI chrome extension, job application autofill, AI resume tailoring extension, auto apply jobs"
         jsonLd={jsonLd}
       />
 
@@ -125,7 +127,7 @@ export default function ExtensionPage() {
           <Grid item xs={12} md={7}>
             <Chip
               icon={<ExtensionIcon sx={{ color: '#fff !important', fontSize: 18 }} />}
-              label="ProfileAI for Chrome"
+              label="ProfilleAI for Chrome"
               sx={{
                 background: 'rgba(124,58,237,0.15)',
                 color: '#c4b5fd',
@@ -148,7 +150,7 @@ export default function ExtensionPage() {
               </Box>
             </Typography>
             <Typography sx={{ fontSize: { xs: 16, md: 20 }, color: 'rgba(255,255,255,0.7)', mb: 4, maxWidth: 560 }}>
-              Your ProfileAI profile travels with you. The Chrome extension autofills
+              Your ProfilleAI profile travels with you. The Chrome extension autofills
               applications, drafts answers to screening questions, and tailors your resume —
               right on the job page, in seconds.
             </Typography>
@@ -237,7 +239,7 @@ export default function ExtensionPage() {
                 }}>
                   <ExtensionIcon sx={{ color: '#fff', fontSize: 18 }} />
                 </Box>
-                <Typography sx={{ fontWeight: 700, color: '#fff' }}>ProfileAI</Typography>
+                <Typography sx={{ fontWeight: 700, color: '#fff' }}>ProfilleAI</Typography>
                 <Chip label="Job detected" size="small" sx={{
                   ml: 'auto', background: 'rgba(34,197,94,0.15)', color: '#4ade80',
                   border: '1px solid rgba(34,197,94,0.3)', fontSize: 11, fontWeight: 600,
@@ -362,7 +364,7 @@ export default function ExtensionPage() {
           Stop retyping. Start applying.
         </Typography>
         <Typography sx={{ color: 'rgba(255,255,255,0.7)', mb: 4, fontSize: { xs: 16, md: 19 }, maxWidth: 560, mx: 'auto' }}>
-          Add ProfileAI to Chrome and let your profile do the heavy lifting on every application.
+          Add ProfilleAI to Chrome and let your profile do the heavy lifting on every application.
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
           {isMobile ? (

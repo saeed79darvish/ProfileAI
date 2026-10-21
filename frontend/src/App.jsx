@@ -85,6 +85,7 @@ const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
 const BlogIndex = lazyWithReload(() => import('./pages/Blog'));
 const BlogPost = lazyWithReload(() => import('./pages/Blog/BlogPost'));
 const ExtensionPage = lazyWithReload(() => import('./pages/Extension'));
+const NotFound = lazyWithReload(() => import('./pages/NotFound'));
 
 const LazyFallback = (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -253,7 +254,9 @@ function AppContent() {
                 </PrivateRoute>
               } />
               {/* Social feed — gated by VITE_ENABLE_FEED (off by default). */}
-              {featureFlags.feed && <Route path="/feed" element={<FeedPage />} />}
+              {featureFlags.feed
+                ? <Route path="/feed" element={<FeedPage />} />
+                : <Route path="/feed" element={<Navigate to="/" replace />} />}
               <Route path="/polls" element={<PollsPage />} />
               <Route path="/poll/:id" element={<PollDetailPage />} />
               
@@ -531,10 +534,10 @@ function AppContent() {
               path="/interviews"
               element={<Navigate to="/profile" replace />}
             />
-            {/* Catch-all: any unmatched path redirects to home rather than
-                rendering a blank page. This covers disabled feature routes
-                (e.g. /feed when VITE_ENABLE_FEED=false) and any typos. */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* Catch-all. The worker serves these with a 404 status, and
+                this tells the person the same thing instead of silently
+                dropping them on the homepage. */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
         </ErrorBoundary>

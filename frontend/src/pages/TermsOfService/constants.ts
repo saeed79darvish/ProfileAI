@@ -6,9 +6,9 @@ export const ROUTES = {
 } as const;
 
 export const CONTACT_EMAILS = {
-  LEGAL: 'legal@profileai.com',
-  SUPPORT: 'support@profileai.com',
-  BILLING: 'billing@profileai.com',
+  LEGAL: 'legal@profilleai.com',
+  SUPPORT: 'support@profilleai.com',
+  BILLING: 'billing@profilleai.com',
 } as const;
 
 export const POLICY = {

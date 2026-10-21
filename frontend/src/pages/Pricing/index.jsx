@@ -350,7 +350,7 @@ const Pricing = () => {
   return (
     <PageContainer>
       <SEO
-        title="Pricing — Free, Pro & Enterprise Plans"
+        title="Pricing — Free, Pro & Pro+ Plans"
         description="Simple, transparent pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching."
         path="/pricing"
         keywords="ProfilleAI pricing, AI resume builder cost, AI cover letter pricing, AI career copilot subscription"
