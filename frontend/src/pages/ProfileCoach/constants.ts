@@ -103,6 +103,12 @@ export const TEXT = {
 
   INPUT_PLACEHOLDER: 'Type your answer',
   INPUT_PLACEHOLDER_VOICE: 'Type your answer, or tap the mic to talk',
+  // When the answer is a tap: the box says so, rather than just looking dead.
+  INPUT_PLACEHOLDER_CHIPS: 'Tap an option above',
+  // Editing from the panel.
+  EDIT_FROM_PANEL: 'Edit',
+  FIX_TITLE: 'What should the headline say?',
+  FIX_DONE: 'Updated.',
   SEND: 'Send',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 

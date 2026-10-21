@@ -368,6 +368,10 @@ export const evidenceProbe = (draft = {}) =>
 export const questionText = (step, draft = {}) =>
   (typeof step?.question === 'function' ? step.question(draft) : step?.question || '');
 
+/** The grey line under a question, which can also depend on who is asked. */
+export const hintText = (step, draft = {}) =>
+  (typeof step?.hint === 'function' ? step.hint(draft) : step?.hint || '');
+
 /* ─── The ladder ──────────────────────────────────────────────
 
    Each step declares:
@@ -475,7 +479,9 @@ export const LADDER = [
   {
     id: 'currentRole',
     question: 'Tell me about your most recent role. Where was it, and when?',
-    hint: 'Something like "Product manager at Acme, 2022 to now" is plenty.',
+    // The example uses their own title: a designer was shown "Product
+    // manager at Acme", which reads as not having listened.
+    hint: (draft) => `Something like "${draft.title || 'Product manager'} at Acme, 2022 to now" is plenty.`,
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -1092,6 +1098,14 @@ export const autocompleteOptions = (kind) => {
   return [];
 };
 
+/* Someone who just said Principal is not offered "I'm a new grad". The
+   stages that cannot be true at a senior level are left out rather than
+   asked and contradicted. */
+const SENIOR_LEVELS = new Set(['senior', 'staff', 'principal', 'lead', 'manager', 'director', 'head', 'owner']);
+export const careerStageChips = (draft = {}) => CAREER_STAGES
+  .filter((c) => !SENIOR_LEVELS.has(draft.level) || !['new_grad', 'internship'].includes(c.id))
+  .map((c) => ({ id: c.id, label: c.label }));
+
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {
@@ -1106,7 +1120,7 @@ export const getChips = (step, draft = {}) => {
     case 'workStyles':
       return WORK_STYLES.map((w) => ({ id: w.id, label: w.label }));
     case 'careerStages':
-      return CAREER_STAGES.map((c) => ({ id: c.id, label: c.label }));
+      return careerStageChips(draft);
     case 'skills':
       return skillChips(draft);
     case 'targets':
@@ -1679,8 +1693,11 @@ export const applyBraindump = (draft = {}, fields = {}) => {
       rows[at] = mergeRole(rows[at], fields, bullets);
       next.experience = rows;
     } else if (fields.company || next.title || fields.title) {
+      /* The title said for this role, not the headline. "Lead Product
+         Designer at Acme" was filed as "Principal Product Designer at Acme"
+         because the row took the headline the level chip had built. */
       next.experience = [mergeRole({
-        title: next.title || '', company: '', startDate: '', endDate: '', current: false, description: '',
+        title: fields.title || next.title || '', company: '', startDate: '', endDate: '', current: false, description: '',
       }, fields, bullets), ...rows];
     }
   }

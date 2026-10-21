@@ -292,12 +292,22 @@ export const ChipRow = styled.div`
   }
 `;
 
+/* Chip states, one rule for every question:
+     idle      white, grey border
+     hover     indigo border (an outline only)
+     selected  filled indigo, so it never reads as hover
+     answered  the row greys out, and the chosen chip stays lit in a pale fill
+   Multi-select chips carry a checkbox so the two kinds look different
+   before anything is tapped. */
 export const Chip = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 11px 18px;
   border-radius: 12px;
   border: 1.5px solid ${({ $selected }) => ($selected ? '#6366f1' : '#e6e6ef')};
-  background: ${({ $selected }) => ($selected ? '#eef0ff' : '#fff')};
-  color: ${({ $selected, $spent }) => ($spent ? '#b4b4c4' : $selected ? '#4c51bf' : '#1a1a2e')};
+  background: ${({ $selected, $spent }) => ($selected ? ($spent ? '#eef0ff' : '#6366f1') : '#fff')};
+  color: ${({ $selected, $spent }) => ($selected ? ($spent ? '#4c51bf' : '#fff') : $spent ? '#b4b4c4' : '#1a1a2e')};
   font-family: inherit;
   font-size: 0.98rem;
   font-weight: 600;
@@ -311,6 +321,22 @@ export const Chip = styled.button`
   }
 
   &:disabled { box-shadow: none; }
+
+  ${({ $multi, $selected }) => $multi && css`
+    &::before {
+      content: '${$selected ? '\\2713' : ''}';
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1.5px solid ${$selected ? 'currentColor' : '#c4c4d4'};
+      font-size: 11px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+  `}
 
   /* The confirm on a multi-select. It ends the question rather than
      answering it, so it leads as a filled action — wearing the same
@@ -1405,4 +1431,37 @@ export const SecondaryLink = styled.button`
   text-decoration: underline;
 
   &:disabled { opacity: 0.5; cursor: default; }
+`;
+
+/* A row in the preview you can tap to correct. Looks like the document
+   until hovered; the pencil says it is editable. */
+export const PreviewEdit = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  svg { font-size: 14px; color: #a0a0b8; opacity: 0.7; }
+  &:hover svg, &:focus-visible svg { color: #6366f1; opacity: 1; }
+  &:hover { text-decoration: underline; text-decoration-color: #c7c9f7; }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+`;
+
+export const PreviewField = styled.div`
+  margin-top: 2px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 0.78rem;
+  color: #6b6b85;
 `;

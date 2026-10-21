@@ -51,6 +51,7 @@ import {
   isPresentable,
   canAnswer,
   questionText,
+  hintText,
   isAlreadyAnswered,
   missingFields,
   applyBraindump,
@@ -85,11 +86,11 @@ import {
 import {
   PageContainer, TopBar, Logo, TopActions, TopButton, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
-  ChipRow, Chip, QuickReplies, QuickReply,
+  ChipRow, Chip,
   ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote, TalkButton,
   ListeningNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
-  PreviewSheet, PreviewPlaceholder,
+  PreviewSheet, PreviewPlaceholder, PreviewEdit, PreviewField,
   MobileStrip, StripBar, StripLabel, MobilePanel,
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, EffortTag,
@@ -102,6 +103,10 @@ import {
 /* Not answers: edits to what the title implied, made from the chips under
    the read-back. Their own stepIds so answerChip routes them aside from the
    ladder. */
+/* How long a freshly rendered row of chips ignores taps. Long enough to
+   absorb a double tap, short enough that nobody reading could beat it. */
+const TAP_GUARD_MS = 400;
+
 const EDIT_FIELD = '__edit_field';
 const EDIT_LEVEL = '__edit_level';
 const EDIT_CHOICE = '__edit_choice';
@@ -318,7 +323,7 @@ const ProfileCoach = () => {
   /* ─── Message helpers ──────────────────────────────────────── */
 
   const pushCoach = useCallback((text, extra = {}) => {
-    setMessages((prev) => [...prev, { id: nextId(), role: 'coach', text, ...extra }]);
+    setMessages((prev) => [...prev, { id: nextId(), role: 'coach', text, at: Date.now(), ...extra }]);
   }, []);
 
   const pushMine = useCallback((text, extra = {}) => {
@@ -327,8 +332,13 @@ const ProfileCoach = () => {
 
   // Retire the chip row on a message once it has been answered, so the
   // transcript reads as history rather than as still-live controls.
-  const spendChips = useCallback((messageId) => {
-    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, spent: true } : m)));
+  /* The chosen chip stays lit in the answered row. Single-select rows used
+     to grey out entirely, so the transcript no longer showed what was
+     picked, while multi-select rows kept theirs: one rule for both now. */
+  const spendChips = useCallback((messageId, chosenId) => {
+    setMessages((prev) => prev.map((m) => (m.id === messageId
+      ? { ...m, spent: true, selected: chosenId ? [chosenId] : m.selected }
+      : m)));
   }, []);
 
   const askStep = useCallback((index, currentDraft) => {
@@ -369,7 +379,7 @@ const ProfileCoach = () => {
       later(() => {
         setTyping(false);
         pushCoach(questionText(step, currentDraft), {
-          hint: step.hint,
+          hint: hintText(step, currentDraft),
           [step.kind]: true,
           stepId: step.id,
         });
@@ -381,7 +391,7 @@ const ProfileCoach = () => {
     later(() => {
       setTyping(false);
       pushCoach(questionText(step, currentDraft), {
-        hint: step.hint,
+        hint: hintText(step, currentDraft),
         stepId: step.id,
         chips: getChips(step, currentDraft),
         multi: step.kind === 'multi',
@@ -1121,7 +1131,7 @@ const ProfileCoach = () => {
   /* Facts are read back once before they settle onto the resume. The coach
      used to write them silently and sometimes wrongly — a duplicate job, a
      start month nobody gave — and the person found out at the end. */
-  const showConfirm = useCallback((kind, index, d) => {
+  const showConfirm = useCallback((kind, index, d, { fromPanel = false } = {}) => {
     const row = (d.experience || [])[0];
     if (!row) {
       advanceRef.current(index, d);
@@ -1134,7 +1144,7 @@ const ProfileCoach = () => {
     }
     pushCoach(kind === 'role' ? TEXT.CONFIRM_ROLE(roleConfirmText(row)) : TEXT.CONFIRM_BULLETS, {
       stepId: CONFIRM_CHOICE,
-      confirmFor: { kind, index },
+      confirmFor: { kind, index, fromPanel },
       bullets: lines,
       chips: [
         { id: 'yes', label: TEXT.CONFIRM_YES },
@@ -1188,13 +1198,16 @@ const ProfileCoach = () => {
       const { kind, index: at } = message.confirmFor || {};
       trackEvent('coach_confirm', { kind, answer: chip.id });
       if (chip.id === 'fix') {
-        setFixing({ kind, index: at });
+        setFixing({ kind, index: at, fromPanel: !!message.confirmFor?.fromPanel });
         pushCoach(kind === 'role' ? TEXT.FIX_ROLE : TEXT.FIX_BULLETS);
         composerRef.current?.focus();
         return;
       }
       setFixing(null);
-      later(() => advanceRef.current(at, draftRef.current), TIMING.ACK_MS);
+      /* A correction made from the panel interrupted a question that is
+         still unanswered: ask it again rather than moving past it. */
+      if (message.confirmFor?.fromPanel) later(() => askStep(at, draftRef.current), TIMING.ACK_MS);
+      else later(() => advanceRef.current(at, draftRef.current), TIMING.ACK_MS);
       return;
     }
     if (message.stepId === VOICE_CHOICE) {
@@ -1283,7 +1296,7 @@ const ProfileCoach = () => {
       return;
     }
 
-    spendChips(message.id);
+    spendChips(message.id, chip.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
   }, [advance, askStep, busy, commit, editTitleField, isAuthenticated, later, navigate, offerPaste, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
@@ -1518,7 +1531,7 @@ const ProfileCoach = () => {
     }
     // canAnswer, not step.freeText: a probe question belongs to the review
     // step, which asks nothing itself and so declares freeText: false.
-    if (!canAnswer(step, probing)) return;
+    if (!canAnswer(step, probing) && !fixing) return;
 
     const liveMessage = [...messages].reverse().find((m) => m.stepId === step.id && !m.spent);
 
@@ -1533,6 +1546,17 @@ const ProfileCoach = () => {
        is still waiting. Either way it replaces what was read back. */
     const liveConfirm = [...messages].reverse().find((m) => m.stepId === CONFIRM_CHOICE && !m.spent);
     const fix = fixing || (liveConfirm ? liveConfirm.confirmFor : null);
+    if (fix && fix.kind === 'title') {
+      // A headline is taken as typed; field and level are re-read from it.
+      const next = deriveFromTitle({ ...current, title: normalizeTitle(text), level: '' });
+      draftRef.current = next;
+      setDraft(next);
+      setFixing(null);
+      pushCoach(`${TEXT.FIX_DONE} ${draftToProfileShape(next).title}.`);
+      trackEvent('coach_panel_edit', { what: 'title' });
+      later(() => askStep(fix.index, next), TIMING.ACK_MS);
+      return;
+    }
     if (fix) {
       if (liveConfirm) spendChips(liveConfirm.id);
       const turn = await runTurn(text, { fix: fix.kind, holdSay: true });
@@ -1541,7 +1565,7 @@ const ProfileCoach = () => {
         setError(TEXT.ERROR_GENERIC);
         return;
       }
-      showConfirm(fix.kind, fix.index, draftRef.current);
+      showConfirm(fix.kind, fix.index, draftRef.current, { fromPanel: !!fix.fromPanel });
       return;
     }
 
@@ -1722,6 +1746,18 @@ const ProfileCoach = () => {
     advance(LADDER.findIndex((st) => st.id === 'tailor'), draftRef.current);
   }, [advance, busy, pushMine, spendChips]);
 
+  /* ─── Editing from the panel ───────────────────────────────── */
+
+  /* Tap the headline or the role in the preview to correct it. There was
+     no way back to an answer short of starting over. */
+  const startPanelFix = useCallback((kind) => {
+    if (busy || fixing || stepIndex < 0) return;
+    setFixing({ kind, index: stepIndex, fromPanel: true });
+    setPanelOpen(false);
+    pushCoach(kind === 'title' ? TEXT.FIX_TITLE : TEXT.FIX_ROLE);
+    composerRef.current?.focus();
+  }, [busy, fixing, pushCoach, stepIndex]);
+
   /* ─── Saving: one tap, inside the chat ─────────────────────── */
 
   /**
@@ -1815,7 +1851,7 @@ const ProfileCoach = () => {
   const currentStep = LADDER[stepIndex];
   // The intro (stepIndex -1) has no question, but it does have a coach who
   // can answer one — see handleIntroText.
-  const canType = (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing)) && !busy;
+  const canType = (!!fixing || (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing))) && !busy;
 
   /* ─── Card renderers ───────────────────────────────────────── */
 
@@ -2075,7 +2111,18 @@ const ProfileCoach = () => {
     const prefs = preferenceLabels(draft);
     return (
       <PreviewSheet>
-        <ResumeName>{shape.title || <PreviewPlaceholder>{TEXT.PREVIEW_HEADLINE}</PreviewPlaceholder>}</ResumeName>
+        <ResumeName>
+          {shape.title ? (
+            <PreviewEdit type="button" onClick={() => startPanelFix('title')} title={TEXT.EDIT_FROM_PANEL}>
+              {shape.title}<EditIcon aria-hidden="true" />
+              <span className="sr">{TEXT.EDIT_FROM_PANEL}</span>
+            </PreviewEdit>
+          ) : <PreviewPlaceholder>{TEXT.PREVIEW_HEADLINE}</PreviewPlaceholder>}
+        </ResumeName>
+        {/* Field and level are answers too; they show up here. */}
+        {!!draft.sector && (
+          <PreviewField>{[levelLabel(draft.sector, draft.level), sectorLabel(draft.sector)].filter(Boolean).join(' · ')}</PreviewField>
+        )}
         <ResumeMeta>
           {[draft.location, prefs].filter(Boolean).join(' · ') || <PreviewPlaceholder>{TEXT.PREVIEW_META}</PreviewPlaceholder>}
         </ResumeMeta>
@@ -2090,7 +2137,12 @@ const ProfileCoach = () => {
             )}
             {section.kind === 'entries' && section.items.map((entry, i) => (
               <ResumeEntry key={`${section.key}${i}`}>
-                <strong>{entry.heading}</strong>
+                {section.key === 'experience' && i === 0 ? (
+                  <PreviewEdit type="button" onClick={() => startPanelFix('role')} title={TEXT.EDIT_FROM_PANEL}>
+                    <strong>{entry.heading}</strong><EditIcon aria-hidden="true" />
+                    <span className="sr">{TEXT.EDIT_FROM_PANEL}</span>
+                  </PreviewEdit>
+                ) : <strong>{entry.heading}</strong>}
                 {entry.meta && <em>{entry.meta}</em>}
                 {!!entry.lines.length && (
                   <ul>{entry.lines.map((line, j) => <li key={j}>{line}</li>)}</ul>
@@ -2154,7 +2206,8 @@ const ProfileCoach = () => {
       <Body>
         <ChatColumn>
           <MessageList>
-            <Thread>
+            {/* Announces each new coach message to screen readers. */}
+            <Thread role="log" aria-live="polite" aria-relevant="additions">
               {messages.map((message) => (
                 <React.Fragment key={message.id}>
                   {/* Cards that carry their own heading (the upload progress)
@@ -2243,34 +2296,59 @@ const ProfileCoach = () => {
 
                   {!!message.chips?.length && (
                     <ChipRow>
-                      {message.chips.map((chip) => (
-                        <Chip
-                          key={chip.id}
-                          type="button"
-                          disabled={(message.spent && !message.keepLive) || busy}
-                          $spent={message.spent && !message.keepLive}
-                          $ghost={String(chip.id).startsWith('__')}
-                          $selected={message.selected?.includes(chip.id)}
-                          onClick={() => answerChip(message, chip)}
-                        >
-                          {chip.label}
-                        </Chip>
-                      ))}
+                      {message.chips.map((chip) => {
+                        const ghost = String(chip.id).startsWith('__');
+                        const selected = !!message.selected?.includes(chip.id);
+                        return (
+                          <Chip
+                            key={chip.id}
+                            type="button"
+                            disabled={(message.spent && !message.keepLive) || busy}
+                            $spent={message.spent && !message.keepLive}
+                            $ghost={ghost}
+                            $selected={selected}
+                            $multi={!!message.multi && !ghost}
+                            aria-pressed={ghost ? undefined : selected}
+                            onClick={() => {
+                              /* New chips land right where the last tap was.
+                                 A quick second tap would answer a question the
+                                 person had not read yet. */
+                              if (message.at && Date.now() - message.at < TAP_GUARD_MS) return;
+                              answerChip(message, chip);
+                            }}
+                          >
+                            {chip.label}
+                          </Chip>
+                        );
+                      })}
                       {message.multi && !message.spent && (
                         <Chip
                           type="button"
                           $primary={!!message.selected?.length}
                           $ghost={!message.selected?.length}
-                          onClick={() => confirmMulti(message)}
+                          onClick={() => {
+                            if (message.at && Date.now() - message.at < TAP_GUARD_MS) return;
+                            confirmMulti(message);
+                          }}
                         >
                           {message.selected?.length ? TEXT.DONE_CHIP : TEXT.SKIP_CHIP}
                         </Chip>
                       )}
                       {message.optional && !message.multi && !message.spent && (
-                        <Chip type="button" onClick={() => skipStep(message)}>
+                        <Chip type="button" $ghost onClick={() => skipStep(message)}>
                           {TEXT.SKIP_CHIP}
                         </Chip>
                       )}
+                    </ChipRow>
+                  )}
+                  {/* A text question that can be skipped gets the same Skip
+                      chip, in the same place, as every other question. It used
+                      to be a blue pill down by the composer. */}
+                  {!message.chips?.length && message.optional && !message.spent && message.stepId && (
+                    <ChipRow>
+                      <Chip type="button" $ghost onClick={() => skipStep(message)}>
+                        {TEXT.SKIP_CHIP}
+                      </Chip>
                     </ChipRow>
                   )}
                 </React.Fragment>
@@ -2291,22 +2369,6 @@ const ProfileCoach = () => {
           <ComposerWrap>
             {error && <ErrorNote role="alert">{error}</ErrorNote>}
 
-            {/* Skip lives here for text-only steps, which have no chip row
-                of their own to hang it on. */}
-            {currentStep?.optional && !currentStep?.chipSet && (
-              <QuickReplies>
-                <QuickReply
-                  type="button"
-                  onClick={() => {
-                    pushMine(TEXT.SKIP_CHIP);
-                    advance(stepIndex, draftRef.current);
-                  }}
-                >
-                  {TEXT.SKIP_CHIP}
-                </QuickReply>
-              </QuickReplies>
-            )}
-
             {dictation.listening && <ListeningNote role="status">{TEXT.LISTENING}</ListeningNote>}
 
             <Composer onSubmit={submitText}>
@@ -2314,7 +2376,9 @@ const ProfileCoach = () => {
                 ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
+                placeholder={!canType
+                  ? TEXT.INPUT_PLACEHOLDER_CHIPS
+                  : dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
                 disabled={!canType}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
                 // Titles and skills are suggested as they are typed: "Senior

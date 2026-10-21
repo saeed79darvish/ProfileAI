@@ -12,6 +12,8 @@ import {
   VOICE_OFFER_STEP,
   voiceAgenda,
   applyBraindump,
+  careerStageChips,
+  hintText,
   roleConfirmText,
   applyCorrection,
   deriveFromTitle,
@@ -1201,4 +1203,22 @@ test('the coach shows the same score the editor does', () => {
   };
   const shape = draftToProfileShape(draft);
   assert.deepEqual(computeProfileCompletion(shape), computeProfileCompletion(draftToProfileShape(draft)));
+});
+
+test('a role keeps the title said for it, not the headline', () => {
+  const d = applyBraindump(
+    { title: 'Principal Product Designer', level: 'principal', experience: [] },
+    { title: 'Lead Product Designer', company: 'Acme' }
+  );
+  assert.equal(d.experience[0].title, 'Lead Product Designer');
+});
+
+test('a senior level is never offered new grad or internships', () => {
+  const ids = careerStageChips({ level: 'principal' }).map((c) => c.id);
+  assert.ok(!ids.includes('new_grad') && !ids.includes('internship'));
+  assert.ok(careerStageChips({ level: 'entry' }).some((c) => c.id === 'new_grad'));
+});
+
+test('the role example uses their own title', () => {
+  assert.match(hintText(step('currentRole'), { title: 'Product Designer' }), /Product Designer at Acme/);
 });
