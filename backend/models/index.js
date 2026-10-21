@@ -14,6 +14,7 @@ const JobApplication = require('./JobApplication');
 const AgentNegotiation = require('./AgentNegotiation');
 const NegotiationMessage = require('./NegotiationMessage');
 const CandidateInsights = require('./CandidateInsights');
+const CareerContext = require('./CareerContext');
 const Interview = require('./Interview');
 const SavedJob = require('./SavedJob');
 const PhoneScreeningCall = require('./PhoneScreeningCall');
@@ -379,6 +380,11 @@ NegotiationMessage.belongsTo(AgentNegotiation, {
   foreignKey: 'negotiationId',
   as: 'negotiation'
 });
+
+// What the coach learned about a candidate beyond the resume. Deleted with
+// the user.
+User.hasOne(CareerContext, { foreignKey: 'userId', as: 'careerContext', onDelete: 'CASCADE' });
+CareerContext.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
 // CandidateInsights associations
 User.hasOne(CandidateInsights, {
@@ -1042,6 +1048,7 @@ module.exports = {
   AgentNegotiation,
   NegotiationMessage,
   CandidateInsights,
+  CareerContext,
   Interview,
   SavedJob,
   PhoneScreeningCall,

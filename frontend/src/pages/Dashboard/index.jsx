@@ -1329,6 +1329,11 @@ const Dashboard = () => {
             <HeroEditBtn onClick={handleEditProfile}>
               <EditIcon /> Edit<span className="edit-profile-suffix">&nbsp;Profile</span>
             </HeroEditBtn>
+            {/* Their goals and call summaries, kept by the coach; theirs to
+                see, edit and delete. */}
+            <HeroEditBtn onClick={() => navigate('/profile/about-you')} title="What ProfilleAI knows about you">
+              About you
+            </HeroEditBtn>
             <HeroShareStrip>
               <Tooltip title={publicProfileUrl}>
                 <button

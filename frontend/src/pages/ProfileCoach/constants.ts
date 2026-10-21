@@ -58,6 +58,7 @@ export const TEXT = {
   /* ─── Talking to Remi ─── */
   VOICE_OFFER: 'This next part is easier said than typed: your recent role and what you did there. Want to just talk it through? A few minutes, and I will check the names and dates with you after. Or we can keep typing.',
   VOICE_START: 'Talk it through',
+  VOICE_OFFER_REVIEW: 'That is my read. Want to talk the rest through? A few minutes on the gaps I found and what you are aiming for next, then I will check the names and dates with you. Or we can keep typing.',
   VOICE_KEEP_TYPING: 'Keep typing',
   VOICE_MUTE: 'Mute your microphone',
   VOICE_UNMUTE: 'Unmute',
@@ -70,7 +71,7 @@ export const TEXT = {
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
   VOICE_FAILED: 'I could not start the call. We can keep going here instead.',
-  VOICE_SIGNED_OUT: 'Talking it through with me is free with an account, up to 10 minutes to start. It takes about twenty seconds to make one, and I will keep everything you have told me so far.',
+  VOICE_SIGNED_OUT: "You've had today's free call. A free account keeps the conversation going, and I will keep everything you have told me so far.",
   VOICE_SIGNIN: 'Sign in',
   VOICE_REGISTER: 'Create a free account',
   LOGIN: 'Log in',

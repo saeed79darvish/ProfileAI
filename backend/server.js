@@ -268,6 +268,8 @@ if (featureFlags.recruiterSurface) {
 app.use('/api/projects', projectRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/tailored-profiles', tailoredProfileRoutes);
+// What the coach has learned about the candidate; theirs to see and delete.
+app.use('/api/career-context', require('./routes/careerContext'));
 app.use('/api/resume', resumeDownloadRoutes);
 // Social feed API — gated by ENABLE_FEED (off by default for launch).
 // Covers posts and their nested comments/likes/saved routes.

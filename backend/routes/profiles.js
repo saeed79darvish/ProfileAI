@@ -13,6 +13,7 @@ const {
   recordAIUsage,
 } = require('../middleware/aiRateLimiter');
 const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlForLimit } = require('../middleware/guestRateLimiter');
+const { clientIp } = require('../utils/clientIp');
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
@@ -703,20 +704,58 @@ router.get('/coach/voice/status', (req, res) => {
   res.json({ available: coachRealtimeService.isConfigured() });
 });
 
+/* Guests get one short call a day. A live call is the most persuasive
+   thing this product does, and a button that only led to "sign up first"
+   hid it from the people deciding whether to. Held to one call per IP per
+   day and five minutes, which the browser enforces by hanging up and the
+   coach is told so it wraps up in time. In memory, so per dyno: fine on one
+   dyno, needs a shared store if the API scales out. */
+const GUEST_CALL_MINUTES = 5;
+const GUEST_CALLS_PER_IP_PER_DAY = 1;
+const GUEST_CALL_WINDOW_MS = 24 * 60 * 60 * 1000;
+const guestCallLog = new Map();
+
+const recentGuestCalls = (ipHash, now = Date.now()) => {
+  const kept = (guestCallLog.get(ipHash) || []).filter((t) => now - t < GUEST_CALL_WINDOW_MS);
+  if (kept.length) guestCallLog.set(ipHash, kept);
+  else guestCallLog.delete(ipHash);
+  return kept;
+};
+
+function voiceSessionGuard(req, res, next) {
+  optionalAuth(req, res, () => {
+    if (req.userId) return coachVoiceSessionLimiter(req, res, next);
+    if (process.env.DISABLE_AI_RATE_LIMIT === 'true') {
+      req.guestCall = { ipHash: null, minutes: GUEST_CALL_MINUTES };
+      return next();
+    }
+    const ipHash = hashIp(clientIp(req));
+    if (recentGuestCalls(ipHash).length >= GUEST_CALLS_PER_IP_PER_DAY) {
+      return res.status(429).json({
+        error: 'Voice limit reached',
+        code: 'guest_call_used',
+        message: "You've had today's free call. Create a free account to keep talking, and I will keep everything you have told me.",
+      });
+    }
+    req.guestCall = { ipHash, minutes: GUEST_CALL_MINUTES };
+    return next();
+  });
+}
+
 // @route   POST /api/profiles/coach/voice/session
 // @desc    Open a realtime session and hand the browser a short-lived key
-// @access  Private
+// @access  Public: signed in on their plan's allowance, guests one 5-minute call a day
 /* The browser talks to OpenAI directly from here on. We are only the thing
    that holds the API key and decides who is allowed to start a call — which
    is the whole of our involvement, because a realtime session is one model
    doing hearing, thinking and speaking with nothing in the middle. */
-router.post('/coach/voice/session', authMiddleware, coachVoiceSessionLimiter, async (req, res) => {
+router.post('/coach/voice/session', voiceSessionGuard, async (req, res) => {
   try {
     if (!coachRealtimeService.isConfigured()) {
       return res.status(503).json({ error: 'Voice is not configured on this server' });
     }
 
-    const user = await User.findByPk(req.userId, { attributes: ['firstName'] });
+    const user = req.userId ? await User.findByPk(req.userId, { attributes: ['firstName'] }) : null;
     /* What the browser already has goes into the instructions, so the call
        does not open by asking for something they typed two minutes ago. */
     const profile = req.body?.profile && typeof req.body.profile === 'object'
@@ -730,16 +769,21 @@ router.post('/coach/voice/session', authMiddleware, coachVoiceSessionLimiter, as
       ? req.body.missing.filter((m) => typeof m === 'string').slice(0, 12)
       : [];
 
+    const maxSessionMinutes = req.guestCall?.minutes || req.voiceAllowance?.maxSessionMinutes || null;
     const session = await coachRealtimeService.createVoiceSession({
       firstName: user?.firstName,
       profile,
       missing,
+      maxMinutes: maxSessionMinutes,
     });
 
     /* Counted at the start, against the minutes granted: OpenAI is not told
        the cap, so the browser is, and hangs up when it is reached. */
-    const maxSessionMinutes = req.voiceAllowance?.maxSessionMinutes || null;
-    if (req.voiceAllowance) await recordVoiceSession(req.userId || req.user?.id, maxSessionMinutes);
+    if (req.guestCall?.ipHash) {
+      guestCallLog.set(req.guestCall.ipHash, [...recentGuestCalls(req.guestCall.ipHash), Date.now()]);
+    } else if (req.voiceAllowance) {
+      await recordVoiceSession(req.userId || req.user?.id, maxSessionMinutes);
+    }
     res.json({ success: true, ...session, maxSessionMinutes });
   } catch (error) {
     console.error('Error starting voice coach:', error.detail || error.message);

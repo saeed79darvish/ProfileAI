@@ -51,14 +51,14 @@ const isConfigured = () => !!process.env.OPENAI_API_KEY;
  * open one realtime session, so it is safe in a browser in a way our actual
  * API key never would be.
  */
-async function createVoiceSession({ firstName, profile = {}, missing = [] } = {}) {
+async function createVoiceSession({ firstName, profile = {}, missing = [], maxMinutes = null } = {}) {
   if (!isConfigured()) throw new Error('OPENAI_API_KEY is not configured');
 
   const body = {
     session: {
       type: 'realtime',
       model: REALTIME_MODEL,
-      instructions: coachVoiceInstructions({ firstName, profile, missing }),
+      instructions: coachVoiceInstructions({ firstName, profile, missing, maxMinutes }),
       tools: COACH_VOICE_TOOLS,
       tool_choice: 'auto',
       audio: {

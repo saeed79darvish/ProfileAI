@@ -33,6 +33,7 @@ import LinkedInOAuthCallback from './pages/LinkedInOAuthCallback';
 const ForgotPassword = lazyWithReload(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazyWithReload(() => import('./pages/ResetPassword'));
 const Dashboard = lazyWithReload(() => import('./pages/Dashboard'));
+const AboutYou = lazyWithReload(() => import('./pages/AboutYou'));
 const ProfileForm = lazyWithReload(() => import('./pages/ProfileForm'));
 const ProfileCoach = lazyWithReload(() => import('./pages/ProfileCoach'));
 const BrowseProfiles = lazyWithReload(() => import('./pages/BrowseProfiles'));
@@ -506,6 +507,15 @@ function AppContent() {
             <Route
               path="/dashboard"
               element={<Navigate to="/profile" replace />}
+            />
+            {/* What the coach has kept about them; theirs to edit or delete. */}
+            <Route
+              path="/profile/about-you"
+              element={
+                <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                  <AboutYou />
+                </PrivateRoute>
+              }
             />
             <Route
               path="/profile/create"

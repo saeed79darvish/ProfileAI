@@ -354,6 +354,11 @@ export const VOICE_OFFER_STEP = 'currentRole';
    it, so the two "why" questions come first. */
 export const voiceAgenda = (draft = {}) => {
   const agenda = [];
+  /* After an import, the call is the review's follow-ups said out loud:
+     the gaps the review found, then what a resume cannot say. */
+  for (const probe of (draft.review?.probes || []).slice(0, 3)) {
+    agenda.push(`ask about this gap in their resume: ${probe}`);
+  }
   // Offered at the role question, so a call with no role yet starts there.
   if (!(draft.experience || []).length && !['new_grad', 'student'].includes(draft.careerStage)) {
     agenda.push('their most recent role: where, what title, and roughly when');
@@ -1467,6 +1472,8 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.targetWhy;
     case 'targetBlocker':
       return !!draft.targetBlocker;
+    case 'assess':
+      return !!draft.assessment;
     default:
       break;
   }
@@ -2238,3 +2245,36 @@ export const applyCheckEdit = (draft = {}, kind, text) => {
   if (kind === 'skills') next.skills = parseSkillList(text);
   return next;
 };
+
+/* ─── What we know about them ─────────────────────────────── */
+
+/**
+ * The coaching facts in a draft, in the shape the CareerContext record
+ * takes. Only what was said: empty fields are left out so a merge never
+ * blanks something the record already holds.
+ */
+export const careerContextOf = (draft = {}) => {
+  const out = {};
+  if (String(draft.target || '').trim()) out.target = draft.target;
+  if (String(draft.targetWhy || '').trim()) out.targetWhy = draft.targetWhy;
+  if (String(draft.targetBlocker || '').trim()) out.targetBlocker = draft.targetBlocker;
+  if (draft.assessment) out.assessment = draft.assessment;
+  const constraints = {};
+  if (draft.location) constraints.location = draft.location;
+  if (draft.workStyle) constraints.workStyle = draft.workStyle;
+  if ((draft.roleTypes || []).length) constraints.roleTypes = draft.roleTypes;
+  if (Object.keys(constraints).length) out.constraints = constraints;
+  return out;
+};
+
+/** A saved record seeds a new conversation, so nothing it holds is asked again. */
+export const seedFromCareerContext = (draft = {}, context = {}) => ({
+  ...draft,
+  target: draft.target || context.target || '',
+  targetWhy: draft.targetWhy || context.targetWhy || '',
+  targetBlocker: draft.targetBlocker || context.targetBlocker || '',
+  workStyle: draft.workStyle || context.constraints?.workStyle || '',
+  roleTypes: (draft.roleTypes || []).length ? draft.roleTypes : (context.constraints?.roleTypes || []),
+  // Already assessed once: not re-run (it is the one paid step in here).
+  assessment: draft.assessment || context.assessment || null,
+});

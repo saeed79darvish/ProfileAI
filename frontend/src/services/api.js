@@ -439,6 +439,18 @@ export const smartMatchAPI = {
     api.post(`/smart-match/culture-fit/${profileId}`, { companyValues })
 };
 
+/* What ProfilleAI knows about the candidate beyond the resume: target,
+   why, obstacles, constraints, the coach's assessment and short summaries
+   of voice calls. Theirs to see, edit and delete. */
+export const careerContextAPI = {
+  get: () => api.get('/career-context'),
+  edit: (patch) => api.patch('/career-context', patch),
+  merge: (patch, { overwrite = false } = {}) => api.post('/career-context/merge', { ...patch, overwrite }),
+  summarizeCall: (transcript) => api.post('/career-context/summarize', { transcript }),
+  forget: ({ field, summaryIndex }) => api.delete('/career-context/item', { data: { field, summaryIndex } }),
+  clear: () => api.delete('/career-context'),
+};
+
 // Tailored Profiles API
 export const tailoredProfileAPI = {
   getAll: () => api.get('/tailored-profiles'),

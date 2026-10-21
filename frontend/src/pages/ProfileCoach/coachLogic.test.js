@@ -12,6 +12,8 @@ import {
   VOICE_OFFER_STEP,
   voiceAgenda,
   applyBraindump,
+  careerContextOf,
+  seedFromCareerContext,
   checkLines,
   applyCheckEdit,
   fieldFromText,
@@ -1247,4 +1249,29 @@ test('a corrected line replaces what the call heard', () => {
   assert.equal(dates.endDate, 'Present');
   assert.equal(applyCheckEdit(draft, 'education', 'BS CS · University of Washington · 2016').education[0].endDate, '2016');
   assert.equal(applyCheckEdit({}, 'location', 'seattle, wa').location, 'Seattle, WA');
+});
+
+/* ─── What we know about them ─────────────────────────────── */
+
+test('only what was said goes to the record', () => {
+  const out = careerContextOf({ ...emptyDraft(), target: 'Staff Engineer', workStyle: 'remote', roleTypes: [] });
+  assert.deepEqual(out, { target: 'Staff Engineer', constraints: { workStyle: 'remote' } });
+  assert.deepEqual(careerContextOf(emptyDraft()), {});
+});
+
+test('a saved record means the goal questions and the assessment are not repeated', () => {
+  const seeded = seedFromCareerContext(emptyDraft(), {
+    target: 'Staff Engineer', targetWhy: 'Scope', targetBlocker: 'No lead role',
+    assessment: { verdict: 'a stretch' }, constraints: { workStyle: 'remote' },
+  });
+  for (const id of ['target', 'targetWhy', 'targetBlocker', 'assess', 'workStyle']) {
+    assert.equal(isAlreadyAnswered(step(id), seeded), true, `${id} should not be asked again`);
+  }
+  // What the person says in this conversation still wins over the record.
+  assert.equal(seedFromCareerContext({ ...emptyDraft(), target: 'Manager' }, { target: 'Staff' }).target, 'Manager');
+});
+
+test('after an import, the call works through the gaps the review found', () => {
+  const agenda = voiceAgenda({ experience: [{ company: 'Acme' }], review: { probes: ['How many users did the app have?'] } });
+  assert.match(agenda[0], /How many users/);
 });

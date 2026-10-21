@@ -15,7 +15,7 @@ import {
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { profileAPI } from '../../services/api';
+import { profileAPI, careerContextAPI } from '../../services/api';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
 import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
@@ -79,6 +79,8 @@ import {
   parseLinks,
   sectorChips,
   fieldFromText,
+  careerContextOf,
+  seedFromCareerContext,
   checkLines,
   applyCheckEdit,
   SAY_IT_CHIP,
@@ -380,6 +382,25 @@ const ProfileCoach = () => {
     setMessages((prev) => [...prev, { id: nextId(), role: 'me', text, ...extra }]);
   }, []);
 
+  /* What the coach learned, kept on the account (CareerContext). Only for
+     signed-in users; a guest's goes along with their draft and is saved when
+     they sign up. Never blocks the conversation. */
+  const saveCareerContext = useCallback((d, opts) => {
+    if (!isAuthenticated) return;
+    const patch = careerContextOf(d);
+    if (!Object.keys(patch).length) return;
+    careerContextAPI.merge(patch, opts).catch(() => {});
+  }, [isAuthenticated]);
+
+  // The record from earlier sessions, so this one does not ask again.
+  const savedContextRef = useRef(null);
+  useEffect(() => {
+    if (!isAuthenticated || restored) return;
+    careerContextAPI.get()
+      .then(({ data }) => { savedContextRef.current = data?.context || null; })
+      .catch(() => {});
+  }, [isAuthenticated, restored]);
+
   // Retire the chip row on a message once it has been answered, so the
   // transcript reads as history rather than as still-live controls.
   const spendChips = useCallback((messageId) => {
@@ -504,8 +525,7 @@ const ProfileCoach = () => {
    * hundred typed turns do.
    */
   const offerVoice = useCallback(() => {
-    // Never offer a guest something that ends at a sign-up wall.
-    if (!voiceAvailableRef.current || !isAuthenticated) return false;
+    if (!voiceAvailableRef.current) return false;
     pushCoach(TEXT.VOICE_OFFER, {
       stepId: VOICE_CHOICE,
       chips: [
@@ -565,7 +585,10 @@ const ProfileCoach = () => {
   }, [askStep, later, offerVoice, pushCoach]);
 
   const startLadder = useCallback(
-    (from, seed = null) => startLadderFrom({ ...emptyDraft(), ...(seed || {}) }, { from }),
+    (from, seed = null) => startLadderFrom(
+      seedFromCareerContext({ ...emptyDraft(), ...(seed || {}) }, savedContextRef.current || {}),
+      { from }
+    ),
     [startLadderFrom]
   );
 
@@ -716,9 +739,10 @@ const ProfileCoach = () => {
     // The draft now lives somewhere better. Leaving the transcript behind
     // would restore a finished conversation over a fresh one.
     clearConversation();
-    if (!isAuthenticated) saveGuestProfileDraft(resumeData);
+    if (!isAuthenticated) saveGuestProfileDraft(resumeData, { careerContext: careerContextOf(withSummary) });
+    else saveCareerContext(withSummary);
     navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, saveCareerContext]);
 
   const advance = useCallback((fromIndex, nextDraft) => {
     const next = nextStepIndex(fromIndex, nextDraft);
@@ -890,6 +914,25 @@ const ProfileCoach = () => {
 
       pushCoach(review.opening || TEXT.ACK_DEFAULT, { review });
       probeQueueRef.current = (review.probes || []).slice(0, 2);
+
+      /* Voice on this server: talk the review through. The
+         gaps it found and the questions a resume cannot answer (what next,
+         why, what is in the way) go on the call's agenda. Declining runs the
+         same follow-ups as typed questions. */
+      if (voiceAvailableRef.current && !voiceOfferedRef.current) {
+        voiceOfferedRef.current = true;
+        later(() => pushCoach(TEXT.VOICE_OFFER_REVIEW, {
+          stepId: VOICE_CHOICE,
+          afterReview: index,
+          chips: [
+            { id: 'talk', label: TEXT.VOICE_START },
+            { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
+          ],
+          selected: [],
+        }), TIMING.ACK_MS);
+        return;
+      }
+
       if (probeQueueRef.current.length) {
         later(() => pushCoach(COACH_TEXT.REVIEW_PROBE_INTRO), TIMING.ACK_MS);
         later(() => nextProbe(index), TIMING.ACK_MS + TIMING.TYPING_MS);
@@ -905,7 +948,7 @@ const ProfileCoach = () => {
       trackEvent('coach_step_failed', { step: 'review' });
       advanceRef.current(index, draftRef.current);
     }
-  }, [later, nextProbe, pushCoach]);
+  }, [isAuthenticated, later, nextProbe, pushCoach]);
 
   const runAssess = useCallback(async (index) => {
     setBusy(true);
@@ -931,6 +974,7 @@ const ProfileCoach = () => {
       draftRef.current = nextDraft;
       setDraft(nextDraft);
       pushCoach(assessment.headline || '', { assessment });
+      saveCareerContext(nextDraft);
       advanceRef.current(index, nextDraft);
     } catch {
       setTyping(false);
@@ -938,7 +982,7 @@ const ProfileCoach = () => {
       trackEvent('coach_step_failed', { step: 'assess' });
       advanceRef.current(index, draftRef.current);
     }
-  }, [pushCoach]);
+  }, [pushCoach, saveCareerContext]);
 
   const runBuild = useCallback(async (index) => {
     setBusy(true);
@@ -1044,6 +1088,11 @@ const ProfileCoach = () => {
      the first thing the screen asks for. Whichever chip they pick, the
      questions pick up from the gap underneath. */
   const afterCall = useCallback((merged) => {
+    // They already gave us a document; offering one again would be absurd.
+    if (merged.importedFrom) {
+      startLadderFrom(merged, { silent: true, from: 'voice' });
+      return;
+    }
     startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
     later(
       () => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES, { postCall: true }),
@@ -1057,6 +1106,15 @@ const ProfileCoach = () => {
    */
   const onCallEnded = useCallback(() => {
     setLastSpoken(null);
+    /* The call kept as a few sentences on their record; the transcript is
+       sent to be summarised and is not stored. Signed-in only: guests
+       cannot place a call. */
+    const spoken = messagesRef.current.filter((m) => m.spoken && m.text)
+      .map((m) => ({ role: m.role, text: m.text }));
+    if (isAuthenticated && spoken.length >= 2) {
+      careerContextAPI.summarizeCall(spoken).catch(() => {});
+      saveCareerContext(draftRef.current);
+    }
     if (!heardAnythingRef.current) {
       pushCoach(TEXT.VOICE_NOTHING);
       later(() => startLadderFrom(draftRef.current, { silent: true, from: 'voice' }), TIMING.ACK_MS);
@@ -1076,7 +1134,7 @@ const ProfileCoach = () => {
       return;
     }
     afterCall(merged);
-  }, [afterCall, later, pushCoach]);
+  }, [afterCall, isAuthenticated, later, pushCoach, saveCareerContext]);
 
   const saveCheckEdit = useCallback((kind, text) => {
     const next = applyCheckEdit(draftRef.current, kind, text);
@@ -1109,24 +1167,22 @@ const ProfileCoach = () => {
    * can carry on with the questions instead of leaving someone looking at an
    * explanation with nothing to do next.
    */
+  /* Guests get one free call a day (five minutes). Past that, the way on is
+     an account, offered with the buttons to make one: the conversation is
+     saved in this browser, so signing in and coming back resumes it. */
+  const offerAccountForVoice = useCallback((text) => {
+    pushCoach(text || TEXT.VOICE_SIGNED_OUT, {
+      stepId: VOICE_SIGNIN_CHOICE,
+      chips: [
+        { id: 'register', label: TEXT.VOICE_REGISTER },
+        { id: 'signin', label: TEXT.VOICE_SIGNIN },
+        { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
+      ],
+      selected: [],
+    });
+  }, [pushCoach]);
+
   const startTalking = useCallback(async () => {
-    if (!isAuthenticated) {
-      /* Not a dead end: the conversation is already saved in this browser,
-         so signing in and coming back resumes it. Saying "you need an
-         account" without a way to get one is how a product turns its own
-         best moment into a shrug. */
-      pushCoach(TEXT.VOICE_SIGNED_OUT, {
-        stepId: VOICE_SIGNIN_CHOICE,
-        chips: [
-          { id: 'register', label: TEXT.VOICE_REGISTER },
-          { id: 'signin', label: TEXT.VOICE_SIGNIN },
-          { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
-        ],
-        selected: [],
-      });
-      trackEvent('coach_voice_blocked', { reason: 'signed-out' });
-      return false;
-    }
     setBusy(true);
     try {
       /* What they have already told us goes with the request, so the call
@@ -1143,12 +1199,14 @@ const ProfileCoach = () => {
       /* The plan's allowance for this call. The server counts it when the
          call starts; ending it here is what makes the count true. */
       if (data.maxSessionMinutes > 0) later(() => voice.stop(), data.maxSessionMinutes * 60 * 1000);
-      trackEvent('coach_voice_started', {});
+      trackEvent('coach_voice_started', { guest: !isAuthenticated, maxMinutes: data.maxSessionMinutes || null });
       return true;
     } catch (err) {
       // Out of voice allowance: the server's sentence says which and why.
       if (err?.response?.status === 429) {
-        pushCoach(err.response.data?.message || TEXT.VOICE_FAILED);
+        trackEvent('coach_voice_blocked', { reason: err.response.data?.code || 'limit', guest: !isAuthenticated });
+        if (!isAuthenticated) offerAccountForVoice(err.response.data?.message);
+        else pushCoach(err.response.data?.message || TEXT.VOICE_FAILED);
         return false;
       }
       // Includes the 503 when voice is not configured on the server. Any
@@ -1160,7 +1218,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [isAuthenticated, later, pushCoach, voice]);
+  }, [isAuthenticated, later, offerAccountForVoice, pushCoach, voice]);
 
   /* ─── The file picker, and walking away from it ────────────── */
 
@@ -1220,17 +1278,31 @@ const ProfileCoach = () => {
       if (message.spent) return;
       pushMine(chip.label);
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+      /* Offered after an import's review: typing means the review's
+         follow-ups as questions, exactly as without the offer. Otherwise the
+         question the offer interrupted is asked. */
+      const reviewAt = message.afterReview;
+      const carryOn = () => {
+        if (reviewAt == null) {
+          later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+        } else if (probeQueueRef.current.length) {
+          later(() => pushCoach(COACH_TEXT.REVIEW_PROBE_INTRO), TIMING.ACK_MS);
+          later(() => nextProbe(reviewAt), TIMING.ACK_MS + TIMING.TYPING_MS);
+        } else {
+          later(() => advanceRef.current(reviewAt, draftRef.current), TIMING.ACK_MS);
+        }
+      };
       if (chip.id === 'talk') {
         startTalking().then((started) => {
+          // The call covers the review's follow-ups; they are not asked again.
+          if (started) probeQueueRef.current = [];
           /* Declined or misconfigured: the questions carry on. Signed out is
-             the exception — that path puts its own choice on screen, and
+             the exception: that path puts its own choice on screen, and
              asking the next question underneath it would bury it. */
-          if (!started && isAuthenticated) {
-            later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
-          }
+          else carryOn();
         });
       } else {
-        later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
+        carryOn();
       }
       return;
     }
@@ -1324,7 +1396,7 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, askStep, busy, commit, dictation, input, later, navigate, openFilePicker, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
+  }, [advance, answerResumeOffer, askStep, busy, commit, dictation, input, later, navigate, nextProbe, openFilePicker, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
   /**
    * @param {object} [extra]
@@ -1439,7 +1511,7 @@ const ProfileCoach = () => {
         message: text,
         /* Live voice is for signed-in users only. A guest who asks to talk is
            pointed at the mic, never walked into an account wall. */
-        liveVoice: !voiceAvailableRef.current ? 'none' : (isAuthenticated ? 'live' : 'account'),
+        liveVoice: voiceAvailableRef.current ? 'live' : 'none',
       });
 
       const learned = data?.learned || {};
@@ -1460,7 +1532,7 @@ const ProfileCoach = () => {
 
       setTyping(false);
       if (data?.say) pushCoach(data.say);
-      if (data?.voice && voiceAvailableRef.current && isAuthenticated) {
+      if (data?.voice && voiceAvailableRef.current) {
         /* They asked to talk out loud: same path as the button. Answering
            "I can only read text" next to a mic and a talk button is the coach
            contradicting the page it lives on. */
@@ -1774,7 +1846,12 @@ const ProfileCoach = () => {
     const resumeData = draftToResumeData(finalDraft);
 
     if (!isAuthenticated) {
-      saveGuestProfileDraft(resumeData, { source: 'coach', autoPublish: true });
+      saveGuestProfileDraft(resumeData, {
+        source: 'coach',
+        autoPublish: true,
+        // Saved to their record once the account exists (Register).
+        careerContext: careerContextOf(finalDraft),
+      });
       trackEvent('coach_convert_clicked', { mode, imported: finalDraft.importedFrom || 'none' });
       navigate(mode === 'signin' ? ROUTES.LOGIN : `${ROUTES.REGISTER}?role=candidate`);
       return;
@@ -1783,6 +1860,7 @@ const ProfileCoach = () => {
     setBusy(true);
     try {
       await profileAPI.createOrUpdateProfile(resumeData);
+      saveCareerContext(finalDraft);
       trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
       navigate(ROUTES.PORTFOLIO);
     } catch {
@@ -1792,7 +1870,7 @@ const ProfileCoach = () => {
       setError(TEXT.ERROR_GENERIC);
       navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, saveCareerContext]);
 
   /* ─── Derived view state ───────────────────────────────────── */
 
@@ -2030,10 +2108,9 @@ const ProfileCoach = () => {
           <BrandLogo />
         </Logo>
         <TopActions>
-          {/* Shown when this server can place a call and someone is signed in
-              to take it. Guests have the mic; a voice button that ends at a
-              sign-up wall is worse than none. */}
-          {voiceAvailable && isAuthenticated && (
+          {/* Shown whenever this server can place a call. Guests get one
+              short free call a day; see voiceSessionGuard on the server. */}
+          {voiceAvailable && (
             <TalkButton
               type="button"
               onClick={() => startTalking()}

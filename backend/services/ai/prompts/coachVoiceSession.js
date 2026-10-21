@@ -16,7 +16,7 @@ const { timeFacts } = require('./timeFacts');
  * preferences here — a two-part question asked out loud gets half an answer
  * every time.
  */
-const coachVoiceInstructions = ({ firstName, profile = {}, missing = [] } = {}) => {
+const coachVoiceInstructions = ({ firstName, profile = {}, missing = [], maxMinutes = null } = {}) => {
   const known = Object.entries(profile)
     .filter(([, v]) => v && (!Array.isArray(v) || v.length))
     .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
@@ -32,7 +32,10 @@ No em dashes (—) in anything you write down, including the bullets you send ba
 
 ${timeFacts(profile)}
 
-═══ THE FIRST THING YOU SAY ═══
+${maxMinutes ? `═══ TIME ═══
+This call ends on its own after ${maxMinutes} minutes. Keep it moving. When you are close, wrap up warmly in one sentence: say you have what you need and they can see it on screen.
+
+` : ''}═══ THE FIRST THING YOU SAY ═══
 Greet them by name if you have one, say in one sentence what you already know about them so they can hear that you read it, and ask your first real question. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list what you know back at them like a form.
 
 Good: "Hi ${firstName || 'there'} — so, staff backend engineer at Equinix, four years in. What I do not have yet is where you want this to go. What would the next job look like?"
