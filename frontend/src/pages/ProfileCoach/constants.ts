@@ -50,22 +50,22 @@ export const TEXT = {
   LOGO: 'ProfilleAI',
   DICTATE_START: 'Speak your answer',
   DICTATE_STOP: 'Stop listening',
-  DICTATE_UNSUPPORTED: 'This browser cannot do speech input — try Chrome',
+  DICTATE_UNSUPPORTED: 'This browser cannot do speech input. Try Chrome.',
   DICTATE_DENIED: 'I cannot hear the microphone. Allow access in your browser settings, or just type.',
   DICTATE_FAILED: 'The microphone stopped working. Try again, or just type.',
   SKIP: 'Skip for now',
 
   /* ─── Talking to Remi ─── */
-  VOICE_OFFER: 'I have the facts down. The rest is the part people never write well in a box — what you actually want next, and what is in the way. A few minutes out loud and I will have it. Or we can keep typing, which is completely fine.',
+  VOICE_OFFER: 'This next part is easier said than typed: your recent role and what you did there. Want to just talk it through? A few minutes, and I will check the names and dates with you after. Or we can keep typing.',
   VOICE_START: 'Talk it through',
   VOICE_KEEP_TYPING: 'Keep typing',
   VOICE_MUTE: 'Mute your microphone',
   VOICE_UNMUTE: 'Unmute',
   VOICE_MUTED: 'Muted. Tap the microphone when you want to speak.',
-  VOICE_CONNECTING: 'Connecting — allow the microphone when your browser asks.',
-  VOICE_LIVE: 'Listening. Talk normally — close this when you are done.',
+  VOICE_CONNECTING: 'Connecting. Allow the microphone when your browser asks.',
+  VOICE_LIVE: 'Listening. Talk normally, and close this when you are done.',
   VOICE_END: 'End call',
-  VOICE_DONE: 'Thanks — I have put what you told me into your profile.',
+  VOICE_DONE: 'Thanks. I have put what you told me into your profile.',
   VOICE_HANDOVER: 'One last thing, and it is easier here than out loud: if you have a resume or a LinkedIn profile, send it over and I will fill in anything we missed.',
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
@@ -92,23 +92,27 @@ export const TEXT = {
   COACH_NAME: 'Remi',
   // Remi has already said hello in the intro — this is the handover into the
   // questions, not a second introduction.
-  GREETING: "Right — let's build your profile.",
+  GREETING: "Let's build your profile.",
   GREETING_SUB:
     'A few minutes of questions. Answer by tapping, typing, or the mic.',
 
   INPUT_PLACEHOLDER: 'Type your answer',
   INPUT_PLACEHOLDER_VOICE: 'Type your answer, or tap the mic to talk',
+  INPUT_PLACEHOLDER_CHIPS: 'Tap an option above',
+  // After a call: the facts speech gets wrong, read back once.
+  CHECK_TITLE: 'Quick check before I save this. Speech gets names and dates wrong, so fix anything that is off.',
+  CHECK_DONE: 'Looks right',
+  CHECK_EDIT: 'Fix',
+  CHECK_SAVE: 'Save',
+  CHECK_CANCEL: 'Cancel',
+  INPUT_PLACEHOLDER_MULTI: 'Tap the ones that fit, then send',
   SEND: 'Send',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 
   SKIP_CHIP: 'Skip this',
-  // The confirm on a multi-select. "That is everything" answered a question
-  // nobody asked — the question was what work you want, not whether you were
-  // finished listing it.
-  DONE_CHIP: 'Continue',
 
   PANEL_TITLE: 'PROFILE STRENGTH',
-  PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
+  PANEL_ENCOURAGE: 'Keep going. Each answer adds to this.',
 
   THINKING: 'Thinking',
   // Offered, not done to them. A silent restore after a deliberate refresh
@@ -116,11 +120,11 @@ export const TEXT = {
   RESUME_OFFER: 'You have a conversation from earlier. Pick it up, or start fresh?',
   RESUME_CHIP: 'Pick up where we left off',
   FRESH_CHIP: 'Start fresh',
-  RESUMED: 'Right — back where we were.',
+  RESUMED: 'Picked up where you left off.',
   // The per-conversation ceiling on answered asides. Generous for a person,
   // closed to a script.
   ASIDE_LIMIT_HIT:
-    'Let us get your profile finished first — once it is built you can ask me anything about it.',
+    'Let us get your profile finished first. Once it is built, you can ask me anything about it.',
   CHANGE_ANSWER: 'Change this',
   // Someone said hello, or asked something, instead of answering. Neither is
   // an answer, and neither should land on their profile.
@@ -131,22 +135,22 @@ export const TEXT = {
   // Typed during the intro, which is a slideshow with nothing to answer yet.
   INTRO_HELLO: 'Hello. Have a look, or tap Continue whenever you want to start.',
   INTRO_START: 'Let us get straight into it.',
-  INTRO_START_SECTOR: (label: string) => `${label} — got it. Let us do the rest.`,
+  INTRO_START_SECTOR: (label: string) => `${label}, got it. Let us do the rest.`,
   ACK_DEFAULT: 'Got it.',
 
   FINISH_TITLE: 'That is everything I need.',
   FINISH_SUB: 'Building your profile now.',
   FINISH_CTA: 'Review my profile',
 
-  UPLOAD_PROMPT: 'Great — pick your resume file and I will read it.',
-  UPLOAD_DONE: 'Read it. I filled in what I found — let me just check the gaps.',
+  UPLOAD_PROMPT: 'Great. Pick your resume file and I will read it.',
+  UPLOAD_DONE: 'Read it. I filled in what I found. Let me just check the gaps.',
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
   UPLOAD_NO_TEXT: 'That PDF looks like a scan with no text I can read. Try another file, or we can keep chatting.',
   UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Try another file, or we can keep chatting.',
   UPLOAD_UNREADABLE: 'Could not read this one',
-  UPLOAD_CANCELLED: 'No problem — pick another file, or we can just keep talking.',
+  UPLOAD_CANCELLED: 'No problem. Pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
-  IMPORT_CANCELLED: 'No problem — try one of these, or we can just keep talking.',
+  IMPORT_CANCELLED: 'No problem. Try one of these, or we can just keep talking.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 
   // The whole conversation is free and needs no account — the ask comes at
@@ -159,7 +163,7 @@ export const TEXT = {
   LINKEDIN_GATE_CONFIRM: 'Create free account',
   LINKEDIN_GATE_CANCEL: 'Use the PDF option',
 
-  ERROR_NO_LINK: "That does not look like a link — paste the whole address, or skip this one.",
+  ERROR_NO_LINK: "That does not look like a link. Paste the whole address, or skip this one.",
   ERROR_GENERIC: 'Something went wrong on my end. Try that again?',
   ERROR_FILE_TYPE: 'Please upload a PDF or DOCX file',
   ERROR_FILE_SIZE: 'File size must be less than 5MB',
@@ -211,7 +215,7 @@ export const COACH_TEXT = {
   BUILD_THINKING: 'Putting it together.',
   BUILD_DONE: 'Done. This is your profile.',
   BUILD_INCOMPLETE:
-    'This is what we have so far. It is a real start, but it is thin — the gaps below are what to fill in next.',
+    'This is what we have so far. It is a real start, but it is thin. The gaps below are what to fill in next.',
   RESUME_CARD_TITLE: 'Your profile',
 
   TOUR_INTRO: 'That is yours now. Here is what you can do with it.',

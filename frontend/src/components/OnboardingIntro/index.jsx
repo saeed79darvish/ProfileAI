@@ -14,9 +14,8 @@ import {
   FeatureBox, FeatureBoxIcon, FeatureText,
   MockupCard, MockupHeader, MockLine, MockTag, MockBadge,
   IntroFooter, DotsWrapper, Dot, FooterActions, ContinueBtn, SkipLink,
-  ChoiceWrap, ChoiceCard, ChoiceCardVisual, FloatingCard, AiBadge, Blob,
-  ChoiceCardBody, ChoiceTitle, ChoiceBody, ChoiceButton,
-  MiniTag, MiniBar,
+  ChoiceWrap, ChoiceCard,
+  ChoiceCardBody, ChoiceTitle, ChoiceSub, BenefitList, ChoiceButton, ChoiceNote,
 } from './styled';
 
 /* ═══════════════════════════════════════════════
@@ -194,11 +193,12 @@ export const IntroCarousel = ({ index, onNext, onJump, onSkip }) => {
 };
 
 /**
- * The single "Build Your AI Profile" card that closes the intro.
+ * The card that starts the profile: what it takes, what you get, one button.
  *
- * The old page offered a second card for browsing jobs; that fork is gone —
- * the chat itself is the profile builder, and jobs stay reachable from the
- * nav. Whole card is clickable, with the button as the visible affordance.
+ * It used to lead with an illustration of a made-up profile ("85%", "AI
+ * Enhanced", Strategy and Analytics tags nobody had chosen) and a paragraph
+ * that repeated the welcome. Now it reads in a glance and looks like the rest
+ * of the chat. The whole card is clickable; the button is the affordance.
  */
 export const BuildProfileCard = ({ onStart, spent }) => (
   <ChoiceWrap>
@@ -207,45 +207,27 @@ export const BuildProfileCard = ({ onStart, spent }) => (
       onClick={spent ? undefined : onStart}
       role="button"
       tabIndex={spent ? -1 : 0}
+      aria-label={INTRO_TEXT.BUILD_BUTTON}
       onKeyDown={(e) => {
         if (spent) return;
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStart(); }
       }}
     >
-      <ChoiceCardVisual>
-        <Blob $size="120px" $top="-30px" $right="-30px" />
-        <Blob $size="80px" $bottom="-20px" $left="-20px" $alpha={0.06} />
-
-        <FloatingCard $w="200px">
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-            <Avatar sx={{ width: 42, height: 42, background: 'linear-gradient(135deg, #667eea, #764ba2)', fontSize: 16, fontWeight: 700 }}>
-              AI
-            </Avatar>
-            <Box>
-              <Box sx={{ width: 80, height: 9, borderRadius: '4px', background: '#1a1a2e', mb: 0.5 }} />
-              <Box sx={{ width: 55, height: 7, borderRadius: '4px', background: '#ccc' }} />
-            </Box>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            {['Strategy', 'Analytics', 'AI/ML'].map((s) => <MiniTag key={s}>{s}</MiniTag>)}
-          </Box>
-          <MiniBar>
-            <div><i /></div>
-            <span>85%</span>
-          </MiniBar>
-        </FloatingCard>
-
-        <AiBadge>
-          <AIIcon /> AI Enhanced
-        </AiBadge>
-      </ChoiceCardVisual>
-
       <ChoiceCardBody>
         <ChoiceTitle>{INTRO_TEXT.BUILD_TITLE}</ChoiceTitle>
-        <ChoiceBody>{INTRO_TEXT.BUILD_DESCRIPTION}</ChoiceBody>
-        <ChoiceButton type="button" disabled={spent}>
+        <ChoiceSub>{INTRO_TEXT.BUILD_SUB}</ChoiceSub>
+        <BenefitList>
+          {INTRO_TEXT.BUILD_BENEFITS.map((benefit) => (
+            <li key={benefit}>
+              <CheckIcon aria-hidden="true" />
+              <span>{benefit}</span>
+            </li>
+          ))}
+        </BenefitList>
+        <ChoiceButton type="button" disabled={spent} tabIndex={-1}>
           {INTRO_TEXT.BUILD_BUTTON}
         </ChoiceButton>
+        <ChoiceNote>{INTRO_TEXT.BUILD_NOTE}</ChoiceNote>
       </ChoiceCardBody>
     </ChoiceCard>
   </ChoiceWrap>

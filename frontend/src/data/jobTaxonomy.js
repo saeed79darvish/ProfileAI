@@ -401,7 +401,7 @@ export const CAREER_STAGES = [
    seconds and one they skip. */
 
 export const SECTOR_EVIDENCE = {
-  tech: 'What did you build there that people actually used — and roughly how many of them?',
+  tech: 'What did you build there that people actually used, and roughly how many of them?',
   data: 'What decision did your work change, and which number moved?',
   design: 'What did you design that shipped, and what got better for the people using it?',
   product: 'What did you ship, and what did it do to the numbers you were watching?',
@@ -409,12 +409,12 @@ export const SECTOR_EVIDENCE = {
   media: 'What did you publish or produce that did well, and how could you tell?',
   sales: 'What was quota, and what did you close against it?',
   support: 'How many tickets or customers did you carry, and what was your resolution time like?',
-  finance: 'What did you own — a budget, a close, a portfolio — and how big was it?',
+  finance: 'What did you own, like a budget, a close or a portfolio, and how big was it?',
   legal: 'What kind of matters did you handle, and at what volume or value?',
   hr: 'How many people did you hire or support, and what got better under you?',
   admin: 'Who and how many did you support, and what did you take off their plate?',
   operations: 'What process did you change, and what did it do to time, cost or errors?',
-  logistics: 'What were you moving and how much of it — loads, routes, pallets — and what was your on-time record?',
+  logistics: 'What were you moving, how much of it (loads, routes, pallets), and what was your on-time record?',
   manufacturing: 'What were you running, at what volume, and what happened to scrap or downtime?',
   trades: 'What size jobs do you run, how big a crew, and which tickets do you hold?',
   engineering: 'What did you design or deliver, and at what scale or budget?',

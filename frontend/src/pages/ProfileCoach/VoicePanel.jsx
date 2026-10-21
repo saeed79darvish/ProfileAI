@@ -65,7 +65,7 @@ const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine,
               {lastLine.text}
             </>
           ) : (
-            connecting ? '' : 'Say anything — what you do, where, how long.'
+            connecting ? '' : 'Say anything: what you do, where, how long.'
           )}
         </VoiceCaption>
       </VoiceStage>

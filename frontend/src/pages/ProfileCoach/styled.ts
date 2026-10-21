@@ -1259,3 +1259,82 @@ export const EndCall = styled(RoundControl)`
 
   &:hover { background: #26264a; }
 `;
+
+/* ─── The check after a call ──────────────────────────────── */
+
+export const CheckList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f6;
+    min-height: 24px;
+  }
+  li:last-child { border-bottom: none; }
+
+  .label {
+    flex: 0 0 84px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8a8aa3;
+  }
+
+  .text { flex: 1; font-size: 0.95rem; color: #1a1a2e; }
+
+  .edit {
+    display: inline-flex;
+    padding: 6px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: #8a8aa3;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .edit:hover, .edit:focus-visible { color: #4c51bf; background: #f3f3ff; }
+
+  @media (max-width: 480px) {
+    li { flex-wrap: wrap; gap: 4px 12px; }
+    .label { flex-basis: 100%; }
+  }
+`;
+
+export const CheckEdit = styled.form`
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1.5px solid #6366f1;
+    border-radius: 9px;
+    font: inherit;
+    font-size: 0.95rem;
+    outline: none;
+  }
+
+  button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 9px;
+    background: #6366f1;
+    color: #fff;
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.quiet { background: none; color: #6c6c86; }
+`;

@@ -372,60 +372,6 @@ export const ChoiceCard = styled.div`
   }
 `;
 
-export const ChoiceCardVisual = styled.div`
-  height: 168px;
-  background: linear-gradient(135deg, #667eea 0%, #5a67d8 50%, #764ba2 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-
-  @media (max-width: 560px) {
-    height: 150px;
-  }
-`;
-
-export const FloatingCard = styled.div`
-  background: #fff;
-  border-radius: 14px;
-  padding: 15px 17px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.16);
-  width: ${({ $w }) => $w || 'auto'};
-  transform: rotate(-2deg);
-`;
-
-export const AiBadge = styled.div`
-  position: absolute;
-  bottom: 18px;
-  right: 20px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: #fff;
-  border-radius: 10px;
-  padding: 5px 10px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-  font-size: 10px;
-  font-weight: 700;
-  color: #667eea;
-
-  svg { font-size: 14px; }
-`;
-
-export const Blob = styled.div`
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255,255,255,${({ $alpha }) => $alpha || 0.08});
-  width: ${({ $size }) => $size || '120px'};
-  height: ${({ $size }) => $size || '120px'};
-  top: ${({ $top }) => $top || 'auto'};
-  left: ${({ $left }) => $left || 'auto'};
-  right: ${({ $right }) => $right || 'auto'};
-  bottom: ${({ $bottom }) => $bottom || 'auto'};
-`;
-
 export const ChoiceCardBody = styled.div`
   padding: 20px 22px 22px;
   display: flex;
@@ -440,11 +386,46 @@ export const ChoiceTitle = styled.h3`
   color: #1a1a2e;
 `;
 
-export const ChoiceBody = styled.p`
-  margin: 0 0 18px;
+export const ChoiceSub = styled.p`
+  margin: 0 0 16px;
   font-size: 0.88rem;
   color: #6c6c86;
-  line-height: 1.6;
+  line-height: 1.5;
+`;
+
+export const BenefitList = styled.ul`
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.93rem;
+    color: #1a1a2e;
+    line-height: 1.45;
+  }
+
+  svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    padding: 2px;
+    border-radius: 50%;
+    background: #eef0ff;
+    color: #5a67d8;
+  }
+`;
+
+export const ChoiceNote = styled.div`
+  margin-top: 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #8a8aa3;
 `;
 
 export const ChoiceButton = styled.button`
@@ -465,41 +446,3 @@ export const ChoiceButton = styled.button`
   transition: box-shadow 0.25s ease;
 `;
 
-/* Skill pills and progress bar inside the floating profile card. */
-export const MiniTag = styled.span`
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, rgba(102,126,234,0.12), rgba(118,75,162,0.12));
-  font-size: 10px;
-  font-weight: 600;
-  color: #667eea;
-`;
-
-export const MiniBar = styled.div`
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  > div {
-    flex: 1;
-    height: 5px;
-    border-radius: 4px;
-    background: #eee;
-    overflow: hidden;
-  }
-
-  > div > i {
-    display: block;
-    width: 85%;
-    height: 100%;
-    border-radius: 4px;
-    background: linear-gradient(90deg, #667eea, #764ba2);
-  }
-
-  > span {
-    font-size: 9.5px;
-    font-weight: 700;
-    color: #667eea;
-  }
-`;

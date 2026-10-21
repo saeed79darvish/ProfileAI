@@ -78,6 +78,11 @@ import {
   visiblePanelItems,
   parseLinks,
   sectorChips,
+  fieldFromText,
+  checkLines,
+  applyCheckEdit,
+  SAY_IT_CHIP,
+  parseSkillList,
   RESUME_CHOICE,
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
@@ -102,6 +107,7 @@ import {
   TourGrid, TourCard, TourIcon,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
   UploadCard, UploadIcon, UploadBody, UploadTrack,
+  CheckList, CheckEdit,
 } from './styled';
 
 const TOUR_ICONS = {
@@ -153,6 +159,73 @@ const UploadProgress = ({ fileName, done, failed }) => {
         <UploadTrack $pct={pct} $done={done} $failed={failed}><i /></UploadTrack>
       </UploadBody>
     </UploadCard>
+  );
+};
+
+/**
+ * The check after a voice call: the facts it heard, one line each, every
+ * line fixable in place. Top-level so a line being edited keeps its text
+ * while the page re-renders around it.
+ */
+const CheckCard = ({ lines, spent, busy, onSave, onDone }) => {
+  const [editing, setEditing] = useState(null);
+  const [value, setValue] = useState('');
+  const save = (kind) => {
+    if (value.trim()) onSave(kind, value.trim());
+    setEditing(null);
+  };
+  return (
+    <Card>
+      <CheckList>
+        {lines.map((line) => (
+          <li key={line.kind}>
+            <span className="label">{line.label}</span>
+            {editing === line.kind ? (
+              <CheckEdit
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  save(line.kind);
+                }}
+              >
+                <input
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  aria-label={line.label}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                />
+                <button type="submit">{TEXT.CHECK_SAVE}</button>
+                <button type="button" className="quiet" onClick={() => setEditing(null)}>{TEXT.CHECK_CANCEL}</button>
+              </CheckEdit>
+            ) : (
+              <>
+                <span className="text">{line.text}</span>
+                {!spent && (
+                  <button
+                    type="button"
+                    className="edit"
+                    aria-label={`${TEXT.CHECK_EDIT} ${line.label}`}
+                    onClick={() => {
+                      setEditing(line.kind);
+                      setValue(line.text);
+                    }}
+                  >
+                    <EditIcon fontSize="inherit" />
+                  </button>
+                )}
+              </>
+            )}
+          </li>
+        ))}
+      </CheckList>
+      {!spent && (
+        <ChipRow style={{ marginLeft: 0, marginTop: 14 }}>
+          <Chip type="button" $primary disabled={busy || !!editing} onClick={onDone}>
+            {TEXT.CHECK_DONE}
+          </Chip>
+        </ChipRow>
+      )}
+    </Card>
   );
 };
 
@@ -252,6 +325,12 @@ const ProfileCoach = () => {
   });
 
   const fileInputRef = useRef(null);
+  // Read inside askStep, which is declared before the dictation hook's
+  // value is worth depending on.
+  const dictationSupportedRef = useRef(dictation.supported);
+  dictationSupportedRef.current = dictation.supported;
+  // What the multi-select last wrote into the box, so typing is never clobbered.
+  const multiSyncedRef = useRef('');
   const listEndRef = useRef(null);
   const composerRef = useRef(null);
   // Set for the one render after an in-place message update that must not
@@ -358,7 +437,11 @@ const ProfileCoach = () => {
       pushCoach(questionText(step, currentDraft), {
         hint: hintText(step, currentDraft),
         stepId: step.id,
-        chips: getChips(step, currentDraft),
+        // A story is easier said than typed. The browser's own speech input
+        // is free and works signed out; the words land in the box to edit.
+        chips: step.story && dictationSupportedRef.current
+          ? [{ ...SAY_IT_CHIP }]
+          : getChips(step, currentDraft),
         multi: step.kind === 'multi',
         selected: [],
         optional: !!step.optional,
@@ -403,10 +486,13 @@ const ProfileCoach = () => {
 
   /* ─── Opening ──────────────────────────────────────────────── */
 
+  /* Straight to the Build card. The three-slide carousel that used to come
+     first repeated what the homepage had just said, and the card after it
+     repeated slide one. Conversations saved mid-carousel still render it. */
   const startIntro = useCallback(() => {
-    pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
-    pushCoach('', { introSlide: 0 });
-    trackEvent('coach_intro_started', {});
+    pushCoach(INTRO_TEXT.WELCOME);
+    pushCoach(INTRO_TEXT.START_BUBBLE, { introBuild: true });
+    trackEvent('coach_intro_started', { carousel: false });
   }, [pushCoach]);
 
   /**
@@ -516,7 +602,7 @@ const ProfileCoach = () => {
     setTyping(true);
     later(() => {
       setTyping(false);
-      pushCoach(INTRO_TEXT.START_BUBBLE, { hint: INTRO_TEXT.START_HINT, introBuild: true });
+      pushCoach(INTRO_TEXT.START_BUBBLE, { introBuild: true });
     }, TIMING.ACK_MS);
   }, [later, pushCoach]);
 
@@ -697,6 +783,7 @@ const ProfileCoach = () => {
   }, []);
 
   const handleFile = useCallback(async (event) => {
+    filePickPendingRef.current = false;
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
@@ -936,6 +1023,8 @@ const ProfileCoach = () => {
      could not do this: the model ran on a server somewhere and the browser
      found out what had been said only after hanging up. */
   const heardAnythingRef = useRef(false);
+  // Which facts the call produced, so only those are checked afterwards.
+  const heardKeysRef = useRef(new Set());
 
   const onLearned = useCallback((fields) => {
     const clean = Object.fromEntries(
@@ -943,11 +1032,24 @@ const ProfileCoach = () => {
     );
     if (!Object.keys(clean).length) return;
     heardAnythingRef.current = true;
+    Object.keys(clean).forEach((k) => heardKeysRef.current.add(k));
     const merged = applyBraindump(draftRef.current, clean);
     if (clean.target && !merged.target) merged.target = String(clean.target);
     draftRef.current = merged;
     setDraft(merged);
   }, []);
+
+  /* Park the ladder on the first gap, then make the handover Remi promised
+     out loud: a file is the one thing a phone call cannot collect, so it is
+     the first thing the screen asks for. Whichever chip they pick, the
+     questions pick up from the gap underneath. */
+  const afterCall = useCallback((merged) => {
+    startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
+    later(
+      () => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES, { postCall: true }),
+      TIMING.ACK_MS
+    );
+  }, [later, offerImportAgain, startLadderFrom]);
 
   /**
    * The call is over. Everything it heard is already in the draft, so this
@@ -961,19 +1063,34 @@ const ProfileCoach = () => {
       return;
     }
     heardAnythingRef.current = false;
+    const heard = Array.from(heardKeysRef.current);
+    heardKeysRef.current = new Set();
     const merged = draftRef.current;
     pushCoach(TEXT.VOICE_DONE);
-    trackEvent('coach_voice_completed', { fields: Object.keys(merged).length });
-    /* Park the ladder on the first gap, then make the handover Remi
-       promised out loud: a file is the one thing a phone call cannot
-       collect, so it is the first thing the screen asks for. Whichever
-       chip they pick, the questions pick up from the gap underneath. */
-    startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
-    later(
-      () => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES, { postCall: true }),
-      TIMING.ACK_MS
-    );
-  }, [later, offerImportAgain, pushCoach, startLadderFrom]);
+    trackEvent('coach_voice_completed', { fields: heard.length });
+    /* Names and dates are what speech gets wrong, and on a resume they are
+       the mistakes that matter. The facts the call heard are shown once,
+       each fixable in place, before the conversation moves on. */
+    if (checkLines(merged, heard).length) {
+      later(() => pushCoach(TEXT.CHECK_TITLE, { checkKeys: heard }), TIMING.ACK_MS);
+      return;
+    }
+    afterCall(merged);
+  }, [afterCall, later, pushCoach]);
+
+  const saveCheckEdit = useCallback((kind, text) => {
+    const next = applyCheckEdit(draftRef.current, kind, text);
+    draftRef.current = next;
+    setDraft(next);
+    trackEvent('coach_check_fixed', { kind });
+  }, []);
+
+  const finishCheck = useCallback((message) => {
+    if (message.spent) return;
+    spendChips(message.id);
+    pushMine(TEXT.CHECK_DONE);
+    afterCall(draftRef.current);
+  }, [afterCall, pushMine, spendChips]);
 
   const onVoiceError = useCallback((kind) => {
     pushCoach(kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED);
@@ -1045,6 +1162,43 @@ const ProfileCoach = () => {
     }
   }, [isAuthenticated, later, pushCoach, voice]);
 
+  /* ─── The file picker, and walking away from it ────────────── */
+
+  /* A cancelled file dialog left the conversation waiting on a file that was
+     never coming, with the text box disabled under it. The input's own
+     cancel event is not wired up by React and is missing in older browsers,
+     so a cancel is also read off the page getting focus back with no file
+     chosen. Whichever notices first puts the options back; the ref makes
+     sure only one of them does. */
+  const filePickPendingRef = useRef(false);
+
+  const filePickCancelled = useCallback(() => {
+    if (!filePickPendingRef.current) return;
+    filePickPendingRef.current = false;
+    trackEvent('coach_upload_cancelled', {});
+    offerImportAgain(TEXT.UPLOAD_CANCELLED);
+  }, [offerImportAgain]);
+
+  const openFilePicker = useCallback(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    filePickPendingRef.current = true;
+    const onFocus = () => {
+      window.removeEventListener('focus', onFocus);
+      // A chosen file's change event lands just after focus returns.
+      later(filePickCancelled, 1000);
+    };
+    window.addEventListener('focus', onFocus);
+    input.click();
+  }, [filePickCancelled, later]);
+
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return undefined;
+    input.addEventListener('cancel', filePickCancelled);
+    return () => input.removeEventListener('cancel', filePickCancelled);
+  }, [filePickCancelled]);
+
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
     // resolves before any ladder lookup.
@@ -1099,6 +1253,16 @@ const ProfileCoach = () => {
       return;
     }
 
+    // Starts the mic. Not an answer: what they say lands in the box, and
+    // sending it is the answer.
+    if (chip.id === SAY_IT_CHIP.id) {
+      setError('');
+      if (!dictation.listening) dictation.start(input);
+      composerRef.current?.focus();
+      trackEvent('coach_say_it', { step: step.id });
+      return;
+    }
+
     // "More fields" is not an answer: it reveals the rest of the sectors on
     // the question already asked, so nothing is spent and nothing advances.
     if (chip.id === MORE_SECTORS_CHIP.id) {
@@ -1110,13 +1274,21 @@ const ProfileCoach = () => {
       return;
     }
 
-    // Multi-select: accumulate on the message, commit on Continue.
+    /* Multi-select: picks collect on the message and are written into the
+       text box as they are tapped, so sending is how the answer goes in, the
+       same as every other answer in the chat. A separate Continue button
+       under the row used to do this. The box is only rewritten while it
+       still holds what we put there: anything typed by hand is left alone. */
     if (step.kind === 'multi') {
-      setMessages((prev) => prev.map((m) => {
-        if (m.id !== message.id) return m;
-        const has = m.selected.includes(chip.id);
-        return { ...m, selected: has ? m.selected.filter((s) => s !== chip.id) : [...m.selected, chip.id] };
-      }));
+      const has = message.selected.includes(chip.id);
+      const selected = has ? message.selected.filter((s) => s !== chip.id) : [...message.selected, chip.id];
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, selected } : m)));
+      const summary = selected
+        .map((id) => message.chips.find((c) => c.id === id)?.label)
+        .filter(Boolean)
+        .join(', ');
+      setInput((prev) => (!prev.trim() || prev === multiSyncedRef.current ? summary : prev));
+      multiSyncedRef.current = summary;
       return;
     }
 
@@ -1129,7 +1301,7 @@ const ProfileCoach = () => {
       // has a way forward. applyImport() retires them once one succeeds.
       if (chip.id === 'resume') {
         pushCoach(TEXT.UPLOAD_PROMPT);
-        fileInputRef.current?.click();
+        openFilePicker();
         return;
       }
       if (chip.id === 'linkedin') {
@@ -1152,23 +1324,30 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, askStep, busy, commit, later, navigate, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
+  }, [advance, answerResumeOffer, askStep, busy, commit, dictation, input, later, navigate, openFilePicker, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
-  const confirmMulti = useCallback((message) => {
+  /**
+   * @param {object} [extra]
+   * @param {string[]} [extra.ids] chips named in the box rather than tapped
+   * @param {string[]} [extra.values] free values typed alongside (skills only)
+   */
+  const confirmMulti = useCallback((message, { ids = [], values: typed = [] } = {}) => {
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
-    const chosen = message.chips.filter((c) => message.selected.includes(c.id));
+    // In the order they were picked: for skills, first tapped reads as strongest.
+    const chosen = Array.from(new Set([...message.selected, ...ids]))
+      .map((id) => message.chips.find((c) => c.id === id))
+      .filter(Boolean);
+    multiSyncedRef.current = '';
 
     spendChips(message.id);
-    pushMine(
-      chosen.length ? chosen.map((c) => c.label).join(', ') : TEXT.SKIP_CHIP,
-      { stepId: step.id }
-    );
+    const said = [...chosen.map((c) => c.label), ...typed];
+    pushMine(said.length ? said.join(', ') : TEXT.SKIP_CHIP, { stepId: step.id });
 
     // Skills chips carry their label as id; preference chips carry an id the
     // editor's dropdowns expect. Both are already the right value to store.
-    const values = chosen.map((c) => c.id);
+    const values = [...chosen.map((c) => c.id), ...typed];
     if (step.assign === 'skills') {
       const merged = Array.from(new Set([...(draftRef.current.skills || []), ...values]));
       commit({ skills: merged }, index);
@@ -1441,6 +1620,24 @@ const ProfileCoach = () => {
       await handleIntroText(text);
       return;
     }
+    /* A pick-several question is answered by sending: the box holds the
+       picks, and anything else typed there is matched to a chip or, for
+       skills, added as one. */
+    const liveMulti = [...messages].reverse().find((m) => m.multi && !m.spent && m.stepId === step.id);
+    if (liveMulti) {
+      const parts = text.split(/[,;\n]/).map((p) => p.trim()).filter(Boolean);
+      const byLabel = (part) => liveMulti.chips.find((c) => c.label.toLowerCase() === part.toLowerCase());
+      const ids = parts.map(byLabel).filter(Boolean).map((c) => c.id);
+      const loose = parts.filter((p) => !byLabel(p));
+      const typed = step.assign === 'skills' ? loose.flatMap((p) => parseSkillList(p)) : [];
+      if (ids.length || liveMulti.selected.length || typed.length) {
+        setInput('');
+        setError('');
+        confirmMulti(liveMulti, { ids, values: typed });
+        return;
+      }
+    }
+
     // canAnswer, not step.freeText: a probe question belongs to the review
     // step, which asks nothing itself and so declares freeText: false.
     if (!canAnswer(step, probing)) return;
@@ -1506,6 +1703,32 @@ const ProfileCoach = () => {
       if (liveMessage) spendChips(liveMessage.id);
       commit(links, index);
       return;
+    }
+
+    /* Typed at the resume question instead of tapping: that is a person
+       carrying on the conversation, which is what "just chat" means. The box
+       used to be disabled here, and after a cancelled upload it looked like
+       the page had frozen. */
+    if (step.id === 'importOffer') {
+      setMessages((prev) => prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)));
+      const turn = await runTurn(text);
+      if (!turn.ok) {
+        setError(TEXT.ERROR_GENERIC);
+        return;
+      }
+      if (!turn.awaiting) advance(index, draftRef.current);
+      return;
+    }
+
+    // A field is matched against all of ours, not just the chips on screen,
+    // and one we do not have is kept as typed.
+    if (step.id === 'sector') {
+      const field = fieldFromText(text);
+      if (field) {
+        if (liveMessage) spendChips(liveMessage.id);
+        commit(field.title && !current.title ? { sector: field.sector, title: field.title } : { sector: field.sector }, index);
+        return;
+      }
     }
 
     const tapped = matchChip(text, getChips(step, current));
@@ -1619,9 +1842,16 @@ const ProfileCoach = () => {
   }, [draft]);
 
   const currentStep = LADDER[stepIndex];
+  // A story question carries a "Say it instead" row, and its Skip goes in it.
+  const liveRowHasChips = messages.some(
+    (m) => m.stepId === currentStep?.id && !m.spent && m.chips?.length
+  );
   // The intro (stepIndex -1) has no question, but it does have a coach who
   // can answer one — see handleIntroText.
-  const canType = (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing)) && !busy;
+  // A live pick-several row is answered from the box, whatever the step's
+  // freeText says.
+  const liveMultiRow = messages.some((m) => m.multi && !m.spent && m.stepId === currentStep?.id);
+  const canType = (liveMultiRow || (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing))) && !busy;
 
   /* ─── Card renderers ───────────────────────────────────────── */
 
@@ -1858,7 +2088,7 @@ const ProfileCoach = () => {
                           $editable
                           onClick={() => rewindTo(message)}
                           title={TEXT.CHANGE_ANSWER}
-                          aria-label={`${message.text} — ${TEXT.CHANGE_ANSWER}`}
+                          aria-label={`${message.text}, ${TEXT.CHANGE_ANSWER}`}
                         >
                           {message.text}
                           <EditHint aria-hidden="true"><EditIcon /> {TEXT.CHANGE_ANSWER}</EditHint>
@@ -1894,6 +2124,15 @@ const ProfileCoach = () => {
                       failed={!!message.uploadFailed}
                     />
                   )}
+                  {message.checkKeys && (
+                    <CheckCard
+                      lines={checkLines(draft, message.checkKeys)}
+                      spent={message.spent}
+                      busy={busy}
+                      onSave={saveCheckEdit}
+                      onDone={() => finishCheck(message)}
+                    />
+                  )}
                   {message.review && renderReview(message.review)}
                   {message.assessment && renderAssessment(message.assessment)}
                   {message.resume && renderResume(message.resume)}
@@ -1922,14 +2161,11 @@ const ProfileCoach = () => {
                           {chip.label}
                         </Chip>
                       ))}
-                      {message.multi && !message.spent && (
-                        <Chip
-                          type="button"
-                          $primary={!!message.selected?.length}
-                          $ghost={!message.selected?.length}
-                          onClick={() => confirmMulti(message)}
-                        >
-                          {message.selected?.length ? TEXT.DONE_CHIP : TEXT.SKIP_CHIP}
+                      {/* Nothing picked yet: Skip. Once something is picked the
+                          answer goes in from the send button. */}
+                      {message.multi && !message.spent && !message.selected?.length && (
+                        <Chip type="button" $ghost onClick={() => confirmMulti(message)}>
+                          {TEXT.SKIP_CHIP}
                         </Chip>
                       )}
                       {message.optional && !message.multi && !message.spent && (
@@ -1959,7 +2195,7 @@ const ProfileCoach = () => {
 
             {/* Skip lives here for text-only steps, which have no chip row
                 of their own to hang it on. */}
-            {currentStep?.optional && !currentStep?.chipSet && (
+            {currentStep?.optional && !currentStep?.chipSet && !liveRowHasChips && (
               <QuickReplies>
                 <QuickReply
                   type="button"
@@ -1978,7 +2214,13 @@ const ProfileCoach = () => {
                 ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
+                // When the answer is a tap, the box says so instead of just
+                // looking broken.
+                placeholder={liveMultiRow
+                  ? TEXT.INPUT_PLACEHOLDER_MULTI
+                  : !canType && currentStep
+                  ? TEXT.INPUT_PLACEHOLDER_CHIPS
+                  : dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
                 disabled={!canType}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
               />
@@ -2035,9 +2277,6 @@ const ProfileCoach = () => {
         type="file"
         accept=".pdf,.doc,.docx"
         onChange={handleFile}
-        // Not supported in every browser, which is exactly why the import
-        // chips stay live rather than relying on this to unstick the flow.
-        onCancel={() => offerImportAgain(TEXT.UPLOAD_CANCELLED)}
         style={{ display: 'none' }}
       />
 

@@ -264,11 +264,30 @@ export const MORE_SECTORS_CHIP = { id: '__more_sectors', label: 'More fields' };
  * first screen is the primary set — chosen to span the labour market, not
  * to rank it — and the rest are one tap behind "More fields".
  */
+/* The way out at the end of the full list. Twenty-six fields still miss
+   people (aviation, the arts, the military), and with no chip for them the
+   only path was noticing that the text box would take an answer. Same id
+   as "Type my own", so it hands over the keyboard the same way. */
+export const FIELD_NOT_LISTED_CHIP = { id: CUSTOM_ANSWER_CHIP.id, label: "My field isn't listed" };
+
 export const sectorChips = (expanded = false) => {
   const chips = (expanded ? JOB_SECTORS : PRIMARY_SECTORS)
     .map((s) => ({ id: s.id, label: s.label }));
-  if (!expanded) chips.push({ ...MORE_SECTORS_CHIP });
+  chips.push(expanded ? { ...FIELD_NOT_LISTED_CHIP } : { ...MORE_SECTORS_CHIP });
   return chips;
+};
+
+/**
+ * A typed field: one of ours if it matches, otherwise taken as said. Before
+ * this, "Aviation" matched nothing, the model could not map it either, and
+ * the field chips came back with no way past them.
+ */
+export const fieldFromText = (text) => {
+  const typed = String(text || '').trim();
+  const matched = matchSector(typed);
+  if (matched) return { sector: matched.sector, title: matched.title || '' };
+  if (!typed || !looksLikeTitle(typed)) return null;
+  return { sector: normalizeTitle(typed), title: '' };
 };
 
 /* Why someone wants the next job, and what they think is stopping them.
@@ -322,7 +341,10 @@ export const RETRY_IMPORT_CHOICES = [
    Everything before this step is facts a button answers faster and more
    accurately than speech. Everything from here is why — what they want, what
    is in the way — which is the part nobody writes well in a text box. */
-export const VOICE_OFFER_STEP = 'target';
+/* Moved up to the recent-role question: describing a job and what you did
+   there is the first answer that is easier said than typed. The facts
+   speech gets wrong (names, dates) are checked on one card after the call. */
+export const VOICE_OFFER_STEP = 'currentRole';
 
 /* What the call is actually for.
    Not the same list as missingFields. That one is the written checklist and
@@ -332,6 +354,11 @@ export const VOICE_OFFER_STEP = 'target';
    it, so the two "why" questions come first. */
 export const voiceAgenda = (draft = {}) => {
   const agenda = [];
+  // Offered at the role question, so a call with no role yet starts there.
+  if (!(draft.experience || []).length && !['new_grad', 'student'].includes(draft.careerStage)) {
+    agenda.push('their most recent role: where, what title, and roughly when');
+    agenda.push('what they actually did there that they are proudest of');
+  }
   if (!draft.target) agenda.push('what they want to do next');
   if (!draft.targetWhy) agenda.push('why that, and what is pulling them toward it');
   if (!draft.targetBlocker) agenda.push('what they think is standing in the way');
@@ -390,7 +417,7 @@ export const hintText = (step, draft = {}) =>
 export const LADDER = [
   {
     id: 'sector',
-    question: "Let's start broad — which field are you in?",
+    question: "Let's start broad. Which field are you in?",
     hint: 'Tap one, or just tell me in your own words.',
     kind: 'chips',
     chipSet: 'sectors',
@@ -404,7 +431,7 @@ export const LADDER = [
   {
     id: 'level',
     question: 'Got it. And what level are you at?',
-    hint: 'Roughly where you sit — it goes into your headline. Your job title is next.',
+    hint: 'Roughly where you sit. It goes into your headline, and your job title is next.',
     kind: 'chips',
     chipSet: 'levels',
     freeText: true,
@@ -414,7 +441,7 @@ export const LADDER = [
   {
     id: 'title',
     question: "And what's your job title?",
-    hint: 'Pick the closest one or type your own — this is what recruiters search.',
+    hint: 'Pick the closest one or type your own. This is what recruiters search.',
     kind: 'chips',
     chipSet: 'titles',
     freeText: true,
@@ -429,11 +456,12 @@ export const LADDER = [
   },
   {
     id: 'importOffer',
-    question: 'Quick shortcut before we go on — do you have a resume or a LinkedIn profile?',
+    question: 'Quick shortcut before we go on: do you have a resume or a LinkedIn profile?',
     hint: 'I can fill in most of the rest from either one. Or we just keep talking.',
     kind: 'branch',
     chipSet: 'importChoices',
-    freeText: false,
+    // Typing here is choosing to chat; see submitText.
+    freeText: true,
     aiStep: null,
     assign: null,
   },
@@ -484,7 +512,9 @@ export const LADDER = [
   },
   {
     id: 'currentRole',
-    question: 'Tell me about your most recent role — where was it, and when?',
+    // A story question: offers "Say it instead" when the browser can listen.
+    story: true,
+    question: 'Tell me about your most recent role. Where was it, and when?',
     // Their own title: a designer was shown "Product manager at Acme".
     hint: (draft) => `Something like "${draft.title || 'Product manager'} at Acme, 2022 to now" is plenty.`,
     kind: 'text',
@@ -502,8 +532,9 @@ export const LADDER = [
   },
   {
     id: 'achievements',
+    story: true,
     question: 'What did you actually do there?',
-    hint: "Just talk normally — I'll turn it into resume bullets.",
+    hint: "Just talk normally. I'll turn it into resume bullets.",
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -573,7 +604,7 @@ export const LADDER = [
   },
   {
     id: 'education',
-    question: 'How about education — degree, bootcamp, certificates?',
+    question: 'How about education? A degree, a bootcamp, certificates.',
     hint: 'One line is fine. Skip it if it is not relevant to you.',
     kind: 'text',
     chipSet: null,
@@ -596,7 +627,7 @@ export const LADDER = [
   {
     id: 'links',
     question: 'Anywhere someone can see your work?',
-    hint: 'LinkedIn, GitHub, a portfolio — paste any of them in one go. Skip if you would rather not.',
+    hint: 'LinkedIn, GitHub, a portfolio. Paste any of them in one go, or skip if you would rather not.',
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -608,7 +639,7 @@ export const LADDER = [
   },
   {
     id: 'target',
-    question: 'Now the part that actually matters — what are you aiming for next?',
+    question: 'Now the part that actually matters. What are you aiming for next?',
     hint: 'Pick the closest, or tell me in your own words. I will tell you honestly how far it is.',
     kind: 'chips',
     chipSet: 'targets',
@@ -2092,4 +2123,118 @@ export const preferenceLabels = (draft = {}) => {
   );
   const style = WORK_STYLES.find((w) => w.id === draft.workStyle)?.label || draft.workStyle || '';
   return [...types, style].filter(Boolean).join(', ');
+};
+
+/* ─── Speaking instead of typing ──────────────────────────── */
+
+/* Not an answer: it starts the microphone on a story question. */
+export const SAY_IT_CHIP = { id: '__say_it', label: 'Say it instead' };
+
+/* Years worked out in code, never by the model, so a misheard "2012" for
+   "2021" shows up as an obviously wrong number of years. */
+const isOngoing = (value) => !value || /present|now|current|ongoing|today/i.test(String(value));
+
+export const yearsBetween = (start, end, now = new Date()) => {
+  const parse = (v) => {
+    const s = String(v || '');
+    const iso = s.match(/^(\d{4})-(\d{1,2})/);
+    if (iso) return { y: Number(iso[1]), m: Number(iso[2]) };
+    const y = s.match(/\b(19|20)\d{2}\b/);
+    return y ? { y: Number(y[0]), m: null } : null;
+  };
+  const from = parse(start);
+  const to = isOngoing(end) ? { y: now.getFullYear(), m: now.getMonth() + 1 } : parse(end);
+  if (!from || !to) return null;
+  let years = to.y - from.y;
+  if (from.m && to.m && to.m < from.m) years -= 1;
+  return Math.max(0, years);
+};
+
+/** "2021 to now (5 yrs)". */
+export const roleConfirmText = (row = {}, now = new Date()) => {
+  const start = String(row.startDate || '').match(/\b(19|20)\d{2}\b/)?.[0] || '';
+  if (!start) return '';
+  const ongoing = row.current || isOngoing(row.endDate);
+  const end = ongoing ? 'now' : (String(row.endDate || '').match(/\b(19|20)\d{2}\b/)?.[0] || '?');
+  const years = yearsBetween(row.startDate, ongoing ? 'present' : row.endDate, now);
+  const length = years === null ? '' : years < 1 ? ' (under a year)' : ` (${years} yr${years === 1 ? '' : 's'})`;
+  return `${start} to ${end}${length}`;
+};
+
+/* ─── The check after a call ───────────────────────────────
+
+   Speech gets names and dates wrong ("Acne", "2012" for "2021"), and on a
+   resume that is the mistake that matters. After a call, the facts it heard
+   are listed once, each fixable in place. Not after every answer: reading
+   everything back made the conversation feel like a form. */
+
+const ROLE_KEYS = ['title', 'company'];
+const DATE_KEYS = ['startDate', 'endDate'];
+const EDU_KEYS = ['school', 'degree', 'graduationYear'];
+
+/**
+ * @param {object} draft
+ * @param {Set<string>|string[]} heard the learned-field keys the call produced
+ * @returns {{kind: string, label: string, text: string}[]}
+ */
+export const checkLines = (draft = {}, heard = []) => {
+  const keys = new Set(heard);
+  const lines = [];
+  const row = (draft.experience || [])[0];
+  if (row && ROLE_KEYS.some((k) => keys.has(k))) {
+    const text = [row.title, row.company].filter(Boolean).join(' · ');
+    if (text) lines.push({ kind: 'role', label: 'Role', text });
+  }
+  if (row && DATE_KEYS.some((k) => keys.has(k)) && row.startDate) {
+    lines.push({ kind: 'dates', label: 'Dates', text: roleConfirmText({ startDate: row.startDate, endDate: row.endDate, current: row.current }) });
+  }
+  const edu = (draft.education || [])[0];
+  if (edu && EDU_KEYS.some((k) => keys.has(k))) {
+    const text = [edu.degree, edu.institution, edu.endDate].filter(Boolean).join(' · ');
+    if (text) lines.push({ kind: 'education', label: 'Education', text });
+  }
+  if (keys.has('location') && draft.location) lines.push({ kind: 'location', label: 'Location', text: draft.location });
+  if (keys.has('skills') && (draft.skills || []).length) {
+    lines.push({ kind: 'skills', label: 'Skills', text: draft.skills.join(', ') });
+  }
+  return lines;
+};
+
+const YEAR = /\b(19|20)\d{2}\b/g;
+const parts = (text) => String(text || '').split(/\s*[·,|]\s*|\s+at\s+/i).map((p) => p.trim()).filter(Boolean);
+
+/** A corrected line, written back over what the call heard. */
+export const applyCheckEdit = (draft = {}, kind, text) => {
+  const next = { ...draft };
+  const rows = [...(draft.experience || [])];
+  if (kind === 'role' && rows.length) {
+    const [title, ...rest] = parts(text);
+    rows[0] = { ...rows[0], title: title || rows[0].title, company: rest.join(', ') || rows[0].company };
+    next.experience = rows;
+  }
+  if (kind === 'dates' && rows.length) {
+    const years = String(text).match(YEAR) || [];
+    const ongoing = /now|present|current|today/i.test(text);
+    if (years[0]) {
+      rows[0] = {
+        ...rows[0],
+        startDate: years[0],
+        endDate: ongoing ? 'Present' : (years[1] || ''),
+        current: ongoing || !years[1],
+      };
+      next.experience = rows;
+    }
+  }
+  if (kind === 'education' && (draft.education || []).length) {
+    const year = (String(text).match(YEAR) || [])[0] || '';
+    const words = parts(String(text).replace(YEAR, '')).filter(Boolean);
+    const [degree = '', institution = ''] = words;
+    next.education = normalizeEducationRows([
+      { ...draft.education[0], degree: degree || draft.education[0].degree, institution: institution || draft.education[0].institution, endDate: year || draft.education[0].endDate },
+      ...draft.education.slice(1),
+    ]);
+  }
+  if (kind === 'location') next.location = normalizePlace(text);
+  if (kind === 'skills') next.skills = parseSkillList(text);
+  return next;
 };

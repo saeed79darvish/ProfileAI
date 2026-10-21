@@ -12,6 +12,10 @@ import {
   VOICE_OFFER_STEP,
   voiceAgenda,
   applyBraindump,
+  checkLines,
+  applyCheckEdit,
+  fieldFromText,
+  FIELD_NOT_LISTED_CHIP,
   dedupeExperience,
   normalizePlace,
   careerStageChips,
@@ -1064,12 +1068,14 @@ test('the call is offered where the open-ended questions begin', () => {
   const ids = LADDER.map((s) => s.id);
   const at = ids.indexOf(VOICE_OFFER_STEP);
   assert.ok(at > 0, 'the offer step must exist in the ladder');
-  // Everything above it is facts a tap answers better than speech.
-  for (const factual of ['sector', 'level', 'title', 'skills', 'education', 'location']) {
+  // Everything above it is a fact a tap answers better than speech.
+  for (const factual of ['sector', 'level', 'title']) {
     assert.ok(ids.indexOf(factual) < at, `${factual} should be settled before the call is offered`);
   }
-  // Everything the call is for is still ahead of it.
-  for (const open of ['targetWhy', 'targetBlocker']) {
+  // It is offered at the first story question; the stories and the why are
+  // all still ahead. Names and dates it hears are checked after the call.
+  assert.equal(VOICE_OFFER_STEP, 'currentRole');
+  for (const open of ['achievements', 'targetWhy', 'targetBlocker']) {
     assert.ok(ids.indexOf(open) > at, `${open} should still be open when the call is offered`);
   }
 });
@@ -1081,7 +1087,7 @@ test('a call never spends its two minutes on a postcode', () => {
 });
 
 test('the agenda leads with why, not with what is left over', () => {
-  const agenda = voiceAgenda({});
+  const agenda = voiceAgenda({ experience: [{ company: 'Acme' }] });
   assert.match(agenda[0], /what they want to do next/);
   assert.match(agenda[1], /why that/);
   assert.match(agenda[2], /in the way/);
@@ -1199,4 +1205,46 @@ test('the role example uses their own title', () => {
 
 test('preferences display as the labels people tapped', () => {
   assert.equal(preferenceLabels({ roleTypes: ['full-time', 'contract'], workStyle: 'remote' }), 'Full-time, Contract, Remote');
+});
+
+test('the full field list ends with a way to type your own', () => {
+  const full = sectorChips(true);
+  assert.equal(full.at(-1).label, FIELD_NOT_LISTED_CHIP.label);
+  assert.equal(full.at(-1).id, CUSTOM_ANSWER_CHIP.id);
+  assert.equal(sectorChips(false).at(-1).id, MORE_SECTORS_CHIP.id);
+});
+
+test('a typed field is ours if it matches, and kept as said if not', () => {
+  assert.equal(fieldFromText('software engineer').sector, 'tech');
+  assert.equal(fieldFromText('aviation').sector, 'Aviation');
+  assert.equal(fieldFromText("I'm not sure what to put here"), null);
+});
+
+test('a call with no role yet starts with the role', () => {
+  assert.match(voiceAgenda({})[0], /most recent role/);
+});
+
+test('after a call, only the facts it heard are checked', () => {
+  const draft = {
+    experience: [{ title: 'Staff Frontend Developer', company: 'Acme', startDate: '2021', endDate: 'Present', current: true }],
+    education: [{ institution: 'UW', degree: 'BS CS', endDate: '2016' }],
+    location: 'Seattle, WA',
+    skills: ['React'],
+  };
+  const kinds = checkLines(draft, ['company', 'startDate', 'location']).map((l) => l.kind);
+  assert.deepEqual(kinds, ['role', 'dates', 'location']);
+  assert.deepEqual(checkLines(draft, ['target']), []);
+});
+
+test('a corrected line replaces what the call heard', () => {
+  const draft = {
+    experience: [{ title: 'Staff Frontend Developer', company: 'Acne', startDate: '2012', endDate: 'Present', current: true }],
+    education: [{ institution: 'UW', degree: 'BS', endDate: '2061' }],
+  };
+  assert.equal(applyCheckEdit(draft, 'role', 'Staff Frontend Developer · Acme').experience[0].company, 'Acme');
+  const dates = applyCheckEdit(draft, 'dates', '2021 to now').experience[0];
+  assert.equal(dates.startDate, '2021');
+  assert.equal(dates.endDate, 'Present');
+  assert.equal(applyCheckEdit(draft, 'education', 'BS CS · University of Washington · 2016').education[0].endDate, '2016');
+  assert.equal(applyCheckEdit({}, 'location', 'seattle, wa').location, 'Seattle, WA');
 });

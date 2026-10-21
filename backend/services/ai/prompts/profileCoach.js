@@ -80,7 +80,9 @@ Write ONE short follow-up question (max 20 words) that gets the missing piece. S
 
 If they pushed back on why you're asking, give half a sentence of reason and then still ask.
 
-Your reply MUST end with a question mark. Return only the question text.`;
+Your reply MUST end with a question mark. Return only the question text.
+
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.`;
 
 /**
  * writeBulletsPrompt — turn a rambling "what did you actually do there"
@@ -112,6 +114,8 @@ Return a JSON array of strings. Nothing else.`;
 const writeSummaryPrompt = (draft) => `Write a short professional summary for this person's profile, based only on what they told us.
 
 ${VOICE_AND_TONE}
+
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
 
 ${timeFacts(draft)}
 
@@ -159,6 +163,8 @@ const reviewProfilePrompt = ({ profile, inspection, sector }) => `You are a care
 
 ${VOICE_AND_TONE}
 
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
+
 ${timeFacts(profile)}
 
 ═══ THEIR PROFILE ═══
@@ -203,6 +209,8 @@ RULES:
 const targetAssessmentPrompt = ({ profile, inspection, target, market, motivation, blocker }) => `You are a career coach. This person wants a specific kind of role next. Tell them honestly how far away it is and what closes the gap.
 
 ${VOICE_AND_TONE}
+
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
 
 ${timeFacts(profile)}
 
@@ -259,6 +267,8 @@ RULES:
 const answerAsidePrompt = ({ question, asked, context = {} }) => `Someone is building their profile in a chat with you, and instead of answering your question they asked one of their own. Answer it, briefly, then stop.
 
 ${VOICE_AND_TONE}
+
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
 
 ${timeFacts({})}
 
@@ -356,6 +366,8 @@ RULES:
 const coachTurnPrompt = ({ profile, missing, history, message, liveVoice = 'none' }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
 
 ${VOICE_AND_TONE}
+
+No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
 
 ${timeFacts(profile)}
 

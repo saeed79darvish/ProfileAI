@@ -28,6 +28,8 @@ const coachVoiceInstructions = ({ firstName, profile = {}, missing = [] } = {}) 
 
 ${VOICE_AND_TONE}
 
+No em dashes (—) in anything you write down, including the bullets you send back.
+
 ${timeFacts(profile)}
 
 ═══ THE FIRST THING YOU SAY ═══
