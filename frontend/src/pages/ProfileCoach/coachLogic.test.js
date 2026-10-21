@@ -12,25 +12,21 @@ import {
   VOICE_OFFER_STEP,
   voiceAgenda,
   applyBraindump,
+  dedupeExperience,
+  normalizePlace,
   careerStageChips,
   hintText,
-  roleConfirmText,
-  applyCorrection,
-  deriveFromTitle,
   preferenceLabels,
-  questionsLeft,
-  yearsBetween,
-  skillChips,
-  dedupeExperience,
   readsAsAnswer,
   looksLikeTitle,
   parseConversation,
   serializeConversation,
+  coachCompletion,
   levelsFor,
+  visiblePanelItems,
   parseLinks,
   targetChips,
   normalizeTitle,
-  normalizePlace,
   titleChips,
   CUSTOM_ANSWER_CHIP,
   sectorChips,
@@ -55,6 +51,7 @@ import {
   buildTitle,
   draftToResumeData,
   draftToProfileShape,
+  panelState,
 } from './coachLogic.js';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion.js';
 
@@ -73,7 +70,7 @@ test('every ladder step declares the fields the page dispatches on', () => {
     assert.ok(s.id, 'step needs an id');
     assert.ok(s.question, `${s.id} needs a question`);
     assert.ok(
-      [...ASKING_KINDS, 'run', 'tailor', 'convert', 'next'].includes(s.kind),
+      [...ASKING_KINDS, 'run', 'tour', 'convert'].includes(s.kind),
       `${s.id} has unknown kind ${s.kind}`
     );
     // A 'run' step must say what it runs, or the page has nothing to dispatch.
@@ -93,11 +90,9 @@ test('every question step can be answered without typing', () => {
   // advanced by composing prose is miserable on a phone, and one unskippable
   // essay question is where people quit. Chips, a local free-text path, or a
   // skip: every step needs one of the three.
-  // The title is the one exception, and it is helped: the composer suggests
-  // titles as they type, and a plain title never reaches the model.
   const stuck = asking.filter((s) => {
     const hasChips = !!s.chipSet;
-    const localText = s.freeText && (!s.aiStep || !!s.autocomplete);
+    const localText = s.freeText && !s.aiStep;
     return !hasChips && !localText && !s.optional;
   });
   assert.deepEqual(stuck.map((s) => s.id), [], 'these steps have no guest-reachable answer');
@@ -234,8 +229,8 @@ test('an import stops the coach re-asking what it already answered', () => {
   // Preferences can't come from a resume, so they're always still asked.
   assert.equal(isAlreadyAnswered(step('lookingFor'), imported), false);
   assert.equal(isAlreadyAnswered(step('workStyle'), imported), false);
-  // Without an import the detail steps are still asked.
-  assert.equal(isAlreadyAnswered(step('skills'), { ...emptyDraft(), skills: ['Roadmapping'] }), false);
+  // Without an import nothing is pre-answered.
+  assert.equal(isAlreadyAnswered(step('title'), { ...emptyDraft(), title: 'PM' }), false);
 });
 
 // ── Draft assembly ──────────────────────────────────────────────────────────
@@ -330,6 +325,28 @@ test('draftToResumeData matches what ProfileForm reads from location.state', () 
   assert.equal(out.projects[0].url, '');
 });
 
+test('the coach meter agrees with the canonical rubric', () => {
+  const draft = {
+    ...emptyDraft(),
+    title: 'Product Manager',
+    location: 'Berlin',
+    skills: ['Roadmapping'],
+    experience: [{ title: 'PM', company: 'Acme', startDate: '2022-01' }],
+    education: [{ institution: 'State', degree: 'BSc' }],
+  };
+  const result = computeProfileCompletion(draftToProfileShape(draft));
+  assert.ok(result.pct > 0 && result.pct < 100, 'a coach-only draft is neither empty nor complete');
+
+  const panel = panelState(draft, result.items);
+  assert.equal(panel.title, true);
+  assert.equal(panel.skills, true);
+  assert.equal(panel.exp, true);
+  assert.equal(panel.edu, true);
+  // Preferences aren't part of the shared rubric, so the panel scores them.
+  assert.equal(panel.lookingFor, false);
+  assert.equal(panelState({ ...draft, workStyle: 'remote' }, result.items).lookingFor, true);
+});
+
 test('an empty draft scores 0 and hands off without throwing', () => {
   assert.equal(computeProfileCompletion(draftToProfileShape(emptyDraft())).pct, 0);
   const out = draftToResumeData(emptyDraft());
@@ -346,21 +363,10 @@ test('the review only runs when there is a document to react to', () => {
 });
 
 test('the target assessment is skipped rather than inventing a goal', () => {
-  const account = { ...emptyDraft(), account: true };
-  assert.equal(shouldSkip(step('assess'), account), true);
-  assert.equal(shouldSkip(step('assess'), { ...account, target: 'Product Manager' }), false);
+  assert.equal(shouldSkip(step('assess'), emptyDraft()), true);
+  assert.equal(shouldSkip(step('assess'), { ...emptyDraft(), target: 'Product Manager' }), false);
   // A whitespace answer is not a target.
-  assert.equal(shouldSkip(step('assess'), { ...account, target: '   ' }), true);
-});
-
-test('coaching waits for an account; building and tailoring do not', () => {
-  const guest = { ...emptyDraft(), target: 'Staff Engineer' };
-  for (const id of ['targetWhy', 'targetBlocker', 'assess', 'save', 'next']) {
-    assert.equal(shouldSkip(step(id), guest), true, `${id} is for account holders`);
-  }
-  assert.equal(shouldSkip(step('tailor'), guest), false);
-  assert.equal(shouldSkip(step('convert'), guest), false);
-  assert.equal(shouldSkip(step('convert'), { ...guest, account: true }), true, 'no sign-up card for the signed in');
+  assert.equal(shouldSkip(step('assess'), { ...emptyDraft(), target: '   ' }), true);
 });
 
 test('target chips never offer the job they already have', () => {
@@ -371,14 +377,13 @@ test('target chips never offer the job they already have', () => {
 
 test('the closing steps run in order and end the conversation', () => {
   const ids = LADDER.map((s) => s.id);
-  const order = ['importOffer', 'title', 'target', 'build', 'tailor', 'convert', 'save', 'targetWhy', 'assess', 'next'];
+  const order = ['target', 'assess', 'build', 'tour', 'convert'];
   const positions = order.map((id) => ids.indexOf(id));
   positions.forEach((pos, i) => {
     assert.ok(pos > -1, `${order[i]} is missing from the ladder`);
     if (i > 0) assert.ok(pos > positions[i - 1], `${order[i]} must come after ${order[i - 1]}`);
   });
-  assert.equal(ids[0], 'importOffer', 'how they want to start is the first question');
-  assert.ok(!ids.includes('tour'), 'no feature grid between the profile and the payoff');
+  assert.equal(ids[ids.length - 1], 'convert', 'the sign-up ask is the last thing that happens');
 });
 
 test('a probe answer lands on the role it was about, and keeps what was there', () => {
@@ -480,6 +485,21 @@ test('work style offers Flexible, for people who genuinely do not mind', () => {
   // The id is what reaches the market query, which branches on it.
   assert.deepEqual(chips.map((c) => c.id), ['remote', 'hybrid', 'onsite', 'flexible']);
 });
+
+test('picking a work style records it on the draft', () => {
+  const step_ = step('workStyle');
+  assert.equal(step_.assign, 'workStyle');
+  const out = applyToDraft(emptyDraft(), { [step_.assign]: 'flexible' });
+  assert.equal(out.workStyle, 'flexible');
+  // And the panel counts it as an answer to "looking for".
+  assert.equal(panelState(out, []).lookingFor, true);
+});
+
+/* ─── Sector coverage ─────────────────────────────────────────
+   The sector list is the first thing anyone sees, so it doubles as a
+   statement about who the product is for. These guard the two ways that
+   breaks: a sector with no titles/skills behind it, and an answer a real
+   person would type falling through to the model. */
 
 test('every sector has titles and skills behind it', () => {
   const missing = JOB_SECTORS.filter(
@@ -598,7 +618,7 @@ test('the rank they gave decides what is offered first', () => {
 
 test('there is always a way to answer something not on the list', () => {
   const step = (id) => LADDER.find((s) => s.id === id);
-  for (const stepId of ['target']) {
+  for (const stepId of ['title', 'target']) {
     const chipStep = step(stepId);
     if (!chipStep) continue;
     const chips = getChips(chipStep, { sector: 'tech', level: 'senior', title: 'Software Engineer' });
@@ -684,10 +704,10 @@ test('the coach asks why, and what is in the way, before it judges the gap', () 
 });
 
 test('no target means no follow-ups about it', () => {
-  const noTarget = { ...emptyDraft(), account: true };
+  const noTarget = { ...emptyDraft() };
   assert.equal(shouldSkip(step('targetWhy'), noTarget), true);
   assert.equal(shouldSkip(step('targetBlocker'), noTarget), true);
-  const withTarget = { ...emptyDraft(), account: true, target: 'Principal Frontend Developer' };
+  const withTarget = { ...emptyDraft(), target: 'Principal Frontend Developer' };
   assert.equal(shouldSkip(step('targetWhy'), withTarget), false);
 });
 
@@ -746,6 +766,23 @@ test('a clarifier about the earlier job does not rewrite the current one', () =>
 
 /* ─── The checklist ───────────────────────────────────────────
    It has to agree with what the conversation asked. */
+
+test('a described project ticks a box that exists', () => {
+  const draft = { ...emptyDraft(), projects: [{ title: 'Bus tracker', description: 'Live arrivals board' }] };
+  const rubric = computeProfileCompletion(draftToProfileShape(draft));
+  assert.equal(panelState(draft, rubric.items).proj, true);
+});
+
+test('the projects row stays put once a job is named', () => {
+  // It used to vanish, and the checklist shrank from six rows to five.
+  const items = [{ key: 'title' }, { key: 'proj' }];
+  assert.ok(visiblePanelItems({ experience: [] }, items).some((i) => i.key === 'proj'));
+  assert.ok(visiblePanelItems({ experience: [{ company: 'Acme' }] }, items).some((i) => i.key === 'proj'));
+});
+
+/* ─── Talking to the coach, rather than answering it ──────────
+   "Hi" was stored as a level and "I have a question?" as a job title, which
+   went straight into the headline a recruiter reads. */
 
 test('greetings and questions are not answers', () => {
   const title = step('title');
@@ -824,6 +861,38 @@ test('anything doubtful starts fresh instead', () => {
 });
 
 /* ─── A meter that can reach the top ─────────────────────────── */
+
+test('answering every question fills the bar', () => {
+  const draft = {
+    ...emptyDraft(),
+    title: 'Staff Frontend Developer',
+    location: 'San Francisco',
+    summary: 'A real summary, comfortably over twenty characters.',
+    skills: ['React'],
+    experience: [{ title: 'Staff Frontend Developer', company: 'Acme', startDate: '2019' }],
+    education: [{ institution: 'State', degree: 'BSc' }],
+    linkedinUrl: 'https://linkedin.com/in/x',
+  };
+  const raw = computeProfileCompletion(draftToProfileShape(draft));
+  // The shared rubric no longer scores the photo or a project alongside a
+  // job, so the editor and the coach agree: everything answered is 100.
+  assert.equal(raw.pct, 100);
+  assert.equal(coachCompletion(raw, draft).pct, 100);
+});
+
+test('someone with no job is scored on projects, not docked for both', () => {
+  const grad = {
+    ...emptyDraft(),
+    title: 'Junior Frontend Developer',
+    projects: [{ title: 'Bus tracker', description: 'Live arrivals board for my neighbourhood' }],
+  };
+  const items = coachCompletion(computeProfileCompletion(draftToProfileShape(grad)), grad).items.map((i) => i.key);
+  assert.ok(items.includes('proj'));
+  assert.ok(!items.includes('exp'));
+  assert.ok(!items.includes('photo'));
+});
+
+/* ─── Targets within sight ───────────────────────────────────── */
 
 test('an entry-level answer is not handed a fantasy', () => {
   const chips = targetChips({ sector: 'tech', level: 'entry', title: 'Junior Frontend Developer' })
@@ -1000,7 +1069,7 @@ test('the call is offered where the open-ended questions begin', () => {
     assert.ok(ids.indexOf(factual) < at, `${factual} should be settled before the call is offered`);
   }
   // Everything the call is for is still ahead of it.
-  for (const open of ['targetBlocker', 'assess']) {
+  for (const open of ['targetWhy', 'targetBlocker']) {
     assert.ok(ids.indexOf(open) > at, `${open} should still be open when the call is offered`);
   }
 });
@@ -1053,36 +1122,11 @@ test('chip answers count on their own, with no import to vouch for them', () => 
 });
 
 test('the detail steps still want an import or a call behind them', () => {
-  const skills = LADDER.find((s) => s.id === 'skills');
-  assert.equal(isAlreadyAnswered(skills, { skills: ['Go'] }), false);
-  assert.equal(isAlreadyAnswered(skills, { skills: ['Go'], spokenIntake: true }), true);
-  assert.equal(isAlreadyAnswered(skills, { skills: ['Go'], importedFrom: 'resume' }), true);
-  // The title is asked first now, so whatever already said it answered it.
-  assert.equal(isAlreadyAnswered(LADDER.find((s) => s.id === 'title'), { title: 'Engineer' }), true);
-});
-
-test('field and level are read off the title instead of asked', () => {
-  const titled = { ...emptyDraft(), title: 'Senior Backend Engineer', sector: 'tech' };
-  assert.equal(shouldSkip(step('sector'), titled), true);
-  assert.equal(shouldSkip(step('level'), titled), true);
-  assert.equal(shouldSkip(step('sector'), { ...emptyDraft(), title: 'Wizard' }), false);
-});
-
-test('skill chips start with what their own words mention, eight at most', () => {
-  const chips = skillChips({
-    sector: 'tech',
-    title: 'Backend Engineer',
-    experience: [{ title: 'Backend Engineer', description: '• Moved billing to Kubernetes and Python' }],
-  });
-  assert.ok(chips.length <= 8);
-  const labels = chips.map((c) => c.label.toLowerCase());
-  assert.ok(labels.includes('python') || labels.includes('kubernetes'), labels.join(', '));
-  assert.ok(!skillChips({ sector: 'tech', skills: ['Python'] }).some((c) => c.label === 'Python'), 'already chosen is not offered again');
-});
-
-test('developer and engineer are one job in the title chips', () => {
-  const labels = titleChips('tech', 'ic').map((c) => c.label.toLowerCase().replace('developer', 'engineer'));
-  assert.equal(new Set(labels).size, labels.length, labels.join(', '));
+  // A thin title scraped from nowhere is not the same as one they confirmed.
+  const title = LADDER.find((s) => s.id === 'title');
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer' }), false);
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer', spokenIntake: true }), true);
+  assert.equal(isAlreadyAnswered(title, { title: 'Engineer', importedFrom: 'resume' }), true);
 });
 
 test('an empty draft has nothing already answered', () => {
@@ -1091,22 +1135,18 @@ test('an empty draft has nothing already answered', () => {
   }
 });
 
-/* ─── The same job, said twice ─────────────────────────────── */
+/* ─── Accuracy fixes ───────────────────────────────────────── */
 
 test('a role repeated on the next turn updates the row instead of adding one', () => {
   let d = applyBraindump({ experience: [] }, {
     title: 'Senior Software Engineer', company: 'Acme Test Co', startDate: '2021', endDate: 'present',
   });
-  d = applyBraindump(d, {
-    company: 'Acme Test Co', startDate: '2021', endDate: 'present',
-    bullets: ['Cut deploy time from 40 minutes to 6'],
-  });
+  d = applyBraindump(d, { company: 'Acme Test Co', startDate: '2021', bullets: ['Cut deploy time from 40 minutes to 6'] });
   assert.equal(d.experience.length, 1);
   assert.match(d.experience[0].description, /Cut deploy time/);
-  assert.equal(d.experience[0].startDate, '2021');
 });
 
-test('bullets with no company land on the latest role', () => {
+test('bullets with no company land on the latest role, once', () => {
   let d = applyBraindump({ title: 'Engineer', experience: [] }, { company: 'Acme' });
   d = applyBraindump(d, { bullets: ['Shipped billing'] });
   d = applyBraindump(d, { bullets: ['Shipped billing'] });
@@ -1114,111 +1154,49 @@ test('bullets with no company land on the latest role', () => {
   assert.equal(d.experience[0].description, '• Shipped billing');
 });
 
-test('a different company is a different job', () => {
-  let d = applyBraindump({ experience: [] }, { company: 'Acme' });
-  d = applyBraindump(d, { company: 'Globex' });
-  d = applyBraindump(d, { previousCompany: 'Acme Inc.' });
-  assert.equal(d.experience.length, 2);
-});
-
 test('duplicates already saved in a draft are merged on the way out', () => {
   const rows = dedupeExperience([
-    { title: 'SWE', company: 'Acme Test Co', startDate: '2021', endDate: 'Present', description: '• Did X' },
-    { title: 'SWE', company: 'Acme Test Co', startDate: '2021', endDate: 'Present', description: '' },
+    { title: 'SWE', company: 'Acme Test Co', startDate: '2021', description: '• Did X' },
+    { title: 'SWE', company: 'Acme Test Co', startDate: '2021', description: '' },
   ]);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].description, '• Did X');
+});
+
+test('a role keeps the title said for it, not the headline', () => {
+  const d = applyBraindump({ title: 'Principal Product Designer', level: 'principal', experience: [] },
+    { title: 'Lead Product Designer', company: 'Acme' });
+  assert.equal(d.experience[0].title, 'Lead Product Designer');
+});
+
+test('the graduation year they said is kept', () => {
+  const d = applyBraindump({ education: [] }, { school: 'UW', degree: 'BS', graduationYear: '2016' });
+  assert.equal(d.education[0].endDate, '2016');
 });
 
 test('places keep their codes in capitals', () => {
   assert.equal(normalizePlace('seattle, wa'), 'Seattle, WA');
-  assert.equal(normalizePlace('Seattle, Wa'), 'Seattle, WA');
   assert.equal(normalizePlace('london, uk'), 'London, UK');
-  assert.equal(normalizePlace('new york'), 'New York');
-  assert.equal(normalizePlace('berlin, germany'), 'Berlin, Germany');
 });
 
-test('the graduation year they said is kept, on the same school', () => {
-  let d = applyBraindump({ education: [] }, { school: 'UW', degree: 'BS Computer Science', graduationYear: '2016' });
-  assert.equal(d.education.length, 1);
-  assert.equal(d.education[0].endDate, '2016');
-  d = applyBraindump({ education: [{ institution: 'UW', degree: 'BS', endDate: '' }] }, { graduationYear: 'in 2016' });
-  assert.equal(d.education.length, 1);
-  assert.equal(d.education[0].endDate, '2016');
-});
-
-/* ─── Read back, fix in place ─────────────────────────────── */
-
-const OCT_2026 = new Date('2026-10-20T12:00:00Z');
-
-test('the role read-back does the year math in code', () => {
-  const text = roleConfirmText({ title: 'Senior Software Engineer', company: 'Acme Test Co', startDate: '2021', endDate: 'present', current: true }, OCT_2026);
-  assert.equal(text, 'Senior Software Engineer · Acme Test Co · 2021 to now (5 yrs)');
-  assert.equal(yearsBetween('2016', '2026'), 10);
-  assert.equal(yearsBetween('2021-11', 'present', OCT_2026), 4);
-});
-
-test('a correction overwrites what the first answer said', () => {
-  const d = { experience: [{ title: 'SWE', company: 'Acme', startDate: '2021', endDate: 'present', current: true, description: '• A' }] };
-  const fixed = applyCorrection(d, 'role', { startDate: '2020', company: 'Acme Test Co' });
-  assert.equal(fixed.experience[0].startDate, '2020');
-  assert.equal(fixed.experience[0].company, 'Acme Test Co');
-  assert.equal(fixed.experience.length, 1);
-  assert.equal(applyCorrection(d, 'bullets', { bullets: ['B'] }).experience[0].description, '• B');
-});
-
-test('field and level come from the title', () => {
-  const d = deriveFromTitle({ title: 'Senior Backend Engineer' });
-  assert.equal(d.sector, 'tech');
-  assert.equal(d.level, 'senior');
-});
-
-test('preferences display as the labels people tapped', () => {
-  assert.equal(preferenceLabels({ roleTypes: ['full-time', 'contract'], workStyle: 'remote' }), 'Full-time, Contract, Remote');
-});
-
-test('questions left counts only what will really be asked', () => {
-  const fresh = questionsLeft(1, emptyDraft());
-  const imported = questionsLeft(1, {
-    ...emptyDraft(), importedFrom: 'resume', title: 'PM', sector: 'product',
-    skills: ['A'], experience: [{ company: 'X', title: 'PM', description: 'cut churn 20%' }],
-    education: [{ institution: 'U' }], location: 'Berlin',
-  });
-  assert.ok(imported <= 4, `after an import only the gaps are asked (${imported})`);
-  assert.ok(fresh > imported);
+test('no employment type is invented for past jobs', () => {
+  const out = draftToResumeData({ roleTypes: ['full-time'], experience: [{ title: 'PM', company: 'Acme' }] });
+  assert.equal(out.experience[0].employmentType, '');
 });
 
 test('a role with nothing said about it still gets the achievement question', () => {
   const d = { ...emptyDraft(), spokenIntake: true, experience: [{ company: 'Acme', title: 'SWE', description: '' }] };
-  assert.equal(isAlreadyAnswered(step('currentRole'), d), true);
   assert.equal(isAlreadyAnswered(step('achievements'), d), false);
-});
-
-test('the coach shows the same score the editor does', () => {
-  // One function for every view; the coach no longer re-scores a subset.
-  const draft = {
-    ...emptyDraft(), title: 'PM', location: 'Berlin', summary: 'x', skills: ['A', 'B', 'C'],
-    experience: [{ title: 'PM', company: 'Acme', startDate: '2020', description: '• Shipped' }],
-    education: [{ institution: 'State', degree: 'BSc' }],
-  };
-  const shape = draftToProfileShape(draft);
-  assert.deepEqual(computeProfileCompletion(shape), computeProfileCompletion(draftToProfileShape(draft)));
-});
-
-test('a role keeps the title said for it, not the headline', () => {
-  const d = applyBraindump(
-    { title: 'Principal Product Designer', level: 'principal', experience: [] },
-    { title: 'Lead Product Designer', company: 'Acme' }
-  );
-  assert.equal(d.experience[0].title, 'Lead Product Designer');
 });
 
 test('a senior level is never offered new grad or internships', () => {
   const ids = careerStageChips({ level: 'principal' }).map((c) => c.id);
   assert.ok(!ids.includes('new_grad') && !ids.includes('internship'));
-  assert.ok(careerStageChips({ level: 'entry' }).some((c) => c.id === 'new_grad'));
 });
 
 test('the role example uses their own title', () => {
   assert.match(hintText(step('currentRole'), { title: 'Product Designer' }), /Product Designer at Acme/);
+});
+
+test('preferences display as the labels people tapped', () => {
+  assert.equal(preferenceLabels({ roleTypes: ['full-time', 'contract'], workStyle: 'remote' }), 'Full-time, Contract, Remote');
 });

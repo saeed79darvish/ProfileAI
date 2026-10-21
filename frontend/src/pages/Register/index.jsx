@@ -158,11 +158,7 @@ const Register = () => {
       try {
         await profileAPI.createOrUpdateProfile(draft);
         trackEvent('coach_profile_published', {});
-        /* Back into the conversation, not out to the portfolio: the
-           tailored resume they made is saved there, and the coaching that
-           comes with an account picks up where the save card was. With no
-           conversation left to continue, the coach forwards to /profile. */
-        navigate('/profile/create?continue=1');
+        navigate('/profile');
         return;
       } catch {
         // fall through to the editor

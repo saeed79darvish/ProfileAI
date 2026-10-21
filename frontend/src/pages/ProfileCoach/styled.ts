@@ -292,22 +292,12 @@ export const ChipRow = styled.div`
   }
 `;
 
-/* Chip states, one rule for every question:
-     idle      white, grey border
-     hover     indigo border (an outline only)
-     selected  filled indigo, so it never reads as hover
-     answered  the row greys out, and the chosen chip stays lit in a pale fill
-   Multi-select chips carry a checkbox so the two kinds look different
-   before anything is tapped. */
 export const Chip = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding: 11px 18px;
   border-radius: 12px;
   border: 1.5px solid ${({ $selected }) => ($selected ? '#6366f1' : '#e6e6ef')};
-  background: ${({ $selected, $spent }) => ($selected ? ($spent ? '#eef0ff' : '#6366f1') : '#fff')};
-  color: ${({ $selected, $spent }) => ($selected ? ($spent ? '#4c51bf' : '#fff') : $spent ? '#b4b4c4' : '#1a1a2e')};
+  background: ${({ $selected }) => ($selected ? '#eef0ff' : '#fff')};
+  color: ${({ $selected, $spent }) => ($spent ? '#b4b4c4' : $selected ? '#4c51bf' : '#1a1a2e')};
   font-family: inherit;
   font-size: 0.98rem;
   font-weight: 600;
@@ -321,22 +311,6 @@ export const Chip = styled.button`
   }
 
   &:disabled { box-shadow: none; }
-
-  ${({ $multi, $selected }) => $multi && css`
-    &::before {
-      content: '${$selected ? '\\2713' : ''}';
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      border: 1.5px solid ${$selected ? 'currentColor' : '#c4c4d4'};
-      font-size: 11px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-  `}
 
   /* The confirm on a multi-select. It ends the question rather than
      answering it, so it leads as a filled action — wearing the same
@@ -703,10 +677,6 @@ export const MobilePanel = styled.div`
 
   @media (max-width: 1024px) {
     display: ${({ $open }) => ($open ? 'block' : 'none')};
-    /* The panel is a whole resume now; it scrolls rather than pushing the
-       conversation off the screen. */
-    max-height: 55vh;
-    overflow-y: auto;
   }
 `;
 
@@ -1015,9 +985,7 @@ export const ConvertSecondary = styled.button`
 export const ConvertNote = styled.div`
   margin-top: 12px;
   font-size: 0.84rem;
-  opacity: 0.86;
-
-  a { color: inherit; text-decoration: underline; }
+  opacity: 0.8;
 `;
 
 /* ─── Resume upload progress ──────────────────────────────────── */
@@ -1290,178 +1258,4 @@ export const EndCall = styled(RoundControl)`
   color: #fff;
 
   &:hover { background: #26264a; }
-`;
-
-/* ─── Live preview, inline forms, the payoff ─────────────────── */
-
-/* The side panel's resume: the same document styling as the card in the
-   chat, scaled down to the panel. */
-export const PreviewSheet = styled.div`
-  margin-top: 18px;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 0.9rem;
-
-  ${ResumeName} { font-size: 1.12rem; }
-  h4 { font-size: 0.72rem; }
-`;
-
-export const PreviewPlaceholder = styled.span`
-  display: block;
-  font-family: inherit;
-  font-size: 0.86rem;
-  font-weight: 400;
-  font-style: italic;
-  color: #a0a0b8;
-`;
-
-export const ListeningNote = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 0.86rem;
-  font-weight: 600;
-
-  &::before {
-    content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #ef4444;
-    animation: ${micPulse} 1.2s ease-in-out infinite;
-    flex-shrink: 0;
-  }
-`;
-
-export const InlineForm = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-export const PasteArea = styled.textarea`
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #dcdcea;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-family: inherit;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: #1a1a2e;
-  resize: vertical;
-  outline: none;
-
-  &:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
-  &::placeholder { color: #a0a0b8; }
-`;
-
-export const InlineInput = styled.input`
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #dcdcea;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-family: inherit;
-  font-size: 0.95rem;
-`;
-
-export const InlinePrimary = styled.button`
-  padding: 11px 20px;
-  border-radius: 11px;
-  border: none;
-  background: #6366f1;
-  color: #fff;
-  font-family: inherit;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-
-  &:disabled { opacity: 0.5; cursor: default; }
-  &:not(:disabled):hover { background: #4f46e5; }
-`;
-
-export const MatchScore = styled.span`
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: ${({ $score }) => ($score >= 75 ? '#15803d' : $score >= 50 ? '#b45309' : '#b91c1c')};
-`;
-
-export const NextGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
-`;
-
-export const NextAction = styled.button`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 14px;
-  border: 1px solid #e6e6ef;
-  border-radius: 12px;
-  background: #fafaff;
-  color: #1a1a2e;
-  font-family: inherit;
-  font-size: 0.94rem;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-
-  svg { color: #6366f1; }
-  small { font-weight: 400; color: #6b6b85; font-size: 0.82rem; line-height: 1.4; }
-  &:hover { border-color: #c7c9f7; background: #f3f3ff; }
-`;
-
-export const SecondaryLink = styled.button`
-  padding: 11px 6px;
-  border: none;
-  background: none;
-  color: #4f46e5;
-  font-family: inherit;
-  font-size: 0.94rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-
-  &:disabled { opacity: 0.5; cursor: default; }
-`;
-
-/* A row in the preview you can tap to correct. Looks like the document
-   until hovered; the pencil says it is editable. */
-export const PreviewEdit = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-
-  svg { font-size: 14px; color: #a0a0b8; opacity: 0.7; }
-  &:hover svg, &:focus-visible svg { color: #6366f1; opacity: 1; }
-  &:hover { text-decoration: underline; text-decoration-color: #c7c9f7; }
-  .sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-`;
-
-export const PreviewField = styled.div`
-  margin-top: 2px;
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 0.78rem;
-  color: #6b6b85;
 `;
