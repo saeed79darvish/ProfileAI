@@ -26,7 +26,6 @@ import {
   mapWizardProjectToEditor,
 } from '../JobPreferencesWizard/handoff.js';
 import { normalizeEducationRows } from '../../utils/education.js';
-import { COMPLETION_TIERS } from '../../hooks/useProfileCompletion.js';
 // The same formatter ProfileForm, the dashboard and the public profile use, so
 // a date reads identically wherever the person sees it.
 import { formatDateRange } from '../../utils/dateRange.js';
@@ -34,7 +33,8 @@ import { formatDateRange } from '../../utils/dateRange.js';
 const norm = (s) => String(s || '').toLowerCase().trim();
 
 export const LIMITS = {
-  SKILL_CHIPS: 24,
+  // Top eight; typing finds the rest. Twenty-four was a wall.
+  SKILL_CHIPS: 8,
   // Deliberately short. These are a shortcut for the common case, not a
   // catalogue — nine rows of near-identical titles is worse than typing.
   TITLE_CHIPS: 6,
@@ -305,7 +305,8 @@ export const TARGET_BLOCKERS = [
 export const IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
-  { id: 'chat', label: "No, let's just chat" },
+  { id: 'paste', label: 'Paste my resume text' },
+  { id: 'chat', label: 'Start from scratch' },
 ];
 
 /* The same three, offered again after a file was refused. Same ids, so the
@@ -313,16 +314,19 @@ export const IMPORT_CHOICES = [
    label changes, because "upload my resume" is odd advice to someone who just
    did exactly that. */
 export const RETRY_IMPORT_CHOICES = [
+  // First, because a file we could not read is almost always one whose text
+  // pastes perfectly well.
+  { id: 'paste', label: 'Paste the text instead' },
   { id: 'resume', label: 'Try another file' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
-  { id: 'chat', label: "No, let's just chat" },
+  { id: 'chat', label: 'Start from scratch' },
 ];
 
 /* Where the talk-or-type invitation belongs.
    Everything before this step is facts a button answers faster and more
    accurately than speech. Everything from here is why — what they want, what
    is in the way — which is the part nobody writes well in a text box. */
-export const VOICE_OFFER_STEP = 'target';
+export const VOICE_OFFER_STEP = 'targetWhy';
 
 /* What the call is actually for.
    Not the same list as missingFields. That one is the written checklist and
@@ -348,6 +352,7 @@ export const voiceAgenda = (draft = {}) => {
 export const POST_CALL_IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
+  { id: 'paste', label: 'Paste my resume text' },
   { id: 'chat', label: 'Nothing to upload' },
 ];
 
@@ -384,49 +389,13 @@ export const questionText = (step, draft = {}) =>
 */
 
 export const LADDER = [
-  {
-    id: 'sector',
-    question: "Let's start broad — which field are you in?",
-    hint: 'Tap one, or just tell me in your own words.',
-    kind: 'chips',
-    chipSet: 'sectors',
-    freeText: true,
-    // Free text here is matched locally against sector names and the known
-    // job-title list first (see matchSector in ./utils). Only a genuinely
-    // unrecognisable answer falls through to the model.
-    aiStep: 'title',
-    assign: 'sector',
-  },
-  {
-    id: 'level',
-    question: 'Got it. And what level are you at?',
-    hint: 'Roughly where you sit — it goes into your headline. Your job title is next.',
-    kind: 'chips',
-    chipSet: 'levels',
-    freeText: true,
-    aiStep: null,
-    assign: 'level',
-  },
-  {
-    id: 'title',
-    question: "And what's your job title?",
-    hint: 'Pick the closest one or type your own — this is what recruiters search.',
-    kind: 'chips',
-    chipSet: 'titles',
-    freeText: true,
-    /* A typed job title is already the answer, so the common case costs no
-       model call and a guest can walk straight past it. But "I'm not sure
-       what to put here" is not a job title, and taking every string verbatim
-       is how that sentence ended up in someone's headline. Anything that does
-       not read like a title goes to the model, which either finds the title
-       inside the sentence or asks again. See looksLikeTitle. */
-    aiStep: 'title',
-    assign: 'title',
-  },
+  /* How they want to start comes first. A resume or a LinkedIn export fills
+     most of a profile in seconds, and it used to be offered as question five,
+     after field, level and title had already been typed by hand. */
   {
     id: 'importOffer',
-    question: 'Quick shortcut before we go on — do you have a resume or a LinkedIn profile?',
-    hint: 'I can fill in most of the rest from either one. Or we just keep talking.',
+    question: 'How do you want to start?',
+    hint: 'A resume or your LinkedIn fills most of it in seconds. Or we just talk it through.',
     kind: 'branch',
     chipSet: 'importChoices',
     freeText: false,
@@ -447,6 +416,168 @@ export const LADDER = [
     // Only worth doing when there is a document to react to. Reviewing a
     // profile the person has not built yet is just describing an empty page.
     skipIf: 'noImport',
+  },
+  /* One title question. Field and level used to be two chip questions in
+     front of it, and both can be read off the title itself: "Senior Backend
+     Engineer" says tech and says senior. They are shown back as editable
+     chips instead of asked. */
+  {
+    id: 'title',
+    question: "What's your job title?",
+    hint: 'The one you would put at the top of your resume, like "Senior Backend Engineer".',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    /* A typed job title is already the answer, so the common case costs no
+       model call. "I'm not sure what to put here" is not a job title, so
+       anything that does not read like one goes to the model. See
+       looksLikeTitle. */
+    aiStep: 'title',
+    assign: 'title',
+    autocomplete: 'titles',
+  },
+  {
+    id: 'sector',
+    question: 'Which field is that in?',
+    hint: 'I could not tell from the title. Tap the closest.',
+    kind: 'chips',
+    chipSet: 'sectors',
+    freeText: true,
+    aiStep: 'title',
+    assign: 'sector',
+    // Only asked when the title did not give it away.
+    skipIf: 'sectorKnown',
+  },
+  {
+    id: 'level',
+    question: 'And what level are you at?',
+    hint: 'Roughly where you sit. It goes into your headline.',
+    kind: 'chips',
+    chipSet: 'levels',
+    freeText: true,
+    aiStep: null,
+    assign: 'level',
+    // Read off the title; asked only when someone taps "Change level".
+    skipIf: 'titled',
+  },
+  {
+    id: 'careerStage',
+    question: 'Where are you in your career right now?',
+    hint: 'This decides what I ask next.',
+    kind: 'chips',
+    chipSet: 'careerStages',
+    freeText: false,
+    aiStep: null,
+    assign: 'careerStage',
+    // An imported resume already shows the history this would route around.
+    skipIf: 'imported',
+  },
+  {
+    id: 'currentRole',
+    question: 'Tell me about your most recent role. Where was it, and when?',
+    hint: 'Something like "Product manager at Acme, 2022 to now" is plenty.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'currentRole',
+    assign: null,
+    // Students and new grads have no role to describe — asking anyway is how
+    // a builder makes someone feel unqualified.
+    skipIf: 'noWorkHistory',
+    optional: true,
+    // Facts worth reading back before they land on a resume.
+    confirm: 'role',
+  },
+  {
+    id: 'achievements',
+    question: 'What is the piece of work there you are proudest of?',
+    hint: "Just talk normally, or tap the mic and say it. I'll write it up as resume bullets for you to approve.",
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'bullets',
+    assign: null,
+    skipIf: 'noWorkHistory',
+    optional: true,
+    confirm: 'bullets',
+  },
+  /* The one follow-up, asked only when the story above has no number in it.
+     Two follow-ups used to follow every achievement ("did you own it
+     end-to-end?", then "what else have you owned?") and they asked the same
+     thing twice. One structured question: scale, their part, the result. */
+  {
+    id: 'evidence',
+    question: (draft) => evidenceProbe(draft),
+    hint: 'Scale (team, users or money), what your part was, and what changed. One line is enough.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'probe',
+    assign: null,
+    skipIf: 'nothingToQuantify',
+    optional: true,
+    confirm: 'bullets',
+  },
+  {
+    id: 'previousRole',
+    question: 'Anywhere before that?',
+    hint: 'Role, company and roughly when is plenty. Skip if that is your whole history.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    // Same shape as the current role, so it reuses that schema rather than
+    // teaching the server a second way to describe a job.
+    aiStep: 'currentRole',
+    assign: null,
+    skipIf: 'noFirstRole',
+    optional: true,
+  },
+  {
+    id: 'projects',
+    question: 'Then tell me about something you built, ran or organised.',
+    hint: 'A side project, a course project, something at a volunteer job. What it was and what you did.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'projects',
+    assign: null,
+    // Asked of whoever reached here with nothing in their experience, and of
+    // career changers whose jobs are in the field they are leaving.
+    skipIf: 'projectsCovered',
+    optional: true,
+  },
+  {
+    id: 'skills',
+    question: 'What are you good at? Tap everything that fits.',
+    hint: 'Picked from your title and what you just told me. Type to add anything missing. Tap your strongest first.',
+    kind: 'multi',
+    chipSet: 'skills',
+    freeText: true,
+    aiStep: 'skills',
+    assign: 'skills',
+    autocomplete: 'skills',
+  },
+  {
+    id: 'education',
+    question: 'How about education? Degree, bootcamp, certificates.',
+    hint: 'School, what you studied and the year you finished. Skip it if it is not relevant.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'education',
+    assign: null,
+    optional: true,
+  },
+  {
+    id: 'location',
+    question: 'Where are you based?',
+    hint: 'City and country is enough.',
+    kind: 'text',
+    chipSet: null,
+    freeText: true,
+    aiStep: 'location',
+    assign: null,
+    optional: true,
   },
   {
     id: 'lookingFor',
@@ -469,142 +600,9 @@ export const LADDER = [
     assign: 'workStyle',
   },
   {
-    id: 'careerStage',
-    question: 'Where are you in your career right now?',
-    hint: 'This decides what I ask next, so pick honestly.',
-    kind: 'chips',
-    chipSet: 'careerStages',
-    freeText: false,
-    aiStep: null,
-    assign: 'careerStage',
-  },
-  {
-    id: 'currentRole',
-    question: 'Tell me about your most recent role — where was it, and when?',
-    hint: 'Something like "Product manager at Acme, 2022 to now" is plenty.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    aiStep: 'currentRole',
-    assign: null,
-    // Students and new grads have no role to describe — asking anyway is how
-    // a builder makes someone feel unqualified on question seven.
-    skipIf: 'noWorkHistory',
-    // Skippable because it has no chips: describing a role is prose, which is
-    // the one thing a signed-out visitor can't spend. Without a skip they'd
-    // hit the sign-up prompt with no way past it. The editor still asks.
-    optional: true,
-  },
-  {
-    id: 'achievements',
-    question: 'What did you actually do there?',
-    hint: "Just talk normally — I'll turn it into resume bullets.",
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    aiStep: 'bullets',
-    assign: null,
-    skipIf: 'noWorkHistory',
-    optional: true,
-  },
-  {
-    id: 'previousRole',
-    question: 'Anywhere before that?',
-    hint: 'Role, company and roughly when is plenty. Skip if that is your whole history.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    // Same shape as the current role, so it reuses that schema rather than
-    // teaching the server a second way to describe a job.
-    aiStep: 'currentRole',
-    assign: null,
-    // Only worth asking someone who named a first one. A work history of one
-    // job is a fragment; of two it is a trajectory, which is what the
-    // assessment and the summary are both trying to read.
-    skipIf: 'noFirstRole',
-    optional: true,
-  },
-  {
-    id: 'projects',
-    question: 'Then tell me about something you built, ran or organised.',
-    hint: 'A side project, a course project, something at a volunteer job. What it was and what you did.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    aiStep: 'projects',
-    assign: null,
-    // Asked of whoever reached here with nothing in their experience: no work
-    // history, or they skipped the role questions. Those people were walking
-    // out with an empty experience section, which is the section recruiters
-    // read first. Not asked of someone who already named a job — the
-    // conversation has to end eventually, and the editor can add more.
-    skipIf: 'projectsCovered',
-    optional: true,
-  },
-  {
-    id: 'evidence',
-    question: (draft) => evidenceProbe(draft),
-    hint: 'One line is enough. This is the part recruiters actually read.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    // The same schema the resume review's probes use: whatever this answer
-    // evidences becomes bullets on the role, and any tool named in passing
-    // becomes a skill.
-    aiStep: 'probe',
-    assign: null,
-    skipIf: 'nothingToQuantify',
-    optional: true,
-  },
-  {
-    id: 'skills',
-    question: "What are you good at? Tap everything that fits.",
-    hint: 'These are literally what recruiters filter on, so be generous.',
-    kind: 'multi',
-    chipSet: 'skills',
-    freeText: true,
-    aiStep: 'skills',
-    assign: 'skills',
-  },
-  {
-    id: 'education',
-    question: 'How about education — degree, bootcamp, certificates?',
-    hint: 'One line is fine. Skip it if it is not relevant to you.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    aiStep: 'education',
-    assign: null,
-    optional: true,
-  },
-  {
-    id: 'location',
-    question: 'Last one — where are you based?',
-    hint: 'City and country is enough.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    aiStep: 'location',
-    assign: null,
-    optional: true,
-  },
-  {
-    id: 'links',
-    question: 'Anywhere someone can see your work?',
-    hint: 'LinkedIn, GitHub, a portfolio — paste any of them in one go. Skip if you would rather not.',
-    kind: 'text',
-    chipSet: null,
-    freeText: true,
-    // No model needed: a URL is already the answer, and which kind it is can
-    // be read off the domain.
-    aiStep: null,
-    assign: null,
-    optional: true,
-  },
-  {
     id: 'target',
-    question: 'Now the part that actually matters — what are you aiming for next?',
-    hint: 'Pick the closest, or tell me in your own words. I will tell you honestly how far it is.',
+    question: 'What role are you aiming for next?',
+    hint: 'Pick the closest, or type your own.',
     kind: 'chips',
     chipSet: 'targets',
     freeText: true,
@@ -613,42 +611,19 @@ export const LADDER = [
     assign: 'target',
   },
   {
-    id: 'targetWhy',
-    question: 'What is pulling you toward that?',
-    hint: 'Tap the closest, or say it in your own words. It changes what good advice looks like.',
-    kind: 'chips',
-    chipSet: 'targetMotives',
-    freeText: true,
-    // Stored as said. It is spent inside the assessment call that already
-    // runs, so understanding it costs a better prompt rather than a new call.
-    aiStep: null,
-    assign: 'targetWhy',
-    skipIf: 'noTarget',
-    optional: true,
-  },
-  {
-    id: 'targetBlocker',
-    question: 'And what do you think is in the way?',
-    hint: 'I will tell you straight whether it is really the obstacle.',
-    kind: 'chips',
-    chipSet: 'targetBlockers',
-    freeText: true,
-    aiStep: null,
-    assign: 'targetBlocker',
-    skipIf: 'noTarget',
-    optional: true,
-  },
-  {
-    id: 'assess',
-    question: 'Let me look at what is actually out there for that.',
-    hint: '',
-    kind: 'run',
-    runs: 'assess',
+    id: 'links',
+    question: 'Anywhere someone can see your work?',
+    hint: 'LinkedIn, GitHub, a portfolio. Paste any of them in one go, or skip.',
+    kind: 'text',
     chipSet: null,
-    freeText: false,
+    freeText: true,
+    // No model needed: a URL is already the answer, and which kind it is can
+    // be read off the domain.
     aiStep: null,
     assign: null,
-    skipIf: 'noTarget',
+    optional: true,
+    // An import usually carries them, and the editor can add more.
+    skipIf: 'imported',
   },
   {
     id: 'build',
@@ -661,11 +636,15 @@ export const LADDER = [
     aiStep: null,
     assign: null,
   },
+  /* The payoff before the account. Paste one job, get the resume tailored to
+     it with a match score. A 4-card grid describing what the profile
+     "unlocks" used to sit here; doing the most valuable thing beats
+     describing it. */
   {
-    id: 'tour',
-    question: 'That is your profile. Here is what it unlocks.',
-    hint: '',
-    kind: 'tour',
+    id: 'tailor',
+    question: 'Now the useful part. Paste a job you like and I will tailor this resume to it, free.',
+    hint: 'A link to the posting or the description itself.',
+    kind: 'tailor',
     chipSet: null,
     freeText: false,
     aiStep: null,
@@ -673,13 +652,77 @@ export const LADDER = [
   },
   {
     id: 'convert',
-    question: 'One last thing.',
+    question: 'Save it so it is there next time.',
     hint: '',
     kind: 'convert',
     chipSet: null,
     freeText: false,
     aiStep: null,
     assign: null,
+    // Someone signed in already has somewhere to put it: the save step below.
+    skipIf: 'hasAccount',
+  },
+  {
+    id: 'save',
+    question: 'Saving your profile.',
+    hint: '',
+    kind: 'run',
+    runs: 'save',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noAccount',
+  },
+  /* Coaching starts once there is an account. Why they want the next role
+     and what is in the way are not profile data; they feed the career
+     analysis, which is the first thing a new account gets. */
+  {
+    id: 'targetWhy',
+    question: 'You are saved. Now the coaching part: what is pulling you toward that next role?',
+    hint: 'Tap the closest, or say it in your own words. It changes what good advice looks like.',
+    kind: 'chips',
+    chipSet: 'targetMotives',
+    freeText: true,
+    aiStep: null,
+    assign: 'targetWhy',
+    skipIf: 'noCoaching',
+    optional: true,
+  },
+  {
+    id: 'targetBlocker',
+    question: 'And what do you think is in the way?',
+    hint: 'I will tell you straight whether it is really the obstacle.',
+    kind: 'chips',
+    chipSet: 'targetBlockers',
+    freeText: true,
+    aiStep: null,
+    assign: 'targetBlocker',
+    skipIf: 'noCoaching',
+    optional: true,
+  },
+  {
+    id: 'assess',
+    question: 'Let me look at what is actually out there for that.',
+    hint: '',
+    kind: 'run',
+    runs: 'assess',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noCoaching',
+  },
+  {
+    id: 'next',
+    question: 'That is everything. Here is what to do with it.',
+    hint: '',
+    kind: 'next',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noAccount',
   },
 ];
 
@@ -713,6 +756,12 @@ export const emptyDraft = () => ({
   targetBlocker: '',
   assessment: null,
   review: null,
+  // Set once there is an account to save into. Guests build and tailor; the
+  // coaching steps after the save are for account holders.
+  account: false,
+  // The free tailored resume made inside onboarding, kept so it can be saved
+  // to the account the moment one exists.
+  tailorPreview: null,
 });
 
 /* ─── Surviving a reload ──────────────────────────────────────
@@ -730,7 +779,9 @@ export const CONVERSATION_KEY = 'profileai_coach_conversation';
 // 2: v1 transcripts accumulated a "welcome back" line on every reload,
 // because the line was saved into the transcript it was announcing. Those
 // are not worth migrating — bumping the version drops them.
-const CONVERSATION_VERSION = 2;
+// 3: the question order changed (import first, one title question), so a
+// saved stepIndex from v2 points at a different question.
+const CONVERSATION_VERSION = 3;
 // Long enough to survive a phone call, a closed laptop or a commute; short
 // enough that a half-finished conversation from a fortnight ago does not
 // ambush someone who came back to start again.
@@ -886,13 +937,32 @@ export const normalizeTitle = (text) => {
     .join(' ');
 };
 
+/* A place is not a job title. "seattle, wa" cased as a title came out
+   "Seattle, Wa" — the state code is an abbreviation, and so is "uk" or "nyc".
+   Two- and three-letter parts after the first comma are codes; the rest is
+   cased like a title. */
+const PLACE_CODES = new Set(['uk', 'usa', 'us', 'uae', 'nyc', 'eu', 'dc']);
+export const normalizePlace = (text) => {
+  const parts = String(text || '').trim().replace(/\s+/g, ' ').split(/\s*,\s*/);
+  return parts
+    .filter(Boolean)
+    .map((part, i) => {
+      const bare = part.toLowerCase();
+      if ((i > 0 && /^[a-z]{2}$/i.test(part)) || PLACE_CODES.has(bare)) return part.toUpperCase();
+      return normalizeTitle(part);
+    })
+    .join(', ');
+};
+
 export const titleChips = (sector, level) => {
   const seen = new Set();
   const roles = [];
 
   for (const title of SECTOR_TITLES[sector] || []) {
     const base = title.replace(RANK_PREFIX, '').trim();
-    const key = norm(base);
+    // "Frontend Developer" and "Frontend Engineer" are one job spelled two
+    // ways; offering both asks the person to choose between synonyms.
+    const key = norm(base).replace(/\bdeveloper\b/g, 'engineer');
     if (!key || seen.has(key)) continue;
     seen.add(key);
     roles.push({ label: base, leadership: LEADERSHIP.test(base) });
@@ -987,6 +1057,41 @@ export const targetChips = (draft = {}) => {
   return out.slice(0, LIMITS.TITLE_CHIPS).map((label) => ({ id: label, label }));
 };
 
+/* Skills, ranked for this person.
+   Twenty-four generic chips for the whole sector meant a backend engineer
+   scrolled past Figma and Sales Forecasting to find Go. The ones their own
+   title and their own story mention come first, then the sector's usual
+   ones, and only eight are shown: typing finds the rest. */
+export const skillChips = (draft = {}) => {
+  const chosen = new Set((draft.skills || []).map(norm));
+  const map = SECTOR_SKILLS[draft.sector] || ALL_SKILLS;
+  // De-dupe: several sectors list the same skill under two headings.
+  const pool = Array.from(new Set(Object.values(map).flat()));
+  const said = norm([
+    draft.title,
+    draft.target,
+    ...(draft.experience || []).flatMap((r) => [r.title, r.description]),
+    ...(draft.projects || []).flatMap((p) => [p.title, p.description, ...(p.technologies || [])]),
+  ].filter(Boolean).join(' '));
+  const mentioned = pool.filter((skill) => containsPhrase(said, skill));
+  const rest = pool.filter((skill) => !mentioned.includes(skill));
+  return [...mentioned, ...rest]
+    .filter((skill) => !chosen.has(norm(skill)))
+    .slice(0, LIMITS.SKILL_CHIPS)
+    .map((s) => ({ id: s, label: s }));
+};
+
+/** Everything the composer can suggest while someone types a title or a skill. */
+export const autocompleteOptions = (kind) => {
+  if (kind === 'titles') {
+    return Array.from(new Set(Object.values(SECTOR_TITLES).flat())).sort();
+  }
+  if (kind === 'skills') {
+    return Array.from(CANONICAL_SKILLS.values()).sort();
+  }
+  return [];
+};
+
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {
@@ -1002,14 +1107,8 @@ export const getChips = (step, draft = {}) => {
       return WORK_STYLES.map((w) => ({ id: w.id, label: w.label }));
     case 'careerStages':
       return CAREER_STAGES.map((c) => ({ id: c.id, label: c.label }));
-    case 'skills': {
-      const map = SECTOR_SKILLS[draft.sector] || ALL_SKILLS;
-      const flat = Object.values(map).flat();
-      // De-dupe: several sectors list the same skill under two headings.
-      return Array.from(new Set(flat))
-        .slice(0, LIMITS.SKILL_CHIPS)
-        .map((s) => ({ id: s, label: s }));
-    }
+    case 'skills':
+      return skillChips(draft);
     case 'targets':
       return [...targetChips(draft), { ...CUSTOM_ANSWER_CHIP }];
     case 'targetMotives':
@@ -1363,9 +1462,16 @@ const SKIP_PREDICATES = {
     && !['career_change', 'self_taught'].includes(draft.careerStage),
   // Nothing was imported, so there is no document to react to.
   noImport: (draft) => !draft.importedFrom,
-  // They skipped the target question; assessing an unstated goal would mean
-  // inventing one for them.
-  noTarget: (draft) => !String(draft.target || '').trim(),
+  imported: (draft) => !!draft.importedFrom,
+  // The title gave the field away (or an import or a call did).
+  sectorKnown: (draft) => !!draft.sector,
+  // The level is read off the title. Asked only when someone asks to change it.
+  titled: (draft) => !!String(draft.title || '').trim(),
+  hasAccount: (draft) => !!draft.account,
+  noAccount: (draft) => !draft.account,
+  /* Coaching needs an account and a goal to coach toward: assessing an
+     unstated goal would mean inventing one for them. */
+  noCoaching: (draft) => !draft.account || !String(draft.target || '').trim(),
 };
 
 export const shouldSkip = (step, draft = {}) => {
@@ -1409,6 +1515,10 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.sector;
     case 'level':
       return !!draft.level;
+    // First question after the start now, so anything that already said it —
+    // an import, a call, a paragraph typed at the start — answered it.
+    case 'title':
+      return !!String(draft.title || '').trim();
     case 'lookingFor':
       return Array.isArray(draft.roleTypes) && draft.roleTypes.length > 0;
     case 'workStyle':
@@ -1433,8 +1543,15 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     case 'title':
       return !!draft.title;
     case 'currentRole':
-    case 'achievements':
       return Array.isArray(draft.experience) && draft.experience.length > 0;
+    // Having a job is not having said what you did there: the achievement
+    // question was skipped for anyone whose role came in through the chat.
+    case 'achievements':
+      return !!String((draft.experience || [])[0]?.description || '').trim();
+    // A resume lists the earlier roles too; asking "anywhere before that?"
+    // after reading it is asking them to retype the document.
+    case 'previousRole':
+      return !!draft.importedFrom && Array.isArray(draft.experience) && draft.experience.length > 0;
     case 'skills':
       return Array.isArray(draft.skills) && draft.skills.length > 0;
     case 'education':
@@ -1498,6 +1615,37 @@ const seniorityFrom = (said, sector) => {
   return '';
 };
 
+/* "Acme", "Acme Inc.", "acme test co" — the same employer as people retype
+   it. Legal suffixes and punctuation are noise for this comparison. */
+const companyKey = (name) => norm(name)
+  .replace(/[.,]/g, '')
+  .replace(/\b(inc|llc|ltd|limited|corp|corporation|co|gmbh|plc)\b/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+export const sameCompany = (a, b) => {
+  const ka = companyKey(a);
+  return !!ka && ka === companyKey(b);
+};
+
+/* Fill what the row is missing, never overwrite what it has: the first time
+   someone stated a fact is the deliberate one. Bullets are appended, once. */
+const mergeRole = (row, fields, bullets) => {
+  const endDate = row.endDate || fields.endDate || '';
+  const existing = String(row.description || '').trim();
+  const have = new Set(existing.split('\n').map((l) => norm(l.replace(/^[•\-*]\s*/, ''))));
+  const added = bullets.filter((b) => !have.has(norm(b))).map((b) => `• ${b}`).join('\n');
+  return {
+    ...row,
+    title: row.title || fields.title || '',
+    company: row.company || fields.company || '',
+    startDate: row.startDate || fields.startDate || '',
+    endDate,
+    current: !endDate || /present|now|current/i.test(endDate),
+    description: [existing, added].filter(Boolean).join('\n'),
+  };
+};
+
 export const applyBraindump = (draft = {}, fields = {}) => {
   const next = { ...draft, spokenIntake: true };
 
@@ -1513,25 +1661,36 @@ export const applyBraindump = (draft = {}, fields = {}) => {
   if (!next.level) next.level = seniorityFrom(fields.seniority || fields.title, next.sector);
   // Cased on the way in: this answer skips the location question that would
   // otherwise have tidied it, and "san francisco" is someone's profile.
-  if (!next.location && fields.location) next.location = normalizeTitle(fields.location);
+  if (!next.location && fields.location) next.location = normalizePlace(fields.location);
 
+  /* Every turn runs through here, and the model repeats what it already knows:
+     "Acme, 2021 to now" on the role answer, then Acme again alongside the
+     bullets from the next one. Prepending a row each time put the same job on
+     the profile twice — the second one empty — and the review then told the
+     person their resume had a duplicate. A company already on the profile is
+     that row, updated; bullets with no company belong to the latest role. */
   const bullets = (fields.bullets || []).filter(Boolean);
   if (fields.company || bullets.length) {
-    const endDate = fields.endDate || '';
-    next.experience = [{
-      title: next.title || fields.title || '',
-      company: fields.company || '',
-      startDate: fields.startDate || '',
-      endDate,
-      current: !endDate || /present|now|current/i.test(endDate),
-      description: bullets.map((b) => `• ${b}`).join('\n'),
-    }, ...(draft.experience || [])];
+    const rows = [...(next.experience || [])];
+    const at = fields.company
+      ? rows.findIndex((r) => sameCompany(r.company, fields.company))
+      : (rows.length ? 0 : -1);
+    if (at >= 0) {
+      rows[at] = mergeRole(rows[at], fields, bullets);
+      next.experience = rows;
+    } else if (fields.company || next.title || fields.title) {
+      next.experience = [mergeRole({
+        title: next.title || '', company: '', startDate: '', endDate: '', current: false, description: '',
+      }, fields, bullets), ...rows];
+    }
   }
 
   // An earlier employer with nothing else said about it is still a row worth
   // having — the editor can fill in the rest, and two roles read as a career
-  // where one reads as a fragment.
-  if (fields.previousCompany) {
+  // where one reads as a fragment. Once, though: naming it again is not a
+  // second job there.
+  if (fields.previousCompany
+    && !(next.experience || []).some((r) => sameCompany(r.company, fields.previousCompany))) {
     next.experience = [...(next.experience || []), {
       title: '', company: fields.previousCompany, startDate: '', endDate: '', current: false, description: '',
     }];
@@ -1540,11 +1699,30 @@ export const applyBraindump = (draft = {}, fields = {}) => {
   const skills = (fields.skills || []).map(normalizeSkill).filter(Boolean);
   if (skills.length) next.skills = Array.from(new Set([...(draft.skills || []), ...skills]));
 
-  if (fields.school || fields.degree) {
-    next.education = normalizeEducationRows([
-      { institution: fields.school || '', degree: fields.degree || '', fieldOfStudy: '', endDate: '' },
-      ...(draft.education || []),
-    ]);
+  /* The year they finished was asked for, said, and then dropped: there was
+     nowhere to put it. Same rule as roles — a school already on the profile
+     is that row, filled in, not a second one. */
+  const gradYear = String(fields.graduationYear || '').match(/\b(19|20)\d{2}\b/)?.[0] || '';
+  if (fields.school || fields.degree || gradYear) {
+    const rows = [...(next.education || [])];
+    const at = rows.findIndex((r) => (fields.school && norm(r.institution) === norm(fields.school))
+      || (!fields.school && fields.degree && norm(r.degree) === norm(fields.degree)));
+    const target = at >= 0 ? at : (!fields.school && !fields.degree && rows.length ? 0 : -1);
+    if (target >= 0) {
+      const row = rows[target];
+      rows[target] = {
+        ...row,
+        institution: row.institution || fields.school || '',
+        degree: row.degree || fields.degree || '',
+        endDate: row.endDate || gradYear,
+      };
+      next.education = normalizeEducationRows(rows);
+    } else if (fields.school || fields.degree) {
+      next.education = normalizeEducationRows([
+        { institution: fields.school || '', degree: fields.degree || '', fieldOfStudy: '', endDate: gradYear },
+        ...rows,
+      ]);
+    }
   }
 
   return next;
@@ -1695,7 +1873,7 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
       break;
     }
     case 'location':
-      if (fields.location) next.location = fields.location;
+      if (fields.location) next.location = normalizePlace(fields.location);
       break;
     case 'title':
       if (fields.title) next.title = fields.title;
@@ -1867,6 +2045,24 @@ export const buildTitle = (draft = {}) => {
  * inherits the fixes made there (the "Present" sentinel, project URL
  * routing) instead of re-earning those bugs.
  */
+/* The same job twice — same company, same start — merged into one row.
+   applyBraindump no longer creates these, but drafts saved before that fix
+   still hold them, and they must not reach the editor or the review. */
+export const dedupeExperience = (rows = []) => {
+  const out = [];
+  for (const row of rows) {
+    if (!row) continue;
+    const at = out.findIndex((r) => sameCompany(r.company, row.company)
+      && (!r.startDate || !row.startDate || String(r.startDate) === String(row.startDate))
+      && (!r.title || !row.title || norm(r.title) === norm(row.title)));
+    if (at < 0) { out.push(row); continue; }
+    const bullets = String(row.description || '').split('\n')
+      .map((l) => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean);
+    out[at] = mergeRole(out[at], row, bullets);
+  }
+  return out;
+};
+
 export const draftToResumeData = (draft = {}) => ({
   title: buildTitle(draft),
   location: draft.location || '',
@@ -1877,11 +2073,11 @@ export const draftToResumeData = (draft = {}) => ({
   summary: draft.summary || '',
   // Flat array — ProfileForm categorises it on the way in.
   skills: draft.skills || [],
-  experience: (draft.experience || []).map((row) =>
-    mapWizardExperienceToEditor(row, {
-      employmentTypes: draft.roleTypes || [],
-      careerStage: draft.careerStage || '',
-    })
+  /* No employment type: the coach asks what kind of work they want NEXT, and
+     copying that onto every past role put "Full-time" on jobs nobody described.
+     A field the person never filled stays empty. */
+  experience: dedupeExperience(draft.experience || []).map((row) =>
+    mapWizardExperienceToEditor(row, {})
   ),
   education: draft.education || [],
   projects: (draft.projects || []).map(mapWizardProjectToEditor),
@@ -1902,73 +2098,117 @@ export const draftToProfileShape = (draft = {}) => ({
   summary: draft.summary || '',
   profilePicture: '',
   skills: draft.skills || [],
-  experience: draft.experience || [],
+  experience: dedupeExperience(draft.experience || []),
   education: draft.education || [],
   projects: draft.projects || [],
   linkedinUrl: draft.linkedinUrl || '',
   githubUrl: draft.githubUrl || '',
 });
 
-/**
- * Per-item state for the right-rail panel. `lookingFor` has no equivalent in
- * the shared rubric (it's a preference, not profile content), so it's scored
- * here; everything else defers to the rubric's own `done` flags.
- */
-/**
- * The strength meter, scored against what this conversation can actually
- * fill in.
- *
- * The canonical rubric has nine items and the coach asks for seven of them:
- * it never asks for a photo, and it only asks for projects when there is no
- * job to talk about. So answering every single question landed on 78% and
- * the word "Intermediate" — a progress bar whose best outcome is a B minus,
- * shown for the whole flow. The editor's rubric is untouched; this only
- * re-scores it over the items that are in play for this person.
- */
-export const coachCompletion = (completion, draft = {}) => {
-  const hasExperience = (draft.experience || []).length > 0;
-  const hasProjects = (draft.projects || []).length > 0;
+/* ─── Read back, fix in place ─────────────────────────────────
 
-  const applicable = (completion.items || []).filter((item) => {
-    if (item.key === 'photo') return false;
-    // Never asked of someone with a job; never counted against them either.
-    if (item.key === 'proj' && hasExperience) return false;
-    // They were asked for projects instead — do not dock them twice.
-    if (item.key === 'exp' && !hasExperience && hasProjects) return false;
-    return true;
-  });
+   The model used to write facts straight onto the profile, silently, and
+   sometimes wrong. Facts now get read back once — "Senior Software Engineer ·
+   Acme Test Co · 2021 to now (5 yrs). Right?" — and a correction overwrites
+   instead of being merged around. Durations are worked out here, in code,
+   never by the model: it was telling a five-year engineer "about three". */
 
-  if (!applicable.length) return completion;
+const YEAR_RX = /\b(19|20)\d{2}\b/;
+const isOngoing = (value) => !value || /present|now|current|ongoing|today/i.test(String(value));
 
-  const done = applicable.filter((i) => i.done).length;
-  const pct = Math.round((done / applicable.length) * 100);
-  const tier = COMPLETION_TIERS.find((t) => pct >= t.min) || COMPLETION_TIERS[COMPLETION_TIERS.length - 1];
-  return { ...completion, items: applicable, pct, label: tier.label, color: tier.color };
-};
-
-export const panelState = (draft = {}, rubricItems = []) => {
-  const byKey = Object.fromEntries(rubricItems.map((i) => [i.key, i.done]));
-  return {
-    title: !!byKey.title,
-    lookingFor: !!(draft.roleTypes || []).length || !!draft.workStyle,
-    skills: !!byKey.skills,
-    exp: !!byKey.exp,
-    proj: !!byKey.proj,
-    edu: !!byKey.edu,
+/** Whole years between two date strings, as a person says it. Null if unknown. */
+export const yearsBetween = (start, end, now = new Date()) => {
+  const parse = (v) => {
+    const s = String(v || '');
+    const iso = s.match(/^(\d{4})-(\d{1,2})/);
+    if (iso) return { y: Number(iso[1]), m: Number(iso[2]) };
+    const y = s.match(YEAR_RX);
+    return y ? { y: Number(y[0]), m: null } : null;
   };
+  const from = parse(start);
+  const to = isOngoing(end) ? { y: now.getFullYear(), m: now.getMonth() + 1 } : parse(end);
+  if (!from || !to) return null;
+  let years = to.y - from.y;
+  if (from.m && to.m && to.m < from.m) years -= 1;
+  return Math.max(0, years);
+};
+
+/** The one-line read-back for a role. */
+export const roleConfirmText = (row = {}, now = new Date()) => {
+  const head = [row.title, row.company].filter(Boolean).join(' · ');
+  const start = String(row.startDate || '').match(YEAR_RX)?.[0] || '';
+  const ongoing = row.current || isOngoing(row.endDate);
+  const end = ongoing ? 'now' : (String(row.endDate || '').match(YEAR_RX)?.[0] || '');
+  const span = start ? `${start} to ${end || '?'}` : '';
+  const years = start ? yearsBetween(row.startDate, ongoing ? 'present' : row.endDate, now) : null;
+  const length = years === null ? '' : years < 1 ? ' (under a year)' : ` (${years} yr${years === 1 ? '' : 's'})`;
+  return [head, span && `${span}${length}`].filter(Boolean).join(' · ');
+};
+
+/** The bullets on the latest role, as lines. */
+export const latestBullets = (draft = {}) => String((draft.experience || [])[0]?.description || '')
+  .split('\n')
+  .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
+  .filter(Boolean);
+
+/**
+ * A correction replaces; it does not fill gaps. applyBraindump never
+ * overwrites (a first answer is the deliberate one), which is exactly wrong
+ * for "no, it was 2020".
+ */
+export const applyCorrection = (draft = {}, kind, fields = {}) => {
+  const rows = [...(draft.experience || [])];
+  if (!rows.length) return applyBraindump(draft, fields);
+  const head = { ...rows[0] };
+  if (kind === 'role') {
+    for (const key of ['title', 'company', 'startDate', 'endDate']) {
+      if (fields[key]) head[key] = fields[key];
+    }
+    if (fields.endDate) head.current = isOngoing(fields.endDate);
+  }
+  if (kind === 'bullets') {
+    const bullets = (fields.bullets || []).filter(Boolean);
+    if (bullets.length) head.description = bullets.map((b) => `• ${b}`).join('\n');
+  }
+  rows[0] = head;
+  return { ...draft, experience: rows };
+};
+
+/** Field and level, read off the title rather than asked. */
+export const deriveFromTitle = (draft = {}) => {
+  const title = String(draft.title || '').trim();
+  if (!title) return draft;
+  const next = { ...draft };
+  if (!next.sector) next.sector = matchSector(title)?.sector || '';
+  if (!next.level) next.level = seniorityFrom(title, next.sector);
+  return next;
+};
+
+export const sectorLabel = (id) => JOB_SECTORS.find((s) => s.id === id)?.label || '';
+export const levelLabel = (sector, id) => levelsFor(sector).find((l) => l.id === id)?.label || '';
+
+/* Preferences are stored as ids ("full-time") and were shown as ids next to
+   the labels the person tapped ("Full-time"). One lookup for display. */
+export const preferenceLabels = (draft = {}) => {
+  const types = (draft.roleTypes || []).map(
+    (id) => EMPLOYMENT_TYPES.find((t) => t.id === id)?.label || id
+  );
+  const style = WORK_STYLES.find((w) => w.id === draft.workStyle)?.label || draft.workStyle || '';
+  return [...types, style].filter(Boolean).join(', ');
 };
 
 /**
- * Which rows of the checklist to show this person.
- *
- * Projects only appear for the people the conversation actually asks: someone
- * with no job to name, or anyone who has already described one. Showing the
- * row to everyone would list a box the coach never offers to tick, and
- * hiding it from a new grad was worse — they answered the projects question
- * and watched nothing light up, with EXPERIENCE greyed out above it for a job
- * they have not had yet.
+ * Questions still ahead before the profile is built, for an honest
+ * "about N questions left" instead of a promise of two minutes.
  */
-export const visiblePanelItems = (draft = {}, items = []) => {
-  const asked = !!(draft.projects || []).length || !(draft.experience || []).length;
-  return items.filter((item) => item.key !== 'proj' || asked);
+export const questionsLeft = (fromIndex, draft = {}) => {
+  const buildAt = LADDER.findIndex((s) => s.id === 'build');
+  let count = 0;
+  for (let i = Math.max(0, fromIndex); i < buildAt; i += 1) {
+    const step = LADDER[i];
+    if (step.kind === 'run') continue;
+    if (shouldSkip(step, draft) || isAlreadyAnswered(step, draft)) continue;
+    count += 1;
+  }
+  return count;
 };

@@ -255,6 +255,18 @@ export const profileAPI = {
     }
     return { data: await response.json() };
   },
+  /* The fallback whenever a file cannot be read: the same parse, run on text
+     the person pasted. Signed-in stores it as their original resume text;
+     the guest variant persists nothing. */
+  parseResumeText: (text) => api.post('/profiles/parse-resume-text', { text }),
+  guestParseResumeText: (text) => api.post('/profiles/guest/parse-resume-text', { text }),
+  /* The payoff inside onboarding: one job, tailored, with a match score,
+     before any account exists. Works for guests (metered by IP, nothing
+     persisted) and signed-in users alike. Either a posting URL or its text.
+     Resolves to { success, tailored, match: { score, summary, strengths,
+     gaps }, jobTitle, company }. */
+  coachTailorPreview: ({ profile, jobUrl, jobDescription }) =>
+    api.post('/profiles/coach/tailor-preview', { profile, jobUrl, jobDescription }),
   // Same parser as uploadResume, reachable before login — no Authorization
   // header, so no token is sent even if a stale one is sitting in storage.
   guestUploadResume: async (formData) => {
@@ -298,8 +310,8 @@ export const profileAPI = {
   // What the call collected, once it has ended.
   // One turn of the coach conversation, decided by the model: what to say,
   // what it learned, and whether it is waiting on them.
-  coachTurn: ({ profile, missing, history, message }) =>
-    api.post('/profiles/coach/turn', { profile, missing, history, message }),
+  coachTurn: ({ profile, missing, history, message, liveVoice }) =>
+    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice }),
   // Answer a question someone asked instead of answering ours.
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),

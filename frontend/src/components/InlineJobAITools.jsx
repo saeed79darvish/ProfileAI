@@ -919,7 +919,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         <NoProfileCta href="/profile/edit">
           Create your profile <ArrowIcon />
         </NoProfileCta>
-        <NoProfileHint>Takes about 2 minutes</NoProfileHint>
+        <NoProfileHint>Takes a few minutes</NoProfileHint>
       </NoProfileCard>
     );
   }

@@ -407,12 +407,12 @@ async function reviewProfile({ profile, sector } = {}) {
 const TURN_FIELDS = new Set([
   'title', 'seniority', 'field', 'company', 'startDate', 'endDate', 'bullets',
   'skills', 'previousCompany', 'school', 'degree', 'location', 'roleType',
-  'workStyle', 'target', 'yearsExperience',
+  'workStyle', 'target', 'yearsExperience', 'graduationYear',
 ]);
 
-async function coachTurn({ profile = {}, missing = [], history = [], message } = {}) {
+async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none' } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
-  if (!trimmed) return { say: '', learned: {}, awaiting: true };
+  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false };
 
   const response = await callAI({
     model: TURN_MODEL,
@@ -427,6 +427,7 @@ async function coachTurn({ profile = {}, missing = [], history = [], message } =
         // conversation on every turn — this runs once per message.
         history: history.slice(-10),
         message: trimmed,
+        liveVoice,
       }),
     }],
   });
@@ -445,7 +446,9 @@ async function coachTurn({ profile = {}, missing = [], history = [], message } =
     learned,
     // Default to waiting. Pressing on when the model did not say it was
     // finished is how a conversation talks over someone.
-    awaiting: parsed.awaiting !== false,
+    awaiting: parsed.awaiting !== false && !!String(parsed.say || '').trim(),
+    // Only ever true when the page said it can open a call right now.
+    voice: liveVoice === 'live' && parsed.voice === true,
   };
 }
 

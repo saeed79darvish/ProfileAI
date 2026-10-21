@@ -20,6 +20,7 @@
 // note there; the coach writes the same kind of copy, so it inherits the
 // same banned-word list rather than growing a second, drifting one.
 const { VOICE_AND_TONE } = require('./profile');
+const { timeFacts } = require('./timeFacts');
 
 /**
  * interpretAnswerPrompt — map one free-text answer onto one step's fields.
@@ -112,6 +113,8 @@ const writeSummaryPrompt = (draft) => `Write a short professional summary for th
 
 ${VOICE_AND_TONE}
 
+${timeFacts(draft)}
+
 WHAT THEY TOLD US:
 ${JSON.stringify({
   title: draft.title,
@@ -156,6 +159,8 @@ const reviewProfilePrompt = ({ profile, inspection, sector }) => `You are a care
 
 ${VOICE_AND_TONE}
 
+${timeFacts(profile)}
+
 ═══ THEIR PROFILE ═══
 ${JSON.stringify({
   title: profile.title,
@@ -198,6 +203,8 @@ RULES:
 const targetAssessmentPrompt = ({ profile, inspection, target, market, motivation, blocker }) => `You are a career coach. This person wants a specific kind of role next. Tell them honestly how far away it is and what closes the gap.
 
 ${VOICE_AND_TONE}
+
+${timeFacts(profile)}
 
 ═══ WHERE THEY ARE ═══
 ${JSON.stringify({
@@ -253,12 +260,15 @@ const answerAsidePrompt = ({ question, asked, context = {} }) => `Someone is bui
 
 ${VOICE_AND_TONE}
 
+${timeFacts({})}
+
 THE QUESTION YOU HAD ASKED THEM: ${asked || '(none)'}
 WHAT THEY ASKED YOU: """${question}"""
 WHAT YOU ALREADY KNOW ABOUT THEM: ${JSON.stringify(context)}
 
 WHAT THIS PRODUCT DOES, so you answer about the real thing:
-- A short conversation builds their profile. They can tap chips or type. About two minutes.
+- A short conversation builds their profile. They can tap chips, type, or use the mic. About two minutes.
+- Signed-in users can also talk it through with you live. For anyone else, the mic lets them say answers instead of typing. Never say you can only read text, and never mention what anything costs us.
 - Building the profile is free and needs no account. The account is only asked for at the end, so it can be saved.
 - Their answers become a profile and a resume they can edit before anything is published.
 - It can read a resume or a LinkedIn export to fill most of it in.
@@ -343,9 +353,11 @@ RULES:
  * our side — the model never decides what a profile needs — but the
  * conversation belongs to the thing that can actually hold one.
  */
-const coachTurnPrompt = ({ profile, missing, history, message }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
+const coachTurnPrompt = ({ profile, missing, history, message, liveVoice = 'none' }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
 
 ${VOICE_AND_TONE}
+
+${timeFacts(profile)}
 
 ═══ WHAT YOU ALREADY KNOW ABOUT THEM ═══
 ${JSON.stringify(profile, null, 2)}
@@ -361,21 +373,58 @@ ${history.map((h) => `${h.role === 'me' ? 'Them' : 'You'}: ${h.text}`).join('\n'
 
 WHAT TO RETURN — this object and nothing else:
 {
-  "say": "your reply. 1-3 sentences, plain text",
+  "say": "your reply, 1-2 sentences, plain text; or \"\" when you have nothing to add",
   "learned": { },
-  "awaiting": true | false
+  "awaiting": true | false,
+  "voice": true | false
 }
 
-"learned" — anything they just told you about themselves, using only these
-keys, and only keys they actually gave you. Omit the rest. Never guess.
+"learned" — anything NEW they just told you about themselves, using only
+these keys, and only keys they actually gave you in WHAT THEY JUST SAID. Omit
+the rest. Never guess. Do not repeat facts already in WHAT YOU ALREADY KNOW:
+an achievement about the job they already named is just "bullets", without the
+company and dates again. Never fill in a month, a job type or a number they
+did not say: "2021" stays "2021".
   title, seniority, field, company, startDate, endDate, bullets (array),
   skills (array), previousCompany, school, degree, location, roleType,
-  workStyle, target (the role they want next), yearsExperience
+  workStyle, target (the role they want next), yearsExperience,
+  graduationYear (the year they finished the school or degree, as said)
 
 "awaiting" — true when you asked them something and should wait for it. False
 when you answered and are ready for the next item on the checklist.
 
+"voice" — true only when they are asking to speak out loud instead of typing:
+"can we talk", "I mean voice", "can I just say it", "call me". False for
+everything else, including "can we talk" meaning "I need help" — read the
+conversation to tell which.
+
+TALKING OUT LOUD
+The mic in the text box is always there: they can say their answers instead
+of typing them.
+${{
+  live: `They can also have a live voice conversation with you right now. When
+they ask to talk out loud, set "voice" to true and make "say" one short line
+agreeing — "Sure, let's talk." — and nothing else: the page opens the call
+straight after you. Do not ask a question in that turn.`,
+  account: `A live voice conversation with you comes with a free account, once
+they save their profile at the end. If they ask to talk out loud, say so in one
+line and point them at the mic for now, then carry on with what you were asking.`,
+}[liveVoice] || `If they ask to talk out loud, point them at the mic in one line and
+carry on with what you were asking.`}
+Never mention what anything costs us, and never describe your own limits.
+Never claim you can only read text, and never say you cannot hear them.
+
 HOW TO BEHAVE:
+- Say something only when it adds something: a fix, an insight, or an answer to
+  what they asked. A plain answer needs no reply — leave "say" empty and set
+  "awaiting" to false; the next question follows on its own. "Great, thanks!"
+  before every question is filler, and filler is what makes a coach read as a
+  form.
+- At most ONE follow-up per answer, and only when the answer has no scale or
+  result in it (no team size, users, money, time or before-and-after). Never ask
+  whether they owned it end-to-end and then what else they owned: that is the
+  same question twice. If they already gave a number, do not ask for one.
+- Never describe your own costs, credits or limits.
 - One thing at a time. Never stack two questions into one turn.
 - They are not always answering. A greeting is a greeting, a question is a
   question, "can I ask something?" means say yes and stop, "I'm not sure" means

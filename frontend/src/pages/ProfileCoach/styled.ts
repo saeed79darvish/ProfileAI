@@ -677,6 +677,10 @@ export const MobilePanel = styled.div`
 
   @media (max-width: 1024px) {
     display: ${({ $open }) => ($open ? 'block' : 'none')};
+    /* The panel is a whole resume now; it scrolls rather than pushing the
+       conversation off the screen. */
+    max-height: 55vh;
+    overflow-y: auto;
   }
 `;
 
@@ -985,7 +989,9 @@ export const ConvertSecondary = styled.button`
 export const ConvertNote = styled.div`
   margin-top: 12px;
   font-size: 0.84rem;
-  opacity: 0.8;
+  opacity: 0.86;
+
+  a { color: inherit; text-decoration: underline; }
 `;
 
 /* ─── Resume upload progress ──────────────────────────────────── */
@@ -1258,4 +1264,145 @@ export const EndCall = styled(RoundControl)`
   color: #fff;
 
   &:hover { background: #26264a; }
+`;
+
+/* ─── Live preview, inline forms, the payoff ─────────────────── */
+
+/* The side panel's resume: the same document styling as the card in the
+   chat, scaled down to the panel. */
+export const PreviewSheet = styled.div`
+  margin-top: 18px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.9rem;
+
+  ${ResumeName} { font-size: 1.12rem; }
+  h4 { font-size: 0.72rem; }
+`;
+
+export const PreviewPlaceholder = styled.span`
+  display: block;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 400;
+  font-style: italic;
+  color: #a0a0b8;
+`;
+
+export const ListeningNote = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.86rem;
+  font-weight: 600;
+
+  &::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: ${micPulse} 1.2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+`;
+
+export const InlineForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+export const PasteArea = styled.textarea`
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dcdcea;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #1a1a2e;
+  resize: vertical;
+  outline: none;
+
+  &:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+  &::placeholder { color: #a0a0b8; }
+`;
+
+export const InlineInput = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dcdcea;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+`;
+
+export const InlinePrimary = styled.button`
+  padding: 11px 20px;
+  border-radius: 11px;
+  border: none;
+  background: #6366f1;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled { opacity: 0.5; cursor: default; }
+  &:not(:disabled):hover { background: #4f46e5; }
+`;
+
+export const MatchScore = styled.span`
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: ${({ $score }) => ($score >= 75 ? '#15803d' : $score >= 50 ? '#b45309' : '#b91c1c')};
+`;
+
+export const NextGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+`;
+
+export const NextAction = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #e6e6ef;
+  border-radius: 12px;
+  background: #fafaff;
+  color: #1a1a2e;
+  font-family: inherit;
+  font-size: 0.94rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+
+  svg { color: #6366f1; }
+  small { font-weight: 400; color: #6b6b85; font-size: 0.82rem; line-height: 1.4; }
+  &:hover { border-color: #c7c9f7; background: #f3f3ff; }
+`;
+
+export const SecondaryLink = styled.button`
+  padding: 11px 6px;
+  border: none;
+  background: none;
+  color: #4f46e5;
+  font-family: inherit;
+  font-size: 0.94rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:disabled { opacity: 0.5; cursor: default; }
 `;

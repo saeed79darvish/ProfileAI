@@ -375,7 +375,7 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
               </Box>
               <Typography variant="caption" sx={{ color: '#4338ca', fontSize: 12.5, fontWeight: 500, lineHeight: 1.45 }}>
                 Heads up: every AI feature needs at least one work experience to
-                give you great results — we'll get you there in two minutes.
+                give you great results — we'll get you there in a few minutes.
               </Typography>
             </Box>
           </Box>

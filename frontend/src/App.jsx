@@ -113,6 +113,13 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // Routes where the Navbar should be hidden (full-screen auth layouts)
 const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
 
+// Routes that render their own focused header in place of the Navbar. The
+// profile form editor is where a first profile gets built, and the marketing
+// nav (Pricing, Sign In, Get Started) competed with its Save button; the
+// editor's FocusedHeader brings the logo, progress, Save, and a way back for
+// anyone who already has a profile. /profile/edit keeps the normal Navbar.
+const FOCUSED_HEADER_ROUTES = ['/profile/create-form'];
+
 // OAuth popup callbacks render in a bare relay window — site chrome there is
 // noise the user sees for the third of a second before it closes itself.
 const OAUTH_CALLBACK_ROUTE = /^\/auth\/[^/]+\/callback\/?$/;
@@ -195,6 +202,7 @@ function AppContent() {
     new URLSearchParams(location.search).get('overlay') === '1';
   const hideNavbar =
     AUTH_ROUTES.includes(location.pathname) ||
+    FOCUSED_HEADER_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
     OAUTH_CALLBACK_ROUTE.test(location.pathname) ||
     isOverlayMode;

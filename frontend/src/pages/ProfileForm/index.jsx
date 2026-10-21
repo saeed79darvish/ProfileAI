@@ -103,6 +103,13 @@ import {
 import { ROUTES, SOFTWARE_KEYWORDS, TECHNICAL_KEYWORDS, SOFT_SKILL_KEYWORDS, VALID_IMAGE_TYPES, ALLOWED_RESUME_TYPES, TIMINGS, LIMITS } from './constants';
 import { stripMarkdown } from './utils';
 import ProfileCelebration from './ProfileCelebration';
+import FocusedHeader from './FocusedHeader';
+import {
+  hasMeaningfulContent,
+  diffResumeAgainstForm,
+  mergeResumeIntoForm,
+  replaceFormWithResume,
+} from './resumeMerge';
 // Same full-screen parse experience the create-profile flow plays, so an
 // in-place re-upload from the editor doesn't drop to a bare 16px spinner.
 import ResumeMagicOverlay from '../ProfileCreation/ResumeMagicOverlay';
@@ -120,6 +127,7 @@ import { trackEvent } from '@/utils/analytics';
 import { saveGuestProfileDraft } from '@/utils/guestDraft';
 import { normalizeEducationRows } from '@/utils/education';
 import ConfirmModal from '@/components/ConfirmModal';
+import MonthOrYearField from '@/components/MonthOrYearField';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 import { extractApiError } from '@/utils/apiError';
 
@@ -144,6 +152,8 @@ const migrateEducationDates = (rows) =>
     if ((row.startDate || row.endDate) || (!row.year && !row.period)) return row;
     const parsed = parseLegacyPeriod(row.year || row.period);
     if (!parsed) return row;
+    // One year on an education row is when they finished, not when they began.
+    if (!parsed.endDate) return { ...row, startDate: '', endDate: parsed.startDate };
     return { ...row, startDate: parsed.startDate, endDate: parsed.endDate };
   });
 
@@ -214,7 +224,7 @@ const prepareEducationRows = (rows) => normalizeEducationRows(migrateEducationDa
  * can discover the feature even when the field is empty — disabled state +
  * helper text explain why it's not actionable yet.
  */
-const InlineAIEnhanceButton = ({ loading, disabled, onClick, helperText, label = 'Enhance with AI' }) => (
+const InlineAIEnhanceButton = ({ loading, disabled, onClick, helperText, label = 'Enhance with AI', hidden = false }) => (hidden ? null : (
   <Box
     sx={{
       display: 'flex',
@@ -261,7 +271,7 @@ const InlineAIEnhanceButton = ({ loading, disabled, onClick, helperText, label =
       {loading ? 'Enhancing…' : `${label} · 1 credit`}
     </Button>
   </Box>
-);
+));
 
 const ProfileForm = () => {
   const navigate = useNavigate();
@@ -362,6 +372,16 @@ const ProfileForm = () => {
   // { ready, data } — `ready` flips once the parse API resolves so the overlay
   // can snap to 100% and show what it extracted.
   const [resumeMagic, setResumeMagic] = useState(null);
+  // A parse waiting on the person's choice because the form already held
+  // their work: { data, parsed, diff }. null when nothing is pending.
+  const [resumeReview, setResumeReview] = useState(null);
+  // Plain-language reason the last upload could not be read, shown with the
+  // paste fallback. null when there is no failure to show.
+  const [uploadFailure, setUploadFailure] = useState(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
+  const [pasteError, setPasteError] = useState('');
 
   // Mobile AI tools overflow menu (collapses Upload Resume / Enhance / Tailor / Tips on small screens)
   const [aiMenuAnchor, setAiMenuAnchor] = useState(null);
@@ -1820,6 +1840,95 @@ const ProfileForm = () => {
     }));
   };
 
+  // Bring a parse result (file upload or pasted text) into the editor's
+  // formData shape. Education goes through the same normaliser the save
+  // filter expects, and skills are categorised the same way typed skills are.
+  const parsedResumeToForm = (data) => {
+    let skills = { core: [], technical: [], software: [], industry: [], soft: [] };
+    if (Array.isArray(data?.skills) && data.skills.length > 0) {
+      skills = categorizeSkillsHelper(data.skills);
+    } else if (data?.skills && typeof data.skills === 'object' && !Array.isArray(data.skills)) {
+      skills = {
+        core: data.skills.core || data.skills.frontend || [],
+        technical: data.skills.technical || data.skills.backend || [],
+        software: data.skills.software || data.skills.databases || [],
+        industry: data.skills.industry || data.skills.cloud || [],
+        soft: data.skills.soft || data.skills.tools || [],
+      };
+    }
+    return {
+      title: data?.title || '',
+      location: data?.location || '',
+      phone: data?.phone || '',
+      linkedinUrl: data?.linkedinUrl || '',
+      githubUrl: data?.githubUrl || '',
+      portfolioUrl: data?.portfolioUrl || '',
+      summary: data?.summary || '',
+      skills,
+      experience: Array.isArray(data?.experience) ? data.experience : [],
+      education: normalizeEducationRows(Array.isArray(data?.education) ? data.education : []),
+      projects: Array.isArray(data?.projects) ? data.projects : [],
+    };
+  };
+
+  // Write a resolved parse into the form and play the overlay's summary.
+  // `mode` is 'merge' (keep what the person has, add what is new) or
+  // 'replace' (resume wins wherever it found something).
+  const commitParsedResume = (data, parsed, mode) => {
+    setFormData((prev) => (mode === 'merge' ? mergeResumeIntoForm(prev, parsed) : replaceFormWithResume(prev, parsed)));
+    setHasResumeData(true);
+    setSuccess(
+      mode === 'merge'
+        ? 'Resume merged. Everything you had is still here; review what was added before saving.'
+        : 'Resume parsed successfully! Review and edit the information below before saving.'
+    );
+    // Let the overlay play out its "here's what I found" summary; it calls
+    // handleResumeMagicFinish to dismiss itself.
+    setResumeMagic({ ready: true, data });
+  };
+
+  // Shared landing point for upload and paste. A form that already holds the
+  // person's work (typed, or handed over by the coach) is never overwritten
+  // silently: they see what differs and choose. An empty form has nothing to
+  // protect, so the parse goes straight in.
+  const handleParsedResume = (data) => {
+    const parsed = parsedResumeToForm(data);
+    if (hasMeaningfulContent(formData)) {
+      setResumeMagic(null);
+      setResumeReview({ data, parsed, diff: diffResumeAgainstForm(formData, parsed) });
+      return;
+    }
+    commitParsedResume(data, parsed, 'replace');
+  };
+
+  const resolveResumeReview = (mode) => {
+    const review = resumeReview;
+    setResumeReview(null);
+    if (!review || mode === 'cancel') return;
+    commitParsedResume(review.data, review.parsed, mode);
+  };
+
+  // The raw server error ("Failed to extract text from PDF") tells the person
+  // nothing they can act on. Say what went wrong in their terms; every case
+  // gets the paste fallback offered alongside it.
+  const describeResumeFailure = (code, userMessage) => {
+    switch (code) {
+      case 'pdf_password':
+        return 'That PDF is password-protected, so we could not open it.';
+      case 'pdf_no_text':
+        return 'That PDF looks like a scanned image, so there is no text in it we can read.';
+      case 'pdf_unreadable':
+      case 'file_unreadable':
+        return 'We could not read that file. It may be damaged or saved in an unusual format.';
+      case 'file_empty':
+        return 'That file looks empty.';
+      case 'not_a_resume':
+        return userMessage || 'That file does not look like a resume.';
+      default:
+        return 'We could not read that resume.';
+    }
+  };
+
   // Handle resume upload directly from edit profile page
   const handleResumeUpload = async (event) => {
     const file = event.target.files[0];
@@ -1838,6 +1947,7 @@ const ProfileForm = () => {
     setResumeMagic({ ready: false, data: null });
     setError('');
     setSuccess('');
+    setUploadFailure(null);
 
     try {
       const formDataUpload = new FormData();
@@ -1849,52 +1959,57 @@ const ProfileForm = () => {
         ? await profileAPI.uploadResume(formDataUpload)
         : await profileAPI.guestUploadResume(formDataUpload);
 
-      if (response.data.success) {
-        const data = response.data.data;
-        let categorizedSkills = { core: [], technical: [], software: [], industry: [], soft: [] };
-        if (data.skills) {
-          if (Array.isArray(data.skills) && data.skills.length > 0) {
-            categorizedSkills = categorizeSkillsHelper(data.skills);
-          } else if (typeof data.skills === 'object' && !Array.isArray(data.skills) && Object.keys(data.skills).length > 0) {
-            categorizedSkills = {
-              core: data.skills.core || data.skills.frontend || [],
-              technical: data.skills.technical || data.skills.backend || [],
-              software: data.skills.software || data.skills.databases || [],
-              industry: data.skills.industry || data.skills.cloud || [],
-              soft: data.skills.soft || data.skills.tools || [],
-            };
-          }
-        }
-        // Apply parsed resume data to the form
-        setFormData(prev => ({
-          ...prev,
-          title: data.title || prev.title,
-          location: data.location || prev.location,
-          phone: data.phone || prev.phone,
-          linkedinUrl: data.linkedinUrl || prev.linkedinUrl,
-          githubUrl: data.githubUrl || prev.githubUrl,
-          summary: data.summary || prev.summary,
-          skills: categorizedSkills || prev.skills,
-          experience: data.experience && data.experience.length > 0 ? data.experience : prev.experience,
-          education: data.education && data.education.length > 0 ? normalizeEducationRows(data.education) : prev.education,
-          projects: data.projects && data.projects.length > 0 ? data.projects : prev.projects,
-        }));
-        setHasResumeData(true);
-        setSuccess('Resume parsed successfully! Review and edit the information below before saving.');
-        // Let the overlay play out its "here's what I found" summary; it calls
-        // handleResumeMagicFinish to dismiss itself.
-        setResumeMagic({ ready: true, data });
+      if (response.data.success && response.data.data) {
+        handleParsedResume(response.data.data);
       } else {
         setResumeMagic(null);
-        setError('Failed to parse resume. Please try again.');
+        setUploadFailure(describeResumeFailure(null));
       }
     } catch (err) {
       console.error('Error uploading resume:', err);
       setResumeMagic(null);
-      setError(err.response?.data?.error || err.message || 'Failed to upload resume.');
+      setUploadFailure(describeResumeFailure(err?.code, err?.userMessage));
     } finally {
       setUploadingResume(false);
       event.target.value = '';
+    }
+  };
+
+  const openPasteDialog = () => {
+    setPasteError('');
+    setPasteOpen(true);
+  };
+
+  // Same parser, run on text the person pasted. The way through whenever a
+  // file cannot be read, and useful on its own for anyone whose resume lives
+  // in a doc they can copy from but not export.
+  const handlePasteSubmit = async () => {
+    const text = pasteText.trim();
+    if (!text) return;
+    setPasteSubmitting(true);
+    setPasteError('');
+    try {
+      const response = isAuthenticated
+        ? await profileAPI.parseResumeText(text)
+        : await profileAPI.guestParseResumeText(text);
+      if (response?.data?.success && response.data.data) {
+        setPasteOpen(false);
+        setPasteText('');
+        setUploadFailure(null);
+        setError('');
+        handleParsedResume(response.data.data);
+      } else {
+        setPasteError('We could not find resume details in that text. Check it is the full resume and try again.');
+      }
+    } catch (err) {
+      const body = err?.response?.data || {};
+      setPasteError(
+        body.code === 'not_a_resume' && body.error
+          ? body.error
+          : (body.error || 'We could not read that text. Please try again.')
+      );
+    } finally {
+      setPasteSubmitting(false);
     }
   };
 
@@ -1949,7 +2064,23 @@ const ProfileForm = () => {
   // "Complete your profile" checklist and this sidebar always stay in sync.
   // Placeholder strings used as AI prompt seeds (e.g. "Company Name", "Period",
   // "Degree", "Field") and obvious blanks do not count as a filled value.
+  // Rendered exactly as the shared scorer returns it (pct, label, items,
+  // missing): no local re-scoring anywhere in this editor, so the number here
+  // is the number the dashboard and the coach show.
   const profileCompletion = useMemo(() => computeProfileCompletion(formData), [formData]);
+
+  // Whether a saved profile already sits behind this form. The editor loads
+  // it for /profile/edit; on a coach or resume handoff it skips that load, so
+  // the account's own hasProfile flag covers someone who already saved one.
+  const hasSavedProfile = isExistingProfile || (isAuthenticated && user?.hasProfile === true);
+  // Someone still building their FIRST profile (guests included) is not shown
+  // paid AI tools or credit prices: it reads as a meter running before they
+  // have anything to show for it. Those tools come back once a profile is
+  // saved. Backend metering is unchanged; this is only what the page offers.
+  const isFirstBuild = !hasSavedProfile;
+  // App.jsx hides the global Navbar on this route, so the editor brings its
+  // own focused header. /profile/edit keeps the normal Navbar.
+  const isFocusedRoute = location.pathname === '/profile/create-form';
 
   // Per-section "has-content" status, used by the mobile pill nav status dots.
   const sectionStatus = useMemo(() => ({
@@ -2034,27 +2165,44 @@ const ProfileForm = () => {
         title={guestPromptReason === 'save' ? 'Your profile is ready to save' : 'Create a free account first'}
         message={
           guestPromptReason === 'save'
-            ? "Nice work — that's a solid profile. Create a free account to save it; nothing you've entered is lost while you decide."
-            : 'AI tools (enhancement, tailoring, suggestions) need a signed-in account. Your progress stays right here — sign up and pick up where you left off.'
+            ? "Nice work — that's a solid profile. Create a free account to save it. Until then your draft is kept in this browser, so it stays put unless you clear your browser data or switch devices."
+            : 'AI tools (enhancement, tailoring, suggestions) need a signed-in account. Your draft is kept in this browser until you sign up, so you can pick up where you left off.'
         }
         confirmText="Sign Up"
         cancelText={guestPromptReason === 'save' ? 'Keep editing' : 'Maybe later'}
       />
+      {isFocusedRoute && (
+        <FocusedHeader
+          isAuthenticated={isAuthenticated}
+          hasSavedProfile={hasSavedProfile}
+          completion={profileCompletion}
+          onSave={handleSubmit}
+          saving={loading}
+          saveDisabled={!formData.title}
+        />
+      )}
       {/* AI Tools Bar - matches Dashboard */}
       <AIToolsBar>
         <AIToolsLeft>
-          <MobileBackButton to="/profile" aria-label="Back to profile">
-            <BackIcon />
-          </MobileBackButton>
+          {/* A first build has no dashboard profile to go back to (and for a
+              guest /profile is behind sign-in), so the way out is the
+              focused header's logo instead. */}
+          {(!isFocusedRoute || hasSavedProfile) && (
+            <MobileBackButton to="/profile" aria-label="Back to profile">
+              <BackIcon />
+            </MobileBackButton>
+          )}
           <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />} aria-label="breadcrumb">
-            <BreadcrumbLink to="/profile">
-              <PersonIcon /> Profile
-            </BreadcrumbLink>
+            {hasSavedProfile && (
+              <BreadcrumbLink to="/profile">
+                <PersonIcon /> Profile
+              </BreadcrumbLink>
+            )}
             <BreadcrumbCurrent>{isExistingProfile ? 'Edit Profile' : 'Create Profile'}</BreadcrumbCurrent>
           </Breadcrumbs>
         </AIToolsLeft>
         <AIToolsButtons>
-          {isAuthenticated && <AICreditsBadge style={{ marginRight: 8, alignSelf: 'center' }} />}
+          {isAuthenticated && !isFirstBuild && <AICreditsBadge style={{ marginRight: 8, alignSelf: 'center' }} />}
           <Tooltip title="Show the AI features tour again">
             <AIButton
               onClick={() => setShowWelcome(true)}
@@ -2082,6 +2230,15 @@ const ProfileForm = () => {
             {uploadingResume ? <CircularProgress size={16} color="inherit" /> : <UploadFileIcon />}
             {uploadingResume ? 'Uploading...' : <>Upload<HideOnMobile> Resume</HideOnMobile></>}
           </AIButton>
+          <AIButton
+            type="button"
+            onClick={openPasteDialog}
+            disabled={uploadingResume}
+            title="Paste the text of your resume instead of uploading a file"
+            $mobileHide
+          >
+            <PasteIcon /> Paste<HideOnMobile> text</HideOnMobile>
+          </AIButton>
           {hasResumeData && (
             <AIButton
               onClick={() => setDeleteConfirm({ open: true, type: 'resume', index: -1, label: 'all imported resume data' })}
@@ -2091,6 +2248,8 @@ const ProfileForm = () => {
               <DeleteIcon /> Clear Resume
             </AIButton>
           )}
+          {/* Paid tools, held back during a first build (see isFirstBuild). */}
+          {!isFirstBuild && (<>
           <Tooltip title="Rewrite your profile with AI">
             <span>
               <AIButton
@@ -2126,6 +2285,7 @@ const ProfileForm = () => {
               </AIButton>
             </span>
           </Tooltip>
+          </>)}
 
           {/* Mobile-only: collapses the four buttons above into an overflow menu. */}
           <MobileAIMenuButton
@@ -2133,20 +2293,23 @@ const ProfileForm = () => {
             aria-label="More tools"
             aria-haspopup="menu"
             aria-expanded={aiMenuOpen}
-            disabled={!formData.title && !uploadingResume}
             onClick={(e) => setAiMenuAnchor(e.currentTarget)}
           >
             <MoreVertIcon />
           </MobileAIMenuButton>
 
-          <AIButton
-            onClick={handleSubmit}
-            disabled={loading || !formData.title}
-            $mobilePrimary
-          >
-            {loading ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-            {loading ? 'Saving...' : 'Save'}
-          </AIButton>
+          {/* The focused header carries Save on this route; a second Save a
+              few pixels below it would only raise "which one?". */}
+          {!isFocusedRoute && (
+            <AIButton
+              onClick={handleSubmit}
+              disabled={loading || !formData.title}
+              $mobilePrimary
+            >
+              {loading ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+              {loading ? 'Saving...' : 'Save'}
+            </AIButton>
+          )}
         </AIToolsButtons>
 
         {/* AI tools overflow menu, only triggered on mobile via MobileAIMenuButton. */}
@@ -2192,6 +2355,15 @@ const ProfileForm = () => {
             {uploadingResume ? <CircularProgress size={16} /> : <UploadFileIcon />}
             {uploadingResume ? 'Uploading…' : 'Upload Resume'}
           </MenuItem>
+          <MenuItem
+            disabled={uploadingResume}
+            onClick={() => {
+              closeAiMenu();
+              openPasteDialog();
+            }}
+          >
+            <PasteIcon /> Paste resume text
+          </MenuItem>
           {hasResumeData && (
             <MenuItem
               onClick={() => {
@@ -2202,7 +2374,9 @@ const ProfileForm = () => {
               <DeleteIcon /> Clear Resume
             </MenuItem>
           )}
+          {!isFirstBuild && [
           <MenuItem
+            key="enhance"
             disabled={enhancing || gettingSuggestions || !formData.title}
             onClick={() => {
               closeAiMenu();
@@ -2211,8 +2385,9 @@ const ProfileForm = () => {
           >
             {enhancing ? <CircularProgress size={16} /> : <AIIcon />}
             {enhancing ? 'Enhancing…' : 'Enhance'}
-          </MenuItem>
+          </MenuItem>,
           <MenuItem
+            key="tailor"
             disabled={!formData.title}
             onClick={() => {
               closeAiMenu();
@@ -2220,8 +2395,9 @@ const ProfileForm = () => {
             }}
           >
             <TailorIcon /> Tailor
-          </MenuItem>
+          </MenuItem>,
           <MenuItem
+            key="tips"
             disabled={enhancing || gettingSuggestions || !formData.title}
             onClick={() => {
               closeAiMenu();
@@ -2230,7 +2406,8 @@ const ProfileForm = () => {
           >
             {gettingSuggestions ? <CircularProgress size={16} /> : <TipIcon />}
             {gettingSuggestions ? 'Getting Tips…' : 'Tips'}
-          </MenuItem>
+          </MenuItem>,
+          ]}
         </Menu>
       </AIToolsBar>
 
@@ -2416,6 +2593,20 @@ const ProfileForm = () => {
         </MobileSectionNav>
 
         {error && <Alert severity="error" sx={{ mb: 2, background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', '& .MuiAlert-icon': { color: '#dc2626' } }}>{error}</Alert>}
+        {uploadFailure && (
+          <Alert
+            severity="warning"
+            onClose={() => setUploadFailure(null)}
+            action={
+              <Button color="inherit" size="small" onClick={openPasteDialog} sx={{ textTransform: 'none', fontWeight: 700 }}>
+                Paste your resume text instead
+              </Button>
+            }
+            sx={{ mb: 2, alignItems: 'center' }}
+          >
+            {uploadFailure}
+          </Alert>
+        )}
 
         {/* Slim banner, only the draft-restored case. Replaces the previous full-width green Alert. */}
         {draftRestored && (
@@ -2830,7 +3021,7 @@ const ProfileForm = () => {
                 />
               </Grid>
               <Grid item xs={12}>
-                {!formData.summary && (formData.experience?.length || 0) > 0 && (
+                {!isFirstBuild && !formData.summary && (formData.experience?.length || 0) > 0 && (
                   <Box
                     sx={{
                       display: 'flex',
@@ -2895,6 +3086,7 @@ const ProfileForm = () => {
                   sx={darkTextFieldSx}
                 />
                 <InlineAIEnhanceButton
+                  hidden={isFirstBuild}
                   loading={enhancingField === 'summary'}
                   disabled={(formData.summary?.length || 0) < 10}
                   helperText={
@@ -2956,7 +3148,9 @@ const ProfileForm = () => {
             </Box>
 
             {/* AI suggest skills entry-point. Reuses the main Enhance modal which
-                already has a Skills section toggle and the right context. */}
+                already has a Skills section toggle and the right context.
+                Paid, so not offered during a first build (see isFirstBuild). */}
+            {!isFirstBuild && (
             <Box
               sx={{
                 display: 'flex',
@@ -3002,6 +3196,7 @@ const ProfileForm = () => {
                 </span>
               </Tooltip>
             </Box>
+            )}
 
             {/* Flat list of all skills, grouped by auto-category with thin labels.
                 Empty categories are skipped, so users only see what they have. */}
@@ -3139,9 +3334,9 @@ const ProfileForm = () => {
                   Add your first role
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 420 }}>
-                  Experience is the foundation of every AI feature — Enhance,
-                  Tailor and Tips all need at least one role to give you great
-                  results.
+                  {isFirstBuild
+                    ? 'Experience is what recruiters read first. Add your most recent role, or pull everything in from your resume.'
+                    : 'Experience is the foundation of every AI feature — Enhance, Tailor and Tips all need at least one role to give you great results.'}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
                   <Button
@@ -3252,12 +3447,11 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
+                    <MonthOrYearField
                       fullWidth
                       size="small"
-                      type="month"
-                      label="Start Date"
-                      value={toIsoMonth(exp.startDate)}
+                                            label="Start Date"
+                      value={exp.startDate}
                       onChange={(e) => handleExperienceChange(index, 'startDate', e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       helperText={!toIsoMonth(exp.startDate) && exp.startDate ? `Saved as: ${exp.startDate}` : ''}
@@ -3309,12 +3503,11 @@ const ProfileForm = () => {
                         </Button>
                       </Box>
                     ) : (
-                      <TextField
+                      <MonthOrYearField
                         fullWidth
                         size="small"
-                        type="month"
-                        label="End Date"
-                        value={toIsoMonth(exp.endDate)}
+                                                label="End Date"
+                        value={exp.endDate}
                         onChange={(e) => handleExperienceChange(index, 'endDate', e.target.value)}
                         InputLabelProps={{ shrink: true }}
                         helperText={!toIsoMonth(exp.endDate) && exp.endDate ? `Saved as: ${exp.endDate}` : ''}
@@ -3349,6 +3542,7 @@ const ProfileForm = () => {
                       sx={darkTextFieldSx}
                     />
                     <InlineAIEnhanceButton
+                      hidden={isFirstBuild}
                       loading={enhancingField === `exp-${index}`}
                       disabled={(exp.description?.length || 0) < 10}
                       helperText={
@@ -3440,12 +3634,11 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
+                    <MonthOrYearField
                       fullWidth
                       size="small"
-                      type="month"
-                      label="Start Date"
-                      value={toIsoMonth(edu.startDate)}
+                                            label="Start Date"
+                      value={edu.startDate}
                       onChange={(e) => handleEducationChange(index, 'startDate', e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       helperText={!toIsoMonth(edu.startDate) && edu.startDate ? `Saved as: ${edu.startDate}` : ''}
@@ -3453,12 +3646,11 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
+                    <MonthOrYearField
                       fullWidth
                       size="small"
-                      type="month"
-                      label="End Date"
-                      value={isPresentValue(edu.endDate) ? '' : toIsoMonth(edu.endDate)}
+                                            label="End Date"
+                      value={isPresentValue(edu.endDate) ? '' : edu.endDate}
                       onChange={(e) => handleEducationChange(index, 'endDate', e.target.value)}
                       disabled={isPresentValue(edu.endDate)}
                       InputLabelProps={{ shrink: true }}
@@ -3513,6 +3705,7 @@ const ProfileForm = () => {
                       sx={darkTextFieldSx}
                     />
                     <InlineAIEnhanceButton
+                      hidden={isFirstBuild}
                       loading={enhancingField === `edu-${index}`}
                       disabled={(edu.description?.length || 0) < 10}
                       label="Polish description"
@@ -3591,6 +3784,7 @@ const ProfileForm = () => {
                       sx={darkTextFieldSx}
                     />
                     <InlineAIEnhanceButton
+                      hidden={isFirstBuild}
                       loading={enhancingField === `proj-${index}`}
                       disabled={(project.description?.length || 0) < 10}
                       helperText={
@@ -3677,12 +3871,11 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
+                    <MonthOrYearField
                       fullWidth
                       size="small"
-                      type="month"
-                      label="Start Date"
-                      value={toIsoMonth(project.startDate)}
+                                            label="Start Date"
+                      value={project.startDate}
                       onChange={(e) => handleProjectChange(index, 'startDate', e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       helperText={!toIsoMonth(project.startDate) && project.startDate ? `Saved as: ${project.startDate}` : ''}
@@ -3690,12 +3883,11 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField
+                    <MonthOrYearField
                       fullWidth
                       size="small"
-                      type="month"
-                      label="End Date"
-                      value={isPresentValue(project.endDate) ? '' : toIsoMonth(project.endDate)}
+                                            label="End Date"
+                      value={isPresentValue(project.endDate) ? '' : project.endDate}
                       onChange={(e) => handleProjectChange(index, 'endDate', e.target.value)}
                       disabled={isPresentValue(project.endDate)}
                       InputLabelProps={{ shrink: true }}
@@ -4285,6 +4477,99 @@ const ProfileForm = () => {
       </MainContent>
       </FormContainer>
       
+      {/* A parse that would land on top of the person's own work waits here
+          for their choice. Merge is the default because it cannot lose
+          anything; Replace is there for someone who means it. */}
+      <Dialog
+        open={!!resumeReview}
+        onClose={() => resolveResumeReview('cancel')}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Your profile already has content</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: '#4b5563', mb: 1.5 }}>
+            Here is how this resume compares with what you have. Nothing changes until you choose.
+          </Typography>
+          {resumeReview && resumeReview.diff.length > 0 ? (
+            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {resumeReview.diff.map((entry) => (
+                <Typography component="li" variant="body2" key={entry.section} sx={{ color: '#1f2937', wordBreak: 'break-word' }}>
+                  {entry.text}
+                </Typography>
+              ))}
+            </Box>
+          ) : (
+            <Typography variant="body2" sx={{ color: '#1f2937' }}>
+              Everything this resume lists is already in your profile.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Button onClick={() => resolveResumeReview('cancel')} sx={{ textTransform: 'none', color: '#374151' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => resolveResumeReview('replace')}
+            variant="outlined"
+            sx={{ textTransform: 'none', borderRadius: 2, color: '#b91c1c', borderColor: '#fca5a5' }}
+          >
+            Replace with resume
+          </Button>
+          <Button
+            onClick={() => resolveResumeReview('merge')}
+            variant="contained"
+            autoFocus
+            sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 700, backgroundColor: '#4338ca', '&:hover': { backgroundColor: '#3730a3' } }}
+          >
+            Merge (keep mine, add what's new)
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Paste fallback: reachable from the toolbar, and offered whenever an
+          upload could not be read. */}
+      <Dialog
+        open={pasteOpen}
+        onClose={() => { if (!pasteSubmitting) setPasteOpen(false); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Paste your resume text</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: '#4b5563', mb: 1.5 }}>
+            Open your resume, select all of it, copy, and paste it here. We will pull out your roles, education, skills and projects the same way an upload does.
+          </Typography>
+          {pasteError && <Alert severity="error" sx={{ mb: 1.5 }}>{pasteError}</Alert>}
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={12}
+            maxRows={24}
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            placeholder="Paste the full text of your resume"
+            disabled={pasteSubmitting}
+            inputProps={{ 'aria-label': 'Resume text' }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPasteOpen(false)} disabled={pasteSubmitting} sx={{ textTransform: 'none', color: '#374151' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handlePasteSubmit}
+            variant="contained"
+            disabled={pasteSubmitting || !pasteText.trim()}
+            startIcon={pasteSubmitting ? <CircularProgress size={16} color="inherit" /> : <PasteIcon />}
+            sx={{ textTransform: 'none', borderRadius: 2, fontWeight: 700, backgroundColor: '#4338ca', '&:hover': { backgroundColor: '#3730a3' } }}
+          >
+            {pasteSubmitting ? 'Reading...' : 'Use this text'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Resume parse experience — identical to the create-profile flow. */}
       {resumeMagic && (
         <ResumeMagicOverlay

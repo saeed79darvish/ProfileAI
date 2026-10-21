@@ -1,23 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Mic as MicIcon,
   Send as SendIcon,
-  Tune as TuneIcon,
   Extension as ExtensionIcon,
-  MailOutline as MailIcon,
   EditOutlined as EditIcon,
   GraphicEq as TalkIcon,
   Public as PublicIcon,
+  Link as LinkIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
   ErrorOutline as FailedIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { profileAPI } from '../../services/api';
+import { profileAPI, authAPI, tailoredProfileAPI } from '../../services/api';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
-import { saveGuestProfileDraft } from '../../utils/guestDraft';
+import { saveGuestProfileDraft, clearGuestProfileDraft } from '../../utils/guestDraft';
+import GoogleAuthButton from '../../components/GoogleAuthButton';
 import { trackEvent } from '../../utils/analytics';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -26,22 +26,13 @@ import { useDictation } from './useDictation';
 import CoachMark from './CoachMark';
 import VoicePanel from './VoicePanel';
 import { useVoiceCall, VOICE_STATES } from './useVoiceCall';
-import {
-  IntroCarousel,
-  BuildProfileCard,
-  INTRO_TEXT,
-  SLIDES,
-} from '../../components/OnboardingIntro';
 
 import {
   LADDER,
   ROUTES,
   TEXT,
   COACH_TEXT,
-  TOUR_CARDS,
   TIMING,
-  PANEL_ITEMS,
-  JOB_SECTORS,
   ALLOWED_FILE_TYPES,
   VALIDATION,
   UPLOAD_STEPS,
@@ -50,15 +41,12 @@ import {
 import {
   emptyDraft,
   getChips,
-  matchSector,
   matchChip,
   nextStepIndex,
   mergeInterpreted,
-  attachBullets,
   seedFromImport,
   draftToResumeData,
   draftToProfileShape,
-  panelState,
   resumeSections,
   isPresentable,
   canAnswer,
@@ -68,15 +56,23 @@ import {
   applyBraindump,
   canRewind,
   draftRewoundTo,
-  coachCompletion,
   loadConversation,
   saveConversation,
   clearConversation,
-  readsAsAnswer,
-  visiblePanelItems,
   parseLinks,
   sectorChips,
-  RESUME_CHOICE,
+  levelsFor,
+  looksLikeTitle,
+  normalizeTitle,
+  deriveFromTitle,
+  sectorLabel,
+  levelLabel,
+  roleConfirmText,
+  latestBullets,
+  applyCorrection,
+  preferenceLabels,
+  questionsLeft,
+  autocompleteOptions,
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
   RETRY_IMPORT_CHOICES,
@@ -91,23 +87,25 @@ import {
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
   ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote, TalkButton,
+  ListeningNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
-  PanelItem, PanelItemHead, Dot, PanelItemBody,
+  PreviewSheet, PreviewPlaceholder,
   MobileStrip, StripBar, StripLabel, MobilePanel,
   Card, CardLabel, CardList, Finding,
-  VerdictRow, Verdict, MarketNote, Headline, EffortTag,
+  VerdictRow, Verdict, MarketNote, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
-  TourGrid, TourCard, TourIcon,
-  ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
+  ConvertCard, ConvertActions, ConvertSecondary, ConvertNote,
+  PasteArea, InlineForm, InlinePrimary, SecondaryLink, MatchScore, NextGrid, NextAction,
   UploadCard, UploadIcon, UploadBody, UploadTrack,
 } from './styled';
 
-const TOUR_ICONS = {
-  tune: TuneIcon,
-  extension: ExtensionIcon,
-  mail: MailIcon,
-  public: PublicIcon,
-};
+/* Not answers: edits to what the title implied, made from the chips under
+   the read-back. Their own stepIds so answerChip routes them aside from the
+   ladder. */
+const EDIT_FIELD = '__edit_field';
+const EDIT_LEVEL = '__edit_level';
+const EDIT_CHOICE = '__edit_choice';
+const CONFIRM_CHOICE = '__confirm';
 
 // Which colour the target verdict wears. Kept out of the component so the
 // three strings the service can return are visible in one place.
@@ -155,6 +153,43 @@ const UploadProgress = ({ fileName, done, failed }) => {
 };
 
 /**
+ * A textarea card inside the transcript: the job to tailor against, or the
+ * resume to paste. Top-level so what has been typed survives the page
+ * re-rendering around it.
+ */
+const TextCard = ({ spent, busy, rows, placeholder, cta, onSubmit, secondary }) => {
+  const [value, setValue] = useState('');
+  if (spent) return null;
+  return (
+    <Card>
+      <InlineForm
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(value);
+        }}
+      >
+        <PasteArea
+          rows={rows}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          disabled={busy}
+        />
+        <ConvertActions>
+          <InlinePrimary type="submit" disabled={busy || !value.trim()}>{cta}</InlinePrimary>
+          {secondary && (
+            <SecondaryLink type="button" onClick={secondary.onClick} disabled={busy}>
+              {secondary.label}
+            </SecondaryLink>
+          )}
+        </ConvertActions>
+      </InlineForm>
+    </Card>
+  );
+};
+
+/**
  * ProfileCoach — the conversational profile builder.
  *
  * Replaces both the three-choice-cards page and the seven-step wizard: resume
@@ -176,11 +211,6 @@ const UploadProgress = ({ fileName, done, failed }) => {
  *     an isAuthenticated check.
  */
 
-/* Model-answered asides allowed per conversation. At roughly a tenth of a
-   cent each this is about a penny — the point is not the money, it is that an
-   endpoint which returns model output to anonymous callers needs a ceiling
-   that is not only per-IP. */
-const ASIDE_LIMIT = 8;
 
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
@@ -196,16 +226,9 @@ const resumeIdSequence = (messages = []) => {
   messageSeq = Math.max(messageSeq, highest);
 };
 
-/* The welcome intro that used to be the standalone /onboarding page now runs
-   as the first messages of this conversation — see components/
-   OnboardingIntro. It plays every time rather than once per browser: this is
-   what "Get started" promises, a returning visitor is one tap from skipping
-   it, and the one-shot version mostly succeeded at hiding itself from the
-   people testing whether it worked. */
-
 const ProfileCoach = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   /* A conversation left in this browser within the last day. Read once, in
      a lazy initialiser, so the first render already has it — restoring in an
@@ -216,12 +239,19 @@ const ProfileCoach = () => {
     return saved;
   });
 
-  /* The saved conversation is offered, never restored behind their back.
-     Someone who hard-refreshes usually means it — and a silent resume also
-     spends model calls continuing a conversation they were trying to leave. */
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState(emptyDraft);
-  const [stepIndex, setStepIndex] = useState(-1);
+  /* Restored straight away, with a small "Start over" under it. A blocking
+     "pick up or start fresh?" question stood between a returning visitor and
+     their own conversation, and the panel read 0% until they answered it.
+     A second reload before answering also saved the empty page over the
+     conversation it was offering back. */
+  const [messages, setMessages] = useState(() => (restored ? restored.messages : []));
+  const [draft, setDraft] = useState(() => (restored ? restored.draft : emptyDraft()));
+  const [stepIndex, setStepIndex] = useState(() => (restored ? restored.stepIndex : -1));
+  // The fix-in-place mode a "Fix it" tap opens: the next thing typed corrects
+  // the role or the bullets instead of answering the next question.
+  const [fixing, setFixing] = useState(null);
+  const [searchParams] = useSearchParams();
+  const { setToken, setUser } = useAuth();
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -258,10 +288,6 @@ const ProfileCoach = () => {
   // The talk-or-type offer is made once per conversation, never again.
   const voiceOfferedRef = useRef(false);
   const voiceAvailableRef = useRef(false);
-  /* How many asides have been answered by the model in this conversation.
-     Each costs a call; a person asks two or three, a script does not stop.
-     The cap is high enough that nobody real will meet it. */
-  const asidesRef = useRef(0);
   const timersRef = useRef([]);
   // Read inside delayed callbacks so a chip tapped during the typing pause
   // still sees the draft the previous answer produced.
@@ -308,6 +334,9 @@ const ProfileCoach = () => {
   const askStep = useCallback((index, currentDraft) => {
     const step = LADDER[index];
     if (!step) return;
+    // One event per step reached, so the funnel can be read step by step:
+    // where people stop is the whole question about this flow.
+    trackEvent('coach_step_shown', { step: step.id, imported: currentDraft?.importedFrom || 'none' });
 
     /* The one moment a call is worth offering.
        Everything above this step is facts — a title, a company, a list of
@@ -334,17 +363,15 @@ const ProfileCoach = () => {
       return;
     }
 
-    // The closing cards carry their own content. The tour offers a continue
-    // chip so the person reads it at their own pace; the sign-up card is the
-    // end of the line and waits on its own buttons.
-    if (step.kind === 'tour' || step.kind === 'convert') {
+    // The closing cards carry their own controls and wait on them.
+    if (step.kind === 'tailor' || step.kind === 'convert' || step.kind === 'next') {
       setTyping(true);
       later(() => {
         setTyping(false);
         pushCoach(questionText(step, currentDraft), {
+          hint: step.hint,
           [step.kind]: true,
           stepId: step.id,
-          continues: step.kind === 'tour',
         });
       }, TIMING.TYPING_MS);
       return;
@@ -401,22 +428,12 @@ const ProfileCoach = () => {
 
   /* ─── Opening ──────────────────────────────────────────────── */
 
-  const startIntro = useCallback(() => {
-    pushCoach(INTRO_TEXT.WELCOME, { hint: INTRO_TEXT.WELCOME_HINT });
-    pushCoach('', { introSlide: 0 });
-    trackEvent('coach_intro_started', {});
-  }, [pushCoach]);
-
   /**
-   * Offer the choice before the questions start.
-   *
-   * Asked rather than assumed, and asked once: most people will type, and a
-   * voice invitation that keeps reappearing is a product nagging someone to
-   * spend its money. Signed-in only — a minute of talking costs about what a
-   * hundred typed turns do.
+   * Offer the call. Signed-in only: a voice button that ends at a sign-up
+   * wall is worse than none, and guests have dictation in the composer.
    */
   const offerVoice = useCallback(() => {
-    if (!voiceAvailableRef.current) return false;
+    if (!voiceAvailableRef.current || !isAuthenticated) return false;
     pushCoach(TEXT.VOICE_OFFER, {
       stepId: VOICE_CHOICE,
       chips: [
@@ -426,43 +443,12 @@ const ProfileCoach = () => {
       selected: [],
     });
     return true;
-  }, [pushCoach]);
+  }, [isAuthenticated, pushCoach]);
 
   useEffect(() => { offerVoiceRef.current = offerVoice; }, [offerVoice]);
 
-  /** Take up the offer, or decline it and start over. */
-  const answerResumeOffer = useCallback((message, choice) => {
-    setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
-    if (choice === 'resume' && restored) {
-      draftRef.current = restored.draft;
-      setDraft(restored.draft);
-      setStepIndex(restored.stepIndex);
-      setMessages([...restored.messages, {
-        id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
-      }]);
-      trackEvent('coach_resumed', {});
-      return;
-    }
-    clearConversation();
-    setMessages([]);
-    setDraft(emptyDraft());
-    setStepIndex(-1);
-    draftRef.current = emptyDraft();
-    trackEvent('coach_restarted', {});
-    later(startIntro, TIMING.ACK_MS);
-  }, [later, restored, startIntro]);
-
-  /** Greet and ask the first ladder question — where every path through the
-      intro (finished, skipped from a slide, skipped from the top bar) ends. */
   /** Begin the questions at the first thing still missing. */
-  /* The call is not offered here any more.
-     It used to come before the first question, on the theory that the point
-     of talking is to skip the typing. That theory was wrong in practice: a
-     cold call has nothing to react to, so it opens by reading the form out
-     loud — "what is your job title" — which is the one thing a call is worse
-     at than a button. It is now offered at the `target` step, once there is
-     a person on the other end to be curious about. */
-  const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro', ask = true } = {}) => {
+  const startLadderFrom = useCallback((draft0, { silent = false, from = 'start', ask = true } = {}) => {
     draftRef.current = draft0;
     setDraft(draft0);
     const at = Math.max(0, nextStepIndex(-1, draft0));
@@ -472,32 +458,58 @@ const ProfileCoach = () => {
     /* ask: false leaves the ladder parked on the next gap without asking it,
        for a caller that has something to put on screen first — after a call,
        that is the upload offer. Whatever answers it picks up from here. */
-    trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
-  }, [askStep, later, offerVoice, pushCoach]);
+    trackEvent('coach_started', { from, resumedAt: LADDER[at]?.id });
+  }, [askStep, pushCoach]);
 
-  const startLadder = useCallback(
-    (from, seed = null) => startLadderFrom({ ...emptyDraft(), ...(seed || {}) }, { from }),
-    [startLadderFrom]
-  );
+  /* Straight into the first question. A three-slide carousel and a "Build
+     your AI profile" card used to stand here: four taps of marketing after
+     the person had already clicked Get Started. */
+  const startFresh = useCallback(() => {
+    startLadderFrom({ ...emptyDraft(), account: !!isAuthenticated });
+  }, [isAuthenticated, startLadderFrom]);
+
+  /** "Start over", under the restored conversation. */
+  const startOver = useCallback(() => {
+    if (busy) return;
+    timersRef.current.forEach(clearTimeout);
+    clearConversation();
+    setMessages([]);
+    setFixing(null);
+    setProbing(false);
+    setStepIndex(-1);
+    trackEvent('coach_restarted', {});
+    later(startFresh, TIMING.ACK_MS);
+  }, [busy, later, startFresh]);
 
   useEffect(() => {
     if (restored) {
-      pushCoach(TEXT.RESUME_OFFER, {
-        ephemeral: true,
-        stepId: RESUME_CHOICE,
-        chips: [
-          { id: 'resume', label: TEXT.RESUME_CHIP },
-          { id: 'fresh', label: TEXT.FRESH_CHIP },
-        ],
-        selected: [],
-      });
-      trackEvent('coach_resume_offered', { atStep: LADDER[restored.stepIndex]?.id || 'intro' });
+      setMessages((prev) => [...prev, {
+        id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true, startOver: true,
+      }]);
+      trackEvent('coach_resumed', { atStep: LADDER[restored.stepIndex]?.id || 'start' });
       return;
     }
-    startIntro();
+    /* Arriving back from email sign-up with nothing to continue: the
+       conversation expired or was finished elsewhere. Their profile was
+       published on the way, so send them to it rather than to a blank chat. */
+    if (searchParams.get('continue') && isAuthenticated) {
+      navigate(ROUTES.PORTFOLIO, { replace: true });
+      return;
+    }
+    startFresh();
     // Intentionally once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* An account can appear mid-conversation — Google in the save card, or a
+     return from email sign-up. The draft carries it, because the ladder's
+     skip rules (save, coaching) read the draft. */
+  useEffect(() => {
+    if (!!draftRef.current.account === !!isAuthenticated) return;
+    const next = { ...draftRef.current, account: !!isAuthenticated };
+    draftRef.current = next;
+    setDraft(next);
+  }, [isAuthenticated]);
 
   /* Every answer, straight to storage. Cheap — a transcript is a few
      kilobytes of plain objects — and it is the difference between a dropped
@@ -507,71 +519,9 @@ const ProfileCoach = () => {
     saveConversation({ draft, stepIndex, messages });
   }, [draft, stepIndex, messages]);
 
-  /* ─── The intro ────────────────────────────────────────────── */
-
-  const showBuildCard = useCallback(() => {
-    setTyping(true);
-    later(() => {
-      setTyping(false);
-      pushCoach(INTRO_TEXT.START_BUBBLE, { hint: INTRO_TEXT.START_HINT, introBuild: true });
-    }, TIMING.ACK_MS);
-  }, [later, pushCoach]);
-
-  /* The carousel advances inside its own message rather than posting a new
-     one. Three stacked slide cards read as a wall, not a conversation. */
-  const setSlide = useCallback((message, next) => {
-    keepScrollRef.current = true;
-    setMessages((prev) => prev.map(
-      (m) => (m.id === message.id ? { ...m, introSlide: next } : m)
-    ));
-  }, []);
-
-  /** The intro is over: drop the carousel and offer the build card. */
-  const closeIntro = useCallback((messageId) => {
-    setMessages((prev) => prev.filter((m) => m.id !== messageId));
-    showBuildCard();
-  }, [showBuildCard]);
-
-  const introContinue = useCallback((message) => {
-    const next = message.introSlide + 1;
-    if (next < SLIDES.length) {
-      setSlide(message, next);
-      trackEvent('coach_intro_slide', { slide: next + 1 });
-      return;
-    }
-    closeIntro(message.id);
-  }, [closeIntro, setSlide]);
-
-  const introJump = useCallback((message, to) => {
-    if (to === message.introSlide) return;
-    setSlide(message, to);
-  }, [setSlide]);
-
-  const introSkip = useCallback((message) => {
-    trackEvent('coach_intro_skipped', { at: message.introSlide + 1 });
-    closeIntro(message.id);
-  }, [closeIntro]);
-
-  const introStart = useCallback((message) => {
-    if (message.spent) return;
-    spendChips(message.id);
-    pushMine(INTRO_TEXT.BUILD_BUTTON);
-    startLadder('completed');
-  }, [pushMine, spendChips, startLadder]);
-
-  /** Top-bar "Skip for now" while the intro is still on screen. */
-  const introSkipToQuestions = useCallback(() => {
-    setMessages((prev) => prev
-      .filter((m) => m.introSlide == null)
-      .map((m) => (m.introBuild ? { ...m, spent: true } : m)));
-    trackEvent('coach_intro_skipped', { to: 'questions' });
-    startLadder('skipped');
-  }, [startLadder]);
-
   useEffect(() => {
-    // Advancing the intro carousel changes a message in place. Scrolling to
-    // the bottom there would drag the card the person is reading out from
-    // under them, so that one update opts out.
+    // Some updates change a message in place (the edit chips, a card's own
+    // state). Scrolling to the bottom there drags it out from under them.
     if (keepScrollRef.current) {
       keepScrollRef.current = false;
       return;
@@ -662,7 +612,10 @@ const ProfileCoach = () => {
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     trackEvent('coach_import', { source });
-    pushCoach(source === 'linkedin' ? TEXT.LINKEDIN_DONE : TEXT.UPLOAD_DONE);
+    // What was read, shown back before anything else is asked — so a wrong
+    // parse is caught here, not after it has been published.
+    const said = { linkedin: TEXT.LINKEDIN_DONE, paste: TEXT.PASTE_DONE }[source] || TEXT.UPLOAD_DONE;
+    pushCoach(said, { resume: nextDraft });
     // Whatever the import filled, isAlreadyAnswered() skips — so this lands
     // on the first genuine gap rather than re-asking what we just read.
     advance(LADDER.findIndex((s) => s.id === 'importOffer'), nextDraft);
@@ -737,16 +690,55 @@ const ProfileCoach = () => {
       else offerImportAgain(TEXT.UPLOAD_FAILED);
     } catch (err) {
       finishProgress(false);
+      trackEvent('coach_import_failed', { code: err?.code || 'unknown' });
       // The server can tell a file that is not a resume from a parse that
-      // failed. Saying "I could not read that file" about a contract we read
-      // perfectly well is both wrong and unhelpable.
-      offerImportAgain(err?.code === 'not_a_resume' && err.userMessage
-        ? err.userMessage
-        : TEXT.UPLOAD_FAILED);
+      // failed, and a scan from a broken file. Each has a different way
+      // forward, and pasting the text is first in the row for all of them.
+      const said = {
+        not_a_resume: err?.userMessage,
+        pdf_no_text: TEXT.UPLOAD_NO_TEXT,
+        pdf_password: TEXT.UPLOAD_PASSWORD,
+      }[err?.code];
+      offerImportAgain(said || TEXT.UPLOAD_FAILED);
     } finally {
       setBusy(false);
     }
   }, [applyImport, isAuthenticated, offerImportAgain, pushMine]);
+
+  /** Paste the resume instead of uploading it. */
+  const offerPaste = useCallback(() => {
+    setMessages((prev) => [
+      ...prev.map((m) => (m.paste && !m.spent ? { ...m, spent: true } : m)),
+      { id: nextId(), role: 'coach', text: TEXT.PASTE_PROMPT, paste: true },
+    ]);
+  }, []);
+
+  const submitPaste = useCallback(async (message, text) => {
+    const body = String(text || '').trim();
+    if (busy || message.spent) return;
+    if (body.length < 200) {
+      setError(TEXT.PASTE_TOO_SHORT);
+      return;
+    }
+    setError('');
+    setBusy(true);
+    setTyping(true);
+    spendChips(message.id);
+    try {
+      const { data } = isAuthenticated
+        ? await profileAPI.parseResumeText(body)
+        : await profileAPI.guestParseResumeText(body);
+      setTyping(false);
+      if (data?.success && data?.data) applyImport(data.data, 'paste');
+      else offerImportAgain(TEXT.UPLOAD_FAILED);
+    } catch (err) {
+      setTyping(false);
+      const said = err?.response?.data?.code === 'not_a_resume' ? err.response.data.error : TEXT.UPLOAD_FAILED;
+      offerImportAgain(said);
+    } finally {
+      setBusy(false);
+    }
+  }, [applyImport, busy, isAuthenticated, offerImportAgain, spendChips]);
 
   /* ─── Run steps: the coach does work and reports back ──────── */
 
@@ -872,9 +864,66 @@ const ProfileCoach = () => {
     advanceRef.current(index, built);
   }, [pushCoach]);
 
+  /**
+   * The save, for anyone with an account — signed in before they started, or
+   * just now through the card above. The tailored resume made during
+   * onboarding is saved with it: it is the first of their free tailorings,
+   * and the reason they signed up.
+   */
+  const runSave = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    const d = draftRef.current;
+    const resumeData = draftToResumeData(d);
+    try {
+      await profileAPI.createOrUpdateProfile(resumeData);
+    } catch {
+      setTyping(false);
+      setBusy(false);
+      trackEvent('coach_step_failed', { step: 'save' });
+      pushCoach(COACH_TEXT.SAVE_FAILED);
+      // Saving failed, so do not pretend it worked — hand them to the
+      // editor, which has the full save path and can surface the real error.
+      later(() => navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } }), TIMING.ACK_MS * 2);
+      return;
+    }
+
+    let saved = d;
+    const preview = d.tailorPreview;
+    if (preview && !preview.saved) {
+      try {
+        await tailoredProfileAPI.save({
+          jobTitle: preview.jobTitle || 'Tailored resume',
+          companyName: preview.company || '',
+          jobUrl: preview.jobUrl || undefined,
+          tailoredData: preview.tailored,
+          originalProfileSnapshot: resumeData,
+          matchScore: typeof preview.match?.score === 'number' ? preview.match.score : null,
+          skillGaps: (preview.tailored?._skillGaps || []).map((g) => ({ ...g, status: 'pending' })),
+          learningPlan: preview.tailored?._learningPlan || null,
+          fromOnboardingPreview: !!preview.madeAsGuest,
+        });
+        saved = { ...d, tailorPreview: { ...preview, saved: true } };
+      } catch {
+        // The profile is saved; losing the preview is not worth failing over.
+        trackEvent('coach_step_failed', { step: 'save_tailored' });
+      }
+    }
+    // The stash Register would have claimed is now saved; leaving it would
+    // offer the same draft again on the next sign-up in this browser.
+    clearGuestProfileDraft();
+    draftRef.current = saved;
+    setDraft(saved);
+    setTyping(false);
+    setBusy(false);
+    trackEvent('coach_profile_saved', { imported: d.importedFrom || 'none', tailored: !!preview });
+    pushCoach(COACH_TEXT.SAVE_DONE);
+    advanceRef.current(index, saved);
+  }, [later, navigate, pushCoach]);
+
   useEffect(() => {
-    runnersRef.current = { review: runReview, assess: runAssess, build: runBuild };
-  }, [runReview, runAssess, runBuild]);
+    runnersRef.current = { review: runReview, assess: runAssess, build: runBuild, save: runSave };
+  }, [runReview, runAssess, runBuild, runSave]);
 
   /* ─── Answering ────────────────────────────────────────────── */
 
@@ -1015,9 +1064,16 @@ const ProfileCoach = () => {
         return false;
       }
       await voice.start({ clientSecret: data.clientSecret, model: data.model });
-      trackEvent('coach_voice_started', {});
+      trackEvent('coach_voice_started', { maxMinutes: data.maxSessionMinutes || null });
+      /* The plan's allowance for this call. The server counts it when the
+         call starts; ending it here is what makes the count true. */
+      if (data.maxSessionMinutes > 0) later(() => voice.stop(), data.maxSessionMinutes * 60 * 1000);
       return true;
     } catch (err) {
+      if (err?.response?.status === 429) {
+        pushCoach(err.response.data?.message || TEXT.VOICE_FAILED);
+        return false;
+      }
       // Includes the 503 when voice is not configured on the server. Any
       // detail the server passed through is shown rather than swallowed —
       // the first failure should say what went wrong, not just that it did.
@@ -1027,7 +1083,66 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [isAuthenticated, pushCoach, voice]);
+  }, [isAuthenticated, later, pushCoach, voice]);
+
+  /* ─── The title, read back ─────────────────────────────────── */
+
+  /* Field and level are worked out from the title and shown back under it
+     as chips. Nothing waits on them: the next question follows at once, and
+     the chips stay there for anyone who wants to correct the guess. */
+  const acknowledgeTitle = useCallback((d) => {
+    const field = sectorLabel(d.sector);
+    const level = levelLabel(d.sector, d.level);
+    pushCoach(TEXT.TITLE_ACK(draftToProfileShape(d).title, field, level), {
+      stepId: EDIT_CHOICE,
+      chips: [
+        { id: 'field', label: TEXT.EDIT_FIELD(field) },
+        { id: 'level', label: TEXT.EDIT_LEVEL(level) },
+      ],
+      selected: [],
+      // Optional controls, not a question: they never block the ladder.
+      keepLive: true,
+    });
+  }, [pushCoach]);
+
+  const editTitleField = useCallback((which) => {
+    const sector = draftRef.current.sector;
+    pushCoach(which === 'field' ? TEXT.EDIT_PICK_FIELD : TEXT.EDIT_PICK_LEVEL, {
+      stepId: which === 'field' ? EDIT_FIELD : EDIT_LEVEL,
+      chips: which === 'field'
+        ? sectorChips(true)
+        : levelsFor(sector).map((l) => ({ id: l.id, label: l.label })),
+      selected: [],
+    });
+  }, [pushCoach]);
+
+  /* ─── Read back, fix in place ──────────────────────────────── */
+
+  /* Facts are read back once before they settle onto the resume. The coach
+     used to write them silently and sometimes wrongly — a duplicate job, a
+     start month nobody gave — and the person found out at the end. */
+  const showConfirm = useCallback((kind, index, d) => {
+    const row = (d.experience || [])[0];
+    if (!row) {
+      advanceRef.current(index, d);
+      return;
+    }
+    const lines = kind === 'bullets' ? latestBullets(d) : [];
+    if (kind === 'bullets' && !lines.length) {
+      advanceRef.current(index, d);
+      return;
+    }
+    pushCoach(kind === 'role' ? TEXT.CONFIRM_ROLE(roleConfirmText(row)) : TEXT.CONFIRM_BULLETS, {
+      stepId: CONFIRM_CHOICE,
+      confirmFor: { kind, index },
+      bullets: lines,
+      chips: [
+        { id: 'yes', label: TEXT.CONFIRM_YES },
+        { id: 'fix', label: TEXT.CONFIRM_FIX },
+      ],
+      selected: [],
+    });
+  }, [pushCoach]);
 
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
@@ -1046,6 +1161,42 @@ const ProfileCoach = () => {
       later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
       return;
     }
+    if (message.stepId === EDIT_CHOICE) {
+      editTitleField(chip.id);
+      return;
+    }
+    if (message.stepId === EDIT_FIELD || message.stepId === EDIT_LEVEL) {
+      if (message.spent) return;
+      if (chip.id === MORE_SECTORS_CHIP.id) return;
+      spendChips(message.id);
+      pushMine(chip.label);
+      const patch = message.stepId === EDIT_FIELD
+        // A new field can make the old level meaningless (an Apprentice is
+        // not a tech rung), so it is re-read from the title.
+        ? deriveFromTitle({ ...draftRef.current, sector: chip.id, level: '' })
+        : { ...draftRef.current, level: chip.id };
+      draftRef.current = patch;
+      setDraft(patch);
+      pushCoach(`${TEXT.EDIT_DONE} ${draftToProfileShape(patch).title}.`);
+      trackEvent('coach_title_edited', { what: message.stepId === EDIT_FIELD ? 'field' : 'level' });
+      return;
+    }
+    if (message.stepId === CONFIRM_CHOICE) {
+      if (message.spent || busy) return;
+      spendChips(message.id);
+      pushMine(chip.label);
+      const { kind, index: at } = message.confirmFor || {};
+      trackEvent('coach_confirm', { kind, answer: chip.id });
+      if (chip.id === 'fix') {
+        setFixing({ kind, index: at });
+        pushCoach(kind === 'role' ? TEXT.FIX_ROLE : TEXT.FIX_BULLETS);
+        composerRef.current?.focus();
+        return;
+      }
+      setFixing(null);
+      later(() => advanceRef.current(at, draftRef.current), TIMING.ACK_MS);
+      return;
+    }
     if (message.stepId === VOICE_CHOICE) {
       if (message.spent) return;
       pushMine(chip.label);
@@ -1062,12 +1213,6 @@ const ProfileCoach = () => {
       } else {
         later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
       }
-      return;
-    }
-    if (message.stepId === RESUME_CHOICE) {
-      if (message.spent) return;
-      pushMine(chip.label);
-      answerResumeOffer(message, chip.id);
       return;
     }
     const step = LADDER.find((s) => s.id === message.stepId);
@@ -1121,6 +1266,10 @@ const ProfileCoach = () => {
         setLinkedinOpen(true);
         return;
       }
+      if (chip.id === 'paste') {
+        offerPaste();
+        return;
+      }
       spendChips(message.id);
       /* The upload offer after a call is a detour, not a rung.
          `index` is where importOffer sits in the ladder — near the top — so
@@ -1136,13 +1285,17 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, askStep, busy, commit, later, navigate, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
+  }, [advance, askStep, busy, commit, editTitleField, isAuthenticated, later, navigate, offerPaste, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
 
   const confirmMulti = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
-    const chosen = message.chips.filter((c) => message.selected.includes(c.id));
+    // In the order they were tapped: "tap your strongest first" is how the
+    // top three get ranked, so the order is the answer.
+    const chosen = message.selected
+      .map((id) => message.chips.find((c) => c.id === id))
+      .filter(Boolean);
 
     spendChips(message.id);
     pushMine(
@@ -1161,12 +1314,6 @@ const ProfileCoach = () => {
     }
   }, [busy, commit, pushMine, spendChips]);
 
-  /** Move on from a card that was shown rather than asked. */
-  const continueFrom = useCallback((message) => {
-    if (message.spent) return;
-    spendChips(message.id);
-    advanceRef.current(LADDER.findIndex((s) => s.id === message.stepId), draftRef.current);
-  }, [spendChips]);
 
   const skipStep = useCallback((message) => {
     const step = LADDER.find((s) => s.id === message.stepId);
@@ -1190,37 +1337,6 @@ const ProfileCoach = () => {
    * Returns what was said, because whether it ended with a question decides
    * what the conversation does next.
    */
-  const answerQuestion = useCallback(async (text, asked, stepId) => {
-    setBusy(true);
-    setTyping(true);
-    if (asidesRef.current >= ASIDE_LIMIT) {
-      pushCoach(TEXT.ASIDE_LIMIT_HIT);
-      return TEXT.ASIDE_LIMIT_HIT;
-    }
-    asidesRef.current += 1;
-
-    let answer = '';
-    try {
-      const { data } = await profileAPI.coachAsk({
-        question: text,
-        asked,
-        context: {
-          sector: draftRef.current.sector,
-          level: draftRef.current.level,
-          title: draftRef.current.title,
-          stepId,
-        },
-      });
-      answer = data?.answer?.trim() || TEXT.ASIDE_FALLBACK;
-    } catch {
-      answer = TEXT.ASIDE_FALLBACK;
-    } finally {
-      setTyping(false);
-      setBusy(false);
-    }
-    pushCoach(answer);
-    return answer;
-  }, [pushCoach]);
 
   /** Has this step's question been answered, however it got answered? */
   const stepAnswered = useCallback((step, draft) => {
@@ -1230,7 +1346,14 @@ const ProfileCoach = () => {
     return isAlreadyAnswered(step, draft);
   }, []);
 
-  const runTurn = useCallback(async (text) => {
+  /**
+   * @param {object} [opts]
+   * @param {'role'|'bullets'} [opts.fix] a correction: what it says replaces
+   *        the role or the bullets instead of filling gaps around them
+   * @param {boolean} [opts.holdSay] return the reply instead of posting it,
+   *        for a caller that may show a read-back card in its place
+   */
+  const runTurn = useCallback(async (text, { fix = null, holdSay = false } = {}) => {
     setBusy(true);
     setTyping(true);
     try {
@@ -1242,11 +1365,16 @@ const ProfileCoach = () => {
           .slice(-10)
           .map((m) => ({ role: m.role, text: m.text })),
         message: text,
+        /* Live voice is for signed-in users only. A guest who asks to talk is
+           pointed at the mic, never walked into an account wall. */
+        liveVoice: !voiceAvailableRef.current ? 'none' : (isAuthenticated ? 'live' : 'account'),
       });
 
       const learned = data?.learned || {};
       if (Object.keys(learned).length) {
-        const merged = applyBraindump(draftRef.current, learned);
+        const merged = fix
+          ? applyCorrection(draftRef.current, fix, learned)
+          : applyBraindump(draftRef.current, learned);
         // roleTypes and workStyle are chip answers the model can also hear in
         // passing; applyBraindump deliberately does not own them.
         if (learned.roleType && !(merged.roleTypes || []).length) {
@@ -1261,15 +1389,26 @@ const ProfileCoach = () => {
       }
 
       setTyping(false);
-      if (data?.say) pushCoach(data.say);
-      return { ok: true, awaiting: data?.awaiting !== false };
+      if (data?.say && !holdSay) pushCoach(data.say);
+      if (data?.voice && voiceAvailableRef.current) {
+        /* They asked to talk out loud, and they are signed in: same path as
+           the button. Answering "I can only read text" next to a mic and a
+           talk button is the coach contradicting the page it lives on. */
+        setBusy(false);
+        if (holdSay && data?.say) pushCoach(data.say);
+        await startTalking();
+        return { ok: true, awaiting: true, say: '' };
+      }
+      // Waiting needs something to wait on: an empty reply that claims to be
+      // waiting would leave the conversation sitting there with no question.
+      return { ok: true, awaiting: data?.awaiting !== false && !!String(data?.say || '').trim(), say: data?.say || '' };
     } catch {
       setTyping(false);
-      return { ok: false, awaiting: false };
+      return { ok: false, awaiting: false, say: '' };
     } finally {
       setBusy(false);
     }
-  }, [pushCoach]);
+  }, [isAuthenticated, pushCoach, startTalking]);
 
   /**
    * Put the answer options back without restating the question.
@@ -1295,41 +1434,6 @@ const ProfileCoach = () => {
     ]);
   }, []);
 
-  const handleAside = useCallback(async (text, intent, step, liveMessage) => {
-    const index = LADDER.findIndex((s) => s.id === step.id);
-
-    // A bare "ok" has nothing in it to answer. Acknowledged in place, free.
-    if (intent === 'ack') {
-      if (liveMessage) spendChips(liveMessage.id);
-      pushCoach(TEXT.GREETING_BACK);
-      later(() => askStep(index, draftRef.current), TIMING.ACK_MS);
-      return;
-    }
-
-    // Greetings go to the model like anything else someone says. A person
-    // who says hello and gets a form letter back has learned what this is.
-    const answer = await answerQuestion(text, questionText(step, draftRef.current), step.id);
-
-    /* The coach is waiting, so nothing is asked on top of it: re-asking both
-       contradicts the invitation and buries it. Two ways to know — they asked
-       permission (deterministic, read off their message), or the reply itself
-       ended in a question. The first exists because the second was not enough:
-       "Of course, go ahead." is an invitation with no question mark in it, and
-       the step question landed underneath it anyway.
-       The chips stay live above either way, so tapping an answer is still
-       one tap — holding the floor is not blocking the path. */
-    if (intent === 'permission' || /\?\s*$/.test(answer)) return;
-
-    /* Answer, then hold the options out — do not ask the question again.
-       Repeating it is what made the coach read as not caring what was asked:
-       you ask about the portfolio, you get an answer, and then the same
-       question you were already looking at is restated as though the aside
-       were an interruption to get past. The options come back underneath the
-       answer instead, with no question bubble: the way forward is visible,
-       nothing is repeated, and the next thing they say can just as easily be
-       another question. */
-    later(() => offerChipsAgain(step, liveMessage), TIMING.ACK_MS);
-  }, [answerQuestion, later, offerChipsAgain, pushCoach]);
 
   /**
    * Typed while the intro is on screen.
@@ -1425,6 +1529,33 @@ const ProfileCoach = () => {
     const index = stepIndex;
     const current = draftRef.current;
 
+    /* A correction — after "Fix it", or typed straight over a read-back that
+       is still waiting. Either way it replaces what was read back. */
+    const liveConfirm = [...messages].reverse().find((m) => m.stepId === CONFIRM_CHOICE && !m.spent);
+    const fix = fixing || (liveConfirm ? liveConfirm.confirmFor : null);
+    if (fix) {
+      if (liveConfirm) spendChips(liveConfirm.id);
+      const turn = await runTurn(text, { fix: fix.kind, holdSay: true });
+      setFixing(null);
+      if (!turn.ok) {
+        setError(TEXT.ERROR_GENERIC);
+        return;
+      }
+      showConfirm(fix.kind, fix.index, draftRef.current);
+      return;
+    }
+
+    /* A plain job title is the answer as typed, and costs no model call.
+       Field and level are read off it and shown back as chips. */
+    if (step.id === 'title' && looksLikeTitle(text)) {
+      const next = deriveFromTitle({ ...current, title: normalizeTitle(text) });
+      draftRef.current = next;
+      setDraft(next);
+      acknowledgeTitle(next);
+      advance(index, next);
+      return;
+    }
+
     /* One model call decides what they meant.
        Thirteen regexes used to make that call — answer or question, greeting
        or correction, skip or hedge — and every phrasing nobody anticipated
@@ -1486,101 +1617,200 @@ const ProfileCoach = () => {
       return;
     }
 
-    const turn = await runTurn(text);
+    const turn = await runTurn(text, { holdSay: !!step.confirm || step.id === 'title' });
     if (!turn.ok) {
       setError(TEXT.ERROR_GENERIC);
       return;
     }
-    // It asked them something. Wait for the answer rather than talking over it.
-    if (turn.awaiting) return;
-
+    // A typed answer retires the row it answered, "Type my own" included —
+    // it used to stay lit after the answer was already in.
     if (liveMessage) spendChips(liveMessage.id);
 
-    /* Did that fill in what this step was for? If so the conversation moves
-       on; if not — they asked a question, or said something unrelated — the
-       options come back without the question being restated at them. */
-    if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
-    else offerChipsAgain(step, null);
-  }, [advance, busy, commit, dictation, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
-
-  /* ─── Converting ───────────────────────────────────────────── */
-
-  /**
-   * The end of the conversation. Two different people arrive here:
-   *
-   * A signed-in user already has somewhere to put this, so it is saved and
-   * they land on their portfolio. A guest's profile only exists in this tab,
-   * so it is stashed and registration publishes it — the draft is marked
-   * autoPublish because they have just watched it being built and reviewed it
-   * on screen. Dropping them back into the editor to approve it again would
-   * be asking twice.
-   */
-  const handleConvert = useCallback(async (mode) => {
-    const finalDraft = draftRef.current;
-    const resumeData = draftToResumeData(finalDraft);
-
-    if (!isAuthenticated) {
-      saveGuestProfileDraft(resumeData, { source: 'coach', autoPublish: true });
-      trackEvent('coach_convert_clicked', { mode, imported: finalDraft.importedFrom || 'none' });
-      navigate(mode === 'signin' ? ROUTES.LOGIN : `${ROUTES.REGISTER}?role=candidate`);
+    // It asked them something. Wait for the answer rather than talking over it.
+    if (turn.awaiting) {
+      if ((step.confirm || step.id === 'title') && turn.say) pushCoach(turn.say);
       return;
     }
 
-    setBusy(true);
-    try {
-      await profileAPI.createOrUpdateProfile(resumeData);
-      trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
-      navigate(ROUTES.PORTFOLIO);
-    } catch {
-      // Saving failed, so do not pretend it worked — hand them to the editor,
-      // which has the full save path and can surface the real error.
-      setBusy(false);
-      setError(TEXT.ERROR_GENERIC);
-      navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
+    /* Did that fill in what this step was for? If so the conversation moves
+       on — through a read-back first where the answer was facts — and if not
+       (they asked a question, or said something unrelated) the options come
+       back without the question being restated at them. */
+    const answered = stepAnswered(step, draftRef.current);
+    if (answered && step.confirm) {
+      showConfirm(step.confirm, index, draftRef.current);
+      return;
     }
-  }, [isAuthenticated, navigate]);
+    if ((step.confirm || step.id === 'title') && turn.say && !answered) pushCoach(turn.say);
+    if (answered && step.id === 'title') {
+      const next = deriveFromTitle(draftRef.current);
+      draftRef.current = next;
+      setDraft(next);
+      acknowledgeTitle(next);
+      advance(index, next);
+      return;
+    }
+    if (answered) advance(index, draftRef.current);
+    else offerChipsAgain(step, null);
+  }, [acknowledgeTitle, advance, busy, commit, dictation, fixing, offerChipsAgain, runTurn, showConfirm, stepAnswered, handleIntroText, input, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+
+  /* ─── The payoff: one job, tailored ────────────────────────── */
+
+  const submitTailor = useCallback(async (message, value) => {
+    const raw = String(value || '').trim();
+    if (busy || message.spent || !raw) return;
+    const isLink = /^(https?:\/\/|www\.)\S+$/i.test(raw);
+    if (!isLink && raw.length < 200) {
+      setError(COACH_TEXT.TAILOR_TOO_SHORT);
+      return;
+    }
+    setError('');
+    spendChips(message.id);
+    pushMine(isLink ? raw : `${raw.slice(0, 90).replace(/\s+/g, ' ')}...`);
+    setBusy(true);
+    setTyping(true);
+    pushCoach(COACH_TEXT.TAILOR_WORKING);
+    const index = LADDER.findIndex((st) => st.id === 'tailor');
+    const jobUrl = isLink ? (/^https?:/i.test(raw) ? raw : `https://${raw}`) : undefined;
+    try {
+      const { data } = await profileAPI.coachTailorPreview({
+        profile: draftToProfileShape(draftRef.current),
+        jobUrl,
+        jobDescription: isLink ? undefined : raw,
+      });
+      if (!data?.success || !data?.tailored) throw new Error('empty');
+      const preview = {
+        tailored: data.tailored,
+        match: data.match || null,
+        jobTitle: data.jobTitle || '',
+        company: data.company || '',
+        jobUrl,
+        // Made before there was an account to count it against; counted when
+        // it is saved. A signed-in preview was counted by the endpoint.
+        madeAsGuest: !isAuthenticated,
+      };
+      const next = { ...draftRef.current, tailorPreview: preview };
+      draftRef.current = next;
+      setDraft(next);
+      setTyping(false);
+      const score = typeof preview.match?.score === 'number' ? Math.round(preview.match.score) : null;
+      const role = [preview.jobTitle, preview.company && `at ${preview.company}`].filter(Boolean).join(' ');
+      pushCoach(COACH_TEXT.TAILOR_DONE(score, role), { tailorResult: preview });
+      // The activation event: a tailored resume for a real job.
+      trackEvent('coach_tailored_resume', { score, source: isLink ? 'link' : 'text', authenticated: !!isAuthenticated });
+      later(() => advanceRef.current(index, next), TIMING.ACK_MS);
+    } catch (err) {
+      setTyping(false);
+      const code = err?.response?.data?.code;
+      const status = err?.response?.status;
+      trackEvent('coach_step_failed', { step: 'tailor', code: code || status || 'unknown' });
+      const said = code === 'job_url_unreadable' ? COACH_TEXT.TAILOR_URL_FAILED
+        : status === 429 ? COACH_TEXT.TAILOR_LIMIT
+        : COACH_TEXT.TAILOR_FAILED;
+      // Back on screen with the way forward, at the bottom where they are.
+      pushCoach(said, { tailor: true, stepId: 'tailor' });
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, isAuthenticated, later, pushCoach, pushMine, spendChips]);
+
+  const skipTailor = useCallback((message) => {
+    if (busy || message.spent) return;
+    spendChips(message.id);
+    pushMine(COACH_TEXT.TAILOR_SKIP);
+    trackEvent('coach_tailor_skipped', {});
+    advance(LADDER.findIndex((st) => st.id === 'tailor'), draftRef.current);
+  }, [advance, busy, pushMine, spendChips]);
+
+  /* ─── Saving: one tap, inside the chat ─────────────────────── */
+
+  /**
+   * Google, without leaving the conversation. The register page — password,
+   * confirm password, a terms checkbox — was the last screen of onboarding,
+   * reached after a navigation away from everything just built. Consent is
+   * the single line under the button.
+   */
+  const handleGoogleSave = useCallback(async (payload, message) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await authAPI.googleRegister(
+        payload?.credential ? { credential: payload.credential } : payload,
+        'candidate',
+        true
+      );
+      const { token, user } = data || {};
+      if (!token || !user) throw new Error('no session');
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      setToken(token);
+      setUser(user);
+      trackEvent('register_completed', { role: user.role, method: 'google', via: 'coach' });
+      if (message) spendChips(message.id);
+
+      /* An account that already has a profile is not overwritten by a
+         conversation. They get the editor, with this draft to merge. */
+      if (user.hasProfile) {
+        const resumeData = draftToResumeData(draftRef.current);
+        pushCoach(COACH_TEXT.CONVERT_HAS_PROFILE);
+        clearConversation();
+        setBusy(false);
+        later(() => navigate(ROUTES.CREATE_FORM, { state: { guestDraft: resumeData } }), TIMING.ACK_MS * 2);
+        return;
+      }
+
+      const next = { ...draftRef.current, account: true };
+      draftRef.current = next;
+      setDraft(next);
+      setBusy(false);
+      advanceRef.current(LADDER.findIndex((st) => st.id === 'convert'), next);
+    } catch (err) {
+      setBusy(false);
+      setError(err?.response?.data?.error || COACH_TEXT.CONVERT_FAILED);
+    }
+  }, [busy, later, navigate, pushCoach, setToken, setUser, spendChips]);
+
+  /**
+   * Email instead of Google, or an existing account. The draft is stashed for
+   * Register to claim, and Register sends them back here to carry on.
+   */
+  const handleConvert = useCallback((mode) => {
+    const finalDraft = draftRef.current;
+    saveGuestProfileDraft(draftToResumeData(finalDraft), { source: 'coach', autoPublish: true });
+    trackEvent('coach_convert_clicked', { mode, imported: finalDraft.importedFrom || 'none' });
+    const back = encodeURIComponent('/profile/create?continue=1');
+    navigate(mode === 'signin'
+      ? `${ROUTES.LOGIN}?redirect=${back}`
+      : `${ROUTES.REGISTER}?role=candidate&redirect=${back}`);
+  }, [navigate]);
+
+  /* Back from email sign-up or sign-in with the conversation still here:
+     carry on from the save card as if Google had just finished. */
+  const resumedAfterAuthRef = useRef(false);
+  useEffect(() => {
+    if (resumedAfterAuthRef.current || !isAuthenticated || !restored) return;
+    if (LADDER[stepIndex]?.id !== 'convert') return;
+    resumedAfterAuthRef.current = true;
+    const next = { ...draftRef.current, account: true };
+    draftRef.current = next;
+    setDraft(next);
+    setMessages((prev) => prev.map((m) => (m.convert ? { ...m, spent: true } : m)));
+    later(() => advanceRef.current(stepIndex, next), TIMING.ACK_MS);
+  }, [isAuthenticated, later, restored, stepIndex]);
 
   /* ─── Derived view state ───────────────────────────────────── */
 
-  const completionRaw = useMemo(
+  /* One score, the same function the editor and the dashboard use, so the
+     number here is the number they see next. The chat used to re-score its
+     own subset and said 86% where the editor said 67%. */
+  const completion = useMemo(
     () => computeProfileCompletion(draftToProfileShape(draft)),
     [draft]
   );
-  /* Scored over what this conversation asks for — see coachCompletion. The
-     editor keeps the canonical nine-item rubric; this meter would otherwise
-     top out at 78% for someone who answered every single question. */
-  const completion = useMemo(
-    () => coachCompletion(completionRaw, draft),
-    [completionRaw, draft]
-  );
-  const panel = useMemo(
-    () => panelState(draft, completionRaw.items),
-    [draft, completionRaw.items]
-  );
-
-  // What the panel shows next to each label once it's filled in.
-  const panelValue = useCallback((key) => {
-    switch (key) {
-      case 'title':
-        return draftToProfileShape(draft).title;
-      case 'lookingFor': {
-        const parts = [...(draft.roleTypes || []), draft.workStyle].filter(Boolean);
-        return parts.join(', ');
-      }
-      case 'skills':
-        return (draft.skills || []).slice(0, 4).join(', ');
-      case 'exp': {
-        const row = (draft.experience || [])[0];
-        return row ? [row.title, row.company].filter(Boolean).join(' at ') : '';
-      }
-      case 'edu': {
-        const row = (draft.education || [])[0];
-        return row ? [row.degree, row.institution].filter(Boolean).join(', ') : '';
-      }
-      default:
-        return '';
-    }
-  }, [draft]);
+  const left = useMemo(() => questionsLeft(stepIndex, draft), [stepIndex, draft]);
+  const titleOptions = useMemo(() => autocompleteOptions('titles'), []);
+  const skillOptions = useMemo(() => autocompleteOptions('skills'), []);
 
   const currentStep = LADDER[stepIndex];
   // The intro (stepIndex -1) has no question, but it does have a coach who
@@ -1709,53 +1939,178 @@ const ProfileCoach = () => {
     );
   };
 
-  const renderTour = () => (
-    <Card>
-      <TourGrid>
-        {TOUR_CARDS.map((card) => {
-          const Icon = TOUR_ICONS[card.icon];
-          return (
-            <TourCard key={card.id}>
-              <TourIcon>{Icon ? <Icon fontSize="small" /> : null}</TourIcon>
-              <h5>{card.title}</h5>
-              <p>{card.body}</p>
-            </TourCard>
-          );
-        })}
-      </TourGrid>
-      <BubbleHint style={{ marginTop: 16 }}>{COACH_TEXT.TOUR_OUTRO}</BubbleHint>
-    </Card>
-  );
+  const renderTailorResult = (preview) => {
+    const { match, tailored } = preview;
+    const score = typeof match?.score === 'number' ? Math.round(match.score) : null;
+    return (
+      <Card>
+        {score !== null && (
+          <>
+            <CardLabel>{COACH_TEXT.MATCH_TITLE}</CardLabel>
+            <VerdictRow>
+              <MatchScore $score={score}>{score}%</MatchScore>
+              {match.summary && <MarketNote>{match.summary}</MarketNote>}
+            </VerdictRow>
+          </>
+        )}
+        {!!match?.strengths?.length && (
+          <>
+            <CardLabel>{COACH_TEXT.MATCH_STRENGTHS}</CardLabel>
+            <CardList>
+              {match.strengths.slice(0, 4).map((item, i) => (
+                <Finding key={`s${i}`} $tone="good"><b>{item}</b></Finding>
+              ))}
+            </CardList>
+          </>
+        )}
+        {!!match?.gaps?.length && (
+          <>
+            <CardLabel style={{ marginTop: 16 }}>{COACH_TEXT.MATCH_GAPS}</CardLabel>
+            <CardList>
+              {match.gaps.slice(0, 4).map((item, i) => (
+                <Finding key={`g${i}`} $tone="warn"><b>{item}</b></Finding>
+              ))}
+            </CardList>
+          </>
+        )}
+        <CardLabel style={{ marginTop: 16 }}>{COACH_TEXT.TAILORED_TITLE}</CardLabel>
+        <ResumeSheet>
+          <ResumeName>{tailored?.title || draftToProfileShape(draft).title}</ResumeName>
+          {tailored?.summary && <ResumeSection><p>{tailored.summary}</p></ResumeSection>}
+          {(tailored?.experience || []).slice(0, 2).map((row, i) => (
+            <ResumeEntry key={`t${i}`}>
+              <strong>{[row.title, row.company].filter(Boolean).join(' · ')}</strong>
+              {!!row.description && (
+                <ul>
+                  {String(row.description).split('\n').map((l) => l.replace(/^[•\-*]\s*/, '').trim())
+                    .filter(Boolean).slice(0, 4).map((l, j) => <li key={j}>{l}</li>)}
+                </ul>
+              )}
+            </ResumeEntry>
+          ))}
+        </ResumeSheet>
+      </Card>
+    );
+  };
 
-  const renderConvert = () => (
+  const renderConvert = (message) => (
     <ConvertCard>
       <h4>{COACH_TEXT.CONVERT_TITLE}</h4>
-      <p>{COACH_TEXT.CONVERT_BODY}</p>
-      <ConvertActions>
-        <ConvertPrimary type="button" onClick={() => handleConvert('register')} disabled={busy}>
-          {COACH_TEXT.CONVERT_CTA}
-        </ConvertPrimary>
-        <ConvertSecondary type="button" onClick={() => handleConvert('signin')} disabled={busy}>
-          {COACH_TEXT.CONVERT_SIGNIN}
-        </ConvertSecondary>
-      </ConvertActions>
-      <ConvertNote>{COACH_TEXT.CONVERT_NOTE}</ConvertNote>
+      <p>{draft.tailorPreview ? COACH_TEXT.CONVERT_BODY_TAILORED : COACH_TEXT.CONVERT_BODY}</p>
+      {!message.spent && (
+        <>
+          <GoogleAuthButton
+            label={COACH_TEXT.CONVERT_GOOGLE}
+            loading={busy}
+            onSuccess={(payload) => handleGoogleSave(payload, message)}
+            onError={() => { /* real failures surface from the API call */ }}
+          />
+          <ConvertActions>
+            <ConvertSecondary type="button" onClick={() => handleConvert('register')} disabled={busy}>
+              {COACH_TEXT.CONVERT_EMAIL}
+            </ConvertSecondary>
+            <ConvertSecondary type="button" onClick={() => handleConvert('signin')} disabled={busy}>
+              {COACH_TEXT.CONVERT_SIGNIN}
+            </ConvertSecondary>
+          </ConvertActions>
+          <ConvertNote>
+            {COACH_TEXT.CONVERT_TERMS_PRE}
+            <Link to={ROUTES.TERMS} target="_blank" rel="noopener noreferrer">{COACH_TEXT.CONVERT_TERMS}</Link>
+            {COACH_TEXT.CONVERT_TERMS_AND}
+            <Link to={ROUTES.PRIVACY} target="_blank" rel="noopener noreferrer">{COACH_TEXT.CONVERT_PRIVACY}</Link>
+            {'. '}
+            {COACH_TEXT.CONVERT_NOTE}
+          </ConvertNote>
+        </>
+      )}
     </ConvertCard>
   );
 
-  const renderPanelItems = () => visiblePanelItems(draft, PANEL_ITEMS).map((item) => {
-    const done = !!panel[item.key];
-    const value = done ? panelValue(item.key) : '';
+  const [copied, setCopied] = useState(false);
+  const renderNext = () => {
+    const publicUrl = user?.id ? `${window.location.origin}${ROUTES.PUBLIC_PROFILE(user.id)}` : '';
     return (
-      <PanelItem key={item.key}>
-        <PanelItemHead $done={done}>
-          <Dot $done={done} />
-          {item.label}
-        </PanelItemHead>
-        <PanelItemBody $done={done}>{value || item.hint}</PanelItemBody>
-      </PanelItem>
+      <Card>
+        <CardLabel>{COACH_TEXT.NEXT_TITLE}</CardLabel>
+        <NextGrid>
+          <NextAction type="button" onClick={() => { trackEvent('coach_next', { to: 'portfolio' }); navigate(ROUTES.PORTFOLIO); }}>
+            <PublicIcon fontSize="small" />
+            <span>{COACH_TEXT.NEXT_PORTFOLIO}</span>
+          </NextAction>
+          {publicUrl && (
+            <NextAction
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(publicUrl).then(() => setCopied(true)).catch(() => {});
+                trackEvent('coach_next', { to: 'copy_link' });
+              }}
+            >
+              <LinkIcon fontSize="small" />
+              <span>{copied ? COACH_TEXT.NEXT_COPIED : COACH_TEXT.NEXT_COPY_LINK}</span>
+            </NextAction>
+          )}
+          {/* After the first tailored resume, the extension is the next
+              thing worth having: it does the same for every job they open. */}
+          <NextAction type="button" onClick={() => { trackEvent('coach_next', { to: 'extension' }); navigate(ROUTES.EXTENSION); }}>
+            <ExtensionIcon fontSize="small" />
+            <span>{COACH_TEXT.NEXT_EXTENSION}</span>
+            <small>{COACH_TEXT.NEXT_EXTENSION_WHY}</small>
+          </NextAction>
+          <NextAction type="button" onClick={() => { trackEvent('coach_next', { to: 'editor' }); navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData: draftToResumeData(draft) } }); }}>
+            <EditIcon fontSize="small" />
+            <span>{COACH_TEXT.NEXT_EDIT}</span>
+          </NextAction>
+        </NextGrid>
+      </Card>
     );
-  });
+  };
+
+  /* The side panel is the resume itself, filling in as they answer: each
+     bullet appears as it is written. A list of field labels used to sit
+     here, and location and the achievement never showed in it at all. */
+  const renderPreview = () => {
+    const shape = draftToProfileShape(draft);
+    const sections = resumeSections(draft);
+    const has = (key) => sections.some((sec) => sec.key === key);
+    const prefs = preferenceLabels(draft);
+    return (
+      <PreviewSheet>
+        <ResumeName>{shape.title || <PreviewPlaceholder>{TEXT.PREVIEW_HEADLINE}</PreviewPlaceholder>}</ResumeName>
+        <ResumeMeta>
+          {[draft.location, prefs].filter(Boolean).join(' · ') || <PreviewPlaceholder>{TEXT.PREVIEW_META}</PreviewPlaceholder>}
+        </ResumeMeta>
+        {sections.map((section) => (
+          <ResumeSection key={section.key}>
+            <h4>{section.label}</h4>
+            {section.kind === 'text' && <p>{section.body}</p>}
+            {section.kind === 'chips' && (
+              <ResumeSkills>
+                {section.items.map((skill) => <span key={skill}>{skill}</span>)}
+              </ResumeSkills>
+            )}
+            {section.kind === 'entries' && section.items.map((entry, i) => (
+              <ResumeEntry key={`${section.key}${i}`}>
+                <strong>{entry.heading}</strong>
+                {entry.meta && <em>{entry.meta}</em>}
+                {!!entry.lines.length && (
+                  <ul>{entry.lines.map((line, j) => <li key={j}>{line}</li>)}</ul>
+                )}
+              </ResumeEntry>
+            ))}
+          </ResumeSection>
+        ))}
+        {!has('experience') && !has('projects') && (
+          <ResumeSection><h4>Experience</h4><PreviewPlaceholder>{TEXT.PREVIEW_EXPERIENCE}</PreviewPlaceholder></ResumeSection>
+        )}
+        {!has('skills') && (
+          <ResumeSection><h4>Skills</h4><PreviewPlaceholder>{TEXT.PREVIEW_SKILLS}</PreviewPlaceholder></ResumeSection>
+        )}
+        {!has('education') && (
+          <ResumeSection><h4>Education</h4><PreviewPlaceholder>{TEXT.PREVIEW_EDUCATION}</PreviewPlaceholder></ResumeSection>
+        )}
+      </PreviewSheet>
+    );
+  };
 
   return (
     <PageContainer>
@@ -1764,10 +2119,10 @@ const ProfileCoach = () => {
           <BrandLogo />
         </Logo>
         <TopActions>
-          {/* Shown whenever this server can actually place a call — see the
-              voice status check. Hidden entirely when it cannot, rather than
-              offering something that fails. */}
-          {voiceAvailable && (
+          {/* Shown when this server can place a call and someone is signed in
+              to take it. Guests have the mic; a voice button that ends at a
+              sign-up wall is worse than none. */}
+          {voiceAvailable && isAuthenticated && (
             <TalkButton
               type="button"
               onClick={() => startTalking()}
@@ -1782,7 +2137,7 @@ const ProfileCoach = () => {
               editor from here would hand over a completely empty draft. */}
           <TopButton
             type="button"
-            onClick={() => (stepIndex < 0 ? introSkipToQuestions() : finish(draft))}
+            onClick={() => finish(draft)}
             disabled={busy}
           >
             {TEXT.SKIP}
@@ -1791,10 +2146,10 @@ const ProfileCoach = () => {
       </TopBar>
 
       <MobileStrip type="button" onClick={() => setPanelOpen((v) => !v)} aria-expanded={panelOpen}>
-        <StripLabel>{completion.pct}% · {completion.label}</StripLabel>
+        <StripLabel>{completion.pct}% · {TEXT.QUESTIONS_LEFT(left)}</StripLabel>
         <StripBar $pct={completion.pct}><i /></StripBar>
       </MobileStrip>
-      <MobilePanel $open={panelOpen}>{renderPanelItems()}</MobilePanel>
+      <MobilePanel $open={panelOpen}>{renderPreview()}</MobilePanel>
 
       <Body>
         <ChatColumn>
@@ -1836,19 +2191,29 @@ const ProfileCoach = () => {
                     </Row>
                   )}
 
-                  {message.introSlide != null && (
-                    <IntroCarousel
-                      index={message.introSlide}
-                      onNext={() => introContinue(message)}
-                      onJump={(to) => introJump(message, to)}
-                      onSkip={() => introSkip(message)}
+                  {message.startOver && (
+                    <ChipRow>
+                      <Chip type="button" $ghost onClick={startOver} disabled={busy}>
+                        {TEXT.START_OVER}
+                      </Chip>
+                    </ChipRow>
+                  )}
+                  {message.paste && (
+                    <TextCard
+                      spent={message.spent}
+                      busy={busy}
+                      rows={8}
+                      placeholder={TEXT.PASTE_PLACEHOLDER}
+                      cta={TEXT.PASTE_CTA}
+                      onSubmit={(value) => submitPaste(message, value)}
                     />
                   )}
-                  {message.introBuild && (
-                    <BuildProfileCard
-                      spent={message.spent}
-                      onStart={() => introStart(message)}
-                    />
+                  {!!message.bullets?.length && (
+                    <Card>
+                      <ResumeEntry>
+                        <ul>{message.bullets.map((line, j) => <li key={j}>{line}</li>)}</ul>
+                      </ResumeEntry>
+                    </Card>
                   )}
 
                   {message.uploading && (
@@ -1861,15 +2226,20 @@ const ProfileCoach = () => {
                   {message.review && renderReview(message.review)}
                   {message.assessment && renderAssessment(message.assessment)}
                   {message.resume && renderResume(message.resume)}
-                  {message.tour && renderTour()}
-                  {message.continues && !message.spent && (
-                    <ChipRow>
-                      <Chip type="button" onClick={() => continueFrom(message)}>
-                        {COACH_TEXT.TOUR_CONTINUE}
-                      </Chip>
-                    </ChipRow>
+                  {message.tailor && (
+                    <TextCard
+                      spent={message.spent}
+                      busy={busy}
+                      rows={3}
+                      placeholder={COACH_TEXT.TAILOR_PLACEHOLDER}
+                      cta={COACH_TEXT.TAILOR_CTA}
+                      onSubmit={(value) => submitTailor(message, value)}
+                      secondary={{ label: COACH_TEXT.TAILOR_SKIP, onClick: () => skipTailor(message) }}
+                    />
                   )}
-                  {message.convert && renderConvert()}
+                  {message.tailorResult && renderTailorResult(message.tailorResult)}
+                  {message.convert && renderConvert(message)}
+                  {message.next && renderNext()}
 
                   {!!message.chips?.length && (
                     <ChipRow>
@@ -1877,8 +2247,8 @@ const ProfileCoach = () => {
                         <Chip
                           key={chip.id}
                           type="button"
-                          disabled={message.spent || busy}
-                          $spent={message.spent}
+                          disabled={(message.spent && !message.keepLive) || busy}
+                          $spent={message.spent && !message.keepLive}
                           $ghost={String(chip.id).startsWith('__')}
                           $selected={message.selected?.includes(chip.id)}
                           onClick={() => answerChip(message, chip)}
@@ -1937,6 +2307,8 @@ const ProfileCoach = () => {
               </QuickReplies>
             )}
 
+            {dictation.listening && <ListeningNote role="status">{TEXT.LISTENING}</ListeningNote>}
+
             <Composer onSubmit={submitText}>
               <ComposerInput
                 ref={composerRef}
@@ -1945,7 +2317,17 @@ const ProfileCoach = () => {
                 placeholder={dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
                 disabled={!canType}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
+                // Titles and skills are suggested as they are typed: "Senior
+                // Backend Engineer" is three keystrokes, and the spelling is
+                // the one recruiters search.
+                list={currentStep?.autocomplete && !fixing ? `coach-${currentStep.autocomplete}` : undefined}
               />
+              <datalist id="coach-titles">
+                {titleOptions.map((t) => <option key={t} value={t} />)}
+              </datalist>
+              <datalist id="coach-skills">
+                {skillOptions.map((t) => <option key={t} value={t} />)}
+              </datalist>
               <IconButton
                 type="button"
                 $listening={dictation.listening}
@@ -1987,10 +2369,10 @@ const ProfileCoach = () => {
             <div>
               <PanelTitle>{TEXT.PANEL_TITLE}</PanelTitle>
               <PanelTier $color={completion.color}>{completion.label}</PanelTier>
-              <PanelSub>{TEXT.PANEL_ENCOURAGE}</PanelSub>
+              <PanelSub>{TEXT.QUESTIONS_LEFT(left)}</PanelSub>
             </div>
           </PanelHead>
-          {renderPanelItems()}
+          {renderPreview()}
         </SidePanel>
       </Body>
 

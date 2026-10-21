@@ -28,6 +28,8 @@ function Fallback({ error, resetError }) {
         stack: error?.stack || null,
         url: window.location.href,
         ts: new Date().toISOString(),
+        // eslint-disable-next-line no-undef
+        build: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : null,
       };
       localStorage.setItem('profileai_last_error', JSON.stringify(payload));
       diag('sentry.fallback.rendered', payload);

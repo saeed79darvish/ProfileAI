@@ -18,6 +18,11 @@ export const ROUTES = {
   // Where a finished profile lands. This is the candidate's own portfolio
   // view, which is the thing the whole conversation was building toward.
   PORTFOLIO: '/profile',
+  EXTENSION: '/extension',
+  TERMS: '/terms',
+  PRIVACY: '/privacy',
+  // A shared, public portfolio is /profile/<user id>.
+  PUBLIC_PROFILE: (id: string) => `/profile/${id}`,
 } as const;
 
 export const LOCALSTORAGE_KEY = 'profileai_coach_conversation' as const;
@@ -56,8 +61,8 @@ export const TEXT = {
   SKIP: 'Skip for now',
 
   /* ─── Talking to Remi ─── */
-  VOICE_OFFER: 'I have the facts down. The rest is the part people never write well in a box — what you actually want next, and what is in the way. Two minutes out loud and I will have it. Or we can keep typing, which is completely fine.',
-  VOICE_START: 'Let us talk, two minutes',
+  VOICE_OFFER: 'I have the facts down. The rest is the part people never write well in a box — what you actually want next, and what is in the way. A few minutes out loud and I will have it. Or we can keep typing, which is completely fine.',
+  VOICE_START: 'Talk it through',
   VOICE_KEEP_TYPING: 'Keep typing',
   VOICE_MUTE: 'Mute your microphone',
   VOICE_UNMUTE: 'Unmute',
@@ -70,7 +75,7 @@ export const TEXT = {
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',
   VOICE_FAILED: 'I could not start the call. We can keep going here instead.',
-  VOICE_SIGNED_OUT: 'Talking needs an account — a live call costs us by the minute. It takes about twenty seconds to make one, and I will keep everything you have told me so far.',
+  VOICE_SIGNED_OUT: 'Talking it through with me is free with an account, up to 10 minutes to start. It takes about twenty seconds to make one, and I will keep everything you have told me so far.',
   VOICE_SIGNIN: 'Sign in',
   VOICE_REGISTER: 'Create a free account',
   LOGIN: 'Log in',
@@ -92,9 +97,9 @@ export const TEXT = {
   COACH_NAME: 'Remi',
   // Remi has already said hello in the intro — this is the handover into the
   // questions, not a second introduction.
-  GREETING: "Right — let's build your profile.",
+  GREETING: "Let's build your profile.",
   GREETING_SUB:
-    'About two minutes of questions. Answer by tapping, typing, or the mic.',
+    'A few minutes. Tap, type, or use the mic. You can edit everything at the end.',
 
   INPUT_PLACEHOLDER: 'Type your answer',
   INPUT_PLACEHOLDER_VOICE: 'Type your answer, or tap the mic to talk',
@@ -108,7 +113,6 @@ export const TEXT = {
   DONE_CHIP: 'Continue',
 
   PANEL_TITLE: 'PROFILE STRENGTH',
-  PANEL_ENCOURAGE: 'Keep going — each answer adds to this.',
 
   THINKING: 'Thinking',
   // Offered, not done to them. A silent restore after a deliberate refresh
@@ -116,7 +120,47 @@ export const TEXT = {
   RESUME_OFFER: 'You have a conversation from earlier. Pick it up, or start fresh?',
   RESUME_CHIP: 'Pick up where we left off',
   FRESH_CHIP: 'Start fresh',
-  RESUMED: 'Right — back where we were.',
+  RESUMED: 'Picked up where you left off.',
+  START_OVER: 'Start over',
+  // The live preview's empty states: what each part will hold, in the same
+  // place it will appear.
+  PREVIEW_HEADLINE: 'Your headline',
+  PREVIEW_META: 'Location and the work you want',
+  PREVIEW_EXPERIENCE: 'Your recent role, with the bullets I write as you talk',
+  PREVIEW_SKILLS: 'What recruiters search on',
+  PREVIEW_EDUCATION: 'Degree, bootcamp or certificates',
+  QUESTIONS_LEFT: (n: number) => (n <= 0
+    ? 'Almost done'
+    : `About ${n} question${n === 1 ? '' : 's'} left, roughly ${Math.max(1, Math.round(n * 0.4))} min`),
+
+  // One title question; field and level are read off it and shown back.
+  TITLE_ACK: (title: string, field: string, level: string) =>
+    [title, [level, field].filter(Boolean).join(', ')].filter(Boolean).join('. ') + '.',
+  EDIT_FIELD: (field: string) => (field ? `Field: ${field}` : 'Set field'),
+  EDIT_LEVEL: (level: string) => (level ? `Level: ${level}` : 'Set level'),
+  EDIT_PICK_FIELD: 'Which field fits best?',
+  EDIT_PICK_LEVEL: 'Which level fits best?',
+  EDIT_DONE: 'Updated.',
+
+  // Facts read back before they land on a resume.
+  CONFIRM_ROLE: (line: string) => `${line}. Right?`,
+  CONFIRM_BULLETS: 'Here is how that reads on your resume. Keep it?',
+  CONFIRM_YES: 'Looks right',
+  CONFIRM_FIX: 'Fix it',
+  FIX_ROLE: 'What should it say? Something like "Acme, 2020 to now".',
+  FIX_BULLETS: 'Tell me what to change, or say it again the way you want it.',
+
+  // Dictation, made visible: the words land in the box as you speak, and
+  // nothing is sent until you send it.
+  LISTENING: 'Listening. Your words appear in the box. Tap the mic to stop, then edit and send.',
+
+  // Pasting, the fallback for any file we could not read.
+  PASTE_PROMPT: 'Paste your resume below. All of it, formatting and all, is fine.',
+  PASTE_PLACEHOLDER: 'Paste your resume text here',
+  PASTE_CTA: 'Read it',
+  PASTE_TOO_SHORT: 'That is a bit short to be a resume. Paste the whole thing?',
+  UPLOAD_NO_TEXT: 'That PDF looks like a scan, so there is no text in it for me to read. Paste the text instead, or try another file.',
+  UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Paste the text instead, or try another file.',
   // The per-conversation ceiling on answered asides. Generous for a person,
   // closed to a script.
   ASIDE_LIMIT_HIT:
@@ -139,13 +183,14 @@ export const TEXT = {
   FINISH_CTA: 'Review my profile',
 
   UPLOAD_PROMPT: 'Great — pick your resume file and I will read it.',
-  UPLOAD_DONE: 'Read it. I filled in what I found — let me just check the gaps.',
-  UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
+  UPLOAD_DONE: 'Read it. Here is what I found. If anything is wrong, tell me and I will fix it.',
+  UPLOAD_FAILED: 'I could not read that file. Paste the text instead, or try another one.',
   UPLOAD_UNREADABLE: 'Could not read this one',
   UPLOAD_CANCELLED: 'No problem — pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   IMPORT_CANCELLED: 'No problem — try one of these, or we can just keep talking.',
-  LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
+  LINKEDIN_DONE: 'Imported. Here is what came across. If anything is wrong, tell me and I will fix it.',
+  PASTE_DONE: 'Read it. Here is what I found. If anything is wrong, tell me and I will fix it.',
 
   // The whole conversation is free and needs no account — the ask comes at
   // the end, once there is a finished profile to save. This prompt is only
@@ -162,19 +207,6 @@ export const TEXT = {
   ERROR_FILE_TYPE: 'Please upload a PDF or DOCX file',
   ERROR_FILE_SIZE: 'File size must be less than 5MB',
 } as const;
-
-// The right-rail checklist. Mirrors the Figma panel; `key` maps onto the
-// canonical rubric in hooks/useProfileCompletion.js so this meter and the
-// editor's sidebar never disagree.
-export const PANEL_ITEMS = [
-  { key: 'title', label: 'HEADLINE', hint: 'Your role and level' },
-  { key: 'lookingFor', label: 'LOOKING FOR', hint: 'Role type and work style' },
-  { key: 'skills', label: 'SKILLS', hint: 'What recruiters search on' },
-  { key: 'exp', label: 'EXPERIENCE', hint: 'Your recent role, in bullets' },
-  // Shown to whoever the coach asks — see visiblePanelItems.
-  { key: 'proj', label: 'PROJECTS', hint: 'Work you can point at' },
-  { key: 'edu', label: 'EDUCATION', hint: 'Degree, bootcamp or certs' },
-] as const;
 
 /* ─── The closing sequence ───────────────────────────────────────
    Copy for the review, the target read, the finished resume, the
@@ -211,50 +243,51 @@ export const COACH_TEXT = {
     'This is what we have so far. It is a real start, but it is thin — the gaps below are what to fill in next.',
   RESUME_CARD_TITLE: 'Your profile',
 
-  TOUR_INTRO: 'That is yours now. Here is what you can do with it.',
-  TOUR_CONTINUE: 'Got it, what now?',
-  TOUR_OUTRO:
-    'All of it runs off the profile you just built. The more of it is true and specific, the better everything above works.',
-
-  CONVERT_TITLE: 'Save it to your account',
+  CONVERT_TITLE: 'Save your profile',
   CONVERT_BODY:
-    'Your profile lives in this browser right now, so it disappears if you close the tab. Creating a free account saves it, publishes your portfolio, and turns on the tools above.',
-  CONVERT_CTA: 'Create my free account',
+    'Your profile is only in this browser right now, so it is gone if you clear it or switch devices. A free account keeps it, publishes your portfolio, and lets you download your resumes.',
+  CONVERT_BODY_TAILORED:
+    'Save it to download your tailored resume. A free account also keeps your profile and publishes your portfolio.',
+  CONVERT_GOOGLE: 'Continue with Google',
+  CONVERT_EMAIL: 'Use email instead',
   CONVERT_SIGNIN: 'I already have an account',
-  CONVERT_NOTE: 'Free. No card. Takes about twenty seconds.',
-} as const;
+  CONVERT_TERMS_PRE: 'By continuing you agree to the ',
+  CONVERT_TERMS: 'Terms',
+  CONVERT_TERMS_AND: ' and ',
+  CONVERT_PRIVACY: 'Privacy Policy',
+  CONVERT_NOTE: 'Free. No card.',
+  CONVERT_FAILED: 'That did not go through. Try again, or use email instead.',
+  CONVERT_HAS_PROFILE: 'You already have a profile on this account, so I have not overwritten it. Opening the editor so you can merge what we just built.',
 
-// The product tour shown in the chat once the profile is built. Every claim
-// here maps to a feature that actually ships — see COMPARE_FEATURES in
-// pages/Pricing/constants.ts. Do not add aspirational entries: this is the
-// first thing a new user is told the product does, and it sets what they
-// then go looking for.
-export const TOUR_CARDS = [
-  {
-    id: 'tailor',
-    icon: 'tune',
-    title: 'Tailor it to any job',
-    body: 'Paste a posting and your resume gets rewritten for that specific role, using only what is already true about you. Most people send the same resume everywhere; this is the part that changes replies.',
-  },
-  {
-    id: 'extension',
-    icon: 'extension',
-    title: 'The browser extension',
-    body: 'On a job page it reads the posting, shows how well your profile matches it, and fills the application from what you just built. You stop retyping the same details into every form.',
-  },
-  {
-    id: 'letter',
-    icon: 'mail',
-    title: 'Cover letters that are not generic',
-    body: 'Drafted from your profile and the posting together, so it references your actual work rather than restating the job description back at them.',
-  },
-  {
-    id: 'portfolio',
-    icon: 'public',
-    title: 'A portfolio recruiters can find',
-    body: 'Your profile becomes a public page you can send anyone, and recruiters searching for your skills can find it. It works while you are not applying.',
-  },
-] as const;
+  SAVE_DONE: 'Saved. Your profile is live.',
+  SAVE_FAILED: 'I could not save that just now. Opening the editor, where you can save it yourself.',
+
+  // The free tailored resume, inside onboarding.
+  TAILOR_PLACEHOLDER: 'Paste a job link or the full job description',
+  TAILOR_CTA: 'Tailor my resume',
+  TAILOR_SKIP: 'Not now',
+  TAILOR_WORKING: 'Reading the posting and tailoring your resume to it.',
+  TAILOR_TOO_SHORT: 'Paste the link, or the whole description: that is too short to tailor against.',
+  TAILOR_URL_FAILED: 'I could not read that page. Paste the job description instead.',
+  TAILOR_FAILED: 'That did not work on my side. Try again, or skip it for now.',
+  TAILOR_LIMIT: 'You have used the free tailoring for today. Save your profile and you can tailor more.',
+  TAILOR_DONE: (score: number | null, role: string) =>
+    score === null
+      ? `Done. Here is your resume, tailored${role ? ` for ${role}` : ''}.`
+      : `Done. You match ${score}%${role ? ` of what ${role} asks for` : ' of what it asks for'}. Here is your tailored resume.`,
+  MATCH_TITLE: 'Match',
+  MATCH_STRENGTHS: 'Where you are strong',
+  MATCH_GAPS: 'What it asks for that you have not shown',
+  TAILORED_TITLE: 'Tailored resume',
+
+  NEXT_TITLE: 'Where to go from here',
+  NEXT_PORTFOLIO: 'View my portfolio',
+  NEXT_COPY_LINK: 'Copy my portfolio link',
+  NEXT_COPIED: 'Link copied',
+  NEXT_EXTENSION: 'Get the browser extension',
+  NEXT_EXTENSION_WHY: 'It fills in applications and scores every job you open against this profile.',
+  NEXT_EDIT: 'Edit my profile',
+} as const;
 
 // Narration while the resume is parsed. Parsing takes several seconds and a
 // typing indicator alone reads as the page having stalled — people re-click

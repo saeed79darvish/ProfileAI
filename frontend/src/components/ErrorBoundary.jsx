@@ -64,6 +64,8 @@ class ErrorBoundary extends React.Component {
           componentStack: errorInfo?.componentStack || null,
           url: window.location.href,
           ts: new Date().toISOString(),
+          // eslint-disable-next-line no-undef
+          build: typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : null,
         })
       );
     } catch { /* ignore quota / storage errors */ }

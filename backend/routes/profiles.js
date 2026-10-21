@@ -5,7 +5,13 @@ const { Profile, User, GuestAIUsage, GuestAnalysisCache, GuestLead, AnalyticsEve
 const authMiddleware = require('../middleware/auth');
 const { optionalAuth } = require('../middleware/auth');
 const { isUuid } = require('../utils/slug');
-const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
+const {
+  aiRateLimiter,
+  aiRateLimiterIfSignedIn,
+  coachVoiceSessionLimiter,
+  recordVoiceSession,
+  recordAIUsage,
+} = require('../middleware/aiRateLimiter');
 const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlForLimit } = require('../middleware/guestRateLimiter');
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
@@ -68,7 +74,10 @@ const upload = multer({
 // @route   POST /api/profiles/upload-resume
 // @desc    Upload and parse resume to extract profile data (NO AI - uses pattern matching)
 // @access  Private
-router.post('/upload-resume', authMiddleware, upload.single('resume'), async (req, res) => {
+// Free while someone is building their first profile: the parse is how the
+// profile gets built, and it must not spend the one parse a month the free
+// plan has for later.
+router.post('/upload-resume', authMiddleware, aiRateLimiter('resume_parse', { freeWhen: 'noProfileYet' }), upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -77,11 +86,8 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
     console.log(`Processing resume upload for user ${req.user.id}`);
     console.log(`File: ${req.file.originalname}, Type: ${req.file.mimetype}, Size: ${req.file.size} bytes`);
 
-    // Extract raw text first (for storing)
-    const rawResumeText = await resumeParserService.extractTextFromResume(req.file);
-
-    // Parse the resume (no AI - pattern matching only)
     const result = await resumeParserService.parseResume(req.file);
+    const rawResumeText = result.fullText;
 
     if (!result.success) {
       return res.status(400).json({
@@ -101,6 +107,7 @@ router.post('/upload-resume', authMiddleware, upload.single('resume'), async (re
       );
       console.log(`[Resume] Stored original resume text for user ${req.user.id} (${rawResumeText.length} chars)`);
     }
+    await recordAIUsage(req.user.id, 'resume_parse');
 
     // Return the parsed data to the frontend
     res.json({
@@ -189,6 +196,50 @@ router.post('/guest/upload-resume', guestAnalysisLimiter({ perIpPerDay: 20 }), u
       error: 'Error processing resume',
       detail: error?.message || 'unknown'
     });
+  }
+});
+
+// @route   POST /api/profiles/parse-resume-text
+// @route   POST /api/profiles/guest/parse-resume-text
+// @desc    The fallback when a file cannot be read: the person pastes their
+//          resume text and it goes through exactly the parse a file does.
+//          Before this, a PDF with no text layer (or one our extractor choked
+//          on) was a dead end with no way forward.
+// @access  Private / Public (rate-limited, never persisted)
+const MAX_PASTED_RESUME = 60000;
+const readPastedText = (req) => String(req.body?.text || '').slice(0, MAX_PASTED_RESUME);
+
+router.post('/parse-resume-text', authMiddleware, aiRateLimiter('resume_parse', { freeWhen: 'noProfileYet' }), async (req, res) => {
+  try {
+    const result = await resumeParserService.parseResumeText(readPastedText(req));
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to parse resume', code: result.code || undefined });
+    }
+    if (result.fullText && result.fullText.trim()) {
+      const { Profile } = require('../models');
+      await Profile.update(
+        { originalResumeText: result.fullText.trim() },
+        { where: { userId: req.user.id } }
+      );
+    }
+    await recordAIUsage(req.user.id, 'resume_parse');
+    res.json({ success: true, message: 'Resume parsed successfully', data: result.data });
+  } catch (error) {
+    console.error('Error parsing pasted resume:', error?.message);
+    res.status(500).json({ error: 'Error processing resume', detail: error?.message || 'unknown' });
+  }
+});
+
+router.post('/guest/parse-resume-text', guestAnalysisLimiter({ perIpPerDay: 20 }), async (req, res) => {
+  try {
+    const result = await resumeParserService.parseResumeText(readPastedText(req));
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Failed to parse resume', code: result.code || undefined });
+    }
+    res.json({ success: true, message: 'Resume parsed successfully', data: result.data });
+  } catch (error) {
+    console.error('Error parsing pasted guest resume:', error?.message);
+    res.status(500).json({ error: 'Error processing resume', detail: error?.message || 'unknown' });
   }
 });
 
@@ -659,7 +710,7 @@ router.get('/coach/voice/status', (req, res) => {
    that holds the API key and decides who is allowed to start a call — which
    is the whole of our involvement, because a realtime session is one model
    doing hearing, thinking and speaking with nothing in the middle. */
-router.post('/coach/voice/session', authMiddleware, async (req, res) => {
+router.post('/coach/voice/session', authMiddleware, coachVoiceSessionLimiter, async (req, res) => {
   try {
     if (!coachRealtimeService.isConfigured()) {
       return res.status(503).json({ error: 'Voice is not configured on this server' });
@@ -685,7 +736,11 @@ router.post('/coach/voice/session', authMiddleware, async (req, res) => {
       missing,
     });
 
-    res.json({ success: true, ...session });
+    /* Counted at the start, against the minutes granted: OpenAI is not told
+       the cap, so the browser is, and hangs up when it is reached. */
+    const maxSessionMinutes = req.voiceAllowance?.maxSessionMinutes || null;
+    if (req.voiceAllowance) await recordVoiceSession(req.userId || req.user?.id, maxSessionMinutes);
+    res.json({ success: true, ...session, maxSessionMinutes });
   } catch (error) {
     console.error('Error starting voice coach:', error.detail || error.message);
     res.status(500).json({
@@ -703,7 +758,7 @@ router.post('/coach/voice/session', authMiddleware, async (req, res) => {
 // @access  Public (guests metered by IP)
 router.post('/coach/turn', coachGuard, async (req, res) => {
   try {
-    const { profile, missing, history, message } = req.body || {};
+    const { profile, missing, history, message, liveVoice } = req.body || {};
     if (!message || !String(message).trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -713,6 +768,7 @@ router.post('/coach/turn', coachGuard, async (req, res) => {
       missing: Array.isArray(missing) ? missing.slice(0, 20) : [],
       history: Array.isArray(history) ? history.slice(-10) : [],
       message,
+      liveVoice: ['live', 'account'].includes(liveVoice) ? liveVoice : 'none',
     });
 
     await recordCoachUsage(req);
@@ -750,7 +806,8 @@ router.post('/coach/ask', coachGuard, async (req, res) => {
 // @route   POST /api/profiles/coach/target
 // @desc    How far the target role is, grounded in live postings we hold
 // @access  Public (guests metered by IP)
-router.post('/coach/target', coachGuard, async (req, res) => {
+// The career analysis: one free, refreshable on a paid plan.
+router.post('/coach/target', coachGuard, aiRateLimiterIfSignedIn('career_analysis'), async (req, res) => {
   try {
     const { profile, target, location, workStyle, motivation, blocker } = req.body || {};
     if (!profile || typeof profile !== 'object') {
@@ -772,6 +829,7 @@ router.post('/coach/target', coachGuard, async (req, res) => {
     });
 
     await recordCoachUsage(req);
+    if (req.userId) await recordAIUsage(req.userId, 'career_analysis');
     res.json({ success: true, assessment });
   } catch (error) {
     console.error('Error assessing coach target:', error);
@@ -782,7 +840,7 @@ router.post('/coach/target', coachGuard, async (req, res) => {
 // @route   POST /api/profiles/enhance-resume
 // @desc    Enhance profile data with AI-powered improvements
 // @access  Private
-router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance', { freeWhen: 'noProfileYet' }), async (req, res) => {
   try {
     // `options` is the structured form of the modal's choices; `customPrompt`
     // is the older free-text form, still accepted from clients that send it.
@@ -1661,7 +1719,7 @@ router.post('/tailor-for-job', authMiddleware, withServerProfile, aiRateLimiter(
 // @desc    Rewrite specific resume sections per user instructions (used by the
 //          Download modal's "regenerate with AI" step). No job description needed.
 // @access  Private
-router.post('/regenerate-sections', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/regenerate-sections', authMiddleware, aiRateLimiter('profile_enhance', { freeWhen: 'noProfileYet' }), async (req, res) => {
   try {
     const { profileData, instructions } = req.body;
 
@@ -1856,7 +1914,7 @@ Return ONLY valid JSON, no additional text or markdown.`;
 // @desc    Suggest a value for a single autofill field that the rule-based
 //          extension pass could not match. Lightweight, single-question call.
 // @access  Private
-router.post('/autofill-suggest', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
+router.post('/autofill-suggest', authMiddleware, aiRateLimiter('autofill_apply'), async (req, res) => {
   try {
     const { question, fieldType, options, profile, jobContext } = req.body || {};
     if (!question || typeof question !== 'string') {
@@ -1932,7 +1990,9 @@ Rules:
 //          extension when the rule-based autofill leaves multiple custom dropdowns
 //          unfilled (typical Greenhouse / Lever / Ashby application has 5-15).
 // @access  Private
-router.post('/autofill-suggest-batch', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
+// One batch is one application filled, and that is what the free plan's
+// five a month counts.
+router.post('/autofill-suggest-batch', authMiddleware, aiRateLimiter('autofill_apply'), async (req, res) => {
   try {
     const { fields, profile, jobContext } = req.body || {};
     if (!Array.isArray(fields) || fields.length === 0) {
@@ -2008,6 +2068,7 @@ ${numbered.map(q => `[${q.i}] "${q.question}"${q.options ? `\n     options: ${JS
       return { i: q.i, value, confidence };
     });
 
+    await recordAIUsage(req.user.id, 'autofill_apply');
     res.json({ answers: result });
   } catch (err) {
     console.error('[profiles/autofill-suggest-batch]', err);
@@ -2018,7 +2079,9 @@ ${numbered.map(q => `[${q.i}] "${q.question}"${q.options ? `\n     options: ${JS
 // @route   POST /api/profiles/generate-cover-letter
 // @desc    Generate a cover letter based on candidate profile and job info
 // @access  Private
-router.post('/generate-cover-letter', authMiddleware, aiRateLimiter('tailor_profile'), async (req, res) => {
+// Its own allowance. It used to be checked against tailorings, so a free
+// user's third tailored resume also used up their cover letters.
+router.post('/generate-cover-letter', authMiddleware, aiRateLimiter('cover_letter'), async (req, res) => {
   try {
     const { jobTitle, company, jobDescription, profile, tone, lines, length } = req.body;
 
@@ -2050,7 +2113,7 @@ router.post('/generate-cover-letter', authMiddleware, aiRateLimiter('tailor_prof
       length,
     });
 
-    await recordAIUsage(req.user.id, 'generate_cover_letter');
+    await recordAIUsage(req.user.id, 'cover_letter');
 
     res.json({ success: true, coverLetter });
   } catch (error) {
@@ -2062,7 +2125,7 @@ router.post('/generate-cover-letter', authMiddleware, aiRateLimiter('tailor_prof
 // @route   POST /api/profiles/enhance-text
 // @desc    Enhance individual text (project description, experience description, etc.)
 // @access  Private
-router.post('/enhance-text', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/enhance-text', authMiddleware, aiRateLimiter('profile_enhance', { freeWhen: 'noProfileYet' }), async (req, res) => {
   try {
     const { text, type, context } = req.body;
 
@@ -2696,7 +2759,7 @@ router.post('/job-match', authMiddleware, withServerProfile, resolveJobMatchInpu
 // @route   POST /api/profiles/enhance
 // @desc    Enhance profile with AI
 // @access  Private
-router.post('/enhance', authMiddleware, aiRateLimiter('profile_enhance'), async (req, res) => {
+router.post('/enhance', authMiddleware, aiRateLimiter('profile_enhance', { freeWhen: 'noProfileYet' }), async (req, res) => {
   try {
     const profile = await Profile.findOne({ where: { userId: req.user.id } });
 

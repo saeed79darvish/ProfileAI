@@ -45,7 +45,7 @@ export const INTRO_TEXT = {
   STEP_LABEL: (n: number, total: number) => `Step ${n} of ${total}`,
 
   START_BUBBLE: "Let's start with your profile.",
-  START_HINT: 'Everything else runs off it. It takes about two minutes.',
+  START_HINT: 'Everything else runs off it. It takes a few minutes.',
   BUILD_TITLE: 'Build Your AI Profile',
   BUILD_DESCRIPTION: 'Upload your resume or start from scratch, ProfilleAI helps you create a standout profile to use with the Extension and apply for jobs.',
   BUILD_BUTTON: 'Build Your Profile',

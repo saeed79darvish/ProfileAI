@@ -132,7 +132,7 @@ async function createVoiceSession({ firstName, profile = {}, missing = [] } = {}
 const VOICE_FIELDS = new Set([
   'title', 'seniority', 'field', 'company', 'previousCompany', 'startDate',
   'endDate', 'bullets', 'skills', 'school', 'degree', 'location', 'roleType',
-  'workStyle', 'target', 'yearsExperience',
+  'workStyle', 'target', 'yearsExperience', 'graduationYear',
 ]);
 
 /** Keep what the call is allowed to have heard, drop the rest. */

@@ -8,6 +8,12 @@ import path from 'path';
 // silently disabled in prod.
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  /* When this bundle was built, stamped onto stored crash reports. A crash
+     left in someone's browser outlives the fix for it — "Cannot access 'ze'
+     before initialization" was still sitting in storage weeks after the
+     deploy that fixed it — and without the build there is no telling an old
+     report from a new one. */
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   resolve: {
     dedupe: [
       'react',

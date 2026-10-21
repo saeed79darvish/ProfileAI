@@ -81,7 +81,7 @@ test('the call is told it is continuing, not starting over', () => {
     missing: ['what they want to do next'],
   });
   assert.match(instructions, /not starting over/i);
-  assert.match(instructions, /Two minutes/);
+  assert.match(instructions, /A few minutes/);
   assert.match(instructions, /what they want to do next/);
 });
 
