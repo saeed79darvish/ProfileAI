@@ -47,21 +47,28 @@ export const CREDIT_PACKS = [
   { id: 'apply_60', name: 'Apply 60', description: '60 résumés + 60 cover letters', price: 24.99, perCredit: '$0.42 / app', popular: false },
 ] as const;
 
+// Every row here must match backend/config/aiLimits.js and must be something
+// that ships today. Features still being built (mock interviews, negotiation
+// practice) are deliberately absent.
 export const COMPARE_FEATURES = [
-  { name: 'Resume Parsing',         free: '1/month',   pro: '20/month',  proPlus: '50/month' },
-  { name: 'Profile Enhancement',    free: '1/month',   pro: '30/month',  proPlus: '100/month' },
+  { name: 'Coach-built profile (chat, import, dictation)', free: 'Unlimited', pro: 'Unlimited', proPlus: 'Unlimited' },
+  { name: 'AI polish',              free: 'Free while building, then 3/month', pro: '30/month', proPlus: 'Unlimited' },
+  { name: 'Resume re-imports',      free: 'First one free, then 1/month', pro: '20/month', proPlus: '50/month' },
+  { name: 'Career analysis (coach verdict + gap plan)', free: '1 included', pro: 'Refresh anytime', proPlus: 'Refresh anytime' },
+  { name: 'Live voice coach',       free: '1 session, about 10 min', pro: '60 min/month', proPlus: '300 min/month' },
   { name: 'Resume Tailoring',       free: '3 lifetime', pro: '50/month', proPlus: '200/month' },
   { name: 'AI Cover Letter',        free: '2/month',   pro: '30/month',  proPlus: '200/month' },
-  { name: 'Career Suggestions',     free: '5/month',   pro: 'Unlimited', proPlus: 'Unlimited' },
-  { name: 'Interview Prep',         free: false,        pro: true,       proPlus: 'Unlimited' },
+  { name: 'Job match score',        free: 'Unlimited', pro: 'Unlimited', proPlus: 'Unlimited' },
+  { name: 'Extension autofill',     free: '5/month',   pro: 'Unlimited', proPlus: 'Unlimited' },
+  { name: 'Career Suggestions',     free: '10/month',  pro: 'Unlimited', proPlus: 'Unlimited' },
+  { name: 'Interview Prep',         free: false,        pro: '3/month',  proPlus: '10/month' },
   { name: 'Watermark-free Exports', free: false,        pro: true,       proPlus: true },
-  { name: 'Advanced Analytics',     free: false,        pro: true,       proPlus: true },
   { name: 'Priority Support',       free: false,        pro: true,       proPlus: true },
 ] as const;
 
 export const FAQS = [
-  { question: 'How does the Free plan work?', answer: 'Free includes 3 lifetime resume tailorings, 1 resume parse and 1 profile enhancement per month, and 2 cover letters per month. It\'s designed as a trial — once you\'ve used your 3 tailorings, upgrade to Pro or buy an Apply credit pack to keep going.' },
-  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo billed monthly, or $9.92/mo billed annually at $119/yr) gives you 50 tailored resumes and 30 cover letters per month — plenty for an active job search. Pro+ ($29.99/mo billed monthly, or $19.92/mo billed annually at $239/yr) raises that to 200 tailored resumes and 200 cover letters a month, and adds batch tailoring and unlimited interview prep.' },
+  { question: 'How does the Free plan work?', answer: 'Building your profile with the coach is free and unlimited: chat, resume import, dictation and AI polish while you build. You also get one full career analysis, one live voice coach session of about 10 minutes, 3 lifetime resume tailorings, 2 cover letters a month, unlimited job match scores and 5 extension autofills a month. After your profile is saved, AI polish is 3 a month. Free exports carry a small "Made with ProfilleAI" footer.' },
+  { question: 'What\'s the difference between Pro and Pro+?', answer: 'Pro ($14.99/mo billed monthly, or $9.92/mo billed annually at $119/yr) gives you 50 tailored resumes, 30 cover letters, 30 AI polishes and 60 voice coach minutes a month, plus unlimited autofill and watermark-free exports. Pro+ ($29.99/mo billed monthly, or $19.92/mo billed annually at $239/yr) raises that to 200 tailored resumes and 200 cover letters a month, unlimited AI polish and 300 voice coach minutes.' },
   { question: 'What are credit packs?', answer: 'One-time purchases that give you extra application credits (1 tailored resume + 1 cover letter each). Credits never expire and are used automatically when your subscription limits are reached. Useful if you\'re between jobs but don\'t want a recurring plan.' },
   { question: 'Can I change plans later?', answer: 'Yes, you can upgrade or downgrade your plan at any time. Changes will be reflected in your next billing cycle.' },
   { question: 'What payment methods do you accept?', answer: 'We accept all major credit cards via Stripe, plus PayPal.' },

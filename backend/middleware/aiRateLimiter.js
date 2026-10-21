@@ -1,6 +1,28 @@
 const { Op } = require('sequelize');
-const { AIUsage, User, PromoRedemption, CreditPack } = require('../models');
-const { getLimits, isUnlimited, ESTIMATED_COSTS, FEATURE_NAMES, getWeekStart, getNextWeekStart } = require('../config/aiLimits');
+const { AIUsage, User, Profile, PromoRedemption, CreditPack } = require('../models');
+const { getLimits, isUnlimited, ESTIMATED_COSTS, FEATURE_NAMES, ONBOARDING_FREE_FEATURES, getWeekStart, getNextWeekStart } = require('../config/aiLimits');
+
+/**
+ * When the user saved their first Profile, or null if they have not yet.
+ * Profile rows are only created by the first save (POST /api/profiles), so
+ * "no row" is exactly "still building the first profile".
+ */
+const getFirstProfileSavedAt = async (userId) => {
+  const profile = await Profile.findOne({ where: { userId }, attributes: ['createdAt'] });
+  return profile ? profile.createdAt : null;
+};
+
+/**
+ * A usedAt filter starting at the later of a window start and a floor.
+ * Either may be null; both null means "all time".
+ */
+const usedSince = (windowStart, floor) => {
+  const from = floor && (!windowStart || floor > windowStart) ? floor : windowStart;
+  return from ? { usedAt: { [Op.gte]: from } } : {};
+};
+
+/** Paid tiers keep their own limits even before onboarding is finished. */
+const isPaidTier = (tier) => !!tier && tier !== 'free';
 
 /**
  * Get the best active promo bonus for a user (highest multiplier / flat)
@@ -103,8 +125,20 @@ const deductCreditPackCredit = async (userId, featureType) => {
  * Pro tier: monthly limits only (no daily/weekly caps)
  * 
  * Usage: router.post('/enhance', authMiddleware, aiRateLimiter('profile_enhance'), handler)
+ *
+ * Options:
+ *   freeWhen: 'noProfileYet'
+ *     Free while the user is building their first profile (no Profile row).
+ *     Only the abuse ceiling in ONBOARDING_FREE_FEATURES[featureType].safetyCap
+ *     applies then. Once a profile exists, usage recorded BEFORE it was first
+ *     saved is ignored, so onboarding never eats into the monthly allowance.
+ *     e.g. aiRateLimiter('resume_parse', { freeWhen: 'noProfileYet' })
  */
-const aiRateLimiter = (featureType) => {
+const aiRateLimiter = (featureType, options = {}) => {
+  const freeWhenNoProfile = options.freeWhen === 'noProfileYet';
+  if (options.freeWhen && !freeWhenNoProfile) {
+    throw new Error(`aiRateLimiter: unknown freeWhen "${options.freeWhen}"`);
+  }
   return async (req, res, next) => {
     // Optional global escape hatch for local development. Set
     // DISABLE_AI_RATE_LIMIT=true to bypass; otherwise the limits below run.
@@ -126,11 +160,44 @@ const aiRateLimiter = (featureType) => {
       const role = user.role || 'candidate';
       let tier = user.subscriptionTier || 'free';
 
-      // Onboarding override: candidate who hasn't completed their first profile
-      // gets the generous 'onboarding' tier regardless of subscription.
-      // This lets new users experience all profile-building AI features for free.
-      if (role === 'candidate' && !user.aiOnboardingCompleted) {
+      // Onboarding override: a free candidate who hasn't completed their first
+      // profile gets the generous 'onboarding' tier. Paid users keep their own
+      // limits, which are never lower (and the onboarding tier's lifetime caps
+      // would otherwise apply to someone who has already paid).
+      if (role === 'candidate' && !user.aiOnboardingCompleted && !isPaidTier(tier)) {
         tier = 'onboarding';
+      }
+
+      // Usage before the first profile save does not count against the caps
+      // of a freeWhen:'noProfileYet' feature. Null means "count everything".
+      let countFloor = null;
+      if (freeWhenNoProfile && role === 'candidate') {
+        const firstSavedAt = await getFirstProfileSavedAt(userId);
+        if (!firstSavedAt) {
+          const safetyCap = ONBOARDING_FREE_FEATURES[featureType]?.safetyCap;
+          if (safetyCap > 0) {
+            const used = await AIUsage.count({ where: { userId, featureType } });
+            if (used >= safetyCap) {
+              return res.status(429).json({
+                error: 'Limit reached',
+                message: `You've used ${FEATURE_NAMES[featureType] || featureType} a lot without saving a profile. Save your profile to continue.`,
+                featureType,
+                usage: { total: used, onboardingSafetyCap: safetyCap },
+                upgradeRequired: false,
+              });
+            }
+          }
+          req.aiUsage = {
+            featureType,
+            userId,
+            limits: { onboardingFree: true },
+            useCreditPack: false,
+            onboardingFree: true,
+            currentUsage: {},
+          };
+          return next();
+        }
+        countFloor = firstSavedAt;
       }
 
       // Get limits for this feature
@@ -170,7 +237,7 @@ const aiRateLimiter = (featureType) => {
 
       if (needsLifetimeCount) {
         totalUsage = await AIUsage.count({
-          where: { userId, featureType }
+          where: { userId, featureType, ...usedSince(null, countFloor) }
         });
 
         // Hard lifetime cap (e.g. Free tier tailor_profile = 3 lifetime).
@@ -219,11 +286,7 @@ const aiRateLimiter = (featureType) => {
       // Check daily limit (if configured)
       if (limits.daily && !isUnlimited(limits.daily) && limits.daily > 0) {
         const dayUsage = await AIUsage.count({
-          where: {
-            userId,
-            featureType,
-            usedAt: { [Op.gte]: todayStart }
-          }
+          where: { userId, featureType, ...usedSince(todayStart, countFloor) }
         });
 
         if (dayUsage >= limits.daily) {
@@ -247,11 +310,7 @@ const aiRateLimiter = (featureType) => {
 
       // Count this week's usage
       const weekUsage = await AIUsage.count({
-        where: {
-          userId,
-          featureType,
-          usedAt: { [Op.gte]: weekStart }
-        }
+        where: { userId, featureType, ...usedSince(weekStart, countFloor) }
       });
 
       // Check weekly limit (primarily for free tier)
@@ -262,11 +321,7 @@ const aiRateLimiter = (featureType) => {
 
       // Count this month's usage
       const monthUsage = await AIUsage.count({
-        where: {
-          userId,
-          featureType,
-          usedAt: { [Op.gte]: monthStart }
-        }
+        where: { userId, featureType, ...usedSince(monthStart, countFloor) }
       });
 
       // Check monthly limit
@@ -369,6 +424,140 @@ const recordAIUsage = async (userId, featureType, metadata = {}) => {
 };
 
 /**
+ * aiRateLimiter for signed-in callers only; guests pass straight through to
+ * whatever guest limiter already ran (e.g. coachGuard's IP meter). Use after
+ * optionalAuth / coachGuard, which set req.user when there is a token.
+ */
+const aiRateLimiterIfSignedIn = (featureType, options) => {
+  const limiter = aiRateLimiter(featureType, options);
+  return (req, res, next) => (req.user?.id ? limiter(req, res, next) : next());
+};
+
+// ── Live voice coach ─────────────────────────────────────────────────────
+// Metered in minutes, not calls. The browser talks to OpenAI directly, so we
+// never see the call end: a session is recorded at start with the minutes it
+// was granted (metadata.minutes), and the client is told to hang up at that
+// cap. settleVoiceSession can true it up later if an end hook is ever added.
+const VOICE_FEATURE = 'coach_voice_session';
+
+/**
+ * What this user may start right now.
+ * Returns { allowed, maxSessionMinutes, remainingMinutes, reason, tier }.
+ * remainingMinutes is -1 when there is no monthly minute budget.
+ */
+const getVoiceAllowance = async (user) => {
+  const role = user.role || 'candidate';
+  let tier = user.subscriptionTier || 'free';
+  if (role === 'candidate' && !user.aiOnboardingCompleted && !isPaidTier(tier)) {
+    tier = 'onboarding';
+  }
+  const limits = getLimits(role, tier, VOICE_FEATURE);
+  const maxSession = limits.maxSessionMinutes > 0 ? limits.maxSessionMinutes : 10;
+
+  if (limits.weekly === 0 && limits.monthly === 0) {
+    return { allowed: false, maxSessionMinutes: 0, remainingMinutes: 0, reason: 'not_available', tier };
+  }
+
+  if (limits.lifetime > 0) {
+    const sessions = await AIUsage.count({ where: { userId: user.id, featureType: VOICE_FEATURE } });
+    if (sessions >= limits.lifetime) {
+      return { allowed: false, maxSessionMinutes: 0, remainingMinutes: 0, reason: 'lifetime_used', tier };
+    }
+  }
+
+  let remainingMinutes = -1;
+  if (limits.monthlyMinutes > 0) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const rows = await AIUsage.findAll({
+      where: { userId: user.id, featureType: VOICE_FEATURE, usedAt: { [Op.gte]: monthStart } },
+      attributes: ['metadata'],
+    });
+    const used = rows.reduce((sum, r) => sum + (Number(r.metadata?.minutes) || 0), 0);
+    remainingMinutes = Math.max(0, limits.monthlyMinutes - used);
+    // Under a minute left is not a call worth starting.
+    if (remainingMinutes < 1) {
+      return { allowed: false, maxSessionMinutes: 0, remainingMinutes: 0, reason: 'minutes_used', tier };
+    }
+  }
+
+  const maxSessionMinutes = remainingMinutes === -1
+    ? maxSession
+    : Math.max(1, Math.min(maxSession, Math.floor(remainingMinutes)));
+  return { allowed: true, maxSessionMinutes, remainingMinutes, reason: null, tier };
+};
+
+/**
+ * Middleware for POST /coach/voice/session. Puts the allowance on
+ * req.voiceAllowance, or answers 429 with an upgrade prompt.
+ */
+const coachVoiceSessionLimiter = async (req, res, next) => {
+  if (process.env.DISABLE_AI_RATE_LIMIT === 'true') return next();
+  try {
+    const userId = req.user?.id || req.userId;
+    if (!userId) return res.status(401).json({ error: 'Authentication required' });
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    const allowance = await getVoiceAllowance(user);
+    if (!allowance.allowed) {
+      const message = allowance.reason === 'minutes_used'
+        ? "You've used this month's voice coach minutes."
+        : allowance.reason === 'lifetime_used'
+          ? "You've had your free voice coach session. Upgrade to Pro for monthly voice minutes."
+          : 'The voice coach is not available on your current plan.';
+      return res.status(429).json({
+        error: 'Voice limit reached',
+        message,
+        featureType: VOICE_FEATURE,
+        reason: allowance.reason,
+        upgradeRequired: !isPaidTier(user.subscriptionTier) || allowance.reason === 'minutes_used',
+        buyMoreUrl: '/pricing',
+      });
+    }
+    req.voiceAllowance = allowance;
+    next();
+  } catch (error) {
+    // Same stance as aiRateLimiter: metering trouble never blocks the user.
+    console.error('[voice limiter] error:', error.message);
+    next();
+  }
+};
+
+/** Record a started voice session against the minutes it was granted. */
+const recordVoiceSession = async (userId, grantedMinutes, metadata = {}) => {
+  try {
+    return await AIUsage.create({
+      userId,
+      featureType: VOICE_FEATURE,
+      usedAt: new Date(),
+      estimatedCost: 0,
+      metadata: { ...metadata, minutes: Number(grantedMinutes) || 0, settled: false },
+    });
+  } catch (error) {
+    console.error('Error recording voice session:', error.message);
+    return null;
+  }
+};
+
+/** True a session up to the minutes actually spoken, once known. */
+const settleVoiceSession = async (usageId, userId, actualMinutes) => {
+  try {
+    const row = await AIUsage.findOne({ where: { id: usageId, userId, featureType: VOICE_FEATURE } });
+    if (!row) return false;
+    const granted = Number(row.metadata?.minutes) || 0;
+    const minutes = Math.max(0, Math.min(granted, Math.ceil(Number(actualMinutes) || 0)));
+    row.metadata = { ...row.metadata, minutes, granted, settled: true };
+    await row.save();
+    return true;
+  } catch (error) {
+    console.error('Error settling voice session:', error.message);
+    return false;
+  }
+};
+
+/**
  * Get usage summary for a user (includes weekly limits + credit packs)
  */
 const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
@@ -397,6 +586,11 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
   ];
 
   const promoBonus = await getActivePromoBonus(userId);
+  // Only candidates have onboarding-free features. A null here (no profile
+  // yet) means nothing is floored: their usage so far is all free anyway.
+  const firstProfileSavedAt = role === 'candidate'
+    ? await getFirstProfileSavedAt(userId).catch(() => null)
+    : null;
   const usage = {};
 
   for (const featureType of featureTypes) {
@@ -408,36 +602,23 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
         effectiveWeeklyLimit = Math.floor(limits.weekly * promoBonus.multiplier) + promoBonus.flatBonus;
       }
 
-      // Count this week's usage
+      // Onboarding-free features ignore usage from before the first profile
+      // save, exactly as aiRateLimiter does, so the meter matches the gate.
+      const floor = ONBOARDING_FREE_FEATURES[featureType] ? firstProfileSavedAt : null;
+
       const weekUsage = await AIUsage.count({
-        where: {
-          userId,
-          featureType,
-          usedAt: { [Op.gte]: weekStart }
-        }
+        where: { userId, featureType, ...usedSince(weekStart, floor) }
       });
-
-      // Count this month's usage
       const monthUsage = await AIUsage.count({
-        where: {
-          userId,
-          featureType,
-          usedAt: { [Op.gte]: monthStart }
-        }
+        where: { userId, featureType, ...usedSince(monthStart, floor) }
       });
-
-      // Count today's usage (for features with a daily cap, e.g. tailor_profile free tier)
+      // Today's usage (for features with a daily cap)
       const dayUsage = await AIUsage.count({
-        where: {
-          userId,
-          featureType,
-          usedAt: { [Op.gte]: dayStart }
-        }
+        where: { userId, featureType, ...usedSince(dayStart, floor) }
       });
-
-      // Count lifetime usage (for features with a lifetime trial cap)
+      // Lifetime usage (for features with a lifetime trial cap)
       const lifetimeUsage = await AIUsage.count({
-        where: { userId, featureType }
+        where: { userId, featureType, ...usedSince(null, floor) }
       });
 
       // Get credit pack credits
@@ -493,6 +674,12 @@ const getUsageSummary = async (userId, role = 'candidate', tier = 'free') => {
 
 module.exports = {
   aiRateLimiter,
+  aiRateLimiterIfSignedIn,
+  getVoiceAllowance,
+  coachVoiceSessionLimiter,
+  recordVoiceSession,
+  settleVoiceSession,
+  isPaidTier,
   recordAIUsage,
   getUsageSummary,
   getAvailableCreditPackCredits,

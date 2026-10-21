@@ -124,3 +124,33 @@ test('Word strips placeholders from legacy records too', async () => {
   const buf = await generateWord(legacy, USER, 'professional');
   assert.ok(buf.length > 1000, 'Word document failed on a legacy record');
 });
+
+// ── Free-plan watermark ─────────────────────────────────────────────────────
+// Free exports carry a quiet footer on every page; paid exports carry nothing.
+
+for (const templateId of TEMPLATES) {
+  test(`${templateId} stamps the watermark only when asked`, async () => {
+    const marked = await pdfText(await generatePDF(PROFILE, USER, templateId, undefined, undefined, undefined, { watermark: true }));
+    const clean = await pdfText(await generatePDF(PROFILE, USER, templateId));
+    assert.ok(marked.includes('Made with ProfilleAI'), `${templateId} did not stamp the free-plan watermark`);
+    assert.ok(!clean.includes('ProfilleAI'), `${templateId} watermarked a paid export`);
+  });
+}
+
+test('the watermark lands on every page and adds none', async () => {
+  const long = {
+    ...PROFILE,
+    experience: Array.from({ length: 14 }, (_, i) => ({
+      title: `Engineer ${i}`, company: `Company ${i}`, period: '2010 - 2011',
+      description: Array.from({ length: 5 }, () => '• Shipped a thing that mattered to a lot of people').join('\n'),
+    })),
+  };
+  const countPages = async (buf) => (await PDFJS.getDocument({ data: new Uint8Array(buf) }).promise).numPages;
+  const clean = await generatePDF(long, USER, 'professional');
+  const marked = await generatePDF(long, USER, 'professional', undefined, undefined, undefined, { watermark: true });
+  const pages = await countPages(clean);
+  assert.ok(pages > 1, 'fixture should span several pages');
+  assert.equal(await countPages(marked), pages);
+  const stamps = (await pdfText(marked)).split('Made with ProfilleAI').length - 1;
+  assert.equal(stamps, pages);
+});

@@ -29,7 +29,12 @@ const AIUsage = sequelize.define('AIUsage', {
       'generate_cover_letter',
       'job_enhance',
       'interview_prep',
-      'job_match'
+      'job_match',
+      'profile_coach',
+      'career_analysis',
+      'autofill_apply',
+      'coach_voice_session',
+      'mock_interview'
     ),
     allowNull: false
   },

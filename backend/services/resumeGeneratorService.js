@@ -185,7 +185,32 @@ const sanitizeForRender = (profile) => {
   return out;
 };
 
-const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
+// ─── Free-plan watermark ───
+// Every PDF is built with bufferPages so the footer can be stamped on each
+// page once layout is done, without touching any template's flow. Drawn
+// inside the bottom margin with the margin zeroed for the call, so it can
+// never push content or open a new page.
+const WATERMARK_TEXT = 'Made with ProfilleAI';
+const stampWatermark = (doc) => {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    const { width, height } = doc.page;
+    const bottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.save();
+    doc.font('Helvetica').fontSize(7).fillColor('#9ca3af')
+      .text(WATERMARK_TEXT, 0, height - 20, { width, align: 'center', lineBreak: false });
+    doc.restore();
+    doc.page.margins.bottom = bottom;
+  }
+};
+const finishDoc = (doc, opts) => {
+  if (opts && opts.watermark) stampWatermark(doc);
+  doc.end();
+};
+
+const generateClassicPDF = (profile, user, bulletStyle, sectionOrder, opts = {}) => {
   const pageMargin = 50;
   const contentWidth = 595.28 - (pageMargin * 2);
   const bulletIndent = 12;
@@ -193,7 +218,7 @@ const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
 
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true });
+      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true, bufferPages: true });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -394,7 +419,7 @@ const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
       };
       resolveSectionOrder(sectionOrder).forEach((id) => classicRenderers[id] && classicRenderers[id]());
 
-      doc.end();
+      finishDoc(doc, opts);
     } catch (error) { reject(error); }
   });
 };
@@ -402,7 +427,7 @@ const generateClassicPDF = (profile, user, bulletStyle, sectionOrder) => {
 // ─────────────────────────────────────────────────────────────────
 // MODERN TEMPLATE — Two-column with colored sidebar
 // ─────────────────────────────────────────────────────────────────
-const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, sectionOrder) => {
+const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, sectionOrder, opts = {}) => {
   const pageWidth = 595.28;
   const pageHeight = 841.89;
   const sidebarWidth = 185;
@@ -416,7 +441,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, 
 
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 0, size: 'A4', autoFirstPage: true });
+      const doc = new PDFDocument({ margin: 0, size: 'A4', autoFirstPage: true, bufferPages: true });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -694,7 +719,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, 
         .filter((id) => modernMainRenderers[id])
         .forEach((id) => modernMainRenderers[id]());
 
-      doc.end();
+      finishDoc(doc, opts);
     } catch (error) { reject(error); }
   });
 };
@@ -702,7 +727,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, 
 // ─────────────────────────────────────────────────────────────────
 // MINIMAL TEMPLATE — Clean editorial style, centered header
 // ─────────────────────────────────────────────────────────────────
-const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
+const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder, opts = {}) => {
   const pageMargin = 60;
   const contentWidth = 595.28 - (pageMargin * 2);
   const bulletIndent = 14;
@@ -710,7 +735,7 @@ const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
 
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true });
+      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true, bufferPages: true });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -970,7 +995,7 @@ const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
       };
       resolveSectionOrder(sectionOrder).forEach((id) => minimalRenderers[id] && minimalRenderers[id]());
 
-      doc.end();
+      finishDoc(doc, opts);
     } catch (error) { reject(error); }
   });
 };
@@ -979,7 +1004,7 @@ const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder) => {
 // CENTERED TEMPLATE — Centered header, ATS-friendly, categorized
 // skills as bulleted lines, italicized job titles.
 // ─────────────────────────────────────────────────────────────────
-const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
+const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder, opts = {}) => {
   const pageMargin = 54;
   const pageWidth = 595.28;
   const pageHeight = 841.89;
@@ -989,7 +1014,7 @@ const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
 
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true });
+      const doc = new PDFDocument({ margin: pageMargin, size: 'A4', autoFirstPage: true, bufferPages: true });
       const chunks = [];
       doc.on('data', c => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -1233,29 +1258,32 @@ const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder) => {
       };
       resolveSectionOrder(sectionOrder).forEach((id) => centeredRenderers[id] && centeredRenderers[id]());
 
-      doc.end();
+      finishDoc(doc, opts);
     } catch (error) { reject(error); }
   });
 };
 
 // ─── Main dispatcher ───
-const generatePDF = async (rawProfile, user, templateId = 'professional', accentColor, bulletStyle, sectionOrder) => {
-  console.log(`[Resume] Generating PDF with template: ${templateId}, accent: ${accentColor || 'default'}, bullets: ${bulletStyle || 'bullets'}`);
+// options.watermark: stamp a quiet "Made with ProfilleAI" line at the foot
+// of every page. The route sets it for free-plan exports only.
+const generatePDF = async (rawProfile, user, templateId = 'professional', accentColor, bulletStyle, sectionOrder, options = {}) => {
+  console.log(`[Resume] Generating PDF with template: ${templateId}, accent: ${accentColor || 'default'}, bullets: ${bulletStyle || 'bullets'}, watermark: ${!!options.watermark}`);
   const profile = sanitizeForRender(rawProfile);
+  const opts = { watermark: !!options.watermark };
   switch (templateId) {
     case 'modern':
-      return generateModernPDF(profile, user, accentColor || '#10b981', bulletStyle, sectionOrder);
+      return generateModernPDF(profile, user, accentColor || '#10b981', bulletStyle, sectionOrder, opts);
     case 'minimal':
-      return generateMinimalPDF(profile, user, bulletStyle, sectionOrder);
+      return generateMinimalPDF(profile, user, bulletStyle, sectionOrder, opts);
     case 'centered':
-      return generateCenteredPDF(profile, user, bulletStyle, sectionOrder);
+      return generateCenteredPDF(profile, user, bulletStyle, sectionOrder, opts);
     default:
-      return generateClassicPDF(profile, user, bulletStyle, sectionOrder);
+      return generateClassicPDF(profile, user, bulletStyle, sectionOrder, opts);
   }
 };
 
 // Generate Word Document
-const generateWord = async (rawProfile, user, templateId = 'professional', sectionOrder) => {
+const generateWord = async (rawProfile, user, templateId = 'professional', sectionOrder, options = {}) => {
   const profile = sanitizeForRender(rawProfile);
   const template = templates[templateId] || templates.professional;
   const colors = template.colors;
@@ -1632,35 +1660,37 @@ const generateWord = async (rawProfile, user, templateId = 'professional', secti
   };
   resolveSectionOrder(sectionOrder).forEach((id) => wordBuilders[id] && wordBuilders[id]());
 
-  // Footer
-  children.push(
-    new Paragraph({
-      border: {
-        top: {
-          color: 'CCCCCC',
-          space: 1,
-          style: BorderStyle.SINGLE,
-          size: 6
-        }
-      },
-      spacing: { before: 400 }
-    })
-  );
+  // Footer: the free-plan watermark. Paid exports carry nothing of ours.
+  if (options.watermark) {
+    children.push(
+      new Paragraph({
+        border: {
+          top: {
+            color: 'CCCCCC',
+            space: 1,
+            style: BorderStyle.SINGLE,
+            size: 6
+          }
+        },
+        spacing: { before: 400 }
+      })
+    );
 
-  children.push(
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: `Generated by ProfilleAI • ${new Date().toLocaleDateString()}`,
-          size: 18,
-          color: '999999',
-          font: 'Calibri'
-        })
-      ],
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 100 }
-    })
-  );
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: WATERMARK_TEXT,
+            size: 18,
+            color: '999999',
+            font: 'Calibri'
+          })
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 100 }
+      })
+    );
+  }
 
   const doc = new Document({
     sections: [{

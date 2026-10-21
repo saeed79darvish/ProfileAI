@@ -27,6 +27,14 @@ const NEW_VALUES = [
   'generate_cover_letter',
   'job_enhance',
   'job_match',
+  // The onboarding audit's limits: each has its own allowance now, and an
+  // insert of a value the enum lacks fails silently, which is a cap that
+  // never counts.
+  'profile_coach',
+  'career_analysis',
+  'autofill_apply',
+  'coach_voice_session',
+  'mock_interview',
 ];
 
 async function up() {

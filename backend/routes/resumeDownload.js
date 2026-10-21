@@ -4,6 +4,9 @@ const auth = require('../middleware/auth');
 const { Profile, User, TailoredProfile } = require('../models');
 const { generatePDF, generateWord, getTemplates } = require('../services/resumeGeneratorService');
 
+/** Free-plan exports carry a small "Made with ProfilleAI" footer; paid ones do not. */
+const exportOptions = (user) => ({ watermark: !user.subscriptionTier || user.subscriptionTier === 'free' });
+
 /**
  * Attach the candidate's real contact details to whatever payload we're about
  * to render.
@@ -105,11 +108,11 @@ router.post('/generate', auth, async (req, res) => {
     const baseFilename = `${user.firstName}_${user.lastName}_Resume`.replace(/\s+/g, '_');
 
     if (format.toLowerCase() === 'pdf') {
-      buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder);
+      buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder, exportOptions(user));
       contentType = 'application/pdf';
       filename = `${baseFilename}.pdf`;
     } else {
-      buffer = await generateWord(profileData, user, templateId, sectionOrder);
+      buffer = await generateWord(profileData, user, templateId, sectionOrder, exportOptions(user));
       contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       filename = `${baseFilename}.docx`;
     }
@@ -171,7 +174,7 @@ router.post('/preview', auth, async (req, res) => {
 
     profileData = await withRealContactDetails(profileData, req.user.id);
 
-    const buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder);
+    const buffer = await generatePDF(profileData, user, templateId, accentColor, bulletStyle, sectionOrder, exportOptions(user));
     const base64 = buffer.toString('base64');
     
     res.json({ 

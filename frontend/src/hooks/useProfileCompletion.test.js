@@ -26,15 +26,17 @@ test('COMPLETION_TIERS: thresholds are descending', () => {
 
 // ── computeProfileCompletion: shape and edge cases ───────────────────────────
 
-test('computeProfileCompletion: empty profile → 0% / Beginner', () => {
+test('computeProfileCompletion: empty profile is 0% / Beginner', () => {
   const out = computeProfileCompletion({});
   assert.equal(out.pct, 0);
   assert.equal(out.label, 'Beginner');
   assert.equal(out.color, '#94a3b8');
   assert.equal(out.score, 0);
-  assert.equal(out.total, 9);
+  // 9 rubric items minus photo (optional). Neither experience nor projects
+  // exist yet, so both still apply.
+  assert.equal(out.total, 8);
   assert.equal(out.done, false);
-  assert.equal(out.missing.length, 9);
+  assert.equal(out.missing.length, 8);
 });
 
 test('computeProfileCompletion: 100% / Advanced when every item is satisfied', () => {
@@ -59,45 +61,89 @@ test('computeProfileCompletion: 100% / Advanced when every item is satisfied', (
 });
 
 test('computeProfileCompletion: tier boundaries', () => {
-  // Score 4/9 → 44% → Beginner
-  // Score 5/9 → 56% → Intermediate
-  // Score 7/9 → 78% → Intermediate
-  // Score 8/9 → 89% → Advanced
-  const baseFour = {
+  // With experience, 7 items count: title, summary, location, links, skills,
+  // exp, edu (photo is optional; projects do not apply).
+  //   Score 3/7 = 43% Beginner
+  //   Score 4/7 = 57% Intermediate
+  //   Score 5/7 = 71% Intermediate
+  //   Score 6/7 = 86% Advanced
+  const baseThree = {
     title: 'X',
-    location: 'Y',
     skills: ['React'],
     experience: [{ title: 'E', company: 'A', startDate: '2020' }],
   };
-  const fourOut = computeProfileCompletion(baseFour);
+  const threeOut = computeProfileCompletion(baseThree);
+  assert.equal(threeOut.total, 7);
+  assert.equal(threeOut.score, 3);
+  assert.equal(threeOut.label, 'Beginner');
+
+  const fourOut = computeProfileCompletion({ ...baseThree, location: 'Y' });
   assert.equal(fourOut.score, 4);
-  assert.equal(fourOut.label, 'Beginner');
+  assert.equal(fourOut.label, 'Intermediate');
 
   const fiveOut = computeProfileCompletion({
-    ...baseFour,
+    ...baseThree,
+    location: 'Y',
     education: [{ institution: 'S', degree: 'B' }],
   });
   assert.equal(fiveOut.score, 5);
   assert.equal(fiveOut.label, 'Intermediate');
 
-  const sevenOut = computeProfileCompletion({
-    ...baseFour,
+  const sixOut = computeProfileCompletion({
+    ...baseThree,
+    location: 'Y',
     education: [{ institution: 'S', degree: 'B' }],
-    projects: [{ title: 'P', description: 'D' }],
     linkedinUrl: 'https://linkedin.com/in/me',
   });
-  assert.equal(sevenOut.score, 7);
-  assert.equal(sevenOut.label, 'Intermediate');
+  assert.equal(sixOut.score, 6);
+  assert.equal(sixOut.label, 'Advanced');
+});
 
-  const eightOut = computeProfileCompletion({
-    ...baseFour,
-    education: [{ institution: 'S', degree: 'B' }],
-    projects: [{ title: 'P', description: 'D' }],
-    linkedinUrl: 'https://linkedin.com/in/me',
-    profilePicture: 'https://example.com/x.jpg',
+// ── Applicability: one score everywhere ──────────────────────────────────────
+
+test('applicability: photo is optional, never counted, still reported', () => {
+  const without = computeProfileCompletion({ title: 'X' });
+  const withPhoto = computeProfileCompletion({ title: 'X', profilePicture: 'https://example.com/me.jpg' });
+  assert.equal(withPhoto.pct, without.pct);
+  assert.equal(without.items.find((i) => i.key === 'photo'), undefined);
+  assert.equal(without.optional.find((i) => i.key === 'photo').done, false);
+  assert.equal(withPhoto.optional.find((i) => i.key === 'photo').done, true);
+});
+
+test('applicability: projects do not count when experience exists', () => {
+  const out = computeProfileCompletion({
+    experience: [{ title: 'Eng', company: 'Acme', startDate: '2020' }],
   });
-  assert.equal(eightOut.score, 8);
-  assert.equal(eightOut.label, 'Advanced');
+  assert.equal(out.items.find((i) => i.key === 'proj'), undefined);
+  assert.ok(out.items.find((i) => i.key === 'exp'));
+});
+
+test('applicability: experience does not count when only projects exist', () => {
+  const out = computeProfileCompletion({
+    projects: [{ title: 'OpenProj', description: 'Does things.' }],
+  });
+  assert.equal(out.items.find((i) => i.key === 'exp'), undefined);
+  assert.equal(out.items.find((i) => i.key === 'proj').done, true);
+});
+
+test('applicability: a full profile with a job scores 100% with no projects and no photo', () => {
+  const out = computeProfileCompletion({
+    title: 'Senior Engineer',
+    summary: 'Twenty characters at least to pass.',
+    location: 'Remote',
+    linkedinUrl: 'https://linkedin.com/in/me',
+    skills: ['React'],
+    experience: [{ title: 'Eng', company: 'Acme', startDate: '2020' }],
+    education: [{ institution: 'State U', degree: 'B.S.' }],
+  });
+  assert.equal(out.pct, 100);
+  assert.equal(out.done, true);
+});
+
+test('applicability: shape stays { pct, label, color, items }', () => {
+  const out = computeProfileCompletion({ title: 'X' });
+  for (const key of ['pct', 'label', 'color', 'items']) assert.ok(key in out, key);
+  assert.ok(Array.isArray(out.items));
 });
 
 test('computeProfileCompletion: summary needs ≥20 characters', () => {

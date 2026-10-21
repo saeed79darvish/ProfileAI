@@ -157,7 +157,7 @@ test('completion parity: wizard scoring matches editor scoring for the same logi
   assert.equal(wizardScore.color, editorScore.color);
 });
 
-test('completion: a fully-filled wizard maxes out at 7/9 (~78%) — summary + photo are editor-only', () => {
+test('completion: a fully-filled wizard is 6 of 7 — only the summary is left for the editor', () => {
   const wizardData = {
     title: 'Senior Engineer',
     location: 'Remote',
@@ -168,12 +168,13 @@ test('completion: a fully-filled wizard maxes out at 7/9 (~78%) — summary + ph
     githubUsername: 'octocat',
   };
   const score = computeProfileCompletion(wizardDataToProfileShape(wizardData));
-  // 7 of 9 items satisfied: title, location, links, skills, exp, edu, proj.
-  // Missing: summary, photo. Rounded: 78%.
-  assert.equal(score.score, 7);
-  assert.equal(score.total, 9);
-  assert.equal(score.pct, 78);
-  assert.equal(score.label, 'Intermediate');
+  // The shared rubric: the photo is optional and never counted, and projects
+  // do not count alongside a real job. 6 of 7: title, location, links,
+  // skills, exp, edu. Missing: the summary. Rounded: 86%.
+  assert.equal(score.score, 6);
+  assert.equal(score.total, 7);
+  assert.equal(score.pct, 86);
+  assert.equal(score.label, 'Advanced');
 });
 
 test('completion: an empty wizard scores 0% / Beginner', () => {

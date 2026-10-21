@@ -35,35 +35,62 @@
 
 const AI_LIMITS = {
   candidate: {
+    // ── PLAN SHAPE (approved onboarding audit, 2026-10) ──────────────────
+    //   Coach-built profile (chat, import, dictation) ... unlimited for all
+    //   Resume parse while building the first profile .. free (freeWhen)
+    //   AI polish (profile_enhance) .................... free while building,
+    //                                                    then 3 / 30 / unlimited
+    //   Tailored resumes ............................... 3 lifetime / 50 / 200
+    //   Cover letters .................................. 2 / 30 / 200 per month
+    //   Career analysis (coach verdict + gap plan) ..... 1 free, paid unlimited
+    //   Live voice coach ............................... 1 x 10 min free, paid
+    //                                                    monthly minutes
+    //   Extension match score .......................... unlimited for all
+    //   Extension autofill ............................. 5 / month free, paid
+    //                                                    unlimited
+    //   Mock interview / negotiation (voice) ........... NOT BUILT; config only
+    //
+    // "Free while building" is not a tier: it is the `freeWhen: 'noProfileYet'`
+    // option on aiRateLimiter, see ONBOARDING_FREE_FEATURES below.
+
     // ── ONBOARDING PHASE ────────────────────────────────────────────────
     // Active while user.aiOnboardingCompleted === false.
     // Generous lifetime caps so new users can build a great first profile
     // without hitting a paywall. Once they save a complete profile the flag
     // flips and they fall through to their subscription tier limits.
     onboarding: {
-      resume_parse:       { lifetime: 3,  weekly: -1 }, // 3 upload attempts
-      profile_enhance:    { lifetime: 5,  weekly: -1 }, // polish multiple times
-      tailor_profile:     { lifetime: 1,  weekly: -1 }, // one taste test
+      resume_parse:       { lifetime: 3,  weekly: -1 }, // only bites if the route is not freeWhen-exempt
+      profile_enhance:    { lifetime: 5,  weekly: -1 }, // only bites if the route is not freeWhen-exempt
+      tailor_profile:     { lifetime: 1,  weekly: -1 }, // one taste test (counts toward free's 3 lifetime)
       cover_letter:       { lifetime: 2,  weekly: -1 }, // two taste tests
       post_enhance:       { lifetime: 0,  weekly: 0  }, // not during onboarding
       career_suggestions: { lifetime: 10, weekly: -1 }, // guide them through
-      profile_coach:      { lifetime: 80, weekly: -1 }, // the coach IS onboarding
+      profile_coach:      { monthly: -1, weekly: -1 },  // the coach IS onboarding: unlimited
+      career_analysis:    { lifetime: 1, weekly: -1, monthly: -1 }, // one full verdict + gap plan
       interview_prep:     { lifetime: 0,  weekly: 0  }, // Pro feature
-      job_match:          { lifetime: 15, weekly: -1 }, // score jobs while building the profile
+      job_match:          { monthly: -1, weekly: -1 },  // match score is free for all
+      autofill_apply:     { monthly: 5,  weekly: -1 },
+      coach_voice_session: { lifetime: 1, weekly: -1, monthly: -1, maxSessionMinutes: 10 },
+      mock_interview:     { lifetime: 1, weekly: -1, monthly: -1, maxSessionMinutes: 5 },
     },
     // ── FREE (post-onboarding) ──────────────────────────────────────────
     free: {
-      resume_parse:       { monthly: 2,  weekly: -1 },
-      profile_enhance:    { monthly: 2,  weekly: -1 },
-      tailor_profile:     { monthly: 5,  weekly: -1 }, // was 3 lifetime — removed that friction
-      cover_letter:       { monthly: 5,  weekly: -1 },
+      resume_parse:       { monthly: 1,  weekly: -1 }, // re-imports after the first profile
+      profile_enhance:    { monthly: 3,  weekly: -1 }, // AI polish after onboarding
+      tailor_profile:     { lifetime: 3, monthly: -1, weekly: -1 }, // trial, then Pro or a pack
+      cover_letter:       { monthly: 2,  weekly: -1 },
       post_enhance:       { weekly: 0,   monthly: 0 }, // disabled
       career_suggestions: { monthly: 10, weekly: -1 },
-      profile_coach:      { monthly: 30, weekly: -1 },
+      profile_coach:      { monthly: -1, weekly: -1 }, // coach-built profile: unlimited
+      career_analysis:    { lifetime: 1, weekly: -1, monthly: -1 }, // the one at onboarding
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro+ only
-      job_match:          { monthly: 15, weekly: -1 },
+      job_match:          { monthly: -1, weekly: -1 }, // match score is free for all
+      autofill_apply:     { monthly: 5,  weekly: -1 },
+      coach_voice_session: { lifetime: 1, weekly: -1, monthly: -1, maxSessionMinutes: 10 },
+      mock_interview:     { lifetime: 1, weekly: -1, monthly: -1, maxSessionMinutes: 5 },
     },
     // ── STARTER ($6.99/month) ──────────────────────────────────────────
+    // Not sold on the pricing page today; kept for existing rows.
     starter: {
       resume_parse:       { monthly: 5,  weekly: -1 },
       profile_enhance:    { monthly: 10, weekly: -1 },
@@ -71,34 +98,50 @@ const AI_LIMITS = {
       cover_letter:       { monthly: 20, weekly: -1 },
       post_enhance:       { weekly: 0,   monthly: 0 }, // disabled
       career_suggestions: { monthly: -1, weekly: -1 }, // unlimited
-      profile_coach:      { monthly: 100, weekly: -1 },
+      profile_coach:      { monthly: -1, weekly: -1 },
+      career_analysis:    { monthly: -1, weekly: -1 },
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro only
-      job_match:          { monthly: 60, weekly: -1 },
+      job_match:          { monthly: -1, weekly: -1 },
+      autofill_apply:     { monthly: -1, weekly: -1 },
+      coach_voice_session: { monthly: -1, weekly: -1, monthlyMinutes: 60, maxSessionMinutes: 30 },
+      mock_interview:     { monthly: 2,  weekly: -1, maxSessionMinutes: 15 },
     },
     // ── PRO ($14.99/month) ─────────────────────────────────────────────
     pro: {
       resume_parse:       { monthly: 20, weekly: -1 },
       profile_enhance:    { monthly: 30, weekly: -1 },
-      tailor_profile:     { monthly: 75, weekly: -1 },
-      cover_letter:       { monthly: 75, weekly: -1 },
+      tailor_profile:     { monthly: 50, weekly: -1 },
+      cover_letter:       { monthly: 30, weekly: -1 },
       post_enhance:       { monthly: 20, weekly: -1 }, // enabled for Pro
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
+      career_analysis:    { monthly: -1, weekly: -1 }, // refresh anytime
       interview_prep:     { monthly: 3,  weekly: -1 },
-      job_match:          { monthly: 200, weekly: -1 },
+      job_match:          { monthly: -1, weekly: -1 },
+      autofill_apply:     { monthly: -1, weekly: -1 },
+      // Voice minutes are SUGGESTIONS TO TEST, not settled numbers. A
+      // realtime minute costs real money; watch margin before raising.
+      coach_voice_session: { monthly: -1, weekly: -1, monthlyMinutes: 60, maxSessionMinutes: 30 },
+      // Mock interview / negotiation practice does not exist yet. Suggested.
+      mock_interview:     { monthly: 4,  weekly: -1, maxSessionMinutes: 20 },
     },
     // ── PRO+ ($29.99/month) ────────────────────────────────────────────
     // ApplyPilot auto-apply is gated separately at the feature level.
     pro_plus: {
       resume_parse:       { monthly: 50,  weekly: -1 },
-      profile_enhance:    { monthly: 50,  weekly: -1 }, // was 100 — capped to protect margin
-      tailor_profile:     { monthly: 150, weekly: -1 }, // was 200 — capped
-      cover_letter:       { monthly: 150, weekly: -1 }, // was 200 — capped
+      profile_enhance:    { monthly: -1,  weekly: -1 }, // unlimited polish
+      tailor_profile:     { monthly: 200, weekly: -1 },
+      cover_letter:       { monthly: 200, weekly: -1 },
       post_enhance:       { monthly: -1,  weekly: -1 }, // unlimited
       career_suggestions: { monthly: -1,  weekly: -1 },
       profile_coach:      { monthly: -1,  weekly: -1 },
+      career_analysis:    { monthly: -1,  weekly: -1 },
       interview_prep:     { monthly: 10,  weekly: -1 },
-      job_match:          { monthly: 500, weekly: -1 },
+      job_match:          { monthly: -1,  weekly: -1 },
+      autofill_apply:     { monthly: -1,  weekly: -1 },
+      // Suggestion to test (see Pro).
+      coach_voice_session: { monthly: -1, weekly: -1, monthlyMinutes: 300, maxSessionMinutes: 30 },
+      mock_interview:     { monthly: -1,  weekly: -1, maxSessionMinutes: 30 }, // not built yet
     },
     // ── ENTERPRISE (legacy) ────────────────────────────────────────────
     // Retained for existing rows. New signups use pro_plus.
@@ -110,8 +153,12 @@ const AI_LIMITS = {
       post_enhance:       { weekly: 0,   monthly: 0 },
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
+      career_analysis:    { monthly: -1, weekly: -1 },
       interview_prep:     { monthly: -1, weekly: -1 },
       job_match:          { monthly: -1, weekly: -1 },
+      autofill_apply:     { monthly: -1, weekly: -1 },
+      coach_voice_session: { monthly: -1, weekly: -1, monthlyMinutes: 300, maxSessionMinutes: 30 },
+      mock_interview:     { monthly: -1, weekly: -1, maxSessionMinutes: 30 },
     }
   },
   // Recruiter limits kept for future use
@@ -160,6 +207,10 @@ const FEATURE_NAMES = {
   job_match: 'Job Match Analysis',
   analyze_gaps: 'Skill Gap Analysis',
   generate_answers: 'Application Answer Generation',
+  career_analysis: 'Career Analysis',
+  autofill_apply: 'Application Autofill',
+  coach_voice_session: 'Live Voice Coach',
+  mock_interview: 'Mock Interview Practice',
 };
 
 // Estimated costs per feature (Claude Sonnet 4 unless FEATURE_MODELS routes to Haiku)
@@ -178,6 +229,26 @@ const ESTIMATED_COSTS = {
   job_match: 0.036,          // Sonnet 5.5 — measured: ~6k in / ~2.4k out per posting
   analyze_gaps: 0.015,       // Sonnet — complex analysis
   generate_answers: 0.025,   // Sonnet — personalized content
+  career_analysis: 0.002,    // Haiku  — the coach target assessment (one call)
+  autofill_apply: 0.010,     // Sonnet — one batch of field answers per application
+  coach_voice_session: 0,    // billed per minute by OpenAI Realtime, tracked as minutes
+  mock_interview: 0,         // not built yet
+};
+
+/**
+ * Features that are free while the user is building their FIRST profile
+ * (no Profile row saved yet). Opt-in per route with
+ *   aiRateLimiter('resume_parse', { freeWhen: 'noProfileYet' })
+ * Usage recorded before the profile was first saved never counts against the
+ * monthly / lifetime caps afterwards.
+ *
+ * safetyCap is an abuse ceiling, not a product limit: an account that never
+ * saves a profile could otherwise spend the feature forever. Nobody building
+ * one profile gets near it.
+ */
+const ONBOARDING_FREE_FEATURES = {
+  resume_parse:    { safetyCap: 20 },
+  profile_enhance: { safetyCap: 40 },
 };
 
 /**
@@ -282,6 +353,7 @@ module.exports = {
   ESTIMATED_COSTS,
   FEATURE_MODELS,
   CREDIT_PACKS,
+  ONBOARDING_FREE_FEATURES,
   getLimits,
   isUnlimited,
   getWeekStart,

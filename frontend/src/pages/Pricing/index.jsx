@@ -211,12 +211,15 @@ const Pricing = () => {
       buttonText: 'Get started',
       featuresHeader: 'Includes',
       features: [
+        'Unlimited coach-built profile: chat, resume import, dictation',
+        'Free AI polish while you build your profile, then 3 / month',
+        '1 full career analysis with a gap plan',
+        '1 live voice coach session (about 10 min)',
         '3 Resume Tailorings (lifetime trial)',
-        '1 Resume Parse / month',
-        '1 Profile Enhancement / month',
         '2 AI Cover Letters / month',
-        '5 Career Suggestions / month',
-        'Basic Profile & Community Access'
+        'Unlimited job match scores',
+        '5 extension autofills / month',
+        'Exports with a small ProfilleAI footer'
       ]
     },
     {
@@ -231,11 +234,13 @@ const Pricing = () => {
       features: [
         '50 Resume Tailorings / month',
         '30 AI Cover Letters / month',
-        '20 Resume Parses / month',
-        '30 Profile Enhancements / month',
-        'Unlimited Career Suggestions',
+        '30 AI polishes / month',
+        'Career analysis refreshed anytime',
+        '60 live voice coach minutes / month',
+        'Unlimited extension autofill',
+        'Interview Prep (3 / month)',
         'Watermark-free Exports',
-        'Advanced Analytics + Priority Support'
+        'Priority Support'
       ]
     },
     {
@@ -250,8 +255,9 @@ const Pricing = () => {
       features: [
         '200 Resume Tailorings / month',
         '200 AI Cover Letters / month',
-        'Unlimited Interview Prep',
-        'Batch Tailoring',
+        'Unlimited AI polish',
+        '300 live voice coach minutes / month',
+        'Interview Prep (10 / month)',
         'Unlimited Profile Views'
       ]
     }

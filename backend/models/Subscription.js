@@ -101,11 +101,16 @@ const SUBSCRIPTION_PLANS = {
         applyPilotAuto: false
       },
       limits: {
-        resume_parse: '2/month',
-        profile_enhance: '2/month',
-        tailor_profile: '5/month',
-        cover_letter: '5/month',
-        career_suggestions: '10/month'
+        // Display copy only; enforcement lives in config/aiLimits.js.
+        resume_parse: '1/month (first profile free)',
+        profile_enhance: '3/month (first profile free)',
+        tailor_profile: '3 lifetime',
+        cover_letter: '2/month',
+        career_suggestions: '10/month',
+        career_analysis: '1 lifetime',
+        coach_voice_session: '1 session, about 10 min',
+        job_match: 'Unlimited',
+        autofill_apply: '5/month'
       }
     },
     starter: {
@@ -157,7 +162,11 @@ const SUBSCRIPTION_PLANS = {
         profile_enhance: '30/month',
         tailor_profile: '50/month',
         cover_letter: '30/month',
-        career_suggestions: 'Unlimited'
+        career_suggestions: 'Unlimited',
+        career_analysis: 'Unlimited',
+        coach_voice_session: '60 min/month',
+        job_match: 'Unlimited',
+        autofill_apply: 'Unlimited'
       }
     },
     pro_plus: {
@@ -184,10 +193,14 @@ const SUBSCRIPTION_PLANS = {
       },
       limits: {
         resume_parse: '50/month',
-        profile_enhance: '100/month',
+        profile_enhance: 'Unlimited',
         tailor_profile: '200/month',
         cover_letter: '200/month',
         career_suggestions: 'Unlimited',
+        career_analysis: 'Unlimited',
+        coach_voice_session: '300 min/month',
+        job_match: 'Unlimited',
+        autofill_apply: 'Unlimited',
         applypilot_auto: '30/week'
       }
     },

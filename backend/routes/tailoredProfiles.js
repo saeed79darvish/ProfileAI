@@ -131,6 +131,14 @@ router.post('/', auth, async (req, res) => {
       });
     }
 
+    /* The tailored resume a guest made during onboarding, saved now that
+       there is an account. It was free at the time and nothing could be
+       recorded against a visitor, so it is counted here: the first of the
+       free plan's tailorings, not a fourth one. */
+    if (req.body.fromOnboardingPreview) {
+      await recordAIUsage(req.user.id, 'tailor_profile', { source: 'coach_preview' });
+    }
+
     res.status(201).json(tailoredProfile);
   } catch (error) {
     console.error('Error saving tailored profile:', error);
