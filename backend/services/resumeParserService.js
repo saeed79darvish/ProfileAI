@@ -11,11 +11,9 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { classifyDocument, rejectionMessage } = require('./resumeDocumentType');
 const { supportsTemperature, extractText, createMessage } = require('./ai/core');
-// IMPORTANT: pdf-parse@1.1.1's top-level index.js has a debug shim that
-// tries to read a bundled test fixture when `module.parent` is undefined,
-// which is the case under Render's Node 22 runtime. Requiring the inner
-// lib path directly avoids that codepath entirely.
-const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+// One PDF extractor for every upload path — see resume/pdfText.js for why
+// ordinary text PDFs used to fail here.
+const { pdfToText } = require('./resume/pdfText');
 const mammoth = require('mammoth');
 
 // Import modular components
@@ -507,13 +505,9 @@ class ResumeParserService {
    * Extract text from PDF file buffer
    */
   async extractPdfText(buffer) {
-    try {
-      const data = await pdfParse(buffer);
-      return data.text;
-    } catch (error) {
-      console.error('Error extracting PDF text:', error);
-      throw new Error('Failed to extract text from PDF');
-    }
+    // Throws PdfTextError with a .code the routes pass on, so the client can
+    // offer the right way forward (paste the text) instead of a dead end.
+    return pdfToText(buffer);
   }
 
   /**
@@ -1321,13 +1315,73 @@ Important guidelines:
    * Complete resume parsing pipeline (NO AI - uses pattern matching)
    */
   async parseResume(file) {
+    let resumeText;
     try {
       // Step 1: Extract text from file
       console.log('Extracting text from resume...');
-      const resumeText = await this.extractTextFromResume(file);
-      
-      if (!resumeText || resumeText.trim().length < 50) {
-        throw new Error('Resume appears to be empty or too short');
+      resumeText = await this.extractTextFromResume(file);
+    } catch (error) {
+      console.error('Resume extraction error:', error.message);
+      return { success: false, code: error.code || 'file_unreadable', error: error.message };
+    }
+    /* A PDF with no text layer is a scan or a photo of a resume. Claude reads
+       PDFs as documents, pages and all, so it transcribes the page before we
+       give up on it. */
+    if ((!resumeText || resumeText.trim().length < 50) && file?.mimetype === 'application/pdf') {
+      try {
+        resumeText = await this.readScannedPdf(file.buffer);
+      } catch (error) {
+        console.error('Scanned PDF transcription failed:', error.message);
+      }
+    }
+    if (!resumeText || resumeText.trim().length < 50) {
+      // Still nothing: the way forward is pasting the text, and the client
+      // needs to know to offer it.
+      return {
+        success: false,
+        code: file?.mimetype === 'application/pdf' ? 'pdf_no_text' : 'file_empty',
+        error: 'We could not find any text in that file',
+      };
+    }
+    return this.parseResumeText(resumeText);
+  }
+
+  /**
+   * Transcribe a scanned PDF. Plain transcription only: the parse that
+   * follows is what turns it into a profile, under the same rules as any
+   * other resume text.
+   */
+  async readScannedPdf(buffer) {
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+    const response = await createMessage(anthropic, {
+      model,
+      max_tokens: 16000,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(buffer).toString('base64') },
+          },
+          {
+            type: 'text',
+            text: 'This is a scanned resume. Transcribe all of its text exactly as written, in reading order, as plain text with line breaks between lines. Do not summarise, correct, reorder or add anything. If the pages have no readable text, return nothing.',
+          },
+        ],
+      }],
+    });
+    return extractText(response).trim();
+  }
+
+  /**
+   * Parse resume text that has already been extracted — or pasted, which is
+   * the fallback offered whenever a file cannot be read.
+   */
+  async parseResumeText(rawText) {
+    const resumeText = String(rawText || '').slice(0, 60000);
+    try {
+      if (resumeText.trim().length < 50) {
+        return { success: false, code: 'text_too_short', error: 'That is too short to be a resume' };
       }
 
       console.log(`Extracted ${resumeText.length} characters from resume`);
@@ -1367,12 +1421,15 @@ Important guidelines:
       return {
         success: true,
         data: parsedData,
-        originalText: resumeText.substring(0, 500) // Keep first 500 chars for reference
+        originalText: resumeText.substring(0, 500), // Keep first 500 chars for reference
+        // The whole text, so the upload route does not extract the file twice.
+        fullText: resumeText,
       };
     } catch (error) {
       console.error('Resume parsing error:', error);
       return {
         success: false,
+        code: error.code || undefined,
         error: error.message
       };
     }
