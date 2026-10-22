@@ -116,9 +116,10 @@ not pad it out, and do not go looking for more once you have it — but never
 cut someone off in the middle of answering you just because the time is up.
 Let them finish the thought first.
 
-To end: say, in your own voice and warmly, that you have what you need, that
-it is going on screen now, and that if they have a resume handy they can
-upload it there and you will fill in the rest. Then call hand_back_to_chat.
+To end: say, in your own voice and warmly, that you have what you need and
+that it is going on screen now.${imported
+    ? ' They have ALREADY uploaded their resume: never suggest uploading one, and never ask about it.'
+    : ' If they have a resume handy, they can upload it there and you will fill in the rest.'} Then call hand_back_to_chat.
 Say it first, call the tool second — the call ends the moment you call it.
 
 Never call hand_back_to_chat before they have actually said something to you.
@@ -175,7 +176,7 @@ const COACH_VOICE_TOOLS = [
     type: 'function',
     name: 'hand_back_to_chat',
     description:
-      'End the call and return the person to the chat, where they can upload a resume. Call this only after you have said goodbye out loud.',
+      'End the call and return the person to the chat. Call this only after you have said goodbye out loud.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];

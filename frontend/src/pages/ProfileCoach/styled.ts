@@ -1325,3 +1325,35 @@ export const MultiDone = styled.div`
 
   @media (max-width: 480px) { padding-left: 0; }
 `;
+
+/* ─── Panel detail: roles and skills ────────────────────────── */
+
+export const PanelRoles = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  li { display: flex; flex-direction: column; gap: 1px; }
+  strong { font-weight: 600; color: #1a1a2e; font-size: 0.93rem; line-height: 1.3; }
+  span { color: #6c6c86; font-size: 0.84rem; }
+  li.more { color: #6c6c86; font-size: 0.84rem; }
+`;
+
+export const PanelTags = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  span {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #eef0ff;
+    color: #4c51bf;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  em { font-style: normal; color: #6c6c86; font-size: 0.8rem; align-self: center; }
+`;

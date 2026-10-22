@@ -78,6 +78,7 @@ import {
   parseLinks,
   sectorChips,
   fieldFromText,
+  roleConfirmText,
   careerContextOf,
   seedFromCareerContext,
   checkLines,
@@ -100,7 +101,7 @@ import {
   ChipRow, Chip, QuickReplies, QuickReply,
   ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
-  PanelItem, PanelItemHead, Dot, PanelItemBody,
+  PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
   MobileStrip, StripBar, StripLabel, MobilePanel,
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
@@ -1067,6 +1068,9 @@ const ProfileCoach = () => {
      could not do this: the model ran on a server somewhere and the browser
      found out what had been said only after hanging up. */
   const heardAnythingRef = useRef(false);
+  // The plan's time limit for the call in progress; cleared when it ends.
+  const callCapTimerRef = useRef(null);
+  useEffect(() => () => { if (callCapTimerRef.current) clearTimeout(callCapTimerRef.current); }, []);
   // Which facts the call produced, so only those are checked afterwards.
   const heardKeysRef = useRef(new Set());
 
@@ -1106,6 +1110,10 @@ const ProfileCoach = () => {
    */
   const onCallEnded = useCallback(() => {
     setLastSpoken(null);
+    if (callCapTimerRef.current) {
+      clearTimeout(callCapTimerRef.current);
+      callCapTimerRef.current = null;
+    }
     refreshVoiceStatus();
     /* The call kept as a few sentences on their record; the transcript is
        sent to be summarised and is not stored. Signed-in only: guests
@@ -1210,7 +1218,12 @@ const ProfileCoach = () => {
       await voice.start({ clientSecret: data.clientSecret, model: data.model });
       /* The plan's allowance for this call. The server counts it when the
          call starts; ending it here is what makes the count true. */
-      if (data.maxSessionMinutes > 0) later(() => voice.stop(), data.maxSessionMinutes * 60 * 1000);
+      if (data.maxSessionMinutes > 0) {
+        // Cancelled when the call ends (onCallEnded): a timer left running
+        // stopped the NEXT state of the page minutes later.
+        if (callCapTimerRef.current) clearTimeout(callCapTimerRef.current);
+        callCapTimerRef.current = setTimeout(() => voice.stop(), data.maxSessionMinutes * 60 * 1000);
+      }
       trackEvent('coach_voice_started', { guest: !isAuthenticated, maxMinutes: data.maxSessionMinutes || null });
       return true;
     } catch (err) {
@@ -1903,25 +1916,46 @@ const ProfileCoach = () => {
       // The labels they tapped ("Full-time"), not the stored ids.
       case 'lookingFor':
         return preferenceLabels(draft);
+      /* Skills as tags, a dozen at most: a comma list cut at four read as if
+         the import had only found four. */
       case 'skills': {
-        // The first few, and how many more: four alone read as if the import
-        // had only found four.
         const all = draft.skills || [];
-        const more = all.length > 4 ? `, +${all.length - 4} more` : '';
-        return `${all.slice(0, 4).join(', ')}${more}`;
+        if (!all.length) return '';
+        return (
+          <PanelTags>
+            {all.slice(0, 12).map((skill) => <span key={skill}>{skill}</span>)}
+            {all.length > 12 && <em>+{all.length - 12} more</em>}
+          </PanelTags>
+        );
       }
+      /* Every role at a glance (title, company, how long), newest first,
+         rather than the first job and a paragraph of its text. A resume of
+         seven jobs showed as one. */
       case 'exp': {
-        const row = (draft.experience || [])[0];
-        if (!row) return '';
-        // The achievement they described shows up here too; it used to go
-        // into the draft and nowhere anyone could see it.
-        const firstBullet = String(row.description || '').split('\n')[0].replace(/^[•\-*]\s*/, '').trim();
-        return [[row.title, row.company].filter(Boolean).join(' at '), firstBullet].filter(Boolean).join(' · ');
+        const rows = (draft.experience || []).filter((r) => r && (r.title || r.company));
+        if (!rows.length) return '';
+        return (
+          <PanelRoles>
+            {rows.slice(0, 3).map((r, i) => (
+              <li key={`${r.company}${i}`}>
+                <strong>{r.title || r.company}</strong>
+                <span>{[r.title ? r.company : '', roleConfirmText(r)].filter(Boolean).join(' · ')}</span>
+              </li>
+            ))}
+            {rows.length > 3 && <li className="more">+{rows.length - 3} more role{rows.length - 3 === 1 ? '' : 's'}</li>}
+          </PanelRoles>
+        );
       }
-      case 'edu': {
-        const row = (draft.education || [])[0];
-        return row ? [row.degree, row.institution].filter(Boolean).join(', ') : '';
-      }
+      case 'proj':
+        return (draft.projects || []).map((p) => p.title).filter(Boolean).slice(0, 3).join(', ');
+      case 'edu':
+        return (draft.education || []).slice(0, 2)
+          .map((row) => [row.degree, row.institution, String(row.endDate || '').match(/\b(19|20)\d{2}\b/)?.[0]]
+            .filter(Boolean)
+            // "Bootcamp, Software Engineering Bootcamp": drop a part the next one already says.
+            .filter((part, i, all) => !all.slice(i + 1).some((other) => String(other).toLowerCase().includes(String(part).toLowerCase())))
+            .join(' · '))
+          .join('; ');
       default:
         return '';
     }

@@ -133,6 +133,15 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   }, [teardown]);
 
   const stop = useCallback(() => {
+    /* Stopping a call that is already over must still close the screen.
+       finish() returns early once the call has ended, so this used to leave
+       the state on "ending" for good: the voice screen reopened when a
+       leftover timer stopped an old call, and its × did nothing, because
+       every press took the same early return. */
+    if (endedRef.current) {
+      setState(VOICE_STATES.idle);
+      return;
+    }
     setState(VOICE_STATES.ending);
     finish();
   }, [finish]);
