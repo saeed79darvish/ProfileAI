@@ -577,7 +577,7 @@ const Register = () => {
         {/* Terms consent for the email signup path. The OAuth buttons above
             capture the same consent through TermsConsentDialog instead. */}
         <FormControlLabel
-          sx={{ alignItems: 'flex-start', mt: 1, mr: 0 }}
+          sx={{ alignItems: 'flex-start', mt: 2, mx: 0 }}
           control={
             <Checkbox
               checked={acceptedTerms}
@@ -587,7 +587,7 @@ const Register = () => {
               }}
               size="small"
               inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
-              sx={{ pt: 0.25 }}
+              sx={{ p: 0, mr: 1.25 }}
             />
           }
           label={

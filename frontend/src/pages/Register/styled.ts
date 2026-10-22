@@ -142,7 +142,7 @@ export const getStrengthLabelSx = (color: string) => ({
 
 export const passwordReqGridSx = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.25 };
 
-export const termsSx = { display: 'block', lineHeight: 1.6, pt: '9px' };
+export const termsSx = { display: 'block', lineHeight: '20px' };
 
 export const termsLinkSx = { color: COLORS.PRIMARY, fontWeight: FONT_WEIGHT.MEDIUM };
 
