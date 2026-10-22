@@ -258,6 +258,9 @@ const CheckCard = ({ lines, spent, busy, onSave, onDone }) => {
    that is not only per-IP. */
 const ASIDE_LIMIT = 8;
 
+/* How long a freshly shown row of chips ignores taps. */
+const TAP_GUARD_MS = 600;
+
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
 
@@ -372,7 +375,7 @@ const ProfileCoach = () => {
   /* ─── Message helpers ──────────────────────────────────────── */
 
   const pushCoach = useCallback((text, extra = {}) => {
-    setMessages((prev) => [...prev, { id: nextId(), role: 'coach', text, ...extra }]);
+    setMessages((prev) => [...prev, { id: nextId(), role: 'coach', text, at: Date.now(), ...extra }]);
   }, []);
 
   const pushMine = useCallback((text, extra = {}) => {
@@ -901,7 +904,12 @@ const ProfileCoach = () => {
       draftRef.current = nextDraft;
       setDraft(nextDraft);
 
-      pushCoach(review.opening || TEXT.ACK_DEFAULT, { review });
+      /* A review with nothing in it says nothing: no "Got it." bubble over
+         an empty card. */
+      const hasFindings = !!(review.working?.length || review.fix?.length);
+      if (review.opening || hasFindings) {
+        pushCoach(review.opening || '', hasFindings ? { review } : {});
+      }
       probeQueueRef.current = (review.probes || []).slice(0, 2);
 
       /* Voice on this server: talk the review through. The
@@ -2200,7 +2208,14 @@ const ProfileCoach = () => {
                             $selected={picked}
                             aria-pressed={message.multi ? picked : undefined}
                             aria-label={removable ? `${chip.label}, ${TEXT.CHIP_REMOVE}` : undefined}
-                            onClick={() => answerChip(message, chip)}
+                            onClick={() => {
+                              /* New chips appear right under the cursor that
+                                 just tapped something. A tap in the first
+                                 moment is a stray one, not a choice: it once
+                                 started a voice call nobody asked for. */
+                              if (message.at && Date.now() - message.at < TAP_GUARD_MS) return;
+                              answerChip(message, chip);
+                            }}
                           >
                             {chip.label}
                             {removable && <ChipRemove aria-hidden="true">×</ChipRemove>}
@@ -2341,6 +2356,8 @@ const ProfileCoach = () => {
           muted={voice.muted}
           onToggleMute={voice.toggleMute}
           lastLine={lastSpoken}
+          // After an import Remi already knows the resume; the prompt says so.
+          hint={draft.importedFrom ? TEXT.VOICE_HINT_IMPORTED : TEXT.VOICE_HINT}
           onEnd={voice.stop}
         />
       )}

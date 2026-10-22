@@ -360,7 +360,7 @@ async function reviewProfile({ profile, sector } = {}) {
   const inspection = inspectProfile(profile || {});
 
   const response = await callAI({
-    max_tokens: 1600,
+    max_tokens: 2400,
     temperature: 0.4,
     messages: [{
       role: 'user',
@@ -368,7 +368,24 @@ async function reviewProfile({ profile, sector } = {}) {
     }],
   });
 
-  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+  /* A reply cut off by the token cap used to parse as nothing, and the
+     person got "Got it." over an empty card right after uploading their
+     resume. Repair what came back before giving up on it. */
+  const raw = response.choices[0].message.content || '';
+  let parsed = safeParseJSON(raw);
+  if (!parsed) {
+    try {
+      // Lazy: the parser service is heavy and only needed on this path.
+      // eslint-disable-next-line global-require
+      const { repairTruncatedJSON } = require('./resumeParserService');
+      const start = raw.indexOf('{');
+      parsed = start >= 0 ? repairTruncatedJSON(raw.slice(start)) : null;
+      if (parsed) console.warn('[coach] review JSON was truncated; recovered');
+    } catch (error) {
+      console.error('[coach] review JSON could not be recovered:', error.message);
+    }
+  }
+  parsed = parsed || {};
 
   const fix = Array.isArray(parsed.fix)
     ? parsed.fix

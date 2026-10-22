@@ -31,7 +31,7 @@ import {
  * while you are still in the call is the difference between fixing it in
  * three words and finding it on your profile a week later.
  */
-const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine, onEnd }) => {
+const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine, onEnd, hint }) => {
   const connecting = state === VOICE_STATES.connecting;
 
   const status = connecting
@@ -70,7 +70,7 @@ const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine,
               {lastLine.text}
             </>
           ) : (
-            connecting ? '' : 'Say anything: what you do, where, how long.'
+            connecting ? '' : hint
           )}
         </VoiceCaption>
       </VoiceStage>

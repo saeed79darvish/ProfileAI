@@ -58,6 +58,8 @@ export const TEXT = {
   /* ─── Talking to Remi ─── */
   VOICE_OFFER: 'This next part is easier said than typed: your recent role and what you did there. Want to just talk it through? A few minutes, and I will check the names and dates with you after. Or we can keep typing.',
   VOICE_START: 'Talk it through',
+  VOICE_HINT: 'Say anything: what you do, where, how long.',
+  VOICE_HINT_IMPORTED: 'Remi has read your resume. Talk about what you want next.',
   VOICE_OFFER_REVIEW: 'That is my read. Want to talk the rest through? A few minutes on the gaps I found and what you are aiming for next, then I will check the names and dates with you. Or we can keep typing.',
   VOICE_KEEP_TYPING: 'Keep typing',
   VOICE_MUTE: 'Mute your microphone',

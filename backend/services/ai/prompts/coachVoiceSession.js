@@ -16,11 +16,35 @@ const { timeFacts } = require('./timeFacts');
  * preferences here — a two-part question asked out loud gets half an answer
  * every time.
  */
+/* What is known, as lines a model can actually use. Jobs and schools are
+   objects; joined as-is they came out as "[object Object]", so the call
+   knew there was a resume but not what was on it, and asked again. */
+const SKIP_KEYS = new Set(['review', 'assessment', 'importedFrom', 'spokenIntake', 'account', 'tailorPreview', 'summary']);
+const describe = (key, value) => {
+  if (key === 'experience') {
+    return value.map((r) => [
+      [r.title, r.company].filter(Boolean).join(' at '),
+      [r.startDate, r.endDate || (r.current ? 'now' : '')].filter(Boolean).join(' to '),
+      String(r.description || '').split('\n').filter(Boolean).slice(0, 3).join(' / '),
+    ].filter(Boolean).join(', ')).join('; ');
+  }
+  if (key === 'education') {
+    return value.map((e) => [e.degree, e.fieldOfStudy, e.institution, e.endDate].filter(Boolean).join(', ')).join('; ');
+  }
+  if (key === 'projects') return value.map((p) => p.title || p.name).filter(Boolean).join(', ');
+  if (Array.isArray(value)) return value.filter((v) => typeof v !== 'object').join(', ');
+  return typeof value === 'object' ? '' : String(value);
+};
+
 const coachVoiceInstructions = ({ firstName, profile = {}, missing = [], maxMinutes = null } = {}) => {
   const known = Object.entries(profile)
-    .filter(([, v]) => v && (!Array.isArray(v) || v.length))
-    .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+    .filter(([k, v]) => !SKIP_KEYS.has(k) && v && (!Array.isArray(v) || v.length))
+    .map(([k, v]) => [k, describe(k, v)])
+    .filter(([, text]) => text)
+    .map(([k, text]) => `- ${k}: ${text}`)
     .join('\n');
+  // They gave us a resume and have already seen our read of it.
+  const imported = !!profile.importedFrom;
 
   const gaps = (missing || []).filter(Boolean);
 
@@ -36,9 +60,13 @@ ${maxMinutes ? `═══ TIME ═══
 This call ends on its own after ${maxMinutes} minutes. Keep it moving. When you are close, wrap up warmly in one sentence: say you have what you need and they can see it on screen.
 
 ` : ''}═══ THE FIRST THING YOU SAY ═══
-Greet them by name if you have one, say in one sentence what you already know about them so they can hear that you read it, and ask your first real question. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list what you know back at them like a form.
+${imported
+    ? `They uploaded their resume and have just read your review of it on screen. Do NOT read their resume back to them, summarise it, or ask what they do, where, or for how long: you know all of that. Greet them in a few words and go straight to the first item under WHAT YOU ARE ON THIS CALL TO FIND OUT.
 
-Good: "Hi ${firstName || 'there'} — so, staff backend engineer at Equinix, four years in. What I do not have yet is where you want this to go. What would the next job look like?"
+Good: "Hi ${firstName || 'there'}. I have read your resume, so let us skip what is on it. What would the next job look like?"`
+    : `Greet them by name if you have one, say in one sentence what you already know about them so they can hear that you read it, and ask your first real question. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list what you know back at them like a form.
+
+Good: "Hi ${firstName || 'there'}. So, staff backend engineer at Equinix, four years in. What I do not have yet is where you want this to go. What would the next job look like?"`}
 
 ═══ WHAT THEY ALREADY TOLD US — NEVER ASK FOR ANY OF THIS ═══
 ${known || '(nothing yet — in that case just introduce yourself and ask what they do)'}
