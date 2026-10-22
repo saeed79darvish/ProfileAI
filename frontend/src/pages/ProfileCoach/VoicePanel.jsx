@@ -7,8 +7,9 @@ import {
 
 import { TEXT } from './constants';
 import { VOICE_STATES } from './useVoiceCall';
+import VoicePrint from './VoicePrint';
 import {
-  VoiceVeil, VoiceWho, VoiceStage, Orb, VoiceStatus, VoiceCaption, VoiceActions,
+  VoiceVeil, VoiceWho, VoiceStage, VoiceMark, VoiceStatus, VoiceCaption, VoiceActions,
   EndCall, VoiceQuiet, MuteButton,
 } from './styled';
 
@@ -20,7 +21,7 @@ import {
  * chat composer makes a phone call look like a form field. One soft thing
  * moving, and a way out.
  *
- * Laid out for a phone held in one hand: the orb sits where the eye rests and
+ * Laid out for a phone held in one hand: the voiceprint sits where the eye rests and
  * every control is in the bottom band where the thumb already is. The three
  * of them — keep typing, mute, leave — are the only decisions available
  * mid-call, so they are the only things on screen.
@@ -49,10 +50,14 @@ const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine,
       </VoiceWho>
 
       <VoiceStage>
-        {/* The live volume drives the orb through a CSS variable rather than
-            React state in the style of every frame — one custom property set,
-            the compositor does the rest. */}
-        <Orb style={{ '--level': speaking ? level : 0 }} aria-hidden="true" />
+        {/* Remi's voiceprint: the ring follows Remi's real output level while
+            speaking, and shows connecting, listening and muted on its own. */}
+        <VoiceMark>
+          <VoicePrint
+            mode={connecting ? 'connecting' : muted ? 'muted' : speaking ? 'speaking' : 'listening'}
+            level={speaking ? level : 0}
+          />
+        </VoiceMark>
 
         {/* Announced politely: a screen reader should hear the state change
             without the caption re-reading itself on every partial. */}

@@ -107,7 +107,7 @@ import {
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
   TourGrid, TourCard, TourIcon,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
-  UploadCard, UploadIcon, UploadBody, UploadTrack,
+  UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
 } from './styled';
 
@@ -330,8 +330,6 @@ const ProfileCoach = () => {
   // value is worth depending on.
   const dictationSupportedRef = useRef(dictation.supported);
   dictationSupportedRef.current = dictation.supported;
-  // What the multi-select last wrote into the box, so typing is never clobbered.
-  const multiSyncedRef = useRef('');
   const listEndRef = useRef(null);
   const composerRef = useRef(null);
   // Set for the one render after an in-place message update that must not
@@ -1337,21 +1335,13 @@ const ProfileCoach = () => {
       return;
     }
 
-    /* Multi-select: picks collect on the message and are written into the
-       text box as they are tapped, so sending is how the answer goes in, the
-       same as every other answer in the chat. A separate Continue button
-       under the row used to do this. The box is only rewritten while it
-       still holds what we put there: anything typed by hand is left alone. */
+    /* Multi-select: a tap picks, a second tap (or its ×) un-picks, and
+       Done under the row sends the picks, in the order they were tapped. */
     if (step.kind === 'multi') {
       const has = message.selected.includes(chip.id);
       const selected = has ? message.selected.filter((s) => s !== chip.id) : [...message.selected, chip.id];
+      keepScrollRef.current = true;
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, selected } : m)));
-      const summary = selected
-        .map((id) => message.chips.find((c) => c.id === id)?.label)
-        .filter(Boolean)
-        .join(', ');
-      setInput((prev) => (!prev.trim() || prev === multiSyncedRef.current ? summary : prev));
-      multiSyncedRef.current = summary;
       return;
     }
 
@@ -1402,7 +1392,6 @@ const ProfileCoach = () => {
     const chosen = Array.from(new Set([...message.selected, ...ids]))
       .map((id) => message.chips.find((c) => c.id === id))
       .filter(Boolean);
-    multiSyncedRef.current = '';
 
     spendChips(message.id);
     const said = [...chosen.map((c) => c.label), ...typed];
@@ -2198,21 +2187,28 @@ const ProfileCoach = () => {
 
                   {!!message.chips?.length && (
                     <ChipRow>
-                      {message.chips.map((chip) => (
-                        <Chip
-                          key={chip.id}
-                          type="button"
-                          disabled={message.spent || busy}
-                          $spent={message.spent}
-                          $ghost={String(chip.id).startsWith('__')}
-                          $selected={message.selected?.includes(chip.id)}
-                          onClick={() => answerChip(message, chip)}
-                        >
-                          {chip.label}
-                        </Chip>
-                      ))}
-                      {/* Nothing picked yet: Skip. Once something is picked the
-                          answer goes in from the send button. */}
+                      {message.chips.map((chip) => {
+                        const picked = !!message.selected?.includes(chip.id);
+                        const removable = message.multi && !message.spent && picked;
+                        return (
+                          <Chip
+                            key={chip.id}
+                            type="button"
+                            disabled={message.spent || busy}
+                            $spent={message.spent}
+                            $ghost={String(chip.id).startsWith('__')}
+                            $selected={picked}
+                            aria-pressed={message.multi ? picked : undefined}
+                            aria-label={removable ? `${chip.label}, ${TEXT.CHIP_REMOVE}` : undefined}
+                            onClick={() => answerChip(message, chip)}
+                          >
+                            {chip.label}
+                            {removable && <ChipRemove aria-hidden="true">×</ChipRemove>}
+                          </Chip>
+                        );
+                      })}
+                      {/* Nothing picked yet: Skip. Once something is picked,
+                          Done appears under the row. */}
                       {message.multi && !message.spent && !message.selected?.length && (
                         <Chip type="button" $ghost onClick={() => confirmMulti(message)}>
                           {TEXT.SKIP_CHIP}
@@ -2224,6 +2220,13 @@ const ProfileCoach = () => {
                         </Chip>
                       )}
                     </ChipRow>
+                  )}
+                  {message.multi && !message.spent && !!message.selected?.length && (
+                    <MultiDone>
+                      <Chip type="button" $primary disabled={busy} onClick={() => confirmMulti(message)}>
+                        {TEXT.MULTI_DONE(message.selected.length)}
+                      </Chip>
+                    </MultiDone>
                   )}
                 </React.Fragment>
               ))}

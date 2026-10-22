@@ -293,6 +293,7 @@ export const ChipRow = styled.div`
 `;
 
 export const Chip = styled.button`
+  position: relative;
   padding: 11px 18px;
   border-radius: 12px;
   border: 1.5px solid ${({ $selected }) => ($selected ? '#6366f1' : '#e6e6ef')};
@@ -1048,27 +1049,23 @@ export const UploadTrack = styled.div`
   }
 `;
 
-/* ═══════════════════════════════════════════════
-   VOICE MODE
-   Light, quiet, and one soft thing moving.
-
-   The first cut was a dark veil with a hard-edged glowing circle, which
-   reads as a sci-fi HUD. What people have been taught a voice assistant
-   looks like is the opposite: a pale room, a soft cloud that drifts, and
-   two controls at the bottom where a thumb already is. Mobile first, since
-   talking to your phone is the case this exists for.
-   ═══════════════════════════════════════════════ */
-
-const drift = keyframes`
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
-  33%      { transform: translate3d(-6%, 4%, 0) rotate(40deg); }
-  66%      { transform: translate3d(5%, -3%, 0) rotate(-25deg); }
-`;
 
 const veilIn = keyframes`
   from { opacity: 0; }
   to   { opacity: 1; }
 `;
+
+/* ═══════════════════════════════════════════════
+   VOICE MODE
+   Light, quiet, and one thing moving: Remi's voiceprint.
+
+   The first cut was a dark veil with a hard-edged glowing circle, which
+   reads as a sci-fi HUD; the second was a soft gradient orb that looked like
+   every other voice assistant. Now a pale room, our own mark with a ring
+   that moves with the voice, and two controls at the bottom where a thumb
+   already is. Mobile first, since talking to your phone is the case this
+   exists for.
+   ═══════════════════════════════════════════════ */
 
 export const VoiceVeil = styled.div`
   position: fixed;
@@ -1100,56 +1097,16 @@ export const VoiceWho = styled.div`
   }
 `;
 
-/* The orb.
-   Two blurred blobs drifting inside a circle, so the surface moves the way
-   weather does rather than pulsing like a progress indicator. `--level` is
-   the live volume from the call: it swells on a stressed syllable and
-   settles in a pause, which is the whole difference between a shape that is
-   animated and one that is listening. */
-export const Orb = styled.div`
-  position: relative;
+/* The voiceprint's square stage, where the orb used to be. */
+export const VoiceMark = styled.div`
   align-self: center;
-  width: min(272px, 64vw);
-  height: min(272px, 64vw);
-  border-radius: 50%;
-  overflow: hidden;
-  background: linear-gradient(155deg, #dfe6ff 0%, #a9bcff 42%, #3a6ff0 100%);
-  transform: scale(calc(1 + (var(--level, 0) * 0.14)));
-  transition: transform 110ms ease-out;
-  box-shadow: 0 24px 70px rgba(80, 110, 230, 0.26);
+  width: min(300px, 70vw);
+  height: min(300px, 70vw);
 
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(26px);
-  }
-
-  /* The pale sweep across the middle. */
-  &::before {
-    inset: -18% -10% 32% -28%;
-    background: radial-gradient(circle at 40% 55%, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0) 68%);
-    @media (prefers-reduced-motion: no-preference) {
-      animation: ${drift} 14s ease-in-out infinite;
-    }
-  }
-
-  /* The deeper blue gathering at the top right. */
-  &::after {
-    inset: -24% -30% 46% 34%;
-    background: radial-gradient(circle at 50% 50%, rgba(37, 86, 230, 0.92), rgba(37, 86, 230, 0) 70%);
-    @media (prefers-reduced-motion: no-preference) {
-      animation: ${drift} 18s ease-in-out infinite reverse;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transform: none;
-  }
+  canvas { width: 100%; height: 100%; display: block; }
 `;
 
-/* Orb, status and caption as one block that stays optically centred in
+/* Voiceprint, status and caption as one block that stays optically centred in
    whatever height is left between the header and the controls — which on a
    phone in landscape, or with a keyboard up, is not much. */
 export const VoiceStage = styled.div`
@@ -1337,4 +1294,34 @@ export const CheckEdit = styled.form`
     cursor: pointer;
   }
   button.quiet { background: none; color: #6c6c86; }
+`;
+
+/* The × on a picked chip in a pick-several row. Decorative for pointer
+   users (tapping anywhere on the chip un-picks it); it tells people that
+   a picked chip can be taken back. */
+export const ChipRemove = styled.span`
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #6366f1;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(26, 26, 46, 0.2);
+  pointer-events: none;
+`;
+
+/* Done, under a pick-several row once something is picked. */
+export const MultiDone = styled.div`
+  padding-left: 50px;
+  margin-top: 12px;
+
+  @media (max-width: 480px) { padding-left: 0; }
 `;
