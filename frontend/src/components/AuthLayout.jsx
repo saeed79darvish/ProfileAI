@@ -246,15 +246,18 @@ export const HideOnMobile = styled.div`
   }
 `;
 
+// Top-left, where the Navbar logo sits on every other page, so it reads as
+// the way home rather than as decoration in the middle of the panel.
 const BrandMark = styled(RouterLink)`
+  position: absolute;
+  top: 28px;
+  left: 40px;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 40px;
   text-decoration: none;
   transition: opacity 0.2s;
   &:hover { opacity: 0.85; }
-  @media (max-width: 899px) { justify-content: center; margin-bottom: 24px; }
 `;
 
 // ── Floating UI Card ──
@@ -341,11 +344,11 @@ const AuthLayout = ({ children }) => {
           </Box>
         </GlassCard>
 
+        <BrandMark to="/" aria-label="profilleai home">
+          <BrandLogo iconSize={32} fontSize="1.35rem" onDark />
+        </BrandMark>
+
         <LeftContent>
-          {/* Brand */}
-          <BrandMark to="/">
-            <BrandLogo iconSize={34} fontSize="1.3rem" onDark />
-          </BrandMark>
 
           {/* Headline */}
           <Typography
