@@ -23,6 +23,7 @@ import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
 import CoachMark from './CoachMark';
+import DictationWave from './DictationWave';
 import VoicePanel from './VoicePanel';
 import { useVoiceCall, VOICE_STATES } from './useVoiceCall';
 import {
@@ -99,7 +100,7 @@ import {
   PageContainer, TopBar, Logo, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote,
+  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -357,6 +358,15 @@ const ProfileCoach = () => {
   dictationSupportedRef.current = dictation.supported;
   const listEndRef = useRef(null);
   const composerRef = useRef(null);
+  // The box grows with what is in it (typed or dictated); CSS caps it at
+  // about six lines and scrolls past that, keeping the newest words in view.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+    if (document.activeElement !== el) el.scrollTop = el.scrollHeight;
+  }, [input]);
   // Set for the one render after an in-place message update that must not
   // scroll the transcript (see the scroll effect below).
   const keepScrollRef = useRef(false);
@@ -2367,10 +2377,23 @@ const ProfileCoach = () => {
             )}
 
             <Composer onSubmit={submitText}>
+              <ComposerField>
+              {dictation.listening && <ComposerWave as={DictationWave} levelRef={dictation.levelRef} />}
               <ComposerInput
                 ref={composerRef}
+                rows={1}
+                enterKeyHint="send"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                /* Enter sends everything in the box, Shift+Enter is a new
+                   line. Not mid-composition (an IME picking characters), and
+                   not while the accurate transcript is still on its way. */
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  if (dictation.transcribing) return;
+                  e.currentTarget.form?.requestSubmit();
+                }}
                 // When the answer is a tap, the box says so instead of just
                 // looking broken.
                 placeholder={dictation.transcribing
@@ -2383,6 +2406,16 @@ const ProfileCoach = () => {
                 disabled={!canType}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
               />
+              </ComposerField>
+              {input && !dictation.listening && !dictation.transcribing && canType && (
+                <ClearButton
+                  type="button"
+                  onClick={() => { setInput(''); composerRef.current?.focus(); }}
+                  aria-label={TEXT.CLEAR_INPUT_LABEL}
+                >
+                  {TEXT.CLEAR_INPUT}
+                </ClearButton>
+              )}
               <IconButton
                 type="button"
                 $listening={dictation.listening}

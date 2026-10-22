@@ -51,6 +51,8 @@ export const TEXT = {
   DICTATE_START: 'Speak your answer',
   DICTATE_STOP: 'Stop listening',
   DICTATE_TRANSCRIBING: 'Writing down what you said...',
+  CLEAR_INPUT: 'Clear',
+  CLEAR_INPUT_LABEL: 'Clear the text box',
   DICTATE_UNSUPPORTED: 'This browser cannot do speech input. Try Chrome.',
   DICTATE_DENIED: 'I cannot hear the microphone. Allow access in your browser settings, or just type.',
   DICTATE_FAILED: 'The microphone stopped working. Try again, or just type.',

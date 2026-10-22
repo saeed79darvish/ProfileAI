@@ -68,6 +68,10 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const capTimerRef = useRef(null);
+  /* Live microphone level, 0 to 1, for the waveform in the composer. A ref,
+     not state: it changes every frame and only the canvas reads it. */
+  const levelRef = useRef(0);
+  const meterRef = useRef(null);
   // Resolves finish(): the text that should end up in the box.
   const settleRef = useRef(null);
   const settle = (text) => {
@@ -91,7 +95,43 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
   const handlersRef = useRef({ onText, onError, transcribe });
   useEffect(() => { handlersRef.current = { onText, onError, transcribe }; }, [onText, onError, transcribe]);
 
+  const stopMeter = () => {
+    const meter = meterRef.current;
+    meterRef.current = null;
+    levelRef.current = 0;
+    if (!meter) return;
+    cancelAnimationFrame(meter.raf);
+    try { meter.ctx.close(); } catch { /* already closed */ }
+  };
+
+  /* Reads the level off the same stream being recorded: an analyser on the
+     mic, RMS of each frame, smoothed so the bars move like speech rather
+     than flicker. */
+  const startMeter = (stream) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const meter = { ctx, raf: 0 };
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 1) { const v = (data[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / data.length);
+        levelRef.current = levelRef.current * 0.6 + Math.min(1, rms * 4) * 0.4;
+        meter.raf = requestAnimationFrame(tick);
+      };
+      meter.raf = requestAnimationFrame(tick);
+      meterRef.current = meter;
+    } catch { /* no meter: the waveform stays flat, dictation still works */ }
+  };
+
   const releaseMic = useCallback(() => {
+    stopMeter();
     if (capTimerRef.current) clearTimeout(capTimerRef.current);
     capTimerRef.current = null;
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* gone */ }
@@ -171,6 +211,7 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
+      startMeter(stream);
       const mimeType = pickMimeType();
       const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorder.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
@@ -243,5 +284,5 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* gone */ }
   }, []);
 
-  return { listening, transcribing, start, stop, finish, cancel, toggle, supported: dictationSupported };
+  return { listening, transcribing, levelRef, start, stop, finish, cancel, toggle, supported: dictationSupported };
 };

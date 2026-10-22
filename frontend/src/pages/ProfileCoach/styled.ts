@@ -410,7 +410,8 @@ export const ComposerWrap = styled.div`
    real indicator, in the product's indigo rather than the browser's blue. */
 export const Composer = styled.form`
   display: flex;
-  align-items: center;
+  /* Buttons stay on the last line as the box grows, like every chat app. */
+  align-items: flex-end;
   gap: 10px;
   max-width: 768px;
   margin: 0 auto;
@@ -431,22 +432,40 @@ export const Composer = styled.form`
   }
 
   /* Arrived by keyboard: that needs to be unmistakable, not tasteful. */
-  &:has(input:focus-visible) {
+  &:has(textarea:focus-visible) {
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
   }
 `;
 
-export const ComposerInput = styled.input`
+/* The text column: the waveform while dictating, then the box. */
+export const ComposerField = styled.div`
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+`;
+
+/* A text area, not a single line: a dictated answer is a paragraph, and a
+   one-line field showed only its first few words. It grows with the text
+   (set from scrollHeight in the page) up to about six lines, then scrolls. */
+export const ComposerInput = styled.textarea`
+  display: block;
+  width: 100%;
   border: none;
   outline: none;
+  resize: none;
   background: transparent;
   font-family: inherit;
   font-size: 1rem;
+  line-height: 1.5;
   color: #1a1a2e;
   padding: 10px 0;
+  margin: 0;
   min-width: 0;
+  max-height: calc(1.5em * 6 + 20px);
+  overflow-y: auto;
 
   &::placeholder { color: #a0a0b8; }
 
@@ -457,6 +476,43 @@ export const ComposerInput = styled.input`
     outline: none;
     box-shadow: none;
   }
+`;
+
+/* While the mic is on: your voice as moving bars, and how long it has run. */
+export const ComposerWave = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+
+  canvas {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+  }
+
+  .time {
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: #dc2626;
+    flex-shrink: 0;
+  }
+`;
+
+/* Empties the box in one tap, instead of select-all and delete. */
+export const ClearButton = styled.button`
+  align-self: center;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: #8a8aa3;
+  cursor: pointer;
+
+  &:hover { color: #1a1a2e; background: #f1f1f8; }
 `;
 
 export const IconButton = styled.button`
