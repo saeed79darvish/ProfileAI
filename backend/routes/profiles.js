@@ -9,6 +9,7 @@ const {
   aiRateLimiter,
   aiRateLimiterIfSignedIn,
   coachVoiceSessionLimiter,
+  getVoiceAllowance,
   recordVoiceSession,
   recordAIUsage,
 } = require('../middleware/aiRateLimiter');
@@ -697,11 +698,29 @@ router.post('/coach/review', coachGuard, async (req, res) => {
 // @desc    Whether talking is available on this server at all
 // @access  Public
 router.get('/coach/voice/status', (req, res) => {
-  /* Config booleans only, no secrets. The browser asks before offering the
-     choice, so an environment without Vapi keys simply never shows a voice
-     option — better than offering a call that fails when someone taps it,
-     and it switches itself on the moment the keys are set. */
-  res.json({ available: coachRealtimeService.isConfigured() });
+  /* Whether voice works on this server at all, and whether THIS visitor can
+     start a call right now. The page only offers a call it can deliver: an
+     offer that ends in "you have used today's call" reads as a sign-up wall,
+     which is exactly what guests were meant never to see. */
+  optionalAuth(req, res, async () => {
+    const available = coachRealtimeService.isConfigured();
+    if (!available) return res.json({ available: false, canCall: false });
+    try {
+      if (req.userId) {
+        const user = await User.findByPk(req.userId);
+        const allowance = user ? await getVoiceAllowance(user) : { allowed: false };
+        return res.json({ available, canCall: !!allowance.allowed, maxMinutes: allowance.maxSessionMinutes || null });
+      }
+      const ipHash = hashIp(clientIp(req));
+      const canCall = process.env.DISABLE_AI_RATE_LIMIT === 'true'
+        || recentGuestCalls(ipHash).length < GUEST_CALLS_PER_IP_PER_DAY;
+      return res.json({ available, canCall, maxMinutes: GUEST_CALL_MINUTES });
+    } catch (error) {
+      // Metering trouble never blocks a call; same stance as the limiters.
+      console.error('[voice status] allowance check failed:', error.message);
+      return res.json({ available, canCall: true });
+    }
+  });
 });
 
 /* Guests get one short call a day. A live call is the most persuasive

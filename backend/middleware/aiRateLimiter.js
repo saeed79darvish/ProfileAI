@@ -447,6 +447,10 @@ const VOICE_FEATURE = 'coach_voice_session';
  */
 const getVoiceAllowance = async (user) => {
   const role = user.role || 'candidate';
+  // Admins test the voice coach far more than a plan allows; never capped.
+  if (role === 'admin') {
+    return { allowed: true, maxSessionMinutes: 30, remainingMinutes: -1, reason: null, tier: 'admin' };
+  }
   let tier = user.subscriptionTier || 'free';
   if (role === 'candidate' && !user.aiOnboardingCompleted && !isPaidTier(tier)) {
     tier = 'onboarding';

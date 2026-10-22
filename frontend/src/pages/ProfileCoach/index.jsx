@@ -7,7 +7,6 @@ import {
   Extension as ExtensionIcon,
   MailOutline as MailIcon,
   EditOutlined as EditIcon,
-  GraphicEq as TalkIcon,
   Public as PublicIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
@@ -96,10 +95,10 @@ import {
   CUSTOM_ANSWER_CHIP,
 } from './coachLogic';
 import {
-  PageContainer, TopBar, Logo, TopActions, TopButton, Body,
+  PageContainer, TopBar, Logo, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote, TalkButton,
+  ComposerWrap, Composer, ComposerInput, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -671,14 +670,6 @@ const ProfileCoach = () => {
     startLadder('completed');
   }, [pushMine, spendChips, startLadder]);
 
-  /** Top-bar "Skip for now" while the intro is still on screen. */
-  const introSkipToQuestions = useCallback(() => {
-    setMessages((prev) => prev
-      .filter((m) => m.introSlide == null)
-      .map((m) => (m.introBuild ? { ...m, spent: true } : m)));
-    trackEvent('coach_intro_skipped', { to: 'questions' });
-    startLadder('skipped');
-  }, [startLadder]);
 
   useEffect(() => {
     // Advancing the intro carousel changes a message in place. Scrolling to
@@ -1024,19 +1015,18 @@ const ProfileCoach = () => {
      choice is ever offered — an environment with no OpenAI key shows no
      voice option rather than one that fails on tap, and starts showing it
      the moment the key is set. */
-  const [voiceAvailable, setVoiceAvailable] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  /* Whether a call can be placed right now, for this visitor: voice is set
+     up on the server AND they have a call left (guests: one a day). The
+     offers only appear when this is true, so nobody is offered a call that
+     ends in a sign-up message. Re-checked after every call. */
+  const refreshVoiceStatus = useCallback(() => {
     profileAPI.coachVoiceStatus()
-      .then(({ data }) => {
-        if (cancelled) return;
-        voiceAvailableRef.current = !!data?.available;
-        setVoiceAvailable(!!data?.available);
-      })
-      .catch(() => { if (!cancelled) setVoiceAvailable(false); });
-    return () => { cancelled = true; };
+      .then(({ data }) => { voiceAvailableRef.current = !!data?.available && data?.canCall !== false; })
+      .catch(() => { voiceAvailableRef.current = false; });
   }, []);
+
+  useEffect(() => { refreshVoiceStatus(); }, [isAuthenticated, refreshVoiceStatus]);
 
   /* What was said goes into the transcript as it happens. The chat is the
      record of the conversation whichever way it was held, and after the call
@@ -1106,6 +1096,7 @@ const ProfileCoach = () => {
    */
   const onCallEnded = useCallback(() => {
     setLastSpoken(null);
+    refreshVoiceStatus();
     /* The call kept as a few sentences on their record; the transcript is
        sent to be summarised and is not stored. Signed-in only: guests
        cannot place a call. */
@@ -1134,7 +1125,7 @@ const ProfileCoach = () => {
       return;
     }
     afterCall(merged);
-  }, [afterCall, isAuthenticated, later, pushCoach, saveCareerContext]);
+  }, [afterCall, isAuthenticated, later, pushCoach, refreshVoiceStatus, saveCareerContext]);
 
   const saveCheckEdit = useCallback((kind, text) => {
     const next = applyCheckEdit(draftRef.current, kind, text);
@@ -1920,6 +1911,9 @@ const ProfileCoach = () => {
   }, [draft]);
 
   const currentStep = LADDER[stepIndex];
+  // While "talk or type?" is waiting, the question it precedes has not been
+  // asked yet, so its Skip does not belong on screen.
+  const voiceOfferLive = messages.some((m) => m.stepId === VOICE_CHOICE && !m.spent);
   // A story question carries a "Say it instead" row, and its Skip goes in it.
   const liveRowHasChips = messages.some(
     (m) => m.stepId === currentStep?.id && !m.spent && m.chips?.length
@@ -2107,30 +2101,9 @@ const ProfileCoach = () => {
         <Logo onClick={() => navigate(ROUTES.HOME)} aria-label={TEXT.LOGO}>
           <BrandLogo />
         </Logo>
-        <TopActions>
-          {/* Shown whenever this server can place a call. Guests get one
-              short free call a day; see voiceSessionGuard on the server. */}
-          {voiceAvailable && (
-            <TalkButton
-              type="button"
-              onClick={() => startTalking()}
-              disabled={busy || voice.state !== VOICE_STATES.idle}
-              title={TEXT.VOICE_START}
-            >
-              <TalkIcon />
-              <span className="label">{TEXT.VOICE_START}</span>
-            </TalkButton>
-          )}
-          {/* During the intro "skip" means skip the intro — bailing to the
-              editor from here would hand over a completely empty draft. */}
-          <TopButton
-            type="button"
-            onClick={() => (stepIndex < 0 ? introSkipToQuestions() : finish(draft))}
-            disabled={busy}
-          >
-            {TEXT.SKIP}
-          </TopButton>
-        </TopActions>
+        {/* No header actions. Voice is offered inside the conversation, where
+            it fits (after an import, or at the first story question), and the
+            conversation is the way through to the profile. */}
       </TopBar>
 
       <MobileStrip type="button" onClick={() => setPanelOpen((v) => !v)} aria-expanded={panelOpen}>
@@ -2272,7 +2245,7 @@ const ProfileCoach = () => {
 
             {/* Skip lives here for text-only steps, which have no chip row
                 of their own to hang it on. */}
-            {currentStep?.optional && !currentStep?.chipSet && !liveRowHasChips && (
+            {currentStep?.optional && !currentStep?.chipSet && !liveRowHasChips && !voiceOfferLive && (
               <QuickReplies>
                 <QuickReply
                   type="button"
