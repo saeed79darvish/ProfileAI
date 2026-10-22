@@ -1976,6 +1976,22 @@ const ProfileCoach = () => {
   const liveMultiRow = messages.some((m) => m.multi && !m.spent && m.stepId === currentStep?.id);
   const canType = (liveMultiRow || (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing))) && !busy;
 
+  /* The cursor waits in the box whenever there is something to type: after
+     each question, after the coach replies, after a chip was tapped. Having
+     to click into the box before every answer made a chat feel like a form.
+     Desktop only: on a touch screen focus opens the keyboard over the chips
+     on every question. Never pulled away from another field being typed in
+     (the paste box, a line on the check card), and not during a call. */
+  useEffect(() => {
+    if (!canType || voice.state !== VOICE_STATES.idle) return;
+    if (!window.matchMedia?.('(pointer: fine)').matches) return;
+    const active = document.activeElement;
+    const typingElsewhere = active && active !== composerRef.current
+      && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+    if (typingElsewhere) return;
+    composerRef.current?.focus({ preventScroll: true });
+  }, [canType, messages.length, voice.state]);
+
   /* ─── Card renderers ───────────────────────────────────────── */
 
   const renderReview = (review) => (
