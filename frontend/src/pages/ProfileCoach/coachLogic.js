@@ -1460,6 +1460,14 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.sector;
     case 'level':
       return !!draft.level;
+    // Once a resume or LinkedIn is in, neither the offer to upload one nor
+    // the review of it comes round again. After a call the ladder restarts
+    // from the top, and it asked "do you have a resume?" of someone who had
+    // just uploaded one.
+    case 'importOffer':
+      return !!draft.importedFrom;
+    case 'review':
+      return !!draft.review;
     case 'lookingFor':
       return Array.isArray(draft.roleTypes) && draft.roleTypes.length > 0;
     case 'workStyle':

@@ -571,7 +571,7 @@ Extract and return a JSON object with the following structure:
       "startDate": "YYYY-MM-DD format (e.g., 2020-01-01). Use first day of month if only month/year given.",
       "endDate": "YYYY-MM-DD format or null if current position",
       "current": true/false (boolean indicating if currently working here),
-      "description": "Brief description of responsibilities and achievements"
+      "description": "The role's bullet points exactly as written in the resume, one per line, each starting with '• '. If the role is written as prose, its sentences, one per line."
     }
   ],
   "education": [
@@ -605,7 +605,10 @@ Important guidelines:
 - Extract ALL skills mentioned in the resume
 - Include soft skills and technical skills
 - For the summary, if there's no explicit summary section, create a brief 2-3 sentence professional summary based on the resume content
-- Keep descriptions concise but informative
+- Experience descriptions: copy the candidate's own bullet points VERBATIM, one per
+  line, each starting with "• ". Do not summarise, merge, shorten or rewrite them:
+  the wording and the numbers are theirs, and the line breaks are what make them
+  bullets. Fix only obvious line-wrap breaks inside a single bullet.
 - "company" must be ONLY the employer's name (e.g. "Autodesk"). Never put the job
   title, a skills list, or a sentence fragment in it. If the employer genuinely
   cannot be determined, use null — do NOT invent a placeholder.
@@ -677,6 +680,22 @@ Important guidelines:
       return value.replace(ANNOTATION, '').replace(/\s+/g, ' ').trim();
     };
 
+    /* Descriptions keep their line breaks. Collapsing every run of whitespace
+       turned six bullets into one paragraph, and the coach's review then told
+       the candidate that their resume was "one dense paragraph". Spaces are
+       tidied within each line; each bullet keeps its own line and marker. */
+    const cleanLines = (value) => {
+      if (typeof value !== 'string') return value;
+      // Per line: the annotation pattern runs to the end of its input, so on
+      // the whole text one note would take every bullet after it with it.
+      return value
+        .split(/\r?\n/)
+        .map((line) => line.replace(ANNOTATION, '').replace(/[ \t]+/g, ' ').trim())
+        .filter(Boolean)
+        .map((line) => (/^[•\-*]/.test(line) ? line.replace(/^[•\-*]\s*/, '• ') : line))
+        .join('\n');
+    };
+
     // A company name is a short proper noun, not prose and not a skills list.
     const plausibleCompany = (value) => {
       if (typeof value !== 'string') return false;
@@ -696,7 +715,7 @@ Important guidelines:
       data.experience = data.experience.map((exp) => {
         const next = { ...exp };
         next.title = clean(next.title);
-        next.description = clean(next.description);
+        next.description = cleanLines(next.description);
         next.company = plausibleCompany(clean(next.company)) ? clean(next.company) : '';
         return next;
       });

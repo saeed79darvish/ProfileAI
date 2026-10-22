@@ -69,6 +69,7 @@ export const TEXT = {
   VOICE_LIVE: 'Listening. Talk normally, and close this when you are done.',
   VOICE_END: 'End call',
   VOICE_DONE: 'Thanks. I have put what you told me into your profile.',
+  VOICE_DONE_TALK: 'Thanks for talking it through. I have kept that in mind.',
   VOICE_HANDOVER: 'One last thing, and it is easier here than out loud: if you have a resume or a LinkedIn profile, send it over and I will fill in anything we missed.',
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
   VOICE_MIC_DENIED: 'Your browser is blocking the microphone. Allow it in the address bar, or we can keep typing.',

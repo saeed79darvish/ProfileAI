@@ -68,29 +68,16 @@ async function createVoiceSession({ firstName, profile = {}, missing = [], maxMi
              before it leaves the machine; this catches what is left, and
              what is left is what trips the detector below. */
           noise_reduction: { type: 'near_field' },
-          /* Server-side voice activity detection, with interruption on.
-             This is what makes talking over Remi work, and it is the part
-             that was worth paying a platform for until it came in the box.
-
-             The threshold went up to 0.62 as a workaround while the real
-             problem was the missing echo cancellation on the microphone.
-             With that fixed at the source it only hurt: a quiet answer fell
-             under the bar and the call sat there as though nobody had
-             spoken. Back to the default. The silence window stays a little
-             longer than stock so that pausing to think is not read as
-             finishing a sentence. */
+          /* Semantic turn detection at its least eager. Plain voice-activity
+             detection ended a turn on any sound and let any sound interrupt:
+             a TV in the room, or Remi's own voice leaking back through the
+             speakers, was heard as the person talking, cut Remi off
+             mid-sentence ("Why did each of") and turned up in the transcript
+             as words nobody said. Semantic detection waits for the person to
+             have finished a thought, and "low" gives them room to pause. */
           turn_detection: {
-            type: 'server_vad',
-            /* A middle setting, arrived at the hard way. 0.62 was too deaf
-               and quiet answers went unheard; 0.5 was too twitchy and
-               whatever leaked back through the speakers interrupted Remi
-               mid-sentence, because barge-in cannot tell a person from an
-               echo of itself. The crackle that was doing most of the
-               tripping is gone now that the remote stream is not being run
-               through a WebAudio graph as well as played. */
-            threshold: 0.55,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 700,
+            type: 'semantic_vad',
+            eagerness: 'low',
             create_response: true,
             interrupt_response: true,
           },

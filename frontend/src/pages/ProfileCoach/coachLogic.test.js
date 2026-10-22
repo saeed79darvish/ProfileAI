@@ -1275,3 +1275,17 @@ test('after an import, the call works through the gaps the review found', () => 
   const agenda = voiceAgenda({ experience: [{ company: 'Acme' }], review: { probes: ['How many users did the app have?'] } });
   assert.match(agenda[0], /How many users/);
 });
+
+test('after an import, the upload offer and the review never come round again', () => {
+  const d = { ...emptyDraft(), importedFrom: 'resume', review: { opening: 'x' } };
+  assert.equal(isAlreadyAnswered(step('importOffer'), d), true);
+  assert.equal(isAlreadyAnswered(step('review'), d), true);
+  assert.equal(isAlreadyAnswered(step('importOffer'), emptyDraft()), false);
+});
+
+test('restarting the ladder after an import does not ask for a resume', () => {
+  const d = { ...emptyDraft(), sector: 'tech', level: 'staff', title: 'Staff Engineer', importedFrom: 'resume', review: {} };
+  const first = LADDER[nextStepIndex(-1, d)].id;
+  assert.notEqual(first, 'importOffer');
+  assert.notEqual(first, 'review');
+});

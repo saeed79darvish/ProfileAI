@@ -1048,7 +1048,11 @@ const ProfileCoach = () => {
          join into one bubble. Roles alternate, so this never glues two
          people together. */
       const last = prev[prev.length - 1];
-      if (last?.spoken && last.role === line.role) {
+      /* Only the person's lines are joined: their pauses split one thought
+         into several transcripts. Remi's arrive one whole reply at a time,
+         and joining them glued an interrupted reply to the next one into a
+         single bubble that repeated itself. */
+      if (last?.spoken && last.role === line.role && line.role === 'me') {
         const joined = `${last.text} ${line.text}`.replace(/\s+/g, ' ').trim();
         return [...prev.slice(0, -1), { ...last, text: joined }];
       }
@@ -1111,6 +1115,17 @@ const ProfileCoach = () => {
     if (isAuthenticated && spoken.length >= 2) {
       careerContextAPI.summarizeCall(spoken).catch(() => {});
       saveCareerContext(draftRef.current);
+    }
+    /* "Cut off before I caught anything" is only true when they never
+       spoke. A real conversation that saved no profile facts (talking about
+       goals, or why jobs were short) still happened, and saying otherwise
+       read as the call having failed. */
+    const theySpoke = spoken.some((l) => l.role === 'me');
+    if (!heardAnythingRef.current && theySpoke) {
+      heardKeysRef.current = new Set();
+      pushCoach(TEXT.VOICE_DONE_TALK);
+      afterCall(draftRef.current);
+      return;
     }
     if (!heardAnythingRef.current) {
       pushCoach(TEXT.VOICE_NOTHING);
@@ -1888,8 +1903,13 @@ const ProfileCoach = () => {
       // The labels they tapped ("Full-time"), not the stored ids.
       case 'lookingFor':
         return preferenceLabels(draft);
-      case 'skills':
-        return (draft.skills || []).slice(0, 4).join(', ');
+      case 'skills': {
+        // The first few, and how many more: four alone read as if the import
+        // had only found four.
+        const all = draft.skills || [];
+        const more = all.length > 4 ? `, +${all.length - 4} more` : '';
+        return `${all.slice(0, 4).join(', ')}${more}`;
+      }
       case 'exp': {
         const row = (draft.experience || [])[0];
         if (!row) return '';
