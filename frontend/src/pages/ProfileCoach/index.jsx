@@ -1709,11 +1709,13 @@ const ProfileCoach = () => {
    */
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
-    // Sending throws the recogniser away rather than stopping it: stop()
-    // finalises, and that last result arrives after the box has been cleared
-    // and puts the whole spoken sentence straight back into it.
-    if (dictation.listening) dictation.cancel();
-    const text = input.trim();
+    /* Send while the mic is on means "that is my answer": stop, wait for the
+       accurate transcript, and send that, not the live preview. */
+    let text = input.trim();
+    if (dictation.listening) {
+      const final = await dictation.finish();
+      if (final && String(final).trim()) text = String(final).trim();
+    }
     const step = LADDER[stepIndex];
     if (!text || busy) return;
 

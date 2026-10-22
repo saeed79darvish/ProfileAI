@@ -68,6 +68,13 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const capTimerRef = useRef(null);
+  // Resolves finish(): the text that should end up in the box.
+  const settleRef = useRef(null);
+  const settle = (text) => {
+    const resolve = settleRef.current;
+    settleRef.current = null;
+    resolve?.(text);
+  };
   // What was in the box when the mic was tapped, so dictation appends to a
   // half-typed answer instead of eating it.
   const baseRef = useRef('');
@@ -75,6 +82,11 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
   // Set while a session is being thrown away (sending): no late result, from
   // either engine, may land in the box the send just emptied.
   const discardedRef = useRef(false);
+  /* Set once the mic stops with a recording to transcribe. The browser can
+     deliver one last preview result after stop(); written to the box, it
+     could land after the accurate text and overwrite it. It is still kept
+     (finalRef) as the fallback. */
+  const previewClosedRef = useRef(false);
   // Read inside callbacks that are created once.
   const handlersRef = useRef({ onText, onError, transcribe });
   useEffect(() => { handlersRef.current = { onText, onError, transcribe }; }, [onText, onError, transcribe]);
@@ -92,6 +104,7 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     try { recognitionRef.current?.stop(); } catch { /* already stopped */ }
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
+      previewClosedRef.current = true;
       try { recorder.stop(); } catch { releaseMic(); }
     } else {
       releaseMic();
@@ -126,6 +139,7 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         if (result.isFinal) finalRef.current += result[0].transcript;
         else interim += result[0].transcript;
       }
+      if (previewClosedRef.current) return;
       handlersRef.current.onText?.(mergeDictation(baseRef.current, finalRef.current + interim));
     };
     recognition.onerror = (event) => {
@@ -145,6 +159,7 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     baseRef.current = currentText;
     finalRef.current = '';
     discardedRef.current = false;
+    previewClosedRef.current = false;
     chunksRef.current = [];
     recorderRef.current = null;
     setListening(true);
@@ -162,19 +177,26 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
       recorder.onstop = async () => {
         releaseMic();
         recorderRef.current = null;
-        if (discardedRef.current || !chunksRef.current.length) return;
+        const preview = mergeDictation(baseRef.current, finalRef.current);
+        if (discardedRef.current || !chunksRef.current.length) {
+          settle(preview);
+          return;
+        }
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || 'audio/webm' });
         chunksRef.current = [];
         setTranscribing(true);
+        let result = null;
         try {
           const text = await handlersRef.current.transcribe(blob);
           if (!discardedRef.current && String(text || '').trim()) {
-            handlersRef.current.onText?.(mergeDictation(baseRef.current, text));
+            result = mergeDictation(baseRef.current, text);
+            handlersRef.current.onText?.(result);
           }
         } catch {
           /* The preview is already in the box; keeping it beats an error. */
         } finally {
           setTranscribing(false);
+          settle(result);
         }
       };
       recorderRef.current = recorder;
@@ -191,6 +213,23 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     }
   }, [releaseMic, startPreview, stop]);
 
+  /**
+   * Stop listening and wait for the accurate text: what pressing send does
+   * while the mic is on. Sending used to throw the recording away and send
+   * the browser's rough preview, the exact text the accurate pass exists to
+   * replace. Resolves to the final text, or null to keep what is in the box.
+   */
+  const finish = useCallback(() => {
+    if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      try { recognitionRef.current?.stop(); } catch { /* already stopped */ }
+      setListening(false);
+      return Promise.resolve(null);
+    }
+    const done = new Promise((resolve) => { settleRef.current = resolve; });
+    stop();
+    return done;
+  }, [stop]);
+
   const toggle = useCallback((currentText) => {
     if (listening) stop();
     else start(currentText);
@@ -204,5 +243,5 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* gone */ }
   }, []);
 
-  return { listening, transcribing, start, stop, cancel, toggle, supported: dictationSupported };
+  return { listening, transcribing, start, stop, finish, cancel, toggle, supported: dictationSupported };
 };
