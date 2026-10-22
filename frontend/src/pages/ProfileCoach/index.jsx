@@ -322,11 +322,32 @@ const ProfileCoach = () => {
     oauthAvailable: false,
   });
 
+  // Read inside delayed callbacks so a chip tapped during the typing pause
+  // still sees the draft the previous answer produced.
+  const draftRef = useRef(draft);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+
+  /* Dictation's accurate pass: the clip goes to a real speech model with
+     the person's own words as hints, so their title, companies and skills
+     come back spelled the way they are, not the way they sound. */
+  const transcribeClip = useCallback(async (blob) => {
+    const d = draftRef.current || {};
+    const hints = [
+      d.title, d.target,
+      ...(d.experience || []).flatMap((r) => [r.title, r.company]),
+      ...(d.education || []).flatMap((e) => [e.institution, e.degree]),
+      ...(d.skills || []).slice(0, 25),
+    ].filter(Boolean);
+    const text = await profileAPI.coachTranscribe(blob, Array.from(new Set(hints)).join(', '));
+    return text;
+  }, []);
+
   const dictation = useDictation({
     onText: setInput,
     onError: (code) => setError(code === 'not-allowed' || code === 'service-not-allowed'
       ? TEXT.DICTATE_DENIED
       : TEXT.DICTATE_FAILED),
+    transcribe: transcribeClip,
   });
 
   const fileInputRef = useRef(null);
@@ -347,10 +368,6 @@ const ProfileCoach = () => {
      The cap is high enough that nobody real will meet it. */
   const asidesRef = useRef(0);
   const timersRef = useRef([]);
-  // Read inside delayed callbacks so a chip tapped during the typing pause
-  // still sees the draft the previous answer produced.
-  const draftRef = useRef(draft);
-  useEffect(() => { draftRef.current = draft; }, [draft]);
   // Read inside the turn call, which must not re-create itself per message.
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -2354,7 +2371,9 @@ const ProfileCoach = () => {
                 onChange={(e) => setInput(e.target.value)}
                 // When the answer is a tap, the box says so instead of just
                 // looking broken.
-                placeholder={liveMultiRow
+                placeholder={dictation.transcribing
+                  ? TEXT.DICTATE_TRANSCRIBING
+                  : liveMultiRow
                   ? TEXT.INPUT_PLACEHOLDER_MULTI
                   : !canType && currentStep
                   ? TEXT.INPUT_PLACEHOLDER_CHIPS
@@ -2378,7 +2397,9 @@ const ProfileCoach = () => {
               >
                 <MicIcon fontSize="small" />
               </IconButton>
-              <IconButton type="submit" $primary disabled={!canType || !input.trim()} aria-label={TEXT.SEND}>
+              {/* Held while the accurate transcript is on its way, so the
+                  rough live preview is never what gets sent. */}
+              <IconButton type="submit" $primary disabled={!canType || !input.trim() || dictation.transcribing} aria-label={TEXT.SEND}>
                 <SendIcon fontSize="small" />
               </IconButton>
             </Composer>

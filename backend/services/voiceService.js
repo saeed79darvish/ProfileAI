@@ -33,18 +33,40 @@ function client() {
  * `buffer` is a Node Buffer (or similar) — typically raw webm/opus or
  * mp4/m4a coming out of MediaRecorder on the frontend.
  */
-async function transcribeAudio(buffer, { mimetype = 'audio/webm', filename = 'clip.webm' } = {}) {
+/* gpt-4o-transcribe is markedly better than whisper-1 on accents and on
+   technical vocabulary, which is most of what people say about their work.
+   Override with OPENAI_STT_MODEL; whisper-1 stays as the fallback. */
+const STT_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-transcribe';
+
+/**
+ * @param {object} [opts]
+ * @param {string} [opts.prompt] words the speaker is likely to use (their
+ *        title, companies, skills). The model spells them as given instead
+ *        of guessing: "Equinix", not "equinox".
+ */
+async function transcribeAudio(buffer, { mimetype = 'audio/webm', filename = 'clip.webm', prompt = '', model = STT_MODEL } = {}) {
   if (!buffer || !buffer.length) throw new Error('empty audio');
 
-  const file = await toFile(buffer, filename, { type: mimetype });
-  const res = await client().audio.transcriptions.create({
-    file,
-    model: 'whisper-1',
-    response_format: 'text',
-    language: 'en',
-  });
-  // With response_format: 'text', the SDK returns a plain string.
-  return typeof res === 'string' ? res.trim() : (res?.text || '').trim();
+  const run = async (useModel) => {
+    const file = await toFile(buffer, filename, { type: mimetype });
+    const res = await client().audio.transcriptions.create({
+      file,
+      model: useModel,
+      response_format: 'text',
+      language: 'en',
+      ...(prompt ? { prompt: String(prompt).slice(0, 800) } : {}),
+    });
+    // With response_format: 'text', the SDK returns a plain string.
+    return typeof res === 'string' ? res.trim() : (res?.text || '').trim();
+  };
+
+  try {
+    return await run(model);
+  } catch (error) {
+    if (model === 'whisper-1') throw error;
+    console.warn(`[voice] ${model} transcription failed (${error.status || error.message}); retrying on whisper-1`);
+    return run('whisper-1');
+  }
 }
 
 /**

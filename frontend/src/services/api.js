@@ -269,6 +269,24 @@ export const profileAPI = {
     api.post('/profiles/coach/tailor-preview', { profile, jobUrl, jobDescription }),
   // Same parser as uploadResume, reachable before login — no Authorization
   // header, so no token is sent even if a stale one is sitting in storage.
+  /* A dictated answer, transcribed by a real speech model with the
+     speaker's own words as hints. Resolves to the text. Works signed out
+     (the server caps guests per day). */
+  coachTranscribe: async (blob, hints = '') => {
+    const form = new FormData();
+    const ext = /mp4/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+    form.append('audio', blob, `clip.${ext}`);
+    form.append('hints', hints);
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/profiles/coach/transcribe`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!response.ok) throw new Error(`transcribe ${response.status}`);
+    const data = await response.json();
+    return data?.text || '';
+  },
   guestUploadResume: async (formData) => {
     const response = await fetch(`${API_URL}/profiles/guest/upload-resume`, {
       method: 'POST',

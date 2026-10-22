@@ -816,6 +816,55 @@ router.post('/coach/voice/session', voiceSessionGuard, async (req, res) => {
   }
 });
 
+/* Dictation in the composer: the clip is transcribed by a real speech
+   model with the person's own vocabulary as hints, because the browser's
+   built-in recogniser turned "checkout" into "cholesterol". Guests get a
+   generous daily allowance per IP (a clip is a few seconds and costs a
+   fraction of a cent); in memory, like the guest call count. */
+const voiceService = require('../services/voiceService');
+const GUEST_CLIPS_PER_IP_PER_DAY = 80;
+const guestClipLog = new Map();
+const clipUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /^audio\//.test(file.mimetype) || file.mimetype === 'video/webm'),
+});
+
+function transcribeGuard(req, res, next) {
+  optionalAuth(req, res, () => {
+    if (req.userId || process.env.DISABLE_AI_RATE_LIMIT === 'true') return next();
+    const ipHash = hashIp(clientIp(req));
+    const now = Date.now();
+    const kept = (guestClipLog.get(ipHash) || []).filter((t) => now - t < GUEST_CALL_WINDOW_MS);
+    if (kept.length >= GUEST_CLIPS_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Dictation limit reached', code: 'guest_dictation_used' });
+    }
+    guestClipLog.set(ipHash, [...kept, now]);
+    return next();
+  });
+}
+
+// @route   POST /api/profiles/coach/transcribe
+// @desc    A dictated answer, transcribed with the speaker's vocabulary
+// @access  Public (guests capped per IP per day)
+router.post('/coach/transcribe', transcribeGuard, clipUpload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) return res.status(400).json({ error: 'No audio', code: 'audio_required' });
+    const hints = String(req.body?.hints || '').replace(/\s+/g, ' ').slice(0, 600);
+    const text = await voiceService.transcribeAudio(req.file.buffer, {
+      mimetype: req.file.mimetype || 'audio/webm',
+      filename: req.file.originalname || 'clip.webm',
+      prompt: hints
+        ? `Someone describing their career to a career coach. Words they may use: ${hints}.`
+        : 'Someone describing their career to a career coach: job titles, companies, technologies.',
+    });
+    res.json({ success: true, text });
+  } catch (error) {
+    console.error('Error transcribing dictation:', error.status || '', error.message);
+    res.status(502).json({ error: 'Could not transcribe that', code: 'transcribe_failed' });
+  }
+});
+
 // @route   POST /api/profiles/coach/turn
 // @desc    One turn of the coach conversation, decided by the model
 // @access  Public (guests metered by IP)
