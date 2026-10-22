@@ -586,7 +586,6 @@ const Register = () => {
                 setAcceptedTerms(e.target.checked);
               }}
               size="small"
-              required
               inputProps={{ 'aria-label': TEXT.CONSENT_REQUIRED }}
               sx={{ pt: 0.25 }}
             />

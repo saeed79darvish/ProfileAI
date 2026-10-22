@@ -61,7 +61,11 @@ const LeftPanel = styled.div`
   justify-content: center;
   align-items: center;
   padding: 56px 48px;
-  position: relative;
+  /* Pinned while the form scrolls, so the floating cards stay put instead of
+     sliding off with the page. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
   overflow: hidden;
 
   @media (max-width: 899px) {

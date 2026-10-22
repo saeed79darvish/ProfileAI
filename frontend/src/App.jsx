@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
@@ -111,8 +111,10 @@ const theme = createTheme({
 // Google OAuth Client ID from environment
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
-// Routes where the Navbar should be hidden (full-screen auth layouts)
-const AUTH_ROUTES = ['/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
+// Routes where the Navbar should be hidden (full-screen auth layouts). The
+// AuthLayout pages bring their own brand and "Back to home", so the Navbar
+// there doubled the logo and pushed the split layout below the fold.
+const AUTH_ROUTES = ['/login', '/register', '/signup', '/check-email', '/onboarding', '/recruiter/onboarding', '/profile/create', '/profile/preferences', '/track'];
 
 // Routes that render their own focused header in place of the Navbar. The
 // profile form editor is where a first profile gets built, and the marketing
@@ -124,6 +126,20 @@ const FOCUSED_HEADER_ROUTES = ['/profile/create-form'];
 // OAuth popup callbacks render in a bare relay window — site chrome there is
 // noise the user sees for the third of a second before it closes itself.
 const OAUTH_CALLBACK_ROUTE = /^\/auth\/[^/]+\/callback\/?$/;
+const VERIFY_EMAIL_ROUTE = /^\/verify-email\//;
+
+// A SPA keeps the window's scroll position across route changes, so a link
+// clicked halfway down one page landed halfway down the next. New pages start
+// at the top; back/forward (POP) and #anchor links are left alone.
+function ScrollToTopOnNavigate() {
+  const { pathname, hash } = useLocation();
+  const navigationType = useNavigationType();
+  React.useEffect(() => {
+    if (navigationType === 'POP' || hash) return;
+    window.scrollTo(0, 0);
+  }, [pathname, hash, navigationType]);
+  return null;
+}
 
 // `/applypilot` is shared between the public marketing landing page
 // and the candidate auto-apply dashboard. ANY authenticated user that
@@ -206,6 +222,7 @@ function AppContent() {
     FOCUSED_HEADER_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
     OAUTH_CALLBACK_ROUTE.test(location.pathname) ||
+    VERIFY_EMAIL_ROUTE.test(location.pathname) ||
     isOverlayMode;
 
   // Register navigate so the api.js 401 interceptor can do SPA navigation
@@ -216,6 +233,7 @@ function AppContent() {
 
   return (
     <>
+      <ScrollToTopOnNavigate />
       <ImpersonationBanner />
       {!hideNavbar && <Navbar />}
       {/* AI work that keeps running after its modal is hidden — visible on
