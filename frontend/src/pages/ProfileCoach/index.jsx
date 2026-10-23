@@ -1338,8 +1338,15 @@ const ProfileCoach = () => {
   /* A file attached to the message being written, like any chat app: it
      shows as a card in the box, can be removed, and goes on Send. */
   const [attached, setAttached] = useState(null);
-  const attachFile = useCallback((file) => {
-    if (!file) return;
+  const attachFile = useCallback((dropped) => {
+    if (!dropped) return;
+    /* A dragged file often arrives with no type at all (it depends on the
+       app it came from), so a real PDF was refused. Go by the extension
+       when the type is missing, and label the file so the server takes it. */
+    const byName = { pdf: 'application/pdf', docx: ALLOWED_FILE_TYPES[1], doc: 'application/msword' }[
+      String(dropped.name || '').split('.').pop().toLowerCase()
+    ];
+    const file = !dropped.type && byName ? new File([dropped], dropped.name, { type: byName }) : dropped;
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
       setError(TEXT.ERROR_FILE_TYPE);
       return;
