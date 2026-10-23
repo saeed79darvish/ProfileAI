@@ -427,7 +427,7 @@ const TURN_FIELDS = new Set([
   'workStyle', 'target', 'yearsExperience', 'graduationYear',
 ]);
 
-async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none' } = {}) {
+async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [] } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
   if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none' };
 
@@ -445,6 +445,8 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
         history: history.slice(-10),
         message: trimmed,
         liveVoice,
+        asked,
+        options,
       }),
     }],
   });
@@ -468,6 +470,8 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     voice: liveVoice === 'live' && parsed.voice === true,
     // A piece of the page to put under the reply. Only names we render.
     show: parsed.show === 'import' ? 'import' : 'none',
+    // Only a button that is actually on their screen.
+    choice: options.find((o) => o.toLowerCase() === String(parsed.choice || '').trim().toLowerCase()) || '',
   };
 }
 

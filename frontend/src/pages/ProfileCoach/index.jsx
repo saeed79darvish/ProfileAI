@@ -1541,7 +1541,15 @@ const ProfileCoach = () => {
     return isAlreadyAnswered(step, draft);
   }, []);
 
-  const runTurn = useCallback(async (text) => {
+  /* `step` is the question on screen, if any. The model is told the question
+     and its buttons: without them it could not see what the person was
+     looking at, and "show me the suggested levels" got "I don't have any"
+     right under a row of levels. */
+  const runTurn = useCallback(async (text, step = null) => {
+    const onScreen = step ? getChips(step, draftRef.current)
+      // Real answers only: "Type my own", "More fields", "Say it instead"
+      // and the like are controls, not something to pick in words.
+      .filter((c) => !String(c.id).startsWith('__')) : [];
     setBusy(true);
     setTyping(true);
     try {
@@ -1556,6 +1564,8 @@ const ProfileCoach = () => {
         /* Live voice is for signed-in users only. A guest who asks to talk is
            pointed at the mic, never walked into an account wall. */
         liveVoice: voiceAvailableRef.current ? 'live' : 'none',
+        asked: step ? questionText(step, draftRef.current) : '',
+        options: onScreen.map((c) => c.label),
       });
 
       const learned = data?.learned || {};
@@ -1582,7 +1592,7 @@ const ProfileCoach = () => {
            contradicting the page it lives on. */
         setBusy(false);
         await startTalking();
-        return { ok: true, awaiting: true };
+        return { ok: true, awaiting: true, shown: true };
       }
       /* They asked to upload a resume or bring in LinkedIn. Show the real
          buttons rather than describe them: the coach used to answer "paste
@@ -1592,11 +1602,15 @@ const ProfileCoach = () => {
          return to the question they were on, not to the top of the ladder. */
       if (data?.show === 'import') {
         offerImportAgain(data?.say ? '' : TEXT.IMPORT_ASKED, ASKED_IMPORT_CHOICES, { postCall: true });
-        return { ok: true, awaiting: true };
+        return { ok: true, awaiting: true, shown: true };
       }
       // Waiting needs something to wait on: an empty reply that claims to be
       // waiting would leave the conversation sitting there with no question.
-      return { ok: true, awaiting: data?.awaiting !== false && !!String(data?.say || '').trim() };
+      return {
+        ok: true,
+        awaiting: data?.awaiting !== false && !!String(data?.say || '').trim(),
+        choice: onScreen.find((c) => c.label === data?.choice) || null,
+      };
     } catch {
       setTyping(false);
       return { ok: false, awaiting: false };
@@ -1839,11 +1853,12 @@ const ProfileCoach = () => {
        the page had frozen. */
     if (step.id === 'importOffer') {
       setMessages((prev) => prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)));
-      const turn = await runTurn(text);
+      const turn = await runTurn(text, step);
       if (!turn.ok) {
         setError(TEXT.ERROR_GENERIC);
         return;
       }
+      if (turn.shown) return;
       if (!turn.awaiting) advance(index, draftRef.current);
       return;
     }
@@ -1866,7 +1881,7 @@ const ProfileCoach = () => {
       return;
     }
 
-    const turn = await runTurn(text);
+    const turn = await runTurn(text, step);
     if (!turn.ok) {
       setError(TEXT.ERROR_GENERIC);
       return;
@@ -1875,8 +1890,21 @@ const ProfileCoach = () => {
     // it used to stay lit after the answer was already in.
     if (liveMessage) spendChips(liveMessage.id);
 
-    // It asked them something. Wait for the answer rather than talking over it.
-    if (turn.awaiting) return;
+    // A button picked in words ("senior I guess"): same as tapping it.
+    if (turn.choice && step.assign && step.kind !== 'multi') {
+      commit({ [step.assign]: turn.choice.id }, index);
+      return;
+    }
+    // The call or the upload buttons took over the bottom of the chat.
+    if (turn.shown) return;
+
+    /* It asked them something. Wait for the answer rather than talking over
+       it, but keep the buttons under it: a reply on a button question used
+       to retire the row for good, leaving the question with nothing to tap. */
+    if (turn.awaiting) {
+      if (!stepAnswered(step, draftRef.current)) offerChipsAgain(step, null);
+      return;
+    }
 
     /* Did that fill in what this step was for? If so the conversation moves
        on; if not — they asked a question, or said something unrelated — the
