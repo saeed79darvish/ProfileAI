@@ -35,6 +35,19 @@ export const TEXT = {
   LOGIN_PROMPT: 'Already have an account?',
   LOGIN_LINK: 'Log in',
   CONSENT_REQUIRED: 'I have read and agree to the Terms of Service and Privacy Policy.',
+  SIGNED_IN: {
+    HEADING: 'You already have an account',
+    BODY: 'To create a different account, sign out first.',
+    CONTINUE: 'Go to my profile',
+    SWITCH: 'Sign out and create a new account',
+  },
+  ACCOUNT_EXISTS: {
+    HEADING: 'This account already exists',
+    BODY: 'is already registered with ProfileAI. Sign in to it, or sign up with a different account.',
+    SWITCH: 'Use another account',
+    SIGN_IN: 'Sign in instead',
+    EMAIL_BODY: 'is already registered. Sign in, or use a different email.',
+  },
   ERRORS: {
     PASSWORDS_MISMATCH: 'Passwords do not match',
     PASSWORD_REQUIREMENTS: 'Password must meet all requirements: 8+ chars, uppercase, lowercase, number, special character',

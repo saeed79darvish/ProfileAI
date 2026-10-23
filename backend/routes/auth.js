@@ -141,11 +141,15 @@ router.post(
         return res.status(403).json({ error: 'Recruiter signup is not available yet.' });
       }
 
-      // Check if user exists. We respond with a generic error rather than
-      // confirming/denying email registration to avoid user enumeration.
+      // Say plainly that the account exists so the signup page can offer to
+      // sign in instead. This does confirm the email is registered; the
+      // registerLimiter above is what bounds enumeration through here.
       const existingUser = await User.findOne({ where: { email } });
       if (existingUser) {
-        return res.status(400).json({ error: 'Unable to create account. Please try a different email or sign in.' });
+        return res.status(409).json({
+          code: 'ACCOUNT_EXISTS',
+          error: 'An account with this email already exists. Sign in instead, or use a different email.'
+        });
       }
 
       // Generate a unique URL slug from the user's name (e.g. "saeed-darvish").
@@ -971,6 +975,11 @@ router.post('/google/register', async (req, res) => {
       attributes: AUTH_SAFE_USER_FIELDS
     });
 
+    // Signing up with an account that already exists still signs them in
+    // (Google proved who they are), but the response says so and the signup
+    // page asks before treating it as a fresh registration.
+    const existingAccount = !!user;
+
     if (user) {
       // User exists - just log them in (update googleId if not set)
       // Also backfill slug if the user predates slug support.
@@ -1120,7 +1129,8 @@ router.post('/google/register', async (req, res) => {
         subscriptionStatus: user.subscriptionStatus,
         profilePicture: picture,
         hasProfile
-      }
+      },
+      existingAccount
     });
   } catch (error) {
     console.error('Google register error:', error);
@@ -1348,6 +1358,9 @@ router.post('/github/register', async (req, res) => {
       }
     });
 
+    // Same as Google: an existing account is signed in, and flagged.
+    const existingAccount = !!user;
+
     if (user) {
       // User exists - just log them in (update githubId if not set)
       // Also backfill slug if the user predates slug support.
@@ -1413,7 +1426,8 @@ router.post('/github/register', async (req, res) => {
         subscriptionStatus: user.subscriptionStatus,
         profilePicture: picture,
         hasProfile
-      }
+      },
+      existingAccount
     });
   } catch (error) {
     console.error('GitHub register error:', error);
@@ -1578,6 +1592,8 @@ router.post('/linkedin/register', async (req, res) => {
         [require('sequelize').Op.or]: [{ linkedinId }, { email }]
       }
     });
+    // Same as Google: an existing account is signed in, and flagged.
+    const existingAccount = !!user;
 
     if (user) {
       const updates = {};
@@ -1649,7 +1665,8 @@ router.post('/linkedin/register', async (req, res) => {
         subscriptionStatus: user.subscriptionStatus,
         profilePicture: picture,
         hasProfile
-      }
+      },
+      existingAccount
     });
   } catch (error) {
     console.error('LinkedIn register error:', error);

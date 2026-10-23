@@ -63,7 +63,7 @@ import { getPasswordStrength } from './utils';
 const Register = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { register, setUser, setToken, user } = useAuth();
+  const { register, setUser, setToken, user, logout } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -78,6 +78,16 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [fromExtension] = useState(isFromExtension());
+  // A social signup that matched an account they already have. Holds the
+  // session the backend issued without applying it, so they choose between
+  // signing in as that account and trying a different one.
+  const [existingAccount, setExistingAccount] = useState(null);
+  // Email signup hit an address that is already registered.
+  const [existingEmail, setExistingEmail] = useState('');
+  // Set the moment one of this page's own signups starts signing someone in,
+  // so the "you are already signed in" screen below is only for people who
+  // arrived signed in, not for the person who just registered.
+  const signingInRef = useRef(false);
 
   // Consent for the OAuth paths is captured by TermsConsentDialog. The ref
   // mirrors the state because the provider callbacks fire from closures created
@@ -193,12 +203,19 @@ const Register = () => {
       );
       return;
     }
-    if (user && !fromExtension) {
-      const roleDest = user.role === 'recruiter' ? ROUTES.RECRUITER_DASHBOARD : user.role === 'admin' ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
-      authDebug('web auto-redirect', { roleDest });
-      navigate(roleDest, { replace: true });
-    }
+    // On the web, someone who arrives signed in sees which account that is
+    // and chooses (see the signed-in screen in the render below). Redirecting
+    // them silently made a second signup look like it had worked.
   }, [user, token, navigate, fromExtension]);
+
+  const destFor = (authUser) => (
+    authUser?.role === 'recruiter'
+      ? (authUser?.hasRecruiterProfile ? ROUTES.RECRUITER_DASHBOARD : ROUTES.RECRUITER_ONBOARDING)
+      : authUser?.role === 'admin'
+        ? ROUTES.ADMIN
+        // Dashboard either way: it has a start screen for an empty account.
+        : ROUTES.PROFILE
+  );
 
   // Handle role query parameter (e.g. from public profile CTA)
   useEffect(() => {
@@ -218,6 +235,47 @@ const Register = () => {
   };
 
   // --- OAuth ---
+  // Applies a session from a social signup and sends them on. A signup that
+  // matched an existing account stops here and asks first.
+  const finishSocialSignup = async (data, method, { confirmed = false } = {}) => {
+    const { token, user } = data;
+    if (data.existingAccount && !confirmed) {
+      trackEvent('register_existing_account', { method });
+      setExistingAccount({ data, method });
+      return;
+    }
+    signingInRef.current = true;
+    localStorage.setItem('token', token);
+    setToken(token);
+    setUser(user);
+    if (!data.existingAccount) {
+      if (referrerId) {
+        try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
+      }
+      trackEvent('register_completed', { role: user?.role, method, emailVerified: !!user?.emailVerified });
+    }
+    const dest = destFor(user);
+    const guestDraft = claimGuestDraftFor(user);
+    authDebug(`${method} register navigate`, { dest, hasGuestDraft: !!guestDraft });
+    if (fromExtension) {
+      await handleExtensionAuthSuccess(token, user, navigate, dest);
+    } else if (guestDraft) {
+      await landAfterClaim(guestDraft);
+    } else {
+      navigate(dest);
+    }
+  };
+
+  const continueAsExistingAccount = async () => {
+    if (!existingAccount) return;
+    setLoading(true);
+    try {
+      await finishSocialSignup(existingAccount.data, existingAccount.method, { confirmed: true });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoogleSuccess = async (payload) => {
     setError('');
     if (!acceptedTermsRef.current) {
@@ -231,33 +289,12 @@ const Register = () => {
         formData.role,
         true
       );
-      const { token, user } = response.data;
       authDebug('google register response', {
-        role: user?.role,
-        emailVerified: user?.emailVerified,
-        hasProfile: user?.hasProfile
+        role: response.data.user?.role,
+        existingAccount: !!response.data.existingAccount,
+        hasProfile: response.data.user?.hasProfile
       });
-      localStorage.setItem('token', token);
-      setToken(token);
-      setUser(user);
-      if (referrerId) {
-        try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
-      }
-      trackEvent('register_completed', { role: user?.role, method: 'google', emailVerified: !!user?.emailVerified });
-      const dest = user?.role === 'recruiter'
-        ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-        // Dashboard either way: it has a start screen for an empty account,
-        // and these OAuth paths are taken by returning users too.
-        : '/profile';
-      const guestDraft = claimGuestDraftFor(user);
-      authDebug('google register navigate', { dest, hasGuestDraft: !!guestDraft });
-      if (fromExtension) {
-        await handleExtensionAuthSuccess(token, user, navigate, dest);
-      } else if (guestDraft) {
-        await landAfterClaim(guestDraft);
-      } else {
-        navigate(dest);
-      }
+      await finishSocialSignup(response.data, 'google');
     } catch (err) {
       setError(err.response?.data?.error || TEXT.ERRORS.GOOGLE_FAILED);
     } finally {
@@ -284,33 +321,12 @@ const Register = () => {
     setLoading(true);
     try {
       const response = await authAPI.linkedinRegister(code, redirectUri, formData.role, true);
-      const { token, user } = response.data;
       authDebug('linkedin register response', {
-        role: user?.role,
-        emailVerified: user?.emailVerified,
-        hasProfile: user?.hasProfile
+        role: response.data.user?.role,
+        existingAccount: !!response.data.existingAccount,
+        hasProfile: response.data.user?.hasProfile
       });
-      localStorage.setItem('token', token);
-      setToken(token);
-      setUser(user);
-      if (referrerId) {
-        try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
-      }
-      trackEvent('register_completed', { role: user?.role, method: 'linkedin', emailVerified: !!user?.emailVerified });
-      const dest = user?.role === 'recruiter'
-        ? (user?.hasRecruiterProfile ? '/recruiter/dashboard' : ROUTES.RECRUITER_ONBOARDING)
-        // Dashboard either way: it has a start screen for an empty account,
-        // and these OAuth paths are taken by returning users too.
-        : '/profile';
-      const guestDraft = claimGuestDraftFor(user);
-      authDebug('linkedin register navigate', { dest, hasGuestDraft: !!guestDraft });
-      if (fromExtension) {
-        await handleExtensionAuthSuccess(token, user, navigate, dest);
-      } else if (guestDraft) {
-        await landAfterClaim(guestDraft);
-      } else {
-        navigate(dest);
-      }
+      await finishSocialSignup(response.data, 'linkedin');
     } catch (err) {
       const status = err.response?.status;
       if (status === 503) {
@@ -347,6 +363,8 @@ const Register = () => {
     }
 
     setLoading(true);
+    setExistingEmail('');
+    signingInRef.current = true;
     try {
       const result = await register({
         firstName: formData.firstName,
@@ -376,13 +394,77 @@ const Register = () => {
         navigate(dest);
       }
     } catch (err) {
-      setError(err.response?.data?.error || TEXT.ERRORS.REGISTRATION_FAILED);
+      signingInRef.current = false;
+      if (err.response?.data?.code === 'ACCOUNT_EXISTS') {
+        trackEvent('register_existing_account', { method: 'email' });
+        setExistingEmail(formData.email);
+      } else {
+        setError(err.response?.data?.error || TEXT.ERRORS.REGISTRATION_FAILED);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   // --- Render ---
+  // Arrived signed in: say which account, and let them keep it or switch.
+  if (user && !fromExtension && !signingInRef.current) {
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    return (
+      <AuthLayout>
+        <Typography variant="h4" sx={headingSx}>
+          {TEXT.SIGNED_IN.HEADING}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={subtitleSx}>
+          You're signed in as <strong>{name}</strong>
+          {user.email && name !== user.email ? ` (${user.email})` : ''}. {TEXT.SIGNED_IN.BODY}
+        </Typography>
+        <Button
+          fullWidth variant="contained" size="large"
+          onClick={() => navigate(destFor(user))}
+          sx={{ mb: 1, textTransform: 'none' }}
+        >
+          {TEXT.SIGNED_IN.CONTINUE}
+        </Button>
+        <Button fullWidth variant="text" onClick={logout} sx={{ textTransform: 'none' }}>
+          {TEXT.SIGNED_IN.SWITCH}
+        </Button>
+      </AuthLayout>
+    );
+  }
+
+  // A social signup matched an account they already have.
+  if (existingAccount) {
+    const existing = existingAccount.data.user || {};
+    const name = [existing.firstName, existing.lastName].filter(Boolean).join(' ') || existing.email;
+    return (
+      <AuthLayout>
+        <Typography variant="h4" sx={headingSx}>
+          {TEXT.ACCOUNT_EXISTS.HEADING}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={subtitleSx}>
+          <strong>{existing.email}</strong> {TEXT.ACCOUNT_EXISTS.BODY}
+        </Typography>
+        <Button
+          fullWidth variant="contained" size="large"
+          disabled={loading}
+          onClick={continueAsExistingAccount}
+          sx={{ mb: 1, textTransform: 'none' }}
+        >
+          Continue as {existing.firstName || name}
+        </Button>
+        <Button
+          fullWidth variant="text"
+          disabled={loading}
+          onClick={() => setExistingAccount(null)}
+          sx={{ textTransform: 'none' }}
+        >
+          {TEXT.ACCOUNT_EXISTS.SWITCH}
+        </Button>
+      </AuthLayout>
+    );
+  }
+
   return (
     <AuthLayout>
       <Typography variant="h4" sx={headingSx}>
@@ -423,6 +505,26 @@ const Register = () => {
       {error && (
         <Alert severity="error" sx={alertSx}>
           {error}
+        </Alert>
+      )}
+
+      {existingEmail && (
+        <Alert
+          severity="info"
+          sx={alertSx}
+          action={
+            <Button
+              component={RouterLink}
+              to={`${ROUTES.LOGIN}?email=${encodeURIComponent(existingEmail)}`}
+              color="inherit"
+              size="small"
+              sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+            >
+              {TEXT.ACCOUNT_EXISTS.SIGN_IN}
+            </Button>
+          }
+        >
+          <strong>{existingEmail}</strong> {TEXT.ACCOUNT_EXISTS.EMAIL_BODY}
         </Alert>
       )}
 

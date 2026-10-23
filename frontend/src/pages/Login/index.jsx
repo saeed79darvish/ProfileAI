@@ -52,7 +52,8 @@ const Login = () => {
   // Destination after login: prefer state.from (PrivateRoute), then ?redirect= (api.js 401), then role default.
   // Sanitize to prevent open-redirect attacks via `?redirect=//evil.com`.
   const redirectTarget = safeRedirect(location.state?.from) || safeRedirect(searchParams.get('redirect')) || null;
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  // ?email= comes from signup's "already registered" notice.
+  const [formData, setFormData] = useState({ email: searchParams.get('email') || '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
