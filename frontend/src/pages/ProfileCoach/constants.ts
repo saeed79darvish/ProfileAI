@@ -118,7 +118,7 @@ export const TEXT = {
   CHECK_SAVE: 'Save',
   CHECK_CANCEL: 'Cancel',
   INPUT_PLACEHOLDER_MULTI: 'Tap the ones that fit, or type them',
-  MULTI_DONE: (n: number) => `Done (${n})`,
+  MULTI_DONE: (n: number) => `Continue (${n})`,
   CHIP_REMOVE: 'tap to remove',
   SEND: 'Send',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',

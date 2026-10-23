@@ -379,6 +379,18 @@ const ProfileCoach = () => {
   // Set for the one render after an in-place message update that must not
   // scroll the transcript (see the scroll effect below).
   const keepScrollRef = useRef(false);
+  /* Following the bottom. True while the reader is at the end of the chat;
+     false once they scroll up to read, or while a long card is pinned. */
+  const listRef = useRef(null);
+  const threadRef = useRef(null);
+  const stickRef = useRef(true);
+  const holdUntilRef = useRef(0);
+  /* A card to read from its top: the resume review and the finished resume.
+     Scrolling those to their end showed the last line first, and the
+     messages after them pulled the card away while it was being read. */
+  const anchorIdRef = useRef(null);
+  const anchoredRef = useRef(new Set());
+  const anchoredAtRef = useRef(0);
   // The talk-or-type offer is made once per conversation, never again.
   const voiceOfferedRef = useRef(false);
   const voiceAvailableRef = useRef(false);
@@ -416,6 +428,9 @@ const ProfileCoach = () => {
   }, []);
 
   const pushMine = useCallback((text, extra = {}) => {
+    // They acted, so they are done reading whatever was pinned.
+    anchorIdRef.current = null;
+    stickRef.current = true;
     setMessages((prev) => [...prev, { id: nextId(), role: 'me', text, ...extra }]);
   }, []);
 
@@ -715,10 +730,47 @@ const ProfileCoach = () => {
     // under them, so that one update opts out.
     if (keepScrollRef.current) {
       keepScrollRef.current = false;
+      holdUntilRef.current = Date.now() + 400;
       return;
     }
+    const card = [...messages].reverse().find((m) => (m.review || m.resume) && !anchoredRef.current.has(m.id));
+    if (card) {
+      anchoredRef.current.add(card.id);
+      anchorIdRef.current = card.id;
+      anchoredAtRef.current = Date.now();
+      stickRef.current = false;
+      listRef.current?.querySelector(`[data-mid="${card.id}"]`)?.scrollIntoView({ block: 'start' });
+      return;
+    }
+    if (anchorIdRef.current) return;
     listEndRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, typing]);
+
+  /* Content that grows after the scroll (chips fading in, the Continue
+     button appearing, a card laying out) used to end up under the text box
+     on a phone. While following the bottom, follow it as it grows. */
+  useEffect(() => {
+    const list = listRef.current;
+    const thread = threadRef.current;
+    if (!list || !thread) return undefined;
+    const onScroll = () => {
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+      // The list scrolls smoothly: its first events on the way up to a
+      // pinned card still read as the bottom, and must not unpin it.
+      if (atBottom && Date.now() - anchoredAtRef.current > 1000) anchorIdRef.current = null;
+      stickRef.current = atBottom && !anchorIdRef.current;
+    };
+    list.addEventListener('scroll', onScroll, { passive: true });
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+      if (!stickRef.current || anchorIdRef.current || Date.now() < holdUntilRef.current) return;
+      list.scrollTop = list.scrollHeight;
+    }) : null;
+    observer?.observe(thread);
+    return () => {
+      list.removeEventListener('scroll', onScroll);
+      observer?.disconnect();
+    };
+  }, []);
 
   // Server config booleans only — public endpoint, safe for guests. (It used
   // to require auth; calling it unconditionally back then is exactly what
@@ -1495,7 +1547,8 @@ const ProfileCoach = () => {
     if (step.kind === 'multi') {
       const has = message.selected.includes(chip.id);
       const selected = has ? message.selected.filter((s) => s !== chip.id) : [...message.selected, chip.id];
-      keepScrollRef.current = true;
+      // Not held still: the first pick adds Continue under the row, and it
+      // has to come into view.
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, selected } : m)));
       return;
     }
@@ -2355,10 +2408,15 @@ const ProfileCoach = () => {
               <span>{TEXT.DROP_SUB}</span>
             </DropOverlay>
           )}
-          <MessageList>
-            <Thread>
+          <MessageList ref={listRef}>
+            <Thread ref={threadRef}>
               {messages.map((message) => (
                 <React.Fragment key={message.id}>
+                  {/* Where a card read from its top scrolls to. The negative
+                      margin cancels the thread's gap for this empty marker. */}
+                  {(message.review || message.resume) && (
+                    <div data-mid={message.id} style={{ height: 0, marginBottom: -14, scrollMarginTop: 12 }} />
+                  )}
                   {/* Cards that carry their own heading (the upload progress)
                       have no bubble text, and an empty bubble is just a grey
                       rectangle floating above them. */}
