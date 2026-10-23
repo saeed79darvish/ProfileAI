@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   Mic as MicIcon,
-  AttachFile as AttachIcon,
+  Add as AttachIcon,
   Send as SendIcon,
   Tune as TuneIcon,
   Extension as ExtensionIcon,
