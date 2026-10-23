@@ -102,7 +102,7 @@ import {
   PageContainer, TopBar, Logo, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, IconButton, Footnote, ErrorNote,
+  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, AttachmentCard, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -263,6 +263,13 @@ const CheckCard = ({ lines, spent, busy, onSave, onDone }) => {
 const ASIDE_LIMIT = 8;
 
 /* How long a freshly shown row of chips ignores taps. */
+// "PDF · 182 KB" under the attached file's name.
+const attachmentMeta = (file) => {
+  const kind = /pdf$/i.test(file.type) ? 'PDF' : 'Word';
+  const kb = file.size / 1024;
+  return `${kind} · ${kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`}`;
+};
+
 const TAP_GUARD_MS = 600;
 
 let messageSeq = 0;
@@ -1296,9 +1303,17 @@ const ProfileCoach = () => {
     offerImportAgain(TEXT.UPLOAD_CANCELLED);
   }, [offerImportAgain]);
 
-  const openFilePicker = useCallback(() => {
+  /* `attach`: the + in the text box. The file waits in the box until Send,
+     and closing the dialog without one is not a refused upload. */
+  const attachModeRef = useRef(false);
+  const openFilePicker = useCallback(({ attach = false } = {}) => {
     const input = fileInputRef.current;
     if (!input) return;
+    attachModeRef.current = attach;
+    if (attach) {
+      input.click();
+      return;
+    }
     filePickPendingRef.current = true;
     const onFocus = () => {
       window.removeEventListener('focus', onFocus);
@@ -1320,6 +1335,23 @@ const ProfileCoach = () => {
      a dropped PDF is to open it in place of the page, and the conversation
      was gone. Outside a call and between turns only, like the paperclip. */
   const [dragging, setDragging] = useState(false);
+  /* A file attached to the message being written, like any chat app: it
+     shows as a card in the box, can be removed, and goes on Send. */
+  const [attached, setAttached] = useState(null);
+  const attachFile = useCallback((file) => {
+    if (!file) return;
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      setError(TEXT.ERROR_FILE_TYPE);
+      return;
+    }
+    if (file.size > VALIDATION.MAX_FILE_SIZE) {
+      setError(TEXT.ERROR_FILE_SIZE);
+      return;
+    }
+    setError('');
+    setAttached(file);
+    composerRef.current?.focus({ preventScroll: true });
+  }, []);
   const dragDepthRef = useRef(0);
   const canAttach = !busy && voice.state === VOICE_STATES.idle;
   const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
@@ -1358,7 +1390,7 @@ const ProfileCoach = () => {
       dragDepthRef.current = 0;
       setDragging(false);
       const file = e.dataTransfer.files?.[0];
-      if (file && canAttach) handleFile(file);
+      if (file && canAttach) attachFile(file);
     },
   };
 
@@ -1803,6 +1835,14 @@ const ProfileCoach = () => {
       const final = await dictation.finish();
       if (final && String(final).trim()) text = String(final).trim();
     }
+    // An attached file goes first, through the same reader as an upload.
+    // Anything typed beside it stays in the box for the next message.
+    if (attached && !busy) {
+      const file = attached;
+      setAttached(null);
+      await handleFile(file);
+      return;
+    }
     const step = LADDER[stepIndex];
     if (!text || busy) return;
 
@@ -1963,7 +2003,7 @@ const ProfileCoach = () => {
        options come back without the question being restated at them. */
     if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
     else offerChipsAgain(step, null);
-  }, [advance, busy, commit, dictation, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, attached, busy, commit, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 
@@ -2475,7 +2515,33 @@ const ProfileCoach = () => {
             )}
 
             <Composer onSubmit={submitText}>
+              <IconButton
+                type="button"
+                disabled={!canAttach}
+                onClick={() => { setError(''); openFilePicker({ attach: true }); }}
+                title={TEXT.ATTACH_RESUME}
+                aria-label={TEXT.ATTACH_RESUME}
+              >
+                <AttachIcon fontSize="small" />
+              </IconButton>
               <ComposerField>
+              {attached && (
+                <AttachmentCard>
+                  <span className="icon"><FileIcon fontSize="small" /></span>
+                  <span className="text">
+                    <strong title={attached.name}>{attached.name}</strong>
+                    <span>{attachmentMeta(attached)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="remove"
+                    onClick={() => { setAttached(null); composerRef.current?.focus(); }}
+                    aria-label={TEXT.ATTACH_REMOVE}
+                  >
+                    ×
+                  </button>
+                </AttachmentCard>
+              )}
               {dictation.listening && <ComposerWave as={DictationWave} levelRef={dictation.levelRef} />}
               <ComposerInput
                 ref={composerRef}
@@ -2488,7 +2554,7 @@ const ProfileCoach = () => {
                   const file = e.clipboardData?.files?.[0];
                   if (!file || !canAttach) return;
                   e.preventDefault();
-                  handleFile(file);
+                  attachFile(file);
                 }}
                 /* Enter sends everything in the box, Shift+Enter is a new
                    line. Not mid-composition (an IME picking characters), and
@@ -2523,15 +2589,6 @@ const ProfileCoach = () => {
               )}
               <IconButton
                 type="button"
-                disabled={!canAttach}
-                onClick={() => { setError(''); openFilePicker(); }}
-                title={TEXT.ATTACH_RESUME}
-                aria-label={TEXT.ATTACH_RESUME}
-              >
-                <AttachIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                type="button"
                 $listening={dictation.listening}
                 disabled={!dictation.supported || !canType}
                 onClick={() => {
@@ -2548,7 +2605,7 @@ const ProfileCoach = () => {
               </IconButton>
               {/* Held while the accurate transcript is on its way, so the
                   rough live preview is never what gets sent. */}
-              <IconButton type="submit" $primary disabled={!canType || !input.trim() || dictation.transcribing} aria-label={TEXT.SEND}>
+              <IconButton type="submit" $primary disabled={attached ? busy : (!canType || !input.trim() || dictation.transcribing)} aria-label={TEXT.SEND}>
                 <SendIcon fontSize="small" />
               </IconButton>
             </Composer>
@@ -2584,7 +2641,16 @@ const ProfileCoach = () => {
         ref={fileInputRef}
         type="file"
         accept=".pdf,.doc,.docx"
-        onChange={handleFile}
+        onChange={(e) => {
+          if (!attachModeRef.current) {
+            handleFile(e);
+            return;
+          }
+          attachModeRef.current = false;
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          attachFile(file);
+        }}
         style={{ display: 'none' }}
       />
 

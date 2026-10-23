@@ -52,6 +52,7 @@ export const TEXT = {
   DICTATE_STOP: 'Stop listening',
   DICTATE_TRANSCRIBING: 'Writing down what you said...',
   CLEAR_INPUT: 'Clear',
+  ATTACH_REMOVE: 'Remove this file',
   ATTACH_RESUME: 'Attach your resume (PDF or Word)',
   DROP_TITLE: 'Drop your resume here',
   DROP_SUB: 'PDF or Word. I will read it and fill in your profile.',

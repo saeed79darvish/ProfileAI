@@ -416,7 +416,7 @@ export const Composer = styled.form`
   gap: 10px;
   max-width: 768px;
   margin: 0 auto;
-  padding: 8px 8px 8px 20px;
+  padding: 8px;
   background: #fff;
   border: 1px solid #e6e6ef;
   border-radius: 16px;
@@ -498,6 +498,70 @@ export const ComposerWave = styled.span`
     color: #dc2626;
     flex-shrink: 0;
   }
+`;
+
+/* A file waiting in the box for Send. */
+export const AttachmentCard = styled.div`
+  position: relative;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(100%, 320px);
+  margin: 4px 0 6px;
+  padding: 8px 32px 8px 8px;
+  border: 1px solid #e6e6ef;
+  border-radius: 12px;
+  background: #f8f8fc;
+
+  .icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: #eeeefc;
+    color: #6366f1;
+  }
+
+  .text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+
+  strong {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .text span { font-size: 0.75rem; color: #8a8aa3; }
+
+  .remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: #1a1a2e;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    opacity: 0.75;
+  }
+
+  .remove:hover { opacity: 1; }
 `;
 
 /* Over the chat while a file is dragged across it. */
