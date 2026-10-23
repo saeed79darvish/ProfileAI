@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   Mic as MicIcon,
+  AttachFile as AttachIcon,
   Send as SendIcon,
   Tune as TuneIcon,
   Extension as ExtensionIcon,
@@ -101,7 +102,7 @@ import {
   PageContainer, TopBar, Logo, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, IconButton, Footnote, ErrorNote,
+  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -827,10 +828,15 @@ const ProfileCoach = () => {
     ]);
   }, []);
 
-  const handleFile = useCallback(async (event) => {
+  /* Takes the picker's change event, or a File that was dropped on the chat
+     or pasted into the box: every way in ends up in the same reader. */
+  const handleFile = useCallback(async (eventOrFile) => {
     filePickPendingRef.current = false;
-    const file = event.target.files?.[0];
-    event.target.value = '';
+    let file = eventOrFile;
+    if (eventOrFile?.target) {
+      file = eventOrFile.target.files?.[0];
+      eventOrFile.target.value = '';
+    }
     if (!file) return;
 
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
@@ -1309,6 +1315,52 @@ const ProfileCoach = () => {
     input.addEventListener('cancel', filePickCancelled);
     return () => input.removeEventListener('cancel', filePickCancelled);
   }, [filePickCancelled]);
+
+  /* Drag a resume anywhere onto the chat. Without this, Chrome's default for
+     a dropped PDF is to open it in place of the page, and the conversation
+     was gone. Outside a call and between turns only, like the paperclip. */
+  const [dragging, setDragging] = useState(false);
+  const dragDepthRef = useRef(0);
+  const canAttach = !busy && voice.state === VOICE_STATES.idle;
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  useEffect(() => {
+    // Dropped just outside the chat column: still never navigate away.
+    const block = (e) => { if (hasFiles(e)) e.preventDefault(); };
+    window.addEventListener('dragover', block);
+    window.addEventListener('drop', block);
+    return () => {
+      window.removeEventListener('dragover', block);
+      window.removeEventListener('drop', block);
+    };
+  }, []);
+
+  const dropHandlers = {
+    onDragEnter: (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      if (canAttach) setDragging(true);
+    },
+    onDragOver: (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = canAttach ? 'copy' : 'none';
+    },
+    onDragLeave: (e) => {
+      if (!hasFiles(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (!dragDepthRef.current) setDragging(false);
+    },
+    onDrop: (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file && canAttach) handleFile(file);
+    },
+  };
 
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
@@ -2248,7 +2300,14 @@ const ProfileCoach = () => {
       <MobilePanel $open={panelOpen}>{renderPanelItems()}</MobilePanel>
 
       <Body>
-        <ChatColumn>
+        <ChatColumn {...dropHandlers}>
+          {dragging && (
+            <DropOverlay aria-hidden="true">
+              <AttachIcon />
+              <strong>{TEXT.DROP_TITLE}</strong>
+              <span>{TEXT.DROP_SUB}</span>
+            </DropOverlay>
+          )}
           <MessageList>
             <Thread>
               {messages.map((message) => (
@@ -2424,6 +2483,13 @@ const ProfileCoach = () => {
                 enterKeyHint="send"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                // A resume copied in Finder and pasted here is an upload.
+                onPaste={(e) => {
+                  const file = e.clipboardData?.files?.[0];
+                  if (!file || !canAttach) return;
+                  e.preventDefault();
+                  handleFile(file);
+                }}
                 /* Enter sends everything in the box, Shift+Enter is a new
                    line. Not mid-composition (an IME picking characters), and
                    not while the accurate transcript is still on its way. */
@@ -2455,6 +2521,15 @@ const ProfileCoach = () => {
                   {TEXT.CLEAR_INPUT}
                 </ClearButton>
               )}
+              <IconButton
+                type="button"
+                disabled={!canAttach}
+                onClick={() => { setError(''); openFilePicker(); }}
+                title={TEXT.ATTACH_RESUME}
+                aria-label={TEXT.ATTACH_RESUME}
+              >
+                <AttachIcon fontSize="small" />
+              </IconButton>
               <IconButton
                 type="button"
                 $listening={dictation.listening}

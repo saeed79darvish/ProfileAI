@@ -139,6 +139,7 @@ export const Body = styled.div`
    ═══════════════════════════════════════════════ */
 
 export const ChatColumn = styled.main`
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -497,6 +498,28 @@ export const ComposerWave = styled.span`
     color: #dc2626;
     flex-shrink: 0;
   }
+`;
+
+/* Over the chat while a file is dragged across it. */
+export const DropOverlay = styled.div`
+  position: absolute;
+  inset: 12px;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed #6366f1;
+  border-radius: 20px;
+  background: rgba(238, 238, 252, 0.92);
+  color: #3f3fa8;
+  text-align: center;
+
+  svg { font-size: 2rem; }
+  strong { font-size: 1.125rem; color: #1a1a2e; }
+  span { font-size: 0.875rem; color: #5b5b78; }
 `;
 
 /* Empties the box in one tap, instead of select-all and delete. */
