@@ -429,7 +429,7 @@ const TURN_FIELDS = new Set([
 
 async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none' } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
-  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false };
+  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none' };
 
   const response = await callAI({
     model: TURN_MODEL,
@@ -466,6 +466,8 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     awaiting: parsed.awaiting !== false && !!String(parsed.say || '').trim(),
     // Only ever true when the page said it can open a call right now.
     voice: liveVoice === 'live' && parsed.voice === true,
+    // A piece of the page to put under the reply. Only names we render.
+    show: parsed.show === 'import' ? 'import' : 'none',
   };
 }
 

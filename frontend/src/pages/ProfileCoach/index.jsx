@@ -90,6 +90,7 @@ import {
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
   RETRY_IMPORT_CHOICES,
+  ASKED_IMPORT_CHOICES,
   POST_CALL_IMPORT_CHOICES,
   VOICE_OFFER_STEP,
   voiceAgenda,
@@ -1583,6 +1584,16 @@ const ProfileCoach = () => {
         await startTalking();
         return { ok: true, awaiting: true };
       }
+      /* They asked to upload a resume or bring in LinkedIn. Show the real
+         buttons rather than describe them: the coach used to answer "paste
+         it into the text box", which is not a thing this page does. A file
+         dialog cannot be opened from here (the browser only allows that
+         from a tap), so the chips are the step. postCall makes "Not now"
+         return to the question they were on, not to the top of the ladder. */
+      if (data?.show === 'import') {
+        offerImportAgain(data?.say ? '' : TEXT.IMPORT_ASKED, ASKED_IMPORT_CHOICES, { postCall: true });
+        return { ok: true, awaiting: true };
+      }
       // Waiting needs something to wait on: an empty reply that claims to be
       // waiting would leave the conversation sitting there with no question.
       return { ok: true, awaiting: data?.awaiting !== false && !!String(data?.say || '').trim() };
@@ -1592,7 +1603,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [isAuthenticated, pushCoach, startTalking]);
+  }, [isAuthenticated, offerImportAgain, pushCoach, startTalking]);
 
   /**
    * Put the answer options back without restating the question.

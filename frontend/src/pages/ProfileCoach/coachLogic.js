@@ -373,6 +373,14 @@ export const voiceAgenda = (draft = {}) => {
   return [...agenda, ...written];
 };
 
+/* Offered when they ask for it mid-conversation ("can I upload my resume?").
+   The third chip goes back to the question they were on, so it says so. */
+export const ASKED_IMPORT_CHOICES = [
+  { id: 'resume', label: 'Upload my resume' },
+  { id: 'linkedin', label: 'Import from LinkedIn' },
+  { id: 'chat', label: 'Not now' },
+];
+
 /* Offered when a call hands back to the screen. "Try another file" would be
    nonsense to someone who has not touched a file yet, and the third option
    has to say the conversation continues rather than ends — they just spent
