@@ -1,5 +1,6 @@
 const { VOICE_AND_TONE } = require('./profile');
 const { timeFacts } = require('./timeFacts');
+const { COACH_GUARDRAILS } = require('./coachGuardrails');
 
 /**
  * The instructions a spoken session runs on.
@@ -49,6 +50,8 @@ const coachVoiceInstructions = ({ firstName, profile = {}, missing = [], maxMinu
   const gaps = (missing || []).filter(Boolean);
 
   return `You are Remi, a career coach. ${firstName || 'Someone'} has been building their profile by typing, and has just agreed to a short call so you can understand them better. A few minutes. You are not starting over.
+
+${COACH_GUARDRAILS}
 
 ${VOICE_AND_TONE}
 

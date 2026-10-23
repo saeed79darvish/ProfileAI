@@ -19,6 +19,7 @@
 // Shared voice rules. Kept deliberately in sync with ./profile.js — see the
 // note there; the coach writes the same kind of copy, so it inherits the
 // same banned-word list rather than growing a second, drifting one.
+const { COACH_GUARDRAILS } = require('./coachGuardrails');
 const { VOICE_AND_TONE } = require('./profile');
 const { timeFacts } = require('./timeFacts');
 
@@ -266,6 +267,8 @@ RULES:
  */
 const answerAsidePrompt = ({ question, asked, context = {} }) => `Someone is building their profile in a chat with you, and instead of answering your question they asked one of their own. Answer it, briefly, then stop.
 
+${COACH_GUARDRAILS}
+
 ${VOICE_AND_TONE}
 
 No em dashes (—) anywhere in what you write. Use a full stop, a comma or a colon instead; the dash is what makes text read as machine-written.
@@ -364,6 +367,8 @@ RULES:
  * conversation belongs to the thing that can actually hold one.
  */
 const coachTurnPrompt = ({ profile, missing, history, message, liveVoice = 'none', asked = '', options = [] }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
+
+${COACH_GUARDRAILS}
 
 ${VOICE_AND_TONE}
 
