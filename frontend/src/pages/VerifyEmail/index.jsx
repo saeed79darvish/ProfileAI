@@ -55,9 +55,12 @@ const VerifyEmail = () => {
           ? '/recruiter/onboarding'
           : effective?.role === 'admin'
             ? '/admin'
+            // The dashboard shows the profile if there is one and the
+            // start screen if not, so a profile built before verifying
+            // is not sent back to the coach.
             : effective
-              ? '/onboarding'
-              : '/login?redirect=/onboarding';
+              ? '/profile'
+              : '/login?redirect=/profile';
         authDebug('auto-redirect after verify', {
           dest,
           role: effective?.role,

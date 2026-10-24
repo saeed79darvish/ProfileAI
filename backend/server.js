@@ -492,6 +492,15 @@ const startServer = async () => {
       console.warn('⚠️  Users.jobDigestOptOut column ensure skipped:', err.message);
     }
 
+    // Same pattern for Users.profileReminderSentAt, the once-only marker for
+    // the "finish your profile" email (services/profileReminderService.js).
+    try {
+      const { up: ensureUserProfileReminderSentAt } = require('./scripts/migrations/ensureUserProfileReminderSentAt');
+      await ensureUserProfileReminderSentAt();
+    } catch (err) {
+      console.warn('⚠️  Users.profileReminderSentAt column ensure skipped:', err.message);
+    }
+
     // Same pattern for Users.aiOnboardingCompleted — the User model declares
     // this column, so every User.find* that includes it (auth middleware,
     // /api/resume/preview, etc.) errors with `column ... does not exist` if

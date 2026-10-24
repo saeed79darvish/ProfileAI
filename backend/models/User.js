@@ -121,6 +121,12 @@ const User = sequelize.define('User', {
     allowNull: false,
     comment: 'When true, the candidate is excluded from the daily job-match digest email'
   },
+  // When the one-off "you have not built your profile yet" email went out
+  // (services/profileReminderService.js). Null means it has not been sent.
+  profileReminderSentAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   // Set to true once the candidate publishes their first complete profile.
   // While false the aiRateLimiter uses the generous 'onboarding' tier so
   // new users can experience all profile-building AI features for free.

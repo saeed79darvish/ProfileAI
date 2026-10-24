@@ -245,7 +245,7 @@ router.get('/digest/unsubscribe', async (req, res) => {
     return res.send(
       '<div style="font-family:Arial,sans-serif;max-width:480px;margin:60px auto;text-align:center;">'
       + '<h2>You\'re unsubscribed</h2>'
-      + '<p>You will no longer receive the daily job-match email from ProfilleAI.</p>'
+      + '<p>You will no longer receive job-match or reminder emails from ProfilleAI.</p>'
       + `<p><a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/settings">Manage your preferences</a></p>`
       + '</div>'
     );

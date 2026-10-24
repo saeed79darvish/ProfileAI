@@ -386,7 +386,10 @@ const Register = () => {
         try { await referralAPI.completeByReferrer(referrerId); } catch (e) { /* non-blocking */ }
       }
       trackEvent('register_completed', { role: formData.role, method: 'email', emailVerified: !!result.user?.emailVerified });
-      const dest = formData.role === 'recruiter' ? ROUTES.RECRUITER_ONBOARDING : ROUTES.ONBOARDING;
+      // Same landing as Google and LinkedIn signups. A candidate with no
+      // profile sees the dashboard's start screen, which offers the coach,
+      // instead of being dropped into a chat they did not ask for.
+      const dest = destFor(result.user);
       const guestDraft = claimGuestDraftFor(result.user);
       authDebug('email register navigate', { dest, hasGuestDraft: !!guestDraft });
       if (fromExtension) {

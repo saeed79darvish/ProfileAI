@@ -79,6 +79,7 @@ import { featureFlags } from '@/config/featureFlags';
 import { profileAPI, tailoredProfileAPI, subscriptionAPI, postAPI, resolveImageUrl } from '@/services/api';
 import { formatDateRange } from '@/utils/dateRange';
 import { diag } from '@/utils/diagLogger';
+import { trackEvent } from '@/utils/analytics';
 import { extractApiError } from '@/utils/apiError';
 import { parseLimitError } from '@/utils/aiLimit';
 import LimitReachedModal from '@/components/LimitReachedModal';
@@ -1205,15 +1206,25 @@ const Dashboard = () => {
         <StartPanel>
           <h1>Welcome{user?.firstName ? `, ${user.firstName}` : ''}</h1>
           <p>
-            You do not have a profile yet. Building one takes a few minutes — I will
-            ask about your work, and you can upload a resume at any point if you have
-            one.
+            You do not have a profile yet, and it is what gets you matched to jobs and
+            lets you apply. Building one takes a few minutes: upload a resume if you
+            have one, talk it through on a short call, or answer a few questions in chat.
           </p>
           <StartActions>
-            <StartPrimary onClick={() => navigate('/profile/create')}>
+            <StartPrimary
+              onClick={() => {
+                trackEvent('start_screen_build_clicked', { hasDraft });
+                navigate('/profile/create');
+              }}
+            >
               {hasDraft ? 'Pick up where you left off' : 'Build my profile'}
             </StartPrimary>
-            <StartSecondary onClick={() => navigate('/jobs')}>
+            <StartSecondary
+              onClick={() => {
+                trackEvent('start_screen_browse_clicked', {});
+                navigate('/jobs');
+              }}
+            >
               Browse jobs first
             </StartSecondary>
           </StartActions>

@@ -25,7 +25,7 @@ const CheckEmail = () => {
   useEffect(() => {
     if (user?.emailVerified) {
       trackEvent('email_verified', { role: user.role, blocked: !!blockedReason });
-      const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding';
+      const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/profile';
       navigate(dest, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,7 +199,7 @@ const CheckEmail = () => {
             onClick={() => {
               const dest = user?.role === 'recruiter'
                 ? '/recruiter/onboarding'
-                : (user?.hasProfile ? '/profile' : '/onboarding');
+                : '/profile';
               navigate(dest, { replace: true });
             }}
             sx={{ mb: 1.5, textTransform: 'none' }}

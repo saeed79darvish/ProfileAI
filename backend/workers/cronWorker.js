@@ -24,9 +24,12 @@ function startCron({ inline = false } = {}) {
   const enableJobDigestCron =
     process.env.ENABLE_JOB_DIGEST_CRON === 'true'
     || process.env.NODE_ENV === 'production';
+  const enableProfileReminderCron =
+    process.env.ENABLE_PROFILE_REMINDER_CRON === 'true'
+    || process.env.NODE_ENV === 'production';
 
-  if (!enableExternalJobsCron && !enableApplyPilotScoutCron && !enableJobDigestCron) {
-    console.warn(`${tag} ⚠️  No cron tasks enabled. Set ENABLE_EXTERNAL_JOBS_CRON=true, ENABLE_APPLYPILOT_SCOUT_CRON=true, or ENABLE_JOB_DIGEST_CRON=true.`);
+  if (!enableExternalJobsCron && !enableApplyPilotScoutCron && !enableJobDigestCron && !enableProfileReminderCron) {
+    console.warn(`${tag} ⚠️  No cron tasks enabled. Set ENABLE_EXTERNAL_JOBS_CRON=true, ENABLE_APPLYPILOT_SCOUT_CRON=true, ENABLE_JOB_DIGEST_CRON=true, or ENABLE_PROFILE_REMINDER_CRON=true.`);
     return;
   }
 
@@ -88,6 +91,18 @@ function startCron({ inline = false } = {}) {
     console.log(`${tag} ✓ Daily job-match digest scheduled (${schedule})`);
   } else {
     console.log(`${tag} Daily job-match digest disabled`);
+  }
+
+  if (enableProfileReminderCron) {
+    const { runProfileReminders } = require('../services/profileReminderService');
+    // Hourly, so each signup hears from us about a day later rather than at
+    // whatever fixed hour a daily run lands on. Once per user, ever.
+    cron.schedule('5 * * * *', () => {
+      runProfileReminders().catch(err => console.error(`${tag} Profile reminder error:`, err.message));
+    }, { recoverMissedExecutions: false });
+    console.log(`${tag} ✓ Profile reminder email scheduled (hourly)`);
+  } else {
+    console.log(`${tag} Profile reminder email disabled`);
   }
 }
 

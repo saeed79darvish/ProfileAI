@@ -73,7 +73,7 @@ export function onboardingBlockMessageFor(pathname) {
   if (isJobApplyPath(pathname)) {
     return 'Create your profile to apply for this job and unlock AI analytics & Resume Tailoring tools for a personalized experience.';
   }
-  return 'Please finish creating your profile before navigating to other pages.';
+  return 'Build your profile first. It takes a few minutes, and it is what lets you apply and get matched to jobs.';
 }
 
 // Paths a signed-up-but-unverified user may still reach. Deferred-verification
