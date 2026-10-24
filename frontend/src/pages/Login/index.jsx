@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -16,7 +16,9 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleAuthButton from '@/components/GoogleAuthButton';
 import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
-import { authAPI } from '@/services/api';
+import { authAPI, profileAPI, careerContextAPI } from '@/services/api';
+import { loadGuestProfileDraft, loadGuestDraftMeta, clearGuestProfileDraft } from '@/utils/guestDraft';
+import { trackEvent } from '@/utils/analytics';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { safeRedirect } from '@/utils/safeRedirect';
@@ -48,7 +50,8 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { login, setUser, setToken, user } = useAuth();
+  const { login, setUser, setToken, user, refreshUser } = useAuth();
+
   // Destination after login: prefer state.from (PrivateRoute), then ?redirect= (api.js 401), then role default.
   // Sanitize to prevent open-redirect attacks via `?redirect=//evil.com`.
   const redirectTarget = safeRedirect(location.state?.from) || safeRedirect(searchParams.get('redirect')) || null;
@@ -58,6 +61,48 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [fromExtension] = useState(isFromExtension());
+
+  /* A profile built in the coach before signing in. Sign-up publishes it;
+     signing in to an existing account used to leave it in the browser and
+     land them on an empty profile. Published here too, but only onto an
+     account with no profile yet: an existing profile is never overwritten,
+     and the draft stays where it is for them. While this runs, the
+     already-signed-in redirect below waits, or it would race the save. */
+  const claimingRef = useRef(false);
+  const coachDraftWaiting = () => {
+    const meta = loadGuestDraftMeta() || {};
+    return !!loadGuestProfileDraft() && meta.source === 'coach' && !!meta.autoPublish;
+  };
+  const publishCoachDraft = async (authUser) => {
+    if (fromExtension || authUser?.role !== ROLES.CANDIDATE || !coachDraftWaiting()) return null;
+    const meta = loadGuestDraftMeta() || {};
+    if (meta.careerContext && Object.keys(meta.careerContext).length) {
+      careerContextAPI.merge(meta.careerContext).catch(() => {});
+    }
+    if (authUser?.hasProfile) return null;
+    const draft = loadGuestProfileDraft();
+    try {
+      await profileAPI.createOrUpdateProfile(draft);
+      clearGuestProfileDraft();
+      await refreshUser();
+      trackEvent('coach_profile_published', { via: 'login' });
+      return { to: '/profile', state: { onboardingMatches: meta.careerContext?.constraints || {} } };
+    } catch {
+      clearGuestProfileDraft();
+      return { to: '/profile/create-form', state: { guestDraft: draft } };
+    }
+  };
+  const landAfterLogin = async (authUser, token, dest) => {
+    if (fromExtension) {
+      await handleExtensionAuthSuccess(token, authUser, navigate, dest);
+      return;
+    }
+    const claimed = await publishCoachDraft(authUser);
+    claimingRef.current = false;
+    if (claimed) navigate(claimed.to, { replace: true, state: claimed.state });
+    else navigate(dest, { replace: true });
+  };
+
   // When opened from the extension with a session already present, don't auto-
   // sync it (that's how the wrong/stale account leaked into the extension).
   // Instead prompt the user to confirm the account or switch.
@@ -97,7 +142,7 @@ const Login = () => {
       setExtAccountPrompt(true);
       return;
     }
-    if (user && !fromExtension) {
+    if (user && !fromExtension && !claimingRef.current) {
       const roleDest = user.role === ROLES.RECRUITER ? getRecruiterDest(user) : user.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = redirectTarget || roleDest;
       authDebug('web auto-redirect', { dest, roleDest });
@@ -113,6 +158,7 @@ const Login = () => {
   const handleGoogleSuccess = async (payload) => {
     setError('');
     setLoading(true);
+    claimingRef.current = coachDraftWaiting();
     try {
       const response = await authAPI.googleLogin(
         payload?.credential ? { credential: payload.credential } : payload
@@ -130,9 +176,7 @@ const Login = () => {
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = redirectTarget || roleDest;
       authDebug('google sign-in navigate', { dest, roleDest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest, { replace: true });
+      await landAfterLogin(user, token, dest);
     } catch (err) {
       // 5xx from /auth/google almost always means the backend lost its DB
       // connection (Render Postgres restart / brief recovery -> Postgres
@@ -148,6 +192,7 @@ const Login = () => {
         setError(err.response?.data?.error || TEXT.ERROR_GOOGLE_LOGIN);
       }
     } finally {
+      claimingRef.current = false;
       setLoading(false);
     }
   };
@@ -165,6 +210,7 @@ const Login = () => {
   const handleLinkedInSuccess = async ({ code, redirectUri }) => {
     setError('');
     setLoading(true);
+    claimingRef.current = coachDraftWaiting();
     try {
       const response = await authAPI.linkedinLogin(code, redirectUri);
       const { token, user } = response.data;
@@ -180,9 +226,7 @@ const Login = () => {
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = redirectTarget || roleDest;
       authDebug('linkedin sign-in navigate', { dest, roleDest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest, { replace: true });
+      await landAfterLogin(user, token, dest);
     } catch (err) {
       const status = err.response?.status;
       if (status === 404) {
@@ -195,6 +239,7 @@ const Login = () => {
         setError(err.response?.data?.error || TEXT.ERROR_LINKEDIN_LOGIN);
       }
     } finally {
+      claimingRef.current = false;
       setLoading(false);
     }
   };
@@ -208,6 +253,7 @@ const Login = () => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    claimingRef.current = coachDraftWaiting();
     try {
       const result = await login(formData);
       const { user, token } = result;
@@ -220,12 +266,11 @@ const Login = () => {
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
       const dest = redirectTarget || roleDest;
       authDebug('password login navigate', { dest, roleDest });
-      fromExtension
-        ? await handleExtensionAuthSuccess(token, user, navigate, dest)
-        : navigate(dest, { replace: true });
+      await landAfterLogin(user, token, dest);
     } catch (err) {
       setError(err.response?.data?.error || TEXT.ERROR_LOGIN);
     } finally {
+      claimingRef.current = false;
       setLoading(false);
     }
   };
