@@ -1457,9 +1457,14 @@ export const canRewind = (step) => !!(step && step.assign && step.chipSet);
 export const draftRewoundTo = (draft, stepId) => {
   const at = LADDER.findIndex((s) => s.id === stepId);
   if (at < 0) return draft;
+  // Downstream in the order this conversation actually walked: after an
+  // import the goal comes before the preferences, not after them.
+  const order = ladderOrder(draft);
+  const from = order.indexOf(at);
+  const downstream = from >= 0 ? order.slice(from).map((i) => LADDER[i]) : LADDER.slice(at);
   const blank = emptyDraft();
   const next = { ...draft };
-  for (const step of LADDER.slice(at)) {
+  for (const step of downstream) {
     if (step.assign) next[step.assign] = blank[step.assign];
   }
   return next;
@@ -1551,12 +1556,48 @@ export const shouldSkip = (step, draft = {}) => {
  * Index of the next step to ask, skipping any whose `skipIf` fires and any
  * the import already answered. Returns -1 when the conversation is done.
  */
+/* The order once a resume or LinkedIn is in, with work history on it.
+   The review has just told them where they stand, so the goal comes
+   straight after it: that is what the rest of the conversation fixes the
+   profile toward. The questions that ask for work history (the role, what
+   they did, the one before, projects, a number) are left out: the document
+   answered them, and the review's own follow-ups cover its gaps. Asking
+   "tell me about your most recent role" after reading it is what made the
+   import feel pointless. Steps not named here are not asked on this path. */
+export const IMPORT_ORDER = [
+  'sector', 'level', 'title', 'importOffer',
+  'review',
+  'target', 'targetWhy', 'targetBlocker', 'assess',
+  'fix',
+  'lookingFor', 'workStyle', 'careerStage',
+  'skills', 'education', 'location', 'links',
+  'build', 'tour', 'convert',
+];
+
+const DEFAULT_ORDER = LADDER.map((_, i) => i);
+const IMPORT_ORDER_INDICES = IMPORT_ORDER
+  .map((id) => LADDER.findIndex((s) => s.id === id))
+  .filter((i) => i >= 0);
+
+/** Which order the ladder walks in for this draft, as LADDER indices. */
+export const ladderOrder = (draft = {}) => (
+  draft.importedFrom && (draft.experience || []).length ? IMPORT_ORDER_INDICES : DEFAULT_ORDER
+);
+
 export const nextStepIndex = (fromIndex, draft = {}) => {
-  for (let i = fromIndex + 1; i < LADDER.length; i += 1) {
-    const step = LADDER[i];
+  const order = ladderOrder(draft);
+  let at = fromIndex < 0 ? -1 : order.indexOf(fromIndex);
+  if (fromIndex >= 0 && at === -1) {
+    // Asked before the import changed the order: carry on from where that
+    // step would have sat.
+    const after = order.findIndex((i) => i > fromIndex);
+    at = after === -1 ? order.length : after - 1;
+  }
+  for (let p = at + 1; p < order.length; p += 1) {
+    const step = LADDER[order[p]];
     if (shouldSkip(step, draft)) continue;
     if (isAlreadyAnswered(step, draft)) continue;
-    return i;
+    return order[p];
   }
   return -1;
 };

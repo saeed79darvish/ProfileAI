@@ -52,6 +52,7 @@ import {
   needsAI,
   shouldSkip,
   nextStepIndex,
+  ladderOrder,
   isAlreadyAnswered,
   applyToDraft,
   mergeInterpreted,
@@ -1340,4 +1341,36 @@ test('restarting the ladder after an import does not ask for a resume', () => {
   const first = LADDER[nextStepIndex(-1, d)].id;
   assert.notEqual(first, 'importOffer');
   assert.notEqual(first, 'review');
+});
+
+test('after an import the goal comes straight after the review, and work history is not asked again', () => {
+  const idx = (id) => LADDER.findIndex((s) => s.id === id);
+  const imported = {
+    sector: 'tech', level: 'senior', title: 'Engineer', importedFrom: 'resume',
+    experience: [{ title: 'Engineer', company: 'Equinix', description: 'Built things' }],
+    review: { opening: 'x' },
+  };
+  assert.equal(LADDER[nextStepIndex(idx('review'), imported)].id, 'target');
+  // Walk to the end: none of the work-history questions come up.
+  const asked = [];
+  let at = idx('importOffer');
+  for (let guard = 0; guard < 40; guard += 1) {
+    at = nextStepIndex(at, imported);
+    if (at === -1) break;
+    asked.push(LADDER[at].id);
+  }
+  for (const id of ['currentRole', 'achievements', 'previousRole', 'projects', 'evidence']) {
+    assert.ok(!asked.includes(id), `${id} was asked after an import`);
+  }
+  assert.ok(asked.indexOf('target') < asked.indexOf('lookingFor'));
+  assert.equal(asked[asked.length - 1], 'convert');
+});
+
+test('without an import the ladder keeps its original order', () => {
+  const idx = (id) => LADDER.findIndex((s) => s.id === id);
+  const draft = { sector: 'tech', level: 'senior', title: 'Engineer' };
+  assert.equal(LADDER[nextStepIndex(idx('review') , draft)].id, 'lookingFor');
+  // An import with no work history on it keeps the original order too.
+  const empty = { ...draft, importedFrom: 'resume', experience: [] };
+  assert.equal(ladderOrder(empty).length, LADDER.length);
 });
