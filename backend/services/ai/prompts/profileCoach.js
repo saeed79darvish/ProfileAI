@@ -393,9 +393,10 @@ ${motivation ? `Why: ${motivation}
 
 RULES:
 - Never invent. No new employers, tools, numbers, team sizes or results. Keep every number they gave, exactly. If a bullet has no number, do not add one.
+- Never upgrade how involved they were. "Responsible for", "worked on" and "helped with" do not become "led", "owned" or "drove". Say what they did more clearly, at the level they said it.
 - A rewritten bullet starts with a strong past-tense verb (present tense for a current role), says what they did and what it changed, in one line.
 - "roles": only roles whose bullets genuinely need it (vague, duties not results, "Responsible for", walls of text). At most 3. Use the index given above.
-- "skills": at most 8, each one named or clearly shown in their experience text. Nothing they would have to learn first.
+- "skills": at most 8, each a concrete tool, language, platform or method named or clearly shown in their experience text (TypeScript, GraphQL, A/B testing), never a generic phrase ("Frontend Development", "Teamwork"). Nothing they would have to learn first.
 - Aim everything at the target role where the facts allow it; never claim experience they do not have.
 - Return only the JSON object.`;
 
