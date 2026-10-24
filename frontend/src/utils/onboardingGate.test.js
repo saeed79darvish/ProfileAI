@@ -22,6 +22,10 @@ test('isOnboardingAllowedPath: /profile/edit is allowed (ProfileForm self-fetche
   assert.equal(isOnboardingAllowedPath('/profile/edit'), true);
 });
 
+test('isOnboardingAllowedPath: /profile/about-you is allowed (the coach notes need no profile)', () => {
+  assert.equal(isOnboardingAllowedPath('/profile/about-you'), true);
+});
+
 test('isOnboardingAllowedPath: existing onboarding-flow paths still allowed', () => {
   assert.equal(isOnboardingAllowedPath('/profile/create'), true);
   assert.equal(isOnboardingAllowedPath('/profile/create-form'), true);

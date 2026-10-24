@@ -63,7 +63,7 @@ import { getPasswordStrength } from './utils';
 const Register = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { register, setUser, setToken, user, logout } = useAuth();
+  const { register, setUser, setToken, user, logout, refreshUser } = useAuth();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -173,6 +173,9 @@ const Register = () => {
     if (meta?.source === 'coach' && meta?.autoPublish) {
       try {
         await profileAPI.createOrUpdateProfile(draft);
+        // They have a profile now; the user in memory is re-read so the
+        // route guard stops sending them back to build one.
+        await refreshUser();
         trackEvent('coach_profile_published', {});
         navigate('/profile');
         return;

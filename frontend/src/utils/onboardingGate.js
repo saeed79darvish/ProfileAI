@@ -35,8 +35,12 @@ const ALLOWED_PREFIXES = [
 //   - `/profile` (Dashboard)       — fetches profile, redirects on 404
 //   - `/profile/edit` (ProfileForm) — fetches profile, renders empty form on 404
 //
+//   - `/profile/about-you` (AboutYou) — the coach's notes, which exist with
+//     or without a profile; reached from the Dashboard, so a stale hint
+//     bounced people who had just published from the coach
+//
 // Server is the source of truth for "does this user have a profile?"
-const EXACT_ALLOWED = ['/profile', '/profile/edit'];
+const EXACT_ALLOWED = ['/profile', '/profile/edit', '/profile/about-you'];
 
 // True for the application flow (…/apply) — these stay gated so we can
 // prompt the candidate to finish their profile before applying / using AI.
