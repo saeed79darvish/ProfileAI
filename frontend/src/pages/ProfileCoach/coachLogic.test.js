@@ -220,6 +220,12 @@ test('projects are asked of whoever has nothing else, and nobody else', () => {
   assert.equal(shouldSkip(LADDER[projectsIdx], skipped), false);
 });
 
+test('a field the coach heard is kept even when it is not one of ours', () => {
+  assert.equal(applyBraindump(emptyDraft(), { field: 'aviation' }).sector, 'Aviation');
+  // One of ours still maps to our id.
+  assert.equal(applyBraindump(emptyDraft(), { field: 'software engineering' }).sector, 'tech');
+});
+
 test('a draft with jobs in it is not asked whether they have work experience', () => {
   const careerStage = step('careerStage');
   const withJobs = { ...emptyDraft(), experience: [{ company: 'Equinix', title: 'UI Architect' }] };
@@ -1241,6 +1247,11 @@ test('a typed field is ours if it matches, and kept as said if not', () => {
   assert.equal(fieldFromText('software engineer').sector, 'tech');
   assert.equal(fieldFromText('aviation').sector, 'Aviation');
   assert.equal(fieldFromText("I'm not sure what to put here"), null);
+  // Talking, not naming a field: goes to the coach instead of the profile.
+  assert.equal(fieldFromText("So hey, so let's talk."), null);
+  assert.equal(fieldFromText('How can I create my profile?'), null);
+  assert.equal(fieldFromText('hello'), null);
+  assert.equal(fieldFromText('Beekeeping').sector, 'Beekeeping');
 });
 
 test('a call with no role yet starts with the role', () => {

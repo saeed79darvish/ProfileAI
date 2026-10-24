@@ -295,7 +295,7 @@ const resumeIdSequence = (messages = []) => {
 
 const ProfileCoach = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, refreshUser } = useAuth();
 
   /* A conversation left in this browser within the last day. Read once, in
      a lazy initialiser, so the first render already has it — restoring in an
@@ -1787,8 +1787,14 @@ const ProfileCoach = () => {
   const offerChipsAgain = useCallback((step, liveMessage) => {
     const chips = getChips(step, draftRef.current);
     if (!chips.length) return;
+    /* One live row, under the latest reply. Every off-topic turn used to
+       add another copy and grey out the one before, so a short exchange left
+       three identical rows of levels stacked down the chat. Earlier rows for
+       this question that nobody picked from are taken away, not greyed. */
+    const unpicked = (m) => m.role === 'coach' && m.stepId === step.id
+      && m.chips?.length && !(m.selected || []).length;
     setMessages((prev) => [
-      ...prev.map((m) => (m.id === liveMessage?.id ? { ...m, spent: true } : m)),
+      ...prev.map((m) => (unpicked(m) ? { ...m, chips: [] } : m)),
       {
         id: nextId(),
         role: 'coach',
@@ -2129,6 +2135,10 @@ const ProfileCoach = () => {
     setBusy(true);
     try {
       await profileAPI.createOrUpdateProfile(resumeData);
+      /* The signed-in user in memory still says "no profile" until it is
+         re-read, and the route guard trusts it: every page outside the
+         onboarding allowlist bounced them back here until a reload. */
+      await refreshUser();
       saveCareerContext(finalDraft);
       trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
       navigate(ROUTES.PORTFOLIO);
@@ -2139,7 +2149,7 @@ const ProfileCoach = () => {
       setError(TEXT.ERROR_GENERIC);
       navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
     }
-  }, [isAuthenticated, navigate, saveCareerContext]);
+  }, [isAuthenticated, navigate, refreshUser, saveCareerContext]);
 
   /* ─── Derived view state ───────────────────────────────────── */
 

@@ -282,12 +282,29 @@ export const sectorChips = (expanded = false) => {
  * this, "Aviation" matched nothing, the model could not map it either, and
  * the field chips came back with no way past them.
  */
+/* Words that mark a sentence as someone talking, not naming a field.
+   "So hey, so let's talk." passed the title check (no "I'm", six words or
+   fewer) and became the field "So Hey, So Let's Talk.", and the coach moved
+   on to asking their level. */
+const CHATTY = /\b(hey|hi|hello|yo|let'?s|talk|chat|speak|call|start|begin|so|ok|okay|please|thanks|thank|what|why|how|who|where|when|which|can|could|would|should|will|tell|about|yourself|you|question|profile|resume|cv)\b/i;
+
+/* A field nobody listed is taken as typed only when it reads like the name
+   of one: a few words, no sentence punctuation, nothing conversational.
+   Everything else goes to the coach, which can tell "Aviation" from "hey". */
+export const looksLikeFieldName = (text) => {
+  const typed = String(text || '').trim();
+  if (!typed || !looksLikeTitle(typed)) return false;
+  if (typed.split(/\s+/).length > 4) return false;
+  if (/[?!]/.test(typed) || /[.,;:]\s*\S/.test(typed)) return false;
+  return !CHATTY.test(typed);
+};
+
 export const fieldFromText = (text) => {
   const typed = String(text || '').trim();
   const matched = matchSector(typed);
   if (matched) return { sector: matched.sector, title: matched.title || '' };
-  if (!typed || !looksLikeTitle(typed)) return null;
-  return { sector: normalizeTitle(typed), title: '' };
+  if (!looksLikeFieldName(typed)) return null;
+  return { sector: normalizeTitle(typed.replace(/[.\s]+$/, '')), title: '' };
 };
 
 /* Why someone wants the next job, and what they think is stopping them.
@@ -1639,6 +1656,11 @@ export const applyBraindump = (draft = {}, fields = {}) => {
   // Field first: it decides which rungs and titles the rest is read against.
   const matched = fields.field ? matchSector(fields.field) : null;
   if (!next.sector && matched?.sector) next.sector = matched.sector;
+  /* A field the model heard that is not one of ours ("aviation", "marine
+     biology") is kept as said, the same as typing it at the field question. */
+  if (!next.sector && fields.field && !matched && looksLikeTitle(fields.field)) {
+    next.sector = normalizeTitle(String(fields.field));
+  }
   if (!next.sector && fields.title) {
     const fromTitle = matchSector(fields.title);
     if (fromTitle?.sector) next.sector = fromTitle.sector;

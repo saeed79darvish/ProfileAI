@@ -878,7 +878,7 @@ router.post('/coach/turn', coachGuard, async (req, res) => {
     const turn = await profileCoachService.coachTurn({
       profile: profile && typeof profile === 'object' ? profile : {},
       missing: Array.isArray(missing) ? missing.slice(0, 20) : [],
-      history: Array.isArray(history) ? history.slice(-10) : [],
+      history: Array.isArray(history) ? history.slice(-30) : [],
       message,
       liveVoice: ['live', 'account'].includes(liveVoice) ? liveVoice : 'none',
       asked: typeof asked === 'string' ? asked.slice(0, 300) : '',

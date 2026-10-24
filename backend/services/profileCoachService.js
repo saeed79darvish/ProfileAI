@@ -440,9 +440,11 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
       content: coachTurnPrompt({
         profile,
         missing,
-        // Enough to stay coherent, not enough to re-send the whole
-        // conversation on every turn — this runs once per message.
-        history: history.slice(-10),
+        /* Enough that the resume review, a call and the questions since are
+           all in view: at ten, the coach asked again about things said a
+           few minutes earlier. Each line is capped so a long one cannot
+           crowd out the rest. */
+        history: history.slice(-30).map((h) => ({ ...h, text: String(h?.text || '').slice(0, 600) })),
         message: trimmed,
         liveVoice,
         asked,
