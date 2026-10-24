@@ -10,6 +10,7 @@ import {
 import {
   LADDER,
   VOICE_OFFER_STEP,
+  inferredCareerStage,
   voiceAgenda,
   applyBraindump,
   careerContextOf,
@@ -217,6 +218,26 @@ test('projects are asked of whoever has nothing else, and nobody else', () => {
   // Skipping the role questions leaves the same hole a new grad has.
   const skipped = { ...emptyDraft(), careerStage: 'experienced' };
   assert.equal(shouldSkip(LADDER[projectsIdx], skipped), false);
+});
+
+test('a draft with jobs in it is not asked whether they have work experience', () => {
+  const careerStage = step('careerStage');
+  const withJobs = { ...emptyDraft(), experience: [{ company: 'Equinix', title: 'UI Architect' }] };
+  assert.equal(isAlreadyAnswered(careerStage, withJobs), true);
+  assert.equal(inferredCareerStage(withJobs), 'experienced');
+  const internsOnly = { ...emptyDraft(), experience: [{ company: 'Acme', title: 'Software Engineering Intern' }] };
+  assert.equal(inferredCareerStage(internsOnly), 'internship');
+  // No jobs: nothing to read it off, so it is still asked.
+  assert.equal(isAlreadyAnswered(careerStage, emptyDraft()), false);
+  // What they picked wins over what is inferred.
+  assert.equal(inferredCareerStage({ ...withJobs, careerStage: 'career_change' }), 'career_change');
+});
+
+test('the links question is skipped once any link is in the draft', () => {
+  const links = step('links');
+  assert.equal(isAlreadyAnswered(links, emptyDraft()), false);
+  assert.equal(isAlreadyAnswered(links, { ...emptyDraft(), linkedinUrl: 'https://linkedin.com/in/x' }), true);
+  assert.equal(isAlreadyAnswered(links, { ...emptyDraft(), portfolioUrl: 'https://x.dev' }), true);
 });
 
 test('an import stops the coach re-asking what it already answered', () => {

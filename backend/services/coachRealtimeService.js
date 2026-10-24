@@ -74,11 +74,15 @@ async function createVoiceSession({ firstName, profile = {}, missing = [], maxMi
              speakers, was heard as the person talking, cut Remi off
              mid-sentence ("Why did each of") and turned up in the transcript
              as words nobody said. Semantic detection waits for the person to
-             have finished a thought, and "low" gives them room to pause. */
+             have finished a thought, and "low" gives them room to pause.
+             create_response starts off: the browser asks for the greeting
+             itself and turns replies on once it has been said (useVoiceCall).
+             On from the start, a sound in the first second got its own reply
+             and the call opened with two greetings, one after the other. */
           turn_detection: {
             type: 'semantic_vad',
             eagerness: 'low',
-            create_response: true,
+            create_response: false,
             interrupt_response: true,
           },
         },

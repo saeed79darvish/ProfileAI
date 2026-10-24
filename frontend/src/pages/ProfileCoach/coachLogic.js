@@ -1427,6 +1427,20 @@ const SKIP_PREDICATES = {
   noTarget: (draft) => !String(draft.target || '').trim(),
 };
 
+/* Where someone is in their career, read off the jobs already in the draft.
+   A resume with three full-time roles on it has answered "do you have work
+   experience?", and asking anyway after the coach has just reviewed it reads
+   as not having looked. Only the plain cases are inferred: a career changer
+   cannot be told apart from anyone else by a job list, so with no roles, or
+   only internships, it is asked or left as it was. */
+const INTERNSHIP = /\b(intern|internship|co-?op|trainee|apprentice)\b/i;
+export const inferredCareerStage = (draft = {}) => {
+  if (draft.careerStage) return draft.careerStage;
+  const roles = (draft.experience || []).filter((r) => r && (r.title || r.company));
+  if (!roles.length) return '';
+  return roles.every((r) => INTERNSHIP.test(String(r.title || ''))) ? 'internship' : 'experienced';
+};
+
 export const shouldSkip = (step, draft = {}) => {
   if (!step || !step.skipIf) return false;
   const predicate = SKIP_PREDICATES[step.skipIf];
@@ -1481,7 +1495,11 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     case 'workStyle':
       return !!draft.workStyle;
     case 'careerStage':
-      return !!draft.careerStage;
+      return !!inferredCareerStage(draft);
+    // A link from the resume, the call, or typed earlier: the question about
+    // where their work can be seen has its answer.
+    case 'links':
+      return !!(draft.linkedinUrl || draft.githubUrl || draft.portfolioUrl);
     case 'target':
       return !!draft.target;
     case 'targetWhy':

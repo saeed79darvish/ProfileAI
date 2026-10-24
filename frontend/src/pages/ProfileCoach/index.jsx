@@ -367,6 +367,17 @@ const ProfileCoach = () => {
   dictationSupportedRef.current = dictation.supported;
   const listEndRef = useRef(null);
   const composerRef = useRef(null);
+  /* Send was pressed while the accurate transcript was on its way. Sent the
+     moment it lands, from the box the transcript just filled. */
+  const sendWhenTranscribedRef = useRef(false);
+  useEffect(() => {
+    if (dictation.transcribing || !sendWhenTranscribedRef.current) return;
+    sendWhenTranscribedRef.current = false;
+    composerRef.current?.form?.requestSubmit();
+  }, [dictation.transcribing]);
+  /* An error belongs to the question it was about. It used to stay pinned
+     above the box through the next question and a whole call. */
+  useEffect(() => { setError(''); }, [stepIndex]);
   // The box grows with what is in it (typed or dictated); CSS caps it at
   // about six lines and scrolls past that, keeping the newest words in view.
   useEffect(() => {
@@ -1296,6 +1307,7 @@ const ProfileCoach = () => {
   }, [pushCoach]);
 
   const startTalking = useCallback(async () => {
+    setError('');
     setBusy(true);
     try {
       /* What they have already told us goes with the request, so the call
@@ -1700,9 +1712,12 @@ const ProfileCoach = () => {
       const { data } = await profileAPI.coachTurn({
         profile: draftToProfileShape(draftRef.current),
         missing: missingFields(draftRef.current),
+        /* Enough of the conversation that the review, the call and the
+           questions since are all in view. Ten messages was a few minutes,
+           and the coach then asked about things said just before that. */
         history: messagesRef.current
           .filter((m) => m.text)
-          .slice(-10)
+          .slice(-30)
           .map((m) => ({ role: m.role, text: m.text })),
         message: text,
         /* Live voice is for signed-in users only. A guest who asks to talk is
@@ -1888,6 +1903,14 @@ const ProfileCoach = () => {
    */
   const submitText = useCallback(async (event) => {
     event?.preventDefault();
+    /* Pressed while the accurate transcript is still coming back: that is
+       still "send this". It used to be ignored (Enter) or impossible (the
+       button was disabled), which read as the box not sending. It goes the
+       moment the transcript lands — see the effect on dictation.transcribing. */
+    if (dictation.transcribing) {
+      sendWhenTranscribedRef.current = true;
+      return;
+    }
     /* Send while the mic is on means "that is my answer": stop, wait for the
        accurate transcript, and send that, not the live preview. */
     let text = input.trim();
@@ -1989,13 +2012,23 @@ const ProfileCoach = () => {
        Everything else does. */
     if (step.id === 'links') {
       const links = parseLinks(text);
-      if (!Object.keys(links).length) {
-        setError(TEXT.ERROR_NO_LINK);
-        setInput(text);
+      if (Object.keys(links).length) {
+        if (liveMessage) spendChips(liveMessage.id);
+        commit(links, index);
         return;
       }
-      if (liveMessage) spendChips(liveMessage.id);
-      commit(links, index);
+      /* Not a link: a question ("why are you asking?"), or "I don't have
+         one". Both deserve an answer, not "that does not look like a link"
+         with their sentence put back in the box. The coach replies in
+         context; a link is optional, so unless it asked them something the
+         conversation moves on. */
+      const turn = await runTurn(text, step);
+      if (!turn.ok) {
+        setError(TEXT.ERROR_GENERIC);
+        return;
+      }
+      if (turn.shown || turn.awaiting) return;
+      advance(index, draftRef.current);
       return;
     }
 
@@ -2627,7 +2660,6 @@ const ProfileCoach = () => {
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
                   e.preventDefault();
-                  if (dictation.transcribing) return;
                   e.currentTarget.form?.requestSubmit();
                 }}
                 // When the answer is a tap, the box says so instead of just
@@ -2659,6 +2691,9 @@ const ProfileCoach = () => {
                 onClick={() => {
                   setError('');
                   dictation.toggle(input);
+                  /* Focus back in the box. Left on this button, the Enter
+                     that was meant to send clicked the mic again instead. */
+                  composerRef.current?.focus();
                 }}
                 title={!dictation.supported
                   ? TEXT.DICTATE_UNSUPPORTED
@@ -2670,7 +2705,7 @@ const ProfileCoach = () => {
               </IconButton>
               {/* Held while the accurate transcript is on its way, so the
                   rough live preview is never what gets sent. */}
-              <IconButton type="submit" $primary disabled={attached ? busy : (!canType || !input.trim() || dictation.transcribing)} aria-label={TEXT.SEND}>
+              <IconButton type="submit" $primary disabled={attached ? busy : (!canType || !input.trim())} aria-label={TEXT.SEND}>
                 <SendIcon fontSize="small" />
               </IconButton>
             </Composer>

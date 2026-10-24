@@ -58,6 +58,18 @@ const MAX_NUDGES = 2;
 /* How long to let a goodbye run before hanging up anyway. */
 const GOODBYE_CAP_MS = 12 * 1000;
 
+/* The session opens with turn detection that hears but does not reply
+   (create_response: false, coachRealtimeService.js), so the greeting is the
+   one and only opening. Replies are switched on once it is done; this is the
+   longest that may take before they are switched on anyway. */
+const GREETING_CAP_MS = 10 * 1000;
+const REPLYING_TURN_DETECTION = {
+  type: 'semantic_vad',
+  eagerness: 'low',
+  create_response: true,
+  interrupt_response: true,
+};
+
 export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {}) => {
   const [state, setState] = useState(VOICE_STATES.idle);
   // True while Remi is the one talking, so the UI can say who has the floor.
@@ -92,6 +104,9 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const responseInFlightRef = useRef(false);
   const nudgeTimerRef = useRef(null);
   const nudgesRef = useRef(0);
+  // True once the greeting is done and turn detection may answer on its own.
+  const greetedRef = useRef(false);
+  const greetingCapRef = useRef(null);
 
   const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError });
   useEffect(() => {
@@ -106,6 +121,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     wrapRef.current = null;
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = null;
+    if (greetingCapRef.current) clearTimeout(greetingCapRef.current);
+    greetingCapRef.current = null;
     rafRef.current = null;
     capRef.current = null;
     try { micRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
@@ -186,9 +203,25 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     nudgeTimerRef.current = null;
   }, []);
 
+  /** The greeting is said: from now on, a finished thought gets a reply. */
+  const startReplying = useCallback(() => {
+    if (greetedRef.current) return;
+    greetedRef.current = true;
+    if (greetingCapRef.current) clearTimeout(greetingCapRef.current);
+    greetingCapRef.current = null;
+    try {
+      channelRef.current?.send(JSON.stringify({
+        type: 'session.update',
+        session: { type: 'realtime', audio: { input: { turn_detection: REPLYING_TURN_DETECTION } } },
+      }));
+    } catch { /* channel already closed */ }
+  }, []);
+
   /** Ask for a response that should already have come. */
   const scheduleNudge = useCallback(() => {
     clearNudge();
+    // Before the greeting there is nothing owed: the greeting is coming.
+    if (!greetedRef.current) return;
     nudgeTimerRef.current = setTimeout(() => {
       if (endedRef.current || leavingRef.current) return;
       if (responseInFlightRef.current || speakingRef.current) return;
@@ -237,6 +270,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       case 'response.done':
         responseInFlightRef.current = false;
         nudgesRef.current = 0;
+        // The first response is the greeting.
+        startReplying();
         break;
       // They are talking; nothing is owed yet.
       case 'input_audio_buffer.speech_started':
@@ -319,13 +354,15 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       }
 
       case 'error':
+        // A greeting that failed must not leave the call unable to reply.
+        startReplying();
         handlersRef.current.onError?.('failed');
         break;
 
       default:
         break;
     }
-  }, [clearNudge, finish, hangUpWhenQuiet, scheduleNudge]);
+  }, [clearNudge, finish, hangUpWhenQuiet, scheduleNudge, startReplying]);
 
   const start = useCallback(async ({ clientSecret, model }) => {
     if (!clientSecret || !model) {
@@ -338,6 +375,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     leavingRef.current = false;
     responseInFlightRef.current = false;
     nudgesRef.current = 0;
+    greetedRef.current = false;
     setState(VOICE_STATES.connecting);
 
     try {
@@ -382,6 +420,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
         try {
           channel.send(JSON.stringify({ type: 'response.create' }));
         } catch { /* channel closed before it opened */ }
+        greetingCapRef.current = setTimeout(startReplying, GREETING_CAP_MS);
       });
 
       // A dropped connection is an ended call, not a frozen screen.
@@ -433,7 +472,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       const denied = /permission|denied|NotAllowed/i.test(String(err?.name || err?.message || err));
       handlersRef.current.onError?.(denied ? 'mic-denied' : 'failed');
     }
-  }, [finish, onEvent, teardown, watchLevel]);
+  }, [finish, onEvent, startReplying, teardown, watchLevel]);
 
   // A call still running after the page changes keeps the microphone open.
   useEffect(() => () => teardown(), [teardown]);
