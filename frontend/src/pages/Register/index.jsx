@@ -177,7 +177,7 @@ const Register = () => {
         // route guard stops sending them back to build one.
         await refreshUser();
         trackEvent('coach_profile_published', {});
-        navigate('/profile');
+        navigate('/profile', { state: { onboardingMatches: meta?.careerContext?.constraints || {} } });
         return;
       } catch {
         // fall through to the editor

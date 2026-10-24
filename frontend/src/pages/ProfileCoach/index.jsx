@@ -2235,7 +2235,8 @@ const ProfileCoach = () => {
       await refreshUser();
       saveCareerContext(finalDraft);
       trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
-      navigate(ROUTES.PORTFOLIO);
+      // The profile page opens on the jobs that fit it.
+      navigate(ROUTES.PORTFOLIO, { state: { onboardingMatches: careerContextOf(finalDraft).constraints || {} } });
     } catch {
       // Saving failed, so do not pretend it worked — hand them to the editor,
       // which has the full save path and can surface the real error.

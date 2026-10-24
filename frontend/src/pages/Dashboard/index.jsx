@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import OnboardingMatches from '@/components/OnboardingMatches';
 import {
   Avatar,
   Button,
@@ -320,6 +321,19 @@ const cardCompany = (t) => (t?.companyName && String(t.companyName).trim()) || c
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  /* Arrived straight from onboarding: show the jobs that fit the profile
+     they just built. The state is cleared at once so a refresh or a Back
+     does not bring the pop-up round again. */
+  const location = useLocation();
+  const [matchesFor, setMatchesFor] = useState(() => location.state?.onboardingMatches || null);
+  useEffect(() => {
+    if (location.state?.onboardingMatches) {
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    }
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const closeMatches = useCallback(() => setMatchesFor(null), []);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user, loading: authLoading, isAuthenticated, isValidating } = useAuth();
@@ -3237,6 +3251,7 @@ const Dashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      <OnboardingMatches open={!!matchesFor} prefs={matchesFor || undefined} onClose={closeMatches} />
     </PageContainer>
   );
 };
