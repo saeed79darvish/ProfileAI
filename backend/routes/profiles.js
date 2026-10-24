@@ -953,6 +953,31 @@ router.post('/coach/target', coachGuard, aiRateLimiterIfSignedIn('career_analysi
   }
 });
 
+// @route   POST /api/profiles/coach/fix-plan
+// @desc    The review's fixes written out for the person to accept or drop
+// @access  Public (guests metered by IP)
+router.post('/coach/fix-plan', coachGuard, aiRateLimiterIfSignedIn('career_analysis'), async (req, res) => {
+  try {
+    const { profile, review, target, motivation, assessment } = req.body || {};
+    if (!profile || typeof profile !== 'object') {
+      return res.status(400).json({ error: 'Profile is required' });
+    }
+    const plan = await profileCoachService.planFixes({
+      profile,
+      review: review && typeof review === 'object' ? review : null,
+      target: target ? String(target).trim().slice(0, 120) : '',
+      motivation: motivation ? String(motivation).trim().slice(0, 400) : '',
+      assessment: assessment && typeof assessment === 'object' ? assessment : null,
+    });
+    await recordCoachUsage(req);
+    if (req.userId) await recordAIUsage(req.userId, 'career_analysis');
+    res.json({ success: true, plan });
+  } catch (error) {
+    console.error('Error planning coach fixes:', error);
+    res.status(500).json({ error: 'Could not plan the fixes' });
+  }
+});
+
 // @route   POST /api/profiles/enhance-resume
 // @desc    Enhance profile data with AI-powered improvements
 // @access  Private

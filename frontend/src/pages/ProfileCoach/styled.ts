@@ -1462,6 +1462,50 @@ export const ChipRemove = styled.span`
 `;
 
 /* Done, under a pick-several row once something is picked. */
+/* One change on the fix card: tap to keep or drop it. */
+export const FixItem = styled.button`
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid ${({ $on }) => ($on ? '#c7c8f5' : '#ececf3')};
+  border-radius: 12px;
+  background: ${({ $on }) => ($on ? '#f7f7ff' : '#fff')};
+  font: inherit;
+  color: #1a1a2e;
+  cursor: pointer;
+  opacity: ${({ $on }) => ($on ? 1 : 0.6)};
+  transition: background 140ms ease, border-color 140ms ease, opacity 140ms ease;
+
+  &:disabled { cursor: default; }
+
+  .box {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    border-radius: 5px;
+    border: 2px solid ${({ $on }) => ($on ? '#6366f1' : '#c4c4d4')};
+    background: ${({ $on }) => ($on ? '#6366f1' : '#fff')};
+    color: #fff;
+    font-size: 12px;
+    line-height: 14px;
+    text-align: center;
+  }
+
+  .body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .body > b { font-size: 0.8rem; font-weight: 700; color: #6c6c86; }
+  .body > p { margin: 0; font-size: 0.95rem; line-height: 1.45; }
+  .body > ul { margin: 0; padding-left: 18px; font-size: 0.93rem; line-height: 1.45; }
+`;
+
+export const FixList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
 export const MultiDone = styled.div`
   padding-left: 50px;
   margin-top: 12px;

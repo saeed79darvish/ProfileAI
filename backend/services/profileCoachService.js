@@ -20,6 +20,7 @@ const {
   targetAssessmentPrompt,
   answerAsidePrompt,
   coachTurnPrompt,
+  fixPlanPrompt,
 } = require('./ai/prompts/profileCoach');
 const { inspectProfile } = require('./resume/coachInspect');
 const { countOpenings } = require('./coachMarket');
@@ -557,7 +558,59 @@ async function assessTarget({ profile, target, location, workStyle, motivation, 
   };
 }
 
+/**
+ * planFixes — the review's advice written out as new text: headline,
+ * summary, bullets for the roles that need them, and skills their own
+ * experience shows. Each piece is checked against the profile it came from,
+ * so a role index that does not exist or a skill they already list is
+ * dropped rather than shown.
+ */
+const clip = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+async function planFixes({ profile = {}, review = null, target = '', motivation = '', assessment = null } = {}) {
+  const response = await callAI({
+    max_tokens: 2400,
+    temperature: 0.3,
+    messages: [{ role: 'user', content: fixPlanPrompt({ profile, review, target, motivation, assessment }) }],
+  });
+  const raw = response.choices[0].message.content || '';
+  let parsed = safeParseJSON(raw);
+  if (!parsed) {
+    // eslint-disable-next-line global-require
+    const { repairTruncatedJSON } = require('./resumeParserService');
+    const start = raw.indexOf('{');
+    try { parsed = start >= 0 ? repairTruncatedJSON(raw.slice(start)) : null; } catch { parsed = null; }
+  }
+  parsed = parsed || {};
+
+  const experience = Array.isArray(profile.experience) ? profile.experience : [];
+  const have = new Set((profile.skills || []).map((s) => String(s?.name || s).toLowerCase().trim()));
+  const sameText = (a, b) => clip(a, 2000).toLowerCase() === clip(b, 2000).toLowerCase();
+
+  const headline = clip(parsed.headline, 90);
+  const summary = clip(parsed.summary, 700);
+  const seen = new Set();
+  const roles = (Array.isArray(parsed.roles) ? parsed.roles : [])
+    .filter((r) => r && Number.isInteger(r.index) && r.index >= 0 && r.index < Math.min(3, experience.length) && !seen.has(r.index) && seen.add(r.index))
+    .map((r) => ({
+      index: r.index,
+      title: experience[r.index].title || '',
+      company: experience[r.index].company || '',
+      bullets: (Array.isArray(r.bullets) ? r.bullets : []).map((b) => clip(b, 260)).filter(Boolean).slice(0, 6),
+    }))
+    .filter((r) => r.bullets.length);
+  const skills = [...new Set((Array.isArray(parsed.skills) ? parsed.skills : [])
+    .map((s) => clip(s, 40)).filter((s) => s && !have.has(s.toLowerCase())))].slice(0, 8);
+
+  return {
+    headline: headline && !sameText(headline, profile.title) ? headline : '',
+    summary: summary && !sameText(summary, profile.summary) ? summary : '',
+    roles,
+    skills,
+  };
+}
+
 module.exports = {
+  planFixes,
   STEP_SCHEMAS,
   reviewProfile,
   assessTarget,

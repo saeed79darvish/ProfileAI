@@ -54,6 +54,8 @@ import {
   matchSector,
   matchChip,
   nextStepIndex,
+  fixKeys,
+  applyFixPlan,
   mergeInterpreted,
   attachBullets,
   seedFromImport,
@@ -102,7 +104,7 @@ import {
   PageContainer, TopBar, Logo, Body,
   ChatColumn, MessageList, Thread, Row, CoachAvatar, Bubble, BubbleHint, EditHint, Typing,
   ChipRow, Chip, QuickReplies, QuickReply,
-  ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, AttachmentCard, IconButton, Footnote, ErrorNote,
+  FixItem, FixList, ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, AttachmentCard, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
   MobileStrip, StripBar, StripLabel, MobilePanel,
@@ -744,7 +746,7 @@ const ProfileCoach = () => {
       holdUntilRef.current = Date.now() + 400;
       return;
     }
-    const card = [...messages].reverse().find((m) => (m.review || m.resume) && !anchoredRef.current.has(m.id));
+    const card = [...messages].reverse().find((m) => (m.review || m.resume || m.fixPlan) && !anchoredRef.current.has(m.id));
     if (card) {
       anchoredRef.current.add(card.id);
       anchorIdRef.current = card.id;
@@ -1086,6 +1088,55 @@ const ProfileCoach = () => {
     }
   }, [pushCoach, saveCareerContext]);
 
+  const runFix = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    const current = draftRef.current;
+    try {
+      const { data } = await profileAPI.coachFixPlan({
+        profile: draftToProfileShape(current),
+        review: current.review,
+        target: current.target,
+        motivation: current.targetWhy,
+        assessment: current.assessment,
+      });
+      const plan = data?.plan || {};
+      const keys = fixKeys(plan);
+      setTyping(false);
+      setBusy(false);
+      if (!keys.length) throw new Error('nothing to fix');
+      // Everything starts ticked: these are the changes the review asked for.
+      pushCoach(COACH_TEXT.FIX_INTRO, { fixPlan: plan, fixPicked: keys, stepId: 'fix' });
+    } catch {
+      setTyping(false);
+      setBusy(false);
+      const nextDraft = { ...draftRef.current, fixDone: true };
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
+      advanceRef.current(index, nextDraft);
+    }
+  }, [pushCoach]);
+
+  const toggleFix = useCallback((message, key) => {
+    if (message.spent) return;
+    keepScrollRef.current = true;
+    setMessages((prev) => prev.map((m) => (m.id === message.id
+      ? { ...m, fixPicked: m.fixPicked.includes(key) ? m.fixPicked.filter((k) => k !== key) : [...m.fixPicked, key] }
+      : m)));
+  }, []);
+
+  const finishFix = useCallback((message, apply) => {
+    if (message.spent || busy) return;
+    const picked = apply ? message.fixPicked : [];
+    spendChips(message.id);
+    pushMine(picked.length ? COACH_TEXT.FIX_APPLIED(picked.length) : COACH_TEXT.FIX_KEEP);
+    const nextDraft = applyFixPlan(draftRef.current, message.fixPlan, picked);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    if (picked.length) pushCoach(COACH_TEXT.FIX_DONE);
+    advance(LADDER.findIndex((s) => s.id === 'fix'), nextDraft);
+  }, [advance, busy, pushCoach, pushMine, spendChips]);
+
   const runBuild = useCallback(async (index) => {
     setBusy(true);
     setTyping(true);
@@ -1114,8 +1165,8 @@ const ProfileCoach = () => {
   }, [pushCoach]);
 
   useEffect(() => {
-    runnersRef.current = { review: runReview, assess: runAssess, build: runBuild };
-  }, [runReview, runAssess, runBuild]);
+    runnersRef.current = { review: runReview, assess: runAssess, fix: runFix, build: runBuild };
+  }, [runReview, runAssess, runFix, runBuild]);
 
   /* ─── Answering ────────────────────────────────────────────── */
 
@@ -2288,6 +2339,53 @@ const ProfileCoach = () => {
     </Card>
   );
 
+  const renderFixPlan = (message) => {
+    const plan = message.fixPlan;
+    const picked = message.fixPicked || [];
+    const item = (key, label, body) => {
+      const on = picked.includes(key);
+      return (
+        <FixItem
+          key={key}
+          type="button"
+          $on={on}
+          role="checkbox"
+          aria-checked={on}
+          disabled={message.spent}
+          onClick={() => toggleFix(message, key)}
+        >
+          <span className="box" aria-hidden="true">{on ? '✓' : ''}</span>
+          <span className="body"><b>{label}</b>{body}</span>
+        </FixItem>
+      );
+    };
+    return (
+      <Card>
+        <CardLabel>{COACH_TEXT.FIX_TITLE}</CardLabel>
+        <FixList>
+          {plan.headline && item('headline', COACH_TEXT.FIX_HEADLINE, <p>{plan.headline}</p>)}
+          {plan.summary && item('summary', COACH_TEXT.FIX_SUMMARY, <p>{plan.summary}</p>)}
+          {(plan.roles || []).map((r) => item(
+            `role:${r.index}`,
+            COACH_TEXT.FIX_ROLE(r.title, r.company),
+            <ul>{r.bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>,
+          ))}
+          {(plan.skills || []).map((s) => item(`skill:${s}`, COACH_TEXT.FIX_SKILLS, <p>{s}</p>))}
+        </FixList>
+        {!message.spent && (
+          <QuickReplies style={{ marginTop: 14, paddingLeft: 0 }}>
+            <Chip type="button" $primary disabled={busy} onClick={() => finishFix(message, true)}>
+              {COACH_TEXT.FIX_APPLY(picked.length)}
+            </Chip>
+            <Chip type="button" disabled={busy} onClick={() => finishFix(message, false)}>
+              {COACH_TEXT.FIX_KEEP}
+            </Chip>
+          </QuickReplies>
+        )}
+      </Card>
+    );
+  };
+
   const renderAssessment = (assessment) => {
     const { market } = assessment;
     return (
@@ -2457,7 +2555,7 @@ const ProfileCoach = () => {
                 <React.Fragment key={message.id}>
                   {/* Where a card read from its top scrolls to. The negative
                       margin cancels the thread's gap for this empty marker. */}
-                  {(message.review || message.resume) && (
+                  {(message.review || message.resume || message.fixPlan) && (
                     <div data-mid={message.id} style={{ height: 0, marginBottom: -14, scrollMarginTop: 12 }} />
                   )}
                   {/* Cards that carry their own heading (the upload progress)
@@ -2527,6 +2625,7 @@ const ProfileCoach = () => {
                   )}
                   {message.review && renderReview(message.review)}
                   {message.assessment && renderAssessment(message.assessment)}
+                  {message.fixPlan && renderFixPlan(message)}
                   {message.resume && renderResume(message.resume)}
                   {message.tour && renderTour()}
                   {message.continues && !message.spent && (

@@ -350,6 +350,56 @@ RULES:
 - Plain text only.`;
 
 /**
+ * fixPlanPrompt — the changes the review and the goal call for, written out.
+ *
+ * The review listed what to fix as advice and nothing ever did it: the
+ * summary was only written when the resume had none, so the profile that
+ * came out was the resume that went in. This turns the advice into the
+ * actual new text, which the person accepts or drops item by item.
+ *
+ * Rewrites only. Every fact comes from their profile or what they said in
+ * the conversation; a better bullet is the same work said more clearly,
+ * never more work.
+ */
+const fixPlanPrompt = ({ profile, review, target, motivation, assessment }) => `You are a career coach. You have read this person's resume and talked with them about where they want to go. Now write the actual improvements to their profile.
+
+No em dashes (—) anywhere. Use a full stop, a comma or a colon instead.
+
+═══ THEIR PROFILE ═══
+${JSON.stringify({
+  title: profile.title,
+  summary: profile.summary,
+  experience: (profile.experience || []).slice(0, 3).map((r, index) => ({
+    index, title: r.title, company: r.company, startDate: r.startDate, endDate: r.endDate, description: r.description,
+  })),
+  skills: profile.skills,
+}, null, 2)}
+
+═══ WHAT YOUR REVIEW SAID TO FIX ═══
+${JSON.stringify((review && review.fix) || [], null, 2)}
+
+═══ WHERE THEY WANT TO GO ═══
+Target role: ${target || '(not said; improve for the role they are in)'}
+${motivation ? `Why: ${motivation}
+` : ''}${assessment && assessment.closes && assessment.closes.length ? `What closes the gap: ${assessment.closes.map((c) => c.what).join('; ')}
+` : ''}
+═══ WHAT TO RETURN ═══
+{
+  "headline": "a job title recruiters would search for, aimed at the target, at most 8 words, no pipes or slogans; or \"\" if theirs is already right",
+  "summary": "3 sentences in first person without 'I am a', aimed at the target, built only from their profile; or \"\" if theirs is already strong",
+  "roles": [{ "index": 0, "bullets": ["4-6 rewritten bullets for that role"] }],
+  "skills": ["skills their own experience shows that are missing from their skills list"]
+}
+
+RULES:
+- Never invent. No new employers, tools, numbers, team sizes or results. Keep every number they gave, exactly. If a bullet has no number, do not add one.
+- A rewritten bullet starts with a strong past-tense verb (present tense for a current role), says what they did and what it changed, in one line.
+- "roles": only roles whose bullets genuinely need it (vague, duties not results, "Responsible for", walls of text). At most 3. Use the index given above.
+- "skills": at most 8, each one named or clearly shown in their experience text. Nothing they would have to learn first.
+- Aim everything at the target role where the facts allow it; never claim experience they do not have.
+- Return only the JSON object.`;
+
+/**
  * coachTurnPrompt — one turn of the conversation, decided by the model.
  *
  * Everything else in this file serves a flow where the client decides what
@@ -516,6 +566,7 @@ HOW TO BEHAVE:
 - No preamble, no markdown, no bullet points in "say". Return only the JSON.`;
 
 module.exports = {
+  fixPlanPrompt,
   coachTurnPrompt,
   answerAsidePrompt,
   interpretAnswerPrompt,

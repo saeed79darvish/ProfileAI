@@ -796,6 +796,22 @@ export const LADDER = [
     skipIf: 'noTarget',
   },
   {
+    /* The review's advice, done: a new headline, summary, bullets and
+       skills, aimed at the goal they just named. Shown as one card; each
+       change can be dropped, nothing lands without "Apply". Imports only:
+       there is no document to improve on the from-scratch path. */
+    id: 'fix',
+    question: 'Now let me put that into your profile.',
+    hint: '',
+    kind: 'run',
+    runs: 'fix',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noImport',
+  },
+  {
     id: 'build',
     question: 'Right. Let me put your profile together.',
     hint: '',
@@ -1564,6 +1580,35 @@ export const shouldSkip = (step, draft = {}) => {
    answered them, and the review's own follow-ups cover its gaps. Asking
    "tell me about your most recent role" after reading it is what made the
    import feel pointless. Steps not named here are not asked on this path. */
+/** Every change on a fix card, as the keys its toggles use. */
+export const fixKeys = (plan = {}) => [
+  ...(plan.headline ? ['headline'] : []),
+  ...(plan.summary ? ['summary'] : []),
+  ...(plan.roles || []).map((r) => `role:${r.index}`),
+  ...(plan.skills || []).map((s) => `skill:${s}`),
+];
+
+/** The draft with the picked changes from a fix card applied. */
+export const applyFixPlan = (draft = {}, plan = {}, picked = []) => {
+  const on = new Set(picked);
+  const next = { ...draft, fixDone: true };
+  if (plan.headline && on.has('headline')) next.title = plan.headline;
+  if (plan.summary && on.has('summary')) next.summary = plan.summary;
+  const roles = (plan.roles || []).filter((r) => on.has(`role:${r.index}`));
+  if (roles.length) {
+    next.experience = (draft.experience || []).map((row, i) => {
+      const fix = roles.find((r) => r.index === i);
+      return fix ? { ...row, description: fix.bullets.join('\n') } : row;
+    });
+  }
+  const skills = (plan.skills || []).filter((s) => on.has(`skill:${s}`));
+  if (skills.length) {
+    const have = new Set((draft.skills || []).map((s) => String(s).toLowerCase()));
+    next.skills = [...(draft.skills || []), ...skills.filter((s) => !have.has(s.toLowerCase()))];
+  }
+  return next;
+};
+
 export const IMPORT_ORDER = [
   'sector', 'level', 'title', 'importOffer',
   'review',
@@ -1649,6 +1694,8 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.targetBlocker;
     case 'assess':
       return !!draft.assessment;
+    case 'fix':
+      return !!draft.fixDone;
     default:
       break;
   }

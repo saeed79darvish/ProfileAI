@@ -53,6 +53,8 @@ import {
   shouldSkip,
   nextStepIndex,
   ladderOrder,
+  fixKeys,
+  applyFixPlan,
   isAlreadyAnswered,
   applyToDraft,
   mergeInterpreted,
@@ -1373,4 +1375,27 @@ test('without an import the ladder keeps its original order', () => {
   // An import with no work history on it keeps the original order too.
   const empty = { ...draft, importedFrom: 'resume', experience: [] };
   assert.equal(ladderOrder(empty).length, LADDER.length);
+});
+
+test('a fix card applies only the changes left ticked', () => {
+  const draft = {
+    title: 'Engineer', summary: 'Old', skills: ['React'],
+    experience: [{ title: 'A', description: 'old a' }, { title: 'B', description: 'old b' }],
+  };
+  const plan = {
+    headline: 'Staff Frontend Engineer', summary: 'New summary',
+    roles: [{ index: 1, bullets: ['Shipped x', 'Cut y'] }], skills: ['GraphQL', 'react'],
+  };
+  assert.deepEqual(fixKeys(plan), ['headline', 'summary', 'role:1', 'skill:GraphQL', 'skill:react']);
+  const next = applyFixPlan(draft, plan, ['summary', 'role:1', 'skill:GraphQL', 'skill:react']);
+  assert.equal(next.title, 'Engineer');
+  assert.equal(next.summary, 'New summary');
+  assert.equal(next.experience[0].description, 'old a');
+  assert.equal(next.experience[1].description, 'Shipped x\nCut y');
+  assert.deepEqual(next.skills, ['React', 'GraphQL']);
+  assert.equal(next.fixDone, true);
+  // Keep mine: nothing changes, and the step is still answered.
+  const kept = applyFixPlan(draft, plan, []);
+  assert.equal(kept.summary, 'Old');
+  assert.equal(kept.fixDone, true);
 });

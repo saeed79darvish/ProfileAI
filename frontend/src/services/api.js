@@ -334,6 +334,9 @@ export const profileAPI = {
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),
   // How far the target role is, grounded in live postings from our own corpus.
+  // The review's fixes written out as new text, for the person to keep or drop.
+  coachFixPlan: ({ profile, review, target, motivation, assessment }) =>
+    api.post('/profiles/coach/fix-plan', { profile, review, target, motivation, assessment }),
   coachTarget: ({ profile, target, location, workStyle, motivation, blocker }) =>
     api.post('/profiles/coach/target', { profile, target, location, workStyle, motivation, blocker }),
 
