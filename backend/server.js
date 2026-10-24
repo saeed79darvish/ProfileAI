@@ -545,6 +545,15 @@ const startServer = async () => {
       console.warn('⚠️  Guest analyzer tables ensure skipped:', err.message);
     }
 
+    // What the coach knows about a candidate (/api/career-context). The
+    // model shipped without its table, so every read and write 500'd.
+    try {
+      const { up: addCareerContextsTable } = require('./scripts/migrations/addCareerContextsTable');
+      await addCareerContextsTable();
+    } catch (err) {
+      console.warn('⚠️  CareerContexts table ensure skipped:', err.message);
+    }
+
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
     // known companies → false; discovered greenhouse/lever/ashby boards →
     // true). This powers the accurate "Startups" job filter. AWAITED (not
