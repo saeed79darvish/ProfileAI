@@ -54,6 +54,7 @@ import {
   nextStepIndex,
   ladderOrder,
   fixKeys,
+  linkedinProfileUrl,
   applyFixPlan,
   isAlreadyAnswered,
   applyToDraft,
@@ -1398,4 +1399,11 @@ test('a fix card applies only the changes left ticked', () => {
   const kept = applyFixPlan(draft, plan, []);
   assert.equal(kept.summary, 'Old');
   assert.equal(kept.fixDone, true);
+});
+
+test('a LinkedIn profile URL is found in a message', () => {
+  assert.equal(linkedinProfileUrl('here you go https://www.linkedin.com/in/saeed-darvish/ thanks'), 'https://www.linkedin.com/in/saeed-darvish/');
+  assert.equal(linkedinProfileUrl('linkedin.com/in/jane-doe'), 'https://linkedin.com/in/jane-doe');
+  assert.equal(linkedinProfileUrl('https://www.linkedin.com/company/equinix'), '');
+  assert.equal(linkedinProfileUrl('I work at LinkedIn'), '');
 });

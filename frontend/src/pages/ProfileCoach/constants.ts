@@ -165,6 +165,8 @@ export const TEXT = {
   UPLOAD_CANCELLED: 'No problem. Pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   IMPORT_CANCELLED: 'No problem. Try one of these, or we can just keep talking.',
+  LINKEDIN_URL_PDF: 'I have saved your link. To have me read your profile, open it on LinkedIn, choose More, then Save to PDF, and add that file here with the + button or drop it in.',
+  LINKEDIN_URL_FAILED: 'I could not read that profile. You can try again, or save it from LinkedIn as a PDF (More, then Save to PDF) and add it with the + button.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 
   // The whole conversation is free and needs no account — the ask comes at

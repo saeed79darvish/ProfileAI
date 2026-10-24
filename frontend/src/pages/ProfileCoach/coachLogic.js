@@ -1580,6 +1580,13 @@ export const shouldSkip = (step, draft = {}) => {
    answered them, and the review's own follow-ups cover its gaps. Asking
    "tell me about your most recent role" after reading it is what made the
    import feel pointless. Steps not named here are not asked on this path. */
+/** The profile URL in a message, if it has a LinkedIn one ("linkedin.com/in/..."). */
+export const linkedinProfileUrl = (text = '') => {
+  const m = String(text).match(/(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[A-Za-z0-9\-_%]+\/?/i);
+  if (!m) return '';
+  return /^https?:/i.test(m[0]) ? m[0] : `https://${m[0]}`;
+};
+
 /** Every change on a fix card, as the keys its toggles use. */
 export const fixKeys = (plan = {}) => [
   ...(plan.headline ? ['headline'] : []),

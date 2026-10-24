@@ -56,6 +56,7 @@ import {
   nextStepIndex,
   fixKeys,
   applyFixPlan,
+  linkedinProfileUrl,
   mergeInterpreted,
   attachBullets,
   seedFromImport,
@@ -874,6 +875,34 @@ const ProfileCoach = () => {
     // on the first genuine gap rather than re-asking what we just read.
     advance(LADDER.findIndex((s) => s.id === 'importOffer'), nextDraft);
   }, [advance, pushCoach]);
+
+  /* A LinkedIn URL typed into the chat. Signed in: read through the same
+     import the LinkedIn button uses, then the review as after any import.
+     Signed out: reading a profile by URL is a paid lookup, so the link is
+     kept and they are shown the free way, the PDF LinkedIn exports. */
+  const importLinkedInFromChat = useCallback(async (said, url, canImport) => {
+    pushMine(said);
+    const withLink = { ...draftRef.current, linkedinUrl: url };
+    draftRef.current = withLink;
+    setDraft(withLink);
+    if (!canImport) {
+      pushCoach(TEXT.LINKEDIN_URL_PDF);
+      return;
+    }
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.importLinkedInUrl(url);
+      setTyping(false);
+      setBusy(false);
+      if (!data?.success || !data?.data) throw new Error('no data');
+      applyImport({ ...data.data, linkedinUrl: data.data.linkedinUrl || url }, 'linkedin');
+    } catch {
+      setTyping(false);
+      setBusy(false);
+      pushCoach(TEXT.LINKEDIN_URL_FAILED);
+    }
+  }, [applyImport, pushCoach, pushMine]);
 
   /**
    * Put the way forward at the bottom of the conversation.
@@ -1986,6 +2015,20 @@ const ProfileCoach = () => {
     const step = LADDER[stepIndex];
     if (!text || busy) return;
 
+    /* A LinkedIn profile URL pasted anywhere is an import, not a sentence:
+       it used to be filed as a link and nothing on it was read. Only before
+       anything was imported; afterwards it is just their link. */
+    const linkedin = linkedinProfileUrl(text);
+    if (linkedin && !draftRef.current.importedFrom) {
+      const canImport = isAuthenticated && linkedinStatus.urlImportAvailable;
+      // On the links question a guest's URL is simply the answer.
+      if (canImport || step?.id !== 'links') {
+        setInput('');
+        await importLinkedInFromChat(text, linkedin, canImport);
+        return;
+      }
+    }
+
     // The intro is on screen and nothing has been asked yet.
     if (!step) {
       setInput('');
@@ -2153,7 +2196,7 @@ const ProfileCoach = () => {
        options come back without the question being restated at them. */
     if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
     else offerChipsAgain(step, null);
-  }, [advance, attached, busy, commit, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
 
   /* ─── Converting ───────────────────────────────────────────── */
 
