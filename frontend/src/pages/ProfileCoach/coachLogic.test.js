@@ -11,6 +11,8 @@ import {
   LADDER,
   VOICE_OFFER_STEP,
   inferredCareerStage,
+  questionText,
+  missingFields,
   voiceAgenda,
   applyBraindump,
   careerContextOf,
@@ -218,6 +220,24 @@ test('projects are asked of whoever has nothing else, and nobody else', () => {
   // Skipping the role questions leaves the same hole a new grad has.
   const skipped = { ...emptyDraft(), careerStage: 'experienced' };
   assert.equal(shouldSkip(LADDER[projectsIdx], skipped), false);
+});
+
+test('an electrician is never offered remote work, and the stored ids stay ours', () => {
+  const trades = { ...emptyDraft(), sector: 'trades', title: 'Electrician' };
+  const chips = getChips(step('workStyle'), trades);
+  assert.ok(!chips.some((c) => c.id === 'remote'));
+  assert.ok(chips.every((c) => ['onsite', 'hybrid', 'flexible'].includes(c.id)));
+  assert.equal(questionText(step('workStyle'), trades), 'Where are you happy to work?');
+  assert.ok(!missingFields(trades).some((m) => /^remote, hybrid/.test(m)));
+  // Apprenticeships, not internships.
+  const types = getChips(step('lookingFor'), trades).map((c) => c.id);
+  assert.ok(types.includes('apprenticeship') && !types.includes('internship'));
+  // The panel says it the way they picked it.
+  assert.match(preferenceLabels({ ...trades, workStyle: 'onsite' }), /Close to home/);
+  // Desk work keeps the usual four.
+  const tech = { ...emptyDraft(), sector: 'tech' };
+  assert.deepEqual(getChips(step('workStyle'), tech).map((c) => c.id), ['remote', 'hybrid', 'onsite', 'flexible']);
+  assert.equal(questionText(step('workStyle'), tech), 'Remote, hybrid, or on-site?');
 });
 
 test('a field the coach heard is kept even when it is not one of ours', () => {

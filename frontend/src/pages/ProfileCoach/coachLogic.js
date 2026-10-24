@@ -238,6 +238,85 @@ export const WORK_STYLES = [
   { id: 'flexible', label: 'Flexible' },
 ];
 
+/* ─── Questions in the terms of their own trade ─────────────────
+
+   "Remote, hybrid, or on-site?" asked of an electrician offers them a job
+   that does not exist. Where the work happens at a place — a site, a
+   kitchen, a factory floor, a ward, a classroom — the real question is how
+   far they will go for it, and the options say so.
+
+   The ids stay the four the rest of the app understands (coachMarket counts
+   openings by them): close to home is on-site in their city, travelling is
+   flexible about where, a site-and-office mix is hybrid. Only the words
+   change, never what is stored. */
+const SITE_BASED = new Set(['trades', 'manufacturing', 'hospitality']);
+const MOSTLY_IN_PERSON = new Set(['healthcare', 'education']);
+
+const WORK_STYLES_BY_SECTOR = {
+  trades: [
+    { id: 'onsite', label: 'Close to home' },
+    { id: 'flexible', label: 'Happy to travel between sites' },
+    { id: 'hybrid', label: 'Mix of site and office' },
+  ],
+  manufacturing: [
+    { id: 'onsite', label: 'Close to home' },
+    { id: 'flexible', label: 'Happy to travel or relocate' },
+    { id: 'hybrid', label: 'Mix of floor and office' },
+  ],
+  hospitality: [
+    { id: 'onsite', label: 'Close to home' },
+    { id: 'flexible', label: 'Happy to travel or relocate' },
+  ],
+  healthcare: [
+    { id: 'onsite', label: 'In person, close to home' },
+    { id: 'flexible', label: 'Happy to travel' },
+    { id: 'hybrid', label: 'Some remote or telehealth' },
+    { id: 'remote', label: 'Fully remote' },
+  ],
+  education: [
+    { id: 'onsite', label: 'In person, close to home' },
+    { id: 'flexible', label: 'Happy to travel' },
+    { id: 'hybrid', label: 'Some online teaching' },
+    { id: 'remote', label: 'Fully online' },
+  ],
+};
+
+export const workStylesFor = (draft = {}) => WORK_STYLES_BY_SECTOR[draft.sector] || WORK_STYLES;
+
+export const workStyleQuestion = (draft = {}) => {
+  if (SITE_BASED.has(draft.sector)) return 'Where are you happy to work?';
+  if (MOSTLY_IN_PERSON.has(draft.sector)) return 'In person, or some remote?';
+  return 'Remote, hybrid, or on-site?';
+};
+
+export const workStyleHint = (draft = {}) => (
+  SITE_BASED.has(draft.sector) || MOSTLY_IN_PERSON.has(draft.sector)
+    ? 'Pick the closest. It decides which jobs I count as near you.'
+    : 'Pick Flexible if you are open to any of them.'
+);
+
+/* The kinds of work worth offering. A trade has apprenticeships, not
+   internships; a restaurant hires for the season. */
+const EMPLOYMENT_SWAPS = {
+  trades: { internship: { id: 'apprenticeship', label: 'Apprenticeship' } },
+  manufacturing: { internship: { id: 'apprenticeship', label: 'Apprenticeship' } },
+  hospitality: { internship: { id: 'seasonal', label: 'Seasonal' } },
+  healthcare: { internship: { id: 'internship', label: 'Placement or residency' } },
+};
+
+export const employmentTypesFor = (draft = {}) => {
+  const swaps = EMPLOYMENT_SWAPS[draft.sector] || {};
+  return EMPLOYMENT_TYPES.map((t) => swaps[t.id] || { id: t.id, label: t.label });
+};
+
+// Same ids, their words: the ids drive which questions follow.
+const CAREER_STAGE_LABELS = {
+  trades: { internship: 'Apprenticeship so far', new_grad: 'Just finished trade school', self_taught: 'Learned on the job' },
+  manufacturing: { internship: 'Apprenticeship so far', self_taught: 'Learned on the job' },
+  healthcare: { internship: 'Clinical placements so far', new_grad: 'Newly qualified' },
+  hospitality: { self_taught: 'Learned on the job' },
+};
+
 /* The stepId on the resume offer. Not a ladder step — it is a question about
    the conversation rather than one inside it. */
 export const RESUME_CHOICE = '__resume_choice';
@@ -522,8 +601,8 @@ export const LADDER = [
   },
   {
     id: 'workStyle',
-    question: 'Remote, hybrid, or on-site?',
-    hint: 'Pick Flexible if you are open to any of them.',
+    question: (draft) => workStyleQuestion(draft),
+    hint: (draft) => workStyleHint(draft),
     kind: 'chips',
     chipSet: 'workStyles',
     freeText: false,
@@ -1061,7 +1140,7 @@ export const targetChips = (draft = {}) => {
 const SENIOR_LEVELS = new Set(['senior', 'staff', 'principal', 'lead', 'manager', 'director', 'head', 'owner']);
 export const careerStageChips = (draft = {}) => CAREER_STAGES
   .filter((c) => !SENIOR_LEVELS.has(draft.level) || !['new_grad', 'internship'].includes(c.id))
-  .map((c) => ({ id: c.id, label: c.label }));
+  .map((c) => ({ id: c.id, label: CAREER_STAGE_LABELS[draft.sector]?.[c.id] || c.label }));
 
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
@@ -1073,9 +1152,9 @@ export const getChips = (step, draft = {}) => {
     case 'titles':
       return [...titleChips(draft.sector, draft.level), { ...CUSTOM_ANSWER_CHIP }];
     case 'employmentTypes':
-      return EMPLOYMENT_TYPES.map((t) => ({ id: t.id, label: t.label }));
+      return employmentTypesFor(draft);
     case 'workStyles':
-      return WORK_STYLES.map((w) => ({ id: w.id, label: w.label }));
+      return workStylesFor(draft).map((w) => ({ id: w.id, label: w.label }));
     case 'careerStages':
       return careerStageChips(draft);
     case 'skills': {
@@ -1399,7 +1478,11 @@ export const missingFields = (draft = {}) => {
   if (!draft.title) missing.push('their job title');
   if (!draft.level) missing.push('how senior they are');
   if (!(draft.roleTypes || []).length) missing.push('the kind of work they want: full-time, contract, and so on');
-  if (!draft.workStyle) missing.push('remote, hybrid or on-site');
+  if (!draft.workStyle) {
+    missing.push(SITE_BASED.has(draft.sector)
+      ? 'whether they want work close to home or are happy to travel for it (this work is done on site, never remote)'
+      : 'remote, hybrid or on-site');
+  }
   if (!(draft.experience || []).length && !(draft.projects || []).length) {
     missing.push('their most recent role, or a project if they have no job to name');
   } else if (!String((draft.experience || [])[0]?.description || '').trim()) {
@@ -2181,10 +2264,11 @@ export const visiblePanelItems = (draft = {}, items = []) => items;
 /* Preferences are stored as ids ("full-time") and were shown as ids next to
    the labels the person tapped ("Full-time"). One lookup for display. */
 export const preferenceLabels = (draft = {}) => {
+  // In the words they were offered: "Close to home", not "On-site".
   const types = (draft.roleTypes || []).map(
-    (id) => EMPLOYMENT_TYPES.find((t) => t.id === id)?.label || id
+    (id) => employmentTypesFor(draft).find((t) => t.id === id)?.label || id
   );
-  const style = WORK_STYLES.find((w) => w.id === draft.workStyle)?.label || draft.workStyle || '';
+  const style = workStylesFor(draft).find((w) => w.id === draft.workStyle)?.label || draft.workStyle || '';
   return [...types, style].filter(Boolean).join(', ');
 };
 

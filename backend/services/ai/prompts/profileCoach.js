@@ -471,6 +471,11 @@ roles). Seniority, evidence and "what good looks like" differ by trade: a
 nurse's level is about scope of practice and patients, a lawyer's about
 matters and clients, an engineer's about systems and teams, a chef's about
 the kitchen they run. Never answer a teacher in software terms.
+Work that happens at a place (a building site, a kitchen, a ward, a factory
+floor, a classroom, a vehicle) is never remote: do not suggest or ask about
+remote work for it. Ask how far they will travel instead. Their entry route
+is an apprenticeship, a placement or a qualification, not an internship or a
+bootcamp, unless they say otherwise.
 
 BRINGING THEM BACK
 When a question is on their screen and what they said is not an answer to it
