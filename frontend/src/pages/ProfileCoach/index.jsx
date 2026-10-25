@@ -882,33 +882,47 @@ const ProfileCoach = () => {
     advance(LADDER.findIndex((s) => s.id === 'importOffer'), nextDraft);
   }, [advance, pushCoach]);
 
-  /* A LinkedIn URL typed into the chat. Signed in: read through the same
-     import the LinkedIn button uses, then the review as after any import.
-     Signed out: reading a profile by URL is a paid lookup, so the link is
-     kept and they are shown the free way, the PDF LinkedIn exports. */
+  /* A LinkedIn URL typed into the chat, read in the best way available:
+     the paid import when the server has it (signed in only), otherwise the
+     profile's public page, which is free and works for guests too. That
+     one is best effort (private profiles, blocked requests), so when it
+     cannot be read the link is kept and the coach points at the PDF
+     LinkedIn exports, which always works. */
   const importLinkedInFromChat = useCallback(async (said, url, canImport) => {
     pushMine(said);
     const withLink = { ...draftRef.current, linkedinUrl: url };
     draftRef.current = withLink;
     setDraft(withLink);
-    if (!canImport) {
+    setBusy(true);
+    setTyping(true);
+    setReading({ open: true, done: false, fileName: url.replace(/^https?:\/\/(www\.)?/, '') });
+    const read = async () => {
+      if (canImport) {
+        try {
+          const { data } = await profileAPI.importLinkedInUrl(url);
+          if (data?.success && data?.data) return data.data;
+        } catch { /* fall through to the public page */ }
+      }
+      try {
+        const { data } = await profileAPI.coachLinkedinPublic(url);
+        if (data?.success && data?.data) return data.data;
+      } catch { /* not readable */ }
+      return null;
+    };
+    const found = await read();
+    setTyping(false);
+    setBusy(false);
+    if (!found) {
+      setReading(CLOSED_READING);
+      trackEvent('coach_linkedin_url', { result: 'unreadable' });
       pushCoach(TEXT.LINKEDIN_URL_PDF);
       return;
     }
-    setBusy(true);
-    setTyping(true);
-    try {
-      const { data } = await profileAPI.importLinkedInUrl(url);
-      setTyping(false);
-      setBusy(false);
-      if (!data?.success || !data?.data) throw new Error('no data');
-      applyImport({ ...data.data, linkedinUrl: data.data.linkedinUrl || url }, 'linkedin');
-    } catch {
-      setTyping(false);
-      setBusy(false);
-      pushCoach(TEXT.LINKEDIN_URL_FAILED);
-    }
-  }, [applyImport, pushCoach, pushMine]);
+    trackEvent('coach_linkedin_url', { result: 'read', roles: (found.experience || []).length });
+    setReading((r) => ({ ...r, done: true }));
+    later(() => setReading(CLOSED_READING), READING_CLOSE_MS);
+    applyImport({ ...found, linkedinUrl: found.linkedinUrl || url }, 'linkedin');
+  }, [applyImport, later, pushCoach, pushMine]);
 
   /**
    * Put the way forward at the bottom of the conversation.
@@ -2039,13 +2053,11 @@ const ProfileCoach = () => {
        anything was imported; afterwards it is just their link. */
     const linkedin = linkedinProfileUrl(text);
     if (linkedin && !draftRef.current.importedFrom) {
-      const canImport = isAuthenticated && linkedinStatus.urlImportAvailable;
-      // On the links question a guest's URL is simply the answer.
-      if (canImport || step?.id !== 'links') {
-        setInput('');
-        await importLinkedInFromChat(text, linkedin, canImport);
-        return;
-      }
+      // Read everywhere, the links question included: it is the cheapest
+      // way to a full profile there is.
+      setInput('');
+      await importLinkedInFromChat(text, linkedin, isAuthenticated && linkedinStatus.urlImportAvailable);
+      return;
     }
 
     // The intro is on screen and nothing has been asked yet.

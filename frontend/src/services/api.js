@@ -334,6 +334,8 @@ export const profileAPI = {
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),
   // How far the target role is, grounded in live postings from our own corpus.
+  // A LinkedIn profile read from its public page. Best effort: { success, data } or { reason }.
+  coachLinkedinPublic: (linkedinUrl) => api.post('/profiles/coach/linkedin-public', { linkedinUrl }),
   // The review's fixes written out as new text, for the person to keep or drop.
   coachFixPlan: ({ profile, review, target, motivation, assessment }) =>
     api.post('/profiles/coach/fix-plan', { profile, review, target, motivation, assessment }),

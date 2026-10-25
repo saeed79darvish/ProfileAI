@@ -953,6 +953,25 @@ router.post('/coach/target', coachGuard, aiRateLimiterIfSignedIn('career_analysi
   }
 });
 
+// @route   POST /api/profiles/coach/linkedin-public
+// @desc    Read a LinkedIn profile from its public page (best effort, free)
+// @access  Public (guests metered by IP)
+router.post('/coach/linkedin-public', coachGuard, async (req, res) => {
+  const { readPublicProfile } = require('../services/linkedinPublicService');
+  try {
+    const result = await readPublicProfile(req.body?.linkedinUrl);
+    // How often LinkedIn lets our server read a page decides whether this
+    // path is worth keeping; the reasons are the measurement.
+    console.log(`[LinkedIn Public] ${result.ok ? 'ok' : result.reason}${result.ok ? ` roles=${result.data.experience.length} edu=${result.data.education.length}` : ''}`);
+    if (!result.ok) return res.status(result.reason === 'invalid_url' ? 400 : 422).json({ success: false, reason: result.reason });
+    await recordCoachUsage(req);
+    res.json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('[LinkedIn Public] error:', error.message);
+    res.status(500).json({ success: false, reason: 'error' });
+  }
+});
+
 // @route   POST /api/profiles/coach/fix-plan
 // @desc    The review's fixes written out for the person to accept or drop
 // @access  Public (guests metered by IP)
