@@ -54,6 +54,7 @@ import {
   nextStepIndex,
   ladderOrder,
   fixKeys,
+  mergeImport,
   linkedinProfileUrl,
   applyFixPlan,
   isAlreadyAnswered,
@@ -1406,4 +1407,32 @@ test('a LinkedIn profile URL is found in a message', () => {
   assert.equal(linkedinProfileUrl('linkedin.com/in/jane-doe'), 'https://linkedin.com/in/jane-doe');
   assert.equal(linkedinProfileUrl('https://www.linkedin.com/company/equinix'), '');
   assert.equal(linkedinProfileUrl('I work at LinkedIn'), '');
+});
+
+test('a LinkedIn import after a resume is merged into it, not ignored', () => {
+  const afterResume = mergeImport({}, {
+    title: 'Frontend Engineer', summary: 'Short.', skills: ['React'],
+    experience: [{ title: 'Senior UI Engineer', company: 'Equinix', startDate: '2025-01', current: true, description: 'Built the dashboard' }],
+    education: [{ institution: 'State University', degree: 'BSc' }],
+  }, 'resume');
+  assert.deepEqual(afterResume.sources, ['resume']);
+  const merged = mergeImport(afterResume, {
+    title: 'Something else', summary: 'A much longer About section from LinkedIn.', skills: ['react', 'GraphQL'],
+    experience: [
+      // Same job, LinkedIn's year-only date and its own wording.
+      { title: 'Senior UI Software Architect', company: 'Equinix Inc.', startDate: '2025', current: true, description: 'Built the dashboard\nLed the design system' },
+      { title: 'UI Engineer', company: 'Amazon', startDate: '2024', endDate: '2025' },
+    ],
+    education: [{ institution: 'state university' }, { institution: 'Bootcamp' }],
+  }, 'linkedin');
+  assert.equal(merged.title, 'Frontend Engineer');
+  assert.equal(merged.summary, 'A much longer About section from LinkedIn.');
+  assert.equal(merged.experience.length, 2);
+  assert.equal(merged.experience[0].company, 'Equinix');
+  assert.match(merged.experience[0].description, /Led the design system/);
+  assert.equal(merged.experience[0].description.match(/Built the dashboard/g).length, 1);
+  assert.equal(merged.experience[1].company, 'Amazon');
+  assert.deepEqual(merged.skills, ['React', 'GraphQL']);
+  assert.deepEqual(merged.education.map((e) => e.institution), ['State University', 'Bootcamp']);
+  assert.deepEqual(merged.sources, ['resume', 'linkedin']);
 });

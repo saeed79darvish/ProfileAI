@@ -575,6 +575,23 @@ export const LADDER = [
     assign: null,
   },
   {
+    /* After the first document, ask for the other one. A resume says what
+       they did; LinkedIn adds what the resume left out, and the two
+       together are the fullest picture anyone hands over. Asked once, and
+       not at all once both kinds are in. */
+    id: 'moreSources',
+    question: (draft) => (sourcesOf(draft).includes('resume')
+      ? 'Got it. Do you have your LinkedIn too? Your resume and LinkedIn together give me the full picture.'
+      : 'Got it. Do you have a resume too? Together with LinkedIn it gives me the full picture.'),
+    hint: '',
+    kind: 'branch',
+    chipSet: 'moreSources',
+    freeText: true,
+    aiStep: null,
+    assign: null,
+    skipIf: 'noImport',
+  },
+  {
     id: 'review',
     question: 'Give me a second, I am reading it properly.',
     hint: '',
@@ -1189,6 +1206,8 @@ export const getChips = (step, draft = {}) => {
       return TARGET_BLOCKERS.map((b) => ({ id: b.label, label: b.label }));
     case 'importChoices':
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
+    case 'moreSources':
+      return sourcesOf(draft).includes('resume') ? MORE_FROM_LINKEDIN : MORE_FROM_RESUME;
     default:
       return [];
   }
@@ -1617,7 +1636,7 @@ export const applyFixPlan = (draft = {}, plan = {}, picked = []) => {
 };
 
 export const IMPORT_ORDER = [
-  'sector', 'level', 'title', 'importOffer',
+  'sector', 'level', 'title', 'importOffer', 'moreSources',
   'review',
   'target', 'targetWhy', 'targetBlocker', 'assess',
   'fix',
@@ -1681,6 +1700,8 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     // just uploaded one.
     case 'importOffer':
       return !!draft.importedFrom;
+    case 'moreSources':
+      return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2;
     case 'review':
       return !!draft.review;
     case 'lookingFor':
@@ -2092,6 +2113,72 @@ export const attachBullets = (draft, bullets = [], fallbackText = '') => {
  * only real work is not clobbering answers the person already gave us by
  * hand before choosing to import.
  */
+/* What they have handed over so far: 'resume' and/or 'linkedin'. */
+export const sourcesOf = (draft = {}) => (
+  draft.sources || (draft.importedFrom ? [draft.importedFrom] : [])
+);
+
+export const MORE_FROM_LINKEDIN = [
+  { id: 'pdf', label: 'Add my LinkedIn PDF' },
+  { id: 'url', label: 'Paste my LinkedIn URL' },
+  { id: 'done', label: "That's everything" },
+];
+export const MORE_FROM_RESUME = [
+  { id: 'pdf', label: 'Upload my resume' },
+  { id: 'done', label: "That's everything" },
+];
+
+const yearOf = (d) => String(d || '').slice(0, 4);
+const linesOf = (text) => String(text || '').split('\n')
+  .map((l) => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean);
+
+/**
+ * A second document on top of the first. seedFromImport keeps whatever the
+ * draft already has, which is right for the first import over chat answers
+ * and wrong here: a LinkedIn import after a resume was ignored outright, its
+ * roles and all. Here the two are combined. The same job is one row, filled
+ * from both: same company, and the same title or the same start year
+ * (LinkedIn often has only "2022" where the resume says "2022-03"). Jobs on
+ * only one of them are kept, newest first. Skills and schools are combined,
+ * and the fuller summary wins.
+ */
+export const mergeImport = (draft = {}, parsed = {}, source = 'resume') => {
+  if (!draft.importedFrom) return { ...seedFromImport(draft, parsed, source), sources: [source] };
+  const experience = [...(draft.experience || [])];
+  for (const row of parsed.experience || []) {
+    if (!row || !(row.title || row.company)) continue;
+    const at = experience.findIndex((r) => sameCompany(r.company, row.company)
+      && (norm(r.title) === norm(row.title) || (yearOf(r.startDate) && yearOf(r.startDate) === yearOf(row.startDate))));
+    if (at < 0) experience.push(row);
+    else experience[at] = mergeRole(experience[at], row, linesOf(row.description));
+  }
+  const newest = (r) => (r.current ? '9999' : String(r.endDate || r.startDate || ''));
+  experience.sort((a, b) => newest(b).localeCompare(newest(a)));
+
+  const skillKey = new Set((draft.skills || []).map((s) => norm(s)));
+  const skills = [...(draft.skills || []), ...(parsed.skills || []).filter((s) => s && !skillKey.has(norm(s)))];
+  const schools = [...(draft.education || [])];
+  for (const row of normalizeEducationRows(parsed.education || [])) {
+    if (!schools.some((e) => norm(e.institution) === norm(row.institution))) schools.push(row);
+  }
+  const summary = String(parsed.summary || '').length > String(draft.summary || '').length ? parsed.summary : draft.summary;
+
+  return {
+    ...draft,
+    title: draft.title || parsed.title || '',
+    location: draft.location || parsed.location || '',
+    phone: draft.phone || parsed.phone || '',
+    linkedinUrl: draft.linkedinUrl || parsed.linkedinUrl || '',
+    githubUrl: draft.githubUrl || parsed.githubUrl || '',
+    summary: summary || '',
+    skills,
+    experience,
+    education: schools,
+    projects: (draft.projects || []).length ? draft.projects : (parsed.projects || []),
+    sources: [...new Set([...sourcesOf(draft), source])],
+  };
+};
+
 export const seedFromImport = (draft, parsed = {}, source = 'resume') => ({
   ...draft,
   title: draft.title || parsed.title || '',

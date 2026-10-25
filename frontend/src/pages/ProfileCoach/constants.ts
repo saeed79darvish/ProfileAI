@@ -166,6 +166,7 @@ export const TEXT = {
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
   IMPORT_CANCELLED: 'No problem. Try one of these, or we can just keep talking.',
   LINKEDIN_URL_PDF: 'I saved your link, but LinkedIn did not let me read the profile. The PDF always works: on your LinkedIn profile choose More, then Save to PDF, and add the file here with the + button or drop it in.',
+  LINKEDIN_URL_ASK: 'Paste your LinkedIn profile URL here. It looks like linkedin.com/in/your-name.',
   LINKEDIN_URL_FAILED: 'I could not read that profile. You can try again, or save it from LinkedIn as a PDF (More, then Save to PDF) and add it with the + button.',
   LINKEDIN_DONE: 'Imported. Let me fill the gaps it left.',
 

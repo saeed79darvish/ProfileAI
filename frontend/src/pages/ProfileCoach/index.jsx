@@ -60,7 +60,7 @@ import {
   linkedinProfileUrl,
   mergeInterpreted,
   attachBullets,
-  seedFromImport,
+  mergeImport,
   draftToResumeData,
   draftToProfileShape,
   panelState,
@@ -871,8 +871,9 @@ const ProfileCoach = () => {
   /* ─── Imports ──────────────────────────────────────────────── */
 
   const applyImport = useCallback((parsed, source) => {
-    setMessages((prev) => prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)));
-    const nextDraft = seedFromImport(draftRef.current, parsed, source);
+    setMessages((prev) => prev.map((m) => (['importOffer', 'moreSources'].includes(m.stepId) ? { ...m, spent: true } : m)));
+    // The first document seeds the draft; a second one is merged into it.
+    const nextDraft = mergeImport(draftRef.current, parsed, source);
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     trackEvent('coach_import', { source });
@@ -1680,6 +1681,22 @@ const ProfileCoach = () => {
 
     pushMine(chip.label, { stepId: step.id });
 
+    if (step.id === 'moreSources') {
+      if (chip.id === 'pdf') {
+        // Not spent: the picker can be dismissed. applyImport retires it.
+        openFilePicker();
+        return;
+      }
+      if (chip.id === 'url') {
+        pushCoach(TEXT.LINKEDIN_URL_ASK);
+        composerRef.current?.focus();
+        return;
+      }
+      spendChips(message.id);
+      commit({ sourcesDone: true }, index);
+      return;
+    }
+
     if (step.id === 'importOffer') {
       // Deliberately NOT spent here. The file dialog can be dismissed and the
       // LinkedIn modal closed, and neither fires anything we can rely on
@@ -2052,7 +2069,7 @@ const ProfileCoach = () => {
        it used to be filed as a link and nothing on it was read. Only before
        anything was imported; afterwards it is just their link. */
     const linkedin = linkedinProfileUrl(text);
-    if (linkedin && !draftRef.current.importedFrom) {
+    if (linkedin && (!draftRef.current.importedFrom || step?.id === 'moreSources')) {
       // Read everywhere, the links question included: it is the cheapest
       // way to a full profile there is.
       setInput('');
