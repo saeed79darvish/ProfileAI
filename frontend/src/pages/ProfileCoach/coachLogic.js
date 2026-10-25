@@ -448,7 +448,39 @@ export const VOICE_OFFER_STEP = 'currentRole';
    school name. This is the subset a conversation is better at, plus whatever
    the typed flow genuinely did not get. Order matters: the model works down
    it, so the two "why" questions come first. */
+/* Where the job can be done from, asked the way that fits the field: a
+   trade is never asked whether it wants to work remotely. */
+const workStyleAgendaItem = (draft = {}) => {
+  if (SITE_BASED.has(draft.sector)) return 'where they are happy to work: close to home, or travelling between sites (this work is on site; never ask about remote)';
+  if (MOSTLY_IN_PERSON.has(draft.sector)) return 'whether they want fully in-person work or some remote';
+  return 'remote, hybrid or on-site, or flexible';
+};
+
+/* After an import the call is the review itself, section by section, in
+   the order a recruiter reads: headline, summary, then the recent jobs,
+   weakest first. Short: one question per section. */
+const importAgenda = (draft = {}) => {
+  const agenda = [];
+  if (draft.title) agenda.push(`their headline: is "${draft.title}" the job title they want recruiters to find them by`);
+  const summary = String(draft.summary || '').trim();
+  agenda.push(summary.length < 120
+    ? 'their summary: in a sentence or two, what they do and what they are best at'
+    : 'their summary: one thing it is missing that they would want a recruiter to know');
+  const roles = (draft.experience || []).slice(0, 3).map((r, i) => ({ r, i, weak: !/\d/.test(String(r.description || '')) || linesOf(r.description).length < 2 }));
+  roles.sort((a, b) => Number(b.weak) - Number(a.weak) || a.i - b.i);
+  for (const { r } of roles) {
+    agenda.push(`their job as ${[r.title, r.company].filter(Boolean).join(' at ')}: what they actually did there and what changed because of it, with a number if there is one (record it with company "${r.company || ''}")`);
+  }
+  for (const probe of (draft.review?.probes || []).slice(0, 2)) agenda.push(`a gap in their resume: ${probe}`);
+  if (!draft.target) agenda.push('what role they want next, and why');
+  else if (!draft.targetWhy) agenda.push(`why they want ${draft.target} next`);
+  if (!(draft.roleTypes || []).length) agenda.push('full-time, contract, or open to either');
+  if (!draft.workStyle) agenda.push(workStyleAgendaItem(draft));
+  return agenda;
+};
+
 export const voiceAgenda = (draft = {}) => {
+  if (draft.importedFrom && (draft.experience || []).length) return importAgenda(draft);
   const agenda = [];
   /* After an import, the call is the review's follow-ups said out loud:
      the gaps the review found, then what a resume cannot say. */
