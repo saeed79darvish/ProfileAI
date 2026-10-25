@@ -2991,7 +2991,10 @@ const ProfileCoach = () => {
           applyImport(data, 'linkedin');
         }}
         urlImportAvailable={linkedinStatus.urlImportAvailable}
-        oauthAvailable={linkedinStatus.oauthAvailable}
+        /* "Sign in with LinkedIn" only ever hands over a name, email and
+           photo: nothing to build a profile from, so it is not offered as
+           an import. Signing in with LinkedIn stays on the auth pages. */
+        oauthAvailable={false}
         isAuthenticated={isAuthenticated}
         onRequireAuth={() => setGateOpen(true)}
       />
