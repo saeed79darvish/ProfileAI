@@ -25,6 +25,7 @@ import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
 import CoachMark from './CoachMark';
 import DictationWave from './DictationWave';
+import ProgressModal from '../../components/ProgressModal';
 import VoicePanel from './VoicePanel';
 import { useVoiceCall, VOICE_STATES } from './useVoiceCall';
 import {
@@ -274,6 +275,10 @@ const attachmentMeta = (file) => {
 };
 
 const TAP_GUARD_MS = 600;
+// The resume-reading window: closed, and how long "All read" stays up
+// (its remaining steps fast-forward at 700ms each first).
+const CLOSED_READING = { open: false, done: false, fileName: '' };
+const READING_CLOSE_MS = 3200;
 
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
@@ -364,6 +369,7 @@ const ProfileCoach = () => {
   });
 
   const fileInputRef = useRef(null);
+  const [reading, setReading] = useState(CLOSED_READING);
   // Read inside askStep, which is declared before the dictation hook's
   // value is worth depending on.
   const dictationSupportedRef = useRef(dictation.supported);
@@ -960,9 +966,22 @@ const ProfileCoach = () => {
     setMessages((prev) => [...prev, {
       id: progressId, role: 'coach', text: '', uploading: true, fileName: file.name,
     }]);
-    const finishProgress = (ok) => setMessages((prev) => prev.map(
-      (m) => (m.id === progressId ? { ...m, uploadDone: ok, uploadFailed: !ok } : m)
-    ));
+    /* The stepped progress window the rest of the app uses for long AI
+       work, over the chat while the file is read. On success it runs its
+       remaining steps out and closes itself; on failure it closes at once,
+       and the chat says what went wrong. */
+    setReading({ open: true, done: false, fileName: file.name });
+    const finishProgress = (ok) => {
+      setMessages((prev) => prev.map(
+        (m) => (m.id === progressId ? { ...m, uploadDone: ok, uploadFailed: !ok } : m)
+      ));
+      if (!ok) {
+        setReading(CLOSED_READING);
+        return;
+      }
+      setReading((r) => ({ ...r, done: true }));
+      later(() => setReading(CLOSED_READING), READING_CLOSE_MS);
+    };
 
     try {
       const formData = new FormData();
@@ -993,7 +1012,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [applyImport, isAuthenticated, offerImportAgain, pushMine]);
+  }, [applyImport, isAuthenticated, later, offerImportAgain, pushMine]);
 
   /* ─── Run steps: the coach does work and reports back ──────── */
 
@@ -2920,6 +2939,14 @@ const ProfileCoach = () => {
           onEnd={voice.stop}
         />
       )}
+
+      <ProgressModal
+        open={reading.open}
+        variant="coachResume"
+        context={reading.fileName}
+        completed={reading.done}
+        onClose={() => setReading(CLOSED_READING)}
+      />
 
       <LinkedInImportModal
         open={linkedinOpen}

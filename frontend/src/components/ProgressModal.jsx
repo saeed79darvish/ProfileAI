@@ -93,6 +93,23 @@ const PRESETS = {
     ],
   },
 
+  // The onboarding coach reading a resume or LinkedIn PDF, before its review.
+  coachResume: {
+    heading: ['Reading your resume', 'All read'],
+    steps: [
+      { label: 'Reading your document', subtitle: 'Pulling the text out of your file', icon: '📄' },
+      { label: 'Finding your roles', subtitle: 'Titles, companies and dates', icon: '🧩' },
+      { label: 'Picking out skills and education', subtitle: 'What recruiters search on', icon: '🎯' },
+      { label: 'Building your profile', subtitle: 'Putting it all in one place', icon: '✨' },
+    ],
+    tips: [
+      'Recruiters spend about 7 seconds on a first look at a resume',
+      'A number in a bullet (time saved, users, revenue) is what gets remembered',
+      'Your headline is what recruiters search for, so it should be a real job title',
+      'You can edit everything before anyone sees it',
+    ],
+  },
+
   submit: {
     heading: ['Submitting Application', 'Application Submitted'],
     steps: [
