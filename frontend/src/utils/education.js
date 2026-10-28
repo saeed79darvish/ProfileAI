@@ -39,9 +39,13 @@ export const textOf = (value) => {
 const TEXT_KEYS = ['institution', 'school', 'university', 'degree', 'fieldOfStudy', 'field', 'major', 'startDate', 'description', 'location'];
 
 export const normalizeEducationRows = (rows) =>
-  (rows || []).map((row) => {
+  // A row that came back as a list of schools is that many rows.
+  (rows || []).flat().map((row) => {
     if (!row || typeof row !== 'object') return row;
     const next = { ...row };
+    if (!next.institution && !next.school && !next.university && next.name) next.institution = next.name;
+    delete next.name;
+    if (next.graduationYear && !next.endDate) next.endDate = textOf(next.graduationYear);
     TEXT_KEYS.forEach((k) => {
       if (next[k] !== undefined && next[k] !== null && typeof next[k] !== 'string') next[k] = textOf(next[k]);
     });

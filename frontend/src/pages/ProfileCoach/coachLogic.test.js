@@ -1507,3 +1507,21 @@ test('a school sent as objects becomes education rows, never "[object Object]"',
   assert.equal(typeof edu.items[0].heading, 'string');
   assert.ok(!/object Object/.test(JSON.stringify(sections)));
 });
+
+test('a saved conversation with schools stored as objects loads as text', async () => {
+  const { parseConversation } = await import('./coachLogic.js');
+  const raw = JSON.stringify({
+    v: 5,
+    at: Date.now(),
+    stepIndex: 3,
+    messages: [{ role: 'me', text: 'hi' }],
+    draft: { education: [
+      { institution: 'Pre-university', degree: '', fieldOfStudy: '' },
+      [{ name: 'Azad University', graduationYear: '2012', field: 'Software' }, { name: 'MIT', graduationYear: '2016', field: 'CS' }],
+    ] },
+  });
+  const restored = parseConversation(raw);
+  assert.ok(restored, 'conversation restored');
+  assert.ok(!/object Object/.test(JSON.stringify(restored.draft.education)));
+  assert.deepEqual(restored.draft.education.map((r) => r.institution), ['Pre-university', 'Azad University', 'MIT']);
+});

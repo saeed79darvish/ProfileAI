@@ -649,7 +649,18 @@ const ProfileCoach = () => {
       setMessages([...restored.messages, {
         id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
       }]);
-      trackEvent('coach_resumed', {});
+      /* A conversation saved in the middle of a step that does work (putting
+         the profile together) came back with that work never restarted:
+         nothing to tap, the box locked, "Picked up where you left off" and
+         then nothing. Anything left waiting on an answer is fine as it is;
+         otherwise the step it stopped on starts again. */
+      const step = LADDER[restored.stepIndex];
+      const waiting = restored.messages.some((m) => !m.spent
+        && (m.stepId === step?.id || m.chips?.length || m.checkKeys || m.tour || m.convert));
+      if (step && (step.kind === 'run' || !waiting)) {
+        later(() => askStep(restored.stepIndex, restored.draft), TIMING.ACK_MS);
+      }
+      trackEvent('coach_resumed', { restarted: !!step && (step.kind === 'run' || !waiting) });
       return;
     }
     clearConversation();
@@ -659,7 +670,7 @@ const ProfileCoach = () => {
     draftRef.current = emptyDraft();
     trackEvent('coach_restarted', {});
     later(startIntro, TIMING.ACK_MS);
-  }, [later, restored, startIntro]);
+  }, [askStep, later, restored, startIntro]);
 
   /** Greet and ask the first ladder question — where every path through the
       intro (finished, skipped from a slide, skipped from the top bar) ends. */
