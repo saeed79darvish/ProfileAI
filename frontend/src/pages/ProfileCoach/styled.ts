@@ -1033,25 +1033,96 @@ export const ResumeSkills = styled.div`
 
 /* ─── Product tour ────────────────────────────────────────────── */
 
-export const TourGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+export const TourHero = styled.div`
+  display: flex;
+  align-items: center;
   gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #ececf3;
 
-  @media (max-width: 640px) {
-    grid-template-columns: 1fr;
+  > svg {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    color: #22a06b;
+  }
+
+  h4 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  p {
+    margin: 2px 0 0;
+    font-size: 0.9rem;
+    color: #6c6c86;
   }
 `;
 
-export const TourCard = styled.div`
-  border: 1px solid #ececf3;
-  border-radius: 12px;
-  padding: 16px;
-  background: #fbfbfe;
+export const TourSection = styled.div`
+  margin-bottom: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8aa3;
+`;
+
+export const TourList = styled.ul`
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+`;
+
+export const TourItem = styled.li`
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 
   h5 {
-    margin: 10px 0 5px;
-    font-size: 0.98rem;
+    margin: 0 0 2px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: #6c6c86;
+  }
+`;
+
+/* The paid tier: a tinted panel with a gradient edge, present but calm. */
+export const TourPro = styled.div`
+  position: relative;
+  border-radius: 14px;
+  padding: 18px;
+  background:
+    linear-gradient(#f7f7ff, #f7f7ff) padding-box,
+    linear-gradient(135deg, #6366f1, #a5b4fc) border-box;
+  border: 1.5px solid transparent;
+
+  > span {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #6366f1, #7c85f5);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  h5 {
+    margin: 10px 0 6px;
+    font-size: 1rem;
     font-weight: 700;
     color: #1a1a2e;
   }
@@ -1059,12 +1130,58 @@ export const TourCard = styled.div`
   p {
     margin: 0;
     font-size: 0.9rem;
-    line-height: 1.5;
-    color: #6c6c86;
+    line-height: 1.55;
+    color: #4a4a68;
   }
 `;
 
+export const TourProStats = styled.ul`
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+
+  li {
+    background: #fff;
+    border: 1px solid #e4e5fb;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  strong {
+    display: block;
+    font-size: 0.98rem;
+    color: #4f46e5;
+  }
+
+  small {
+    font-size: 0.78rem;
+    color: #6c6c86;
+  }
+
+  @media (max-width: 520px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+export const TourFootnote = styled.div`
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: #6c6c86;
+
+  a {
+    color: #4f46e5;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  a:hover { text-decoration: underline; }
+`;
+
 export const TourIcon = styled.div`
+  flex: none;
   width: 34px;
   height: 34px;
   border-radius: 9px;

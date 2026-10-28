@@ -10,6 +10,8 @@
 // *field schemas* live there instead.
 
 
+import { COMPARE_FEATURES } from '../Pricing/constants';
+
 export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',
@@ -247,8 +249,6 @@ export const COACH_TEXT = {
 
   TOUR_INTRO: 'That is yours now. Here is what you can do with it.',
   TOUR_CONTINUE: 'Got it, what now?',
-  TOUR_OUTRO:
-    'All of it runs off the profile you just built. The more of it is true and specific, the better everything above works.',
 
   CONVERT_TITLE: 'Save it to your account',
   CONVERT_BODY:
@@ -259,35 +259,57 @@ export const COACH_TEXT = {
 } as const;
 
 // The product tour shown in the chat once the profile is built. Every claim
-// here maps to a feature that actually ships — see COMPARE_FEATURES in
-// pages/Pricing/constants.ts. Do not add aspirational entries: this is the
-// first thing a new user is told the product does, and it sets what they
-// then go looking for.
-export const TOUR_CARDS = [
+// here maps to a feature that actually ships, and every number is read from
+// COMPARE_FEATURES in pages/Pricing/constants.ts so the two cannot drift. Do
+// not add aspirational entries: this is the first thing a new user is told
+// the product does, and it sets what they then go looking for.
+//
+// Two tiers, free first. The profile they just built is the point of the
+// moment; the paid part is one quiet panel underneath, not a paywall.
+const planCell = (name: string, plan: 'free' | 'pro' | 'proPlus'): string => {
+  const row = COMPARE_FEATURES.find((f) => f.name === name);
+  const value = row?.[plan];
+  return typeof value === 'string' ? value : '';
+};
+
+export const TOUR_TEXT = {
+  READY: 'Your profile is ready',
+  READY_SUB: 'Here is what it does for you from today.',
+  FREE_LABEL: 'Free with your account',
+  PRO_LABEL: 'Pro',
+  PRO_TITLE: 'Apply in about a minute, on your terms',
+  PRO_BODY:
+    'On any job page the extension tailors your resume to the posting, drafts the cover letter and fills in the application. You check every one before it goes. Nothing is sent blind.',
+  PRO_PLUS_NOTE: `Applying a lot? Pro+ goes to ${planCell('Resume Tailoring', 'proPlus')} tailored resumes.`,
+  COMPARE: 'Compare plans',
+  OUTRO: 'Everything here runs off the profile you just built, so the more of it is true and specific, the better it all works.',
+} as const;
+
+export const TOUR_FREE = [
   {
-    id: 'tailor',
-    icon: 'tune',
-    title: 'Tailor it to any job',
-    body: 'Paste a posting and your resume gets rewritten for that specific role, using only what is already true about you. Most people send the same resume everywhere; this is the part that changes replies.',
-  },
-  {
-    id: 'extension',
-    icon: 'extension',
-    title: 'The browser extension',
-    body: 'On a job page it reads the posting, shows how well your profile matches it, and fills the application from what you just built. You stop retyping the same details into every form.',
-  },
-  {
-    id: 'letter',
-    icon: 'mail',
-    title: 'Cover letters that are not generic',
-    body: 'Drafted from your profile and the posting together, so it references your actual work rather than restating the job description back at them.',
+    id: 'jobs',
+    icon: 'work',
+    title: 'Jobs picked for you',
+    body: 'Recommendations matched to this profile from a large, fresh list of openings, with a match score on every one.',
   },
   {
     id: 'portfolio',
     icon: 'public',
-    title: 'A portfolio recruiters can find',
-    body: 'Your profile becomes a public page you can send anyone, and recruiters searching for your skills can find it. It works while you are not applying.',
+    title: 'A public portfolio',
+    body: 'Your own page to send any recruiter or hiring manager. It keeps working while you are not applying.',
   },
+  {
+    id: 'try',
+    icon: 'tune',
+    title: 'Try the AI tools',
+    body: `Tailored resumes (${planCell('Resume Tailoring', 'free')}), cover letters (${planCell('AI Cover Letter', 'free')}) and extension autofill (${planCell('Extension autofill', 'free')}), so you can see how it feels before paying for anything.`,
+  },
+] as const;
+
+export const TOUR_PRO = [
+  { id: 'tailor', label: 'Tailored resumes', value: planCell('Resume Tailoring', 'pro') },
+  { id: 'letter', label: 'Cover letters', value: planCell('AI Cover Letter', 'pro') },
+  { id: 'autofill', label: 'Extension autofill', value: planCell('Extension autofill', 'pro') },
 ] as const;
 
 // Narration while the resume is parsed. Parsing takes several seconds and a

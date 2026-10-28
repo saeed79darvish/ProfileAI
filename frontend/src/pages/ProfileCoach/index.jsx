@@ -9,6 +9,8 @@ import {
   MailOutline as MailIcon,
   EditOutlined as EditIcon,
   Public as PublicIcon,
+  WorkOutline as WorkIcon,
+  Verified as ReadyIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
   ErrorOutline as FailedIcon,
@@ -40,7 +42,9 @@ import {
   ROUTES,
   TEXT,
   COACH_TEXT,
-  TOUR_CARDS,
+  TOUR_TEXT,
+  TOUR_FREE,
+  TOUR_PRO,
   TIMING,
   PANEL_ITEMS,
   JOB_SECTORS,
@@ -113,7 +117,7 @@ import {
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
-  TourGrid, TourCard, TourIcon,
+  TourHero, TourSection, TourList, TourItem, TourIcon, TourPro, TourProStats, TourFootnote,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
   UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
@@ -124,6 +128,7 @@ const TOUR_ICONS = {
   extension: ExtensionIcon,
   mail: MailIcon,
   public: PublicIcon,
+  work: WorkIcon,
 };
 
 // Which colour the target verdict wears. Kept out of the component so the
@@ -2661,21 +2666,58 @@ const ProfileCoach = () => {
     );
   };
 
+  /* What the profile unlocks: free first, then Pro as one quiet panel.
+     The moment belongs to the profile they just built, so this reads as
+     "here is what you get", not a paywall. Numbers come from the pricing
+     table (TOUR_* in constants). */
   const renderTour = () => (
     <Card>
-      <TourGrid>
-        {TOUR_CARDS.map((card) => {
-          const Icon = TOUR_ICONS[card.icon];
+      <TourHero>
+        <ReadyIcon />
+        <div>
+          <h4>{TOUR_TEXT.READY}</h4>
+          <p>{TOUR_TEXT.READY_SUB}</p>
+        </div>
+      </TourHero>
+
+      <TourSection>{TOUR_TEXT.FREE_LABEL}</TourSection>
+      <TourList>
+        {TOUR_FREE.map((item) => {
+          const Icon = TOUR_ICONS[item.icon];
           return (
-            <TourCard key={card.id}>
+            <TourItem key={item.id}>
               <TourIcon>{Icon ? <Icon fontSize="small" /> : null}</TourIcon>
-              <h5>{card.title}</h5>
-              <p>{card.body}</p>
-            </TourCard>
+              <div>
+                <h5>{item.title}</h5>
+                <p>{item.body}</p>
+              </div>
+            </TourItem>
           );
         })}
-      </TourGrid>
-      <BubbleHint style={{ marginTop: 16 }}>{COACH_TEXT.TOUR_OUTRO}</BubbleHint>
+      </TourList>
+
+      <TourPro>
+        <span>{TOUR_TEXT.PRO_LABEL}</span>
+        <h5>{TOUR_TEXT.PRO_TITLE}</h5>
+        <p>{TOUR_TEXT.PRO_BODY}</p>
+        <TourProStats>
+          {TOUR_PRO.map((stat) => (
+            <li key={stat.id}>
+              <strong>{stat.value}</strong>
+              <small>{stat.label}</small>
+            </li>
+          ))}
+        </TourProStats>
+        <TourFootnote>
+          {TOUR_TEXT.PRO_PLUS_NOTE}{' '}
+          <a href="/pricing" target="_blank" rel="noopener noreferrer"
+            onClick={() => trackEvent('coach_tour_pricing_clicked', {})}>
+            {TOUR_TEXT.COMPARE}
+          </a>
+        </TourFootnote>
+      </TourPro>
+
+      <BubbleHint style={{ marginTop: 16 }}>{TOUR_TEXT.OUTRO}</BubbleHint>
     </Card>
   );
 
