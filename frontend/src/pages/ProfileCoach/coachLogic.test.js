@@ -1354,12 +1354,15 @@ test('after an import the goal comes straight after the review, and work history
     experience: [{ title: 'Engineer', company: 'Equinix', description: 'Built things' }],
     review: { opening: 'x' },
   };
-  assert.equal(LADDER[nextStepIndex(idx('review'), imported)].id, 'target');
+  // The voice-or-chat choice comes right after the review; chat goes to the goal.
+  assert.equal(LADDER[nextStepIndex(idx('review'), imported)].id, 'mode');
+  assert.equal(LADDER[nextStepIndex(idx('mode'), { ...imported, mode: 'chat' })].id, 'target');
   // Walk to the end: none of the work-history questions come up.
   const asked = [];
   let at = idx('importOffer');
+  const chatting = { ...imported, mode: 'chat', sourcesDone: true };
   for (let guard = 0; guard < 40; guard += 1) {
-    at = nextStepIndex(at, imported);
+    at = nextStepIndex(at, chatting);
     if (at === -1) break;
     asked.push(LADDER[at].id);
   }
@@ -1373,7 +1376,8 @@ test('after an import the goal comes straight after the review, and work history
 test('without an import the ladder keeps its original order', () => {
   const idx = (id) => LADDER.findIndex((s) => s.id === id);
   const draft = { sector: 'tech', level: 'senior', title: 'Engineer' };
-  assert.equal(LADDER[nextStepIndex(idx('review') , draft)].id, 'lookingFor');
+  assert.equal(LADDER[nextStepIndex(idx('review') , draft)].id, 'mode');
+  assert.equal(LADDER[nextStepIndex(idx('mode'), { ...draft, mode: 'chat' })].id, 'lookingFor');
   // An import with no work history on it keeps the original order too.
   const empty = { ...draft, importedFrom: 'resume', experience: [] };
   assert.equal(ladderOrder(empty).length, LADDER.length);
@@ -1435,4 +1439,37 @@ test('a LinkedIn import after a resume is merged into it, not ignored', () => {
   assert.deepEqual(merged.skills, ['React', 'GraphQL']);
   assert.deepEqual(merged.education.map((e) => e.institution), ['State University', 'Bootcamp']);
   assert.deepEqual(merged.sources, ['resume', 'linkedin']);
+});
+
+test('the first question is the resume or LinkedIn, before any other', () => {
+  assert.equal(LADDER[0].id, 'importOffer');
+  assert.equal(LADDER[nextStepIndex(-1, {})].id, 'importOffer');
+});
+
+test('voice mode asks nothing more in the chat: from the choice straight to the preview', () => {
+  const idx = (id) => LADDER.findIndex((s) => s.id === id);
+  const voiced = {
+    sector: 'tech', title: 'Engineer', importedFrom: 'resume', sourcesDone: true, mode: 'voice',
+    experience: [{ title: 'Engineer', company: 'Acme', description: 'x' }], review: { opening: 'x' },
+  };
+  const asked = [];
+  let at = idx('mode');
+  for (let guard = 0; guard < 20; guard += 1) {
+    at = nextStepIndex(at, voiced);
+    if (at === -1) break;
+    asked.push(LADDER[at].id);
+  }
+  assert.deepEqual(asked, ['fix', 'build', 'tour', 'convert']);
+  // The same with no document: still no typed questions after the call.
+  const scratch = { sector: 'tech', level: 'senior', title: 'Engineer', mode: 'voice' };
+  assert.equal(LADDER[nextStepIndex(idx('mode'), scratch)].id, 'build');
+});
+
+test('chat mode offers the short call near the end, before the preview', () => {
+  const ids = LADDER.map((s) => s.id);
+  assert.ok(ids.indexOf('talkOffer') < ids.indexOf('build'));
+  const chat = { mode: 'chat' };
+  assert.equal(isAlreadyAnswered(LADDER.find((s) => s.id === 'talkOffer'), chat), false);
+  assert.equal(isAlreadyAnswered(LADDER.find((s) => s.id === 'talkOffer'), { mode: 'voice' }), true);
+  assert.ok(voiceAgenda({ talkCall: true, target: 'Staff Engineer' }).some((a) => /why they want Staff Engineer/.test(a)));
 });

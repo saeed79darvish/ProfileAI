@@ -217,6 +217,7 @@ export const COACH_TEXT = {
   FIX_KEEP: 'Keep mine',
   FIX_APPLIED: (n: number) => `Applied ${n} change${n === 1 ? '' : 's'}`,
   FIX_DONE: 'Done. Your profile has the new version.',
+  FIX_AUTO: 'I have sharpened your headline, summary and bullets with what you told me. Here is how it all comes together.',
   REVIEW_PROBE_INTRO: 'Two quick questions and I can fix most of that.',
 
   ASSESS_THINKING: 'Checking what is actually out there for that.',

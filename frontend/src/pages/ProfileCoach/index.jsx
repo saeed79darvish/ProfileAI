@@ -491,9 +491,16 @@ const ProfileCoach = () => {
        in a text box, and the ones that make a profile sound like a person.
        So the invitation goes here, where there is already someone on the
        other end to be curious about, rather than at the door. */
-    if (step.id === VOICE_OFFER_STEP && !voiceOfferedRef.current && voiceAvailableRef.current) {
-      voiceOfferedRef.current = true;
-      if (offerVoiceRef.current()) return;
+    /* The call is offered in exactly one place, the mode choice (and, on
+       the chat path, once more near the end). When a call is not possible
+       right now (no voice on the server, or today's free call used), the
+       choice is made for them instead of offering something that fails. */
+    if ((step.id === 'mode' || step.id === 'talkOffer') && !voiceAvailableRef.current) {
+      const next = { ...currentDraft, ...(step.id === 'mode' ? { mode: 'chat' } : { talkOfferDone: true }) };
+      draftRef.current = next;
+      setDraft(next);
+      advanceRef.current(index, next);
+      return;
     }
 
     // Steps that do work rather than ask: they announce themselves, then the
@@ -874,6 +881,12 @@ const ProfileCoach = () => {
     setMessages((prev) => prev.map((m) => (['importOffer', 'moreSources'].includes(m.stepId) ? { ...m, spent: true } : m)));
     // The first document seeds the draft; a second one is merged into it.
     const nextDraft = mergeImport(draftRef.current, parsed, source);
+    /* The resume is asked for before the field question now, so the field
+       is read off the title the resume gave. Asked only if that fails. */
+    if (!nextDraft.sector && nextDraft.title) {
+      const field = fieldFromText(nextDraft.title);
+      if (field?.sector) nextDraft.sector = field.sector;
+    }
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     trackEvent('coach_import', { source });
@@ -1086,26 +1099,10 @@ const ProfileCoach = () => {
          gaps it found and the questions a resume cannot answer (what next,
          why, what is in the way) go on the call's agenda. Declining runs the
          same follow-ups as typed questions. */
-      if (voiceAvailableRef.current && !voiceOfferedRef.current) {
-        voiceOfferedRef.current = true;
-        later(() => pushCoach(TEXT.VOICE_OFFER_REVIEW, {
-          stepId: VOICE_CHOICE,
-          afterReview: index,
-          chips: [
-            { id: 'talk', label: TEXT.VOICE_START },
-            { id: 'type', label: TEXT.VOICE_KEEP_TYPING },
-          ],
-          selected: [],
-        }), TIMING.ACK_MS);
-        return;
-      }
-
-      if (probeQueueRef.current.length) {
-        later(() => pushCoach(COACH_TEXT.REVIEW_PROBE_INTRO), TIMING.ACK_MS);
-        later(() => nextProbe(index), TIMING.ACK_MS + TIMING.TYPING_MS);
-      } else {
-        advanceRef.current(index, nextDraft);
-      }
+      /* Next is the voice-or-chat choice. The review's follow-up questions
+         wait for it: on a call they are on the agenda, in the chat they are
+         asked right after the choice. */
+      advanceRef.current(index, nextDraft);
     } catch {
       setTyping(false);
       setBusy(false);
@@ -1168,6 +1165,17 @@ const ProfileCoach = () => {
       setTyping(false);
       setBusy(false);
       if (!keys.length) throw new Error('nothing to fix');
+      /* On the voice path they agreed to all of this on the call, and the
+         chat asks nothing more: it is applied, and the preview next is
+         where they see it. */
+      if (current.mode === 'voice') {
+        const nextDraft = applyFixPlan(draftRef.current, plan, keys);
+        draftRef.current = nextDraft;
+        setDraft(nextDraft);
+        pushCoach(COACH_TEXT.FIX_AUTO);
+        advanceRef.current(index, nextDraft);
+        return;
+      }
       // Everything starts ticked: these are the changes the review asked for.
       pushCoach(COACH_TEXT.FIX_INTRO, { fixPlan: plan, fixPicked: keys, stepId: 'fix' });
     } catch {
@@ -1309,18 +1317,13 @@ const ProfileCoach = () => {
      out loud: a file is the one thing a phone call cannot collect, so it is
      the first thing the screen asks for. Whichever chip they pick, the
      questions pick up from the gap underneath. */
+  /* Pick up after the call. The resume was asked for at the very start, so
+     it is not offered again. On the voice path the ladder now runs straight
+     to the preview; after the chat path's short call, to the fixes and the
+     preview. */
   const afterCall = useCallback((merged) => {
-    // They already gave us a document; offering one again would be absurd.
-    if (merged.importedFrom) {
-      startLadderFrom(merged, { silent: true, from: 'voice' });
-      return;
-    }
-    startLadderFrom(merged, { silent: true, from: 'voice', ask: false });
-    later(
-      () => offerImportAgain(TEXT.VOICE_HANDOVER, POST_CALL_IMPORT_CHOICES, { postCall: true }),
-      TIMING.ACK_MS
-    );
-  }, [later, offerImportAgain, startLadderFrom]);
+    startLadderFrom(merged, { silent: true, from: 'voice' });
+  }, [startLadderFrom]);
 
   /**
    * The call is over. Everything it heard is already in the draft, so this
@@ -1354,6 +1357,12 @@ const ProfileCoach = () => {
       return;
     }
     if (!heardAnythingRef.current) {
+      /* A call that caught nothing cannot finish the profile on its own: the
+         rest is done in the chat. */
+      if (draftRef.current.mode === 'voice') {
+        draftRef.current = { ...draftRef.current, mode: 'chat' };
+        setDraft(draftRef.current);
+      }
       pushCoach(TEXT.VOICE_NOTHING);
       later(() => startLadderFrom(draftRef.current, { silent: true, from: 'voice' }), TIMING.ACK_MS);
       return;
@@ -1680,6 +1689,44 @@ const ProfileCoach = () => {
     }
 
     pushMine(chip.label, { stepId: step.id });
+
+    if (step.id === 'mode' || step.id === 'talkOffer') {
+      spendChips(message.id);
+      const chose = chip.id === 'voice';
+      const patch = step.id === 'mode'
+        ? { mode: chose ? 'voice' : 'chat' }
+        : { talkOfferDone: true, talkCall: chose };
+      const next = { ...draftRef.current, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      trackEvent('coach_mode_chosen', { step: step.id, voice: chose });
+      // Chat from the mode choice: the review's follow-ups first, if any.
+      const carryOn = (d) => {
+        if (step.id === 'mode' && probeQueueRef.current.length) {
+          later(() => pushCoach(COACH_TEXT.REVIEW_PROBE_INTRO), TIMING.ACK_MS);
+          later(() => nextProbe(index), TIMING.ACK_MS + TIMING.TYPING_MS);
+          return;
+        }
+        advance(index, d);
+      };
+      if (!chose) {
+        carryOn(next);
+        return;
+      }
+      startTalking().then((started) => {
+        if (started) {
+          // The call covers the review's follow-ups.
+          probeQueueRef.current = [];
+          return;
+        }
+        // It could not start: the rest goes on in the chat.
+        const fallback = { ...draftRef.current, ...(step.id === 'mode' ? { mode: 'chat' } : { talkCall: false }) };
+        draftRef.current = fallback;
+        setDraft(fallback);
+        carryOn(fallback);
+      });
+      return;
+    }
 
     if (step.id === 'moreSources') {
       if (chip.id === 'pdf') {

@@ -479,7 +479,21 @@ const importAgenda = (draft = {}) => {
   return agenda;
 };
 
+/* The chat path's short call: the facts are typed in already, so this is
+   only what a conversation gets better than a form. Two or three minutes. */
+const talkAgenda = (draft = {}) => {
+  const agenda = [];
+  if (draft.target && !draft.targetWhy) agenda.push(`why they want ${draft.target} next`);
+  else if (!draft.target) agenda.push('what role they want next, and why');
+  if (!draft.targetBlocker) agenda.push('what they think is standing in the way of it');
+  agenda.push('what matters most to them in the next team or company');
+  agenda.push('anything that would rule a job out for them (commute, travel, pay, hours)');
+  agenda.push('one thing they are proud of that is not on their profile yet');
+  return agenda;
+};
+
 export const voiceAgenda = (draft = {}) => {
+  if (draft.talkCall) return talkAgenda(draft);
   if (draft.importedFrom && (draft.experience || []).length) return importAgenda(draft);
   const agenda = [];
   /* After an import, the call is the review's follow-ups said out loud:
@@ -556,6 +570,21 @@ export const hintText = (step, draft = {}) =>
 */
 
 export const LADDER = [
+  /* First, what they already have. A resume or LinkedIn answers most of
+     what follows, so it is asked before anything else rather than after
+     three questions it would have answered. "I don't have one" goes on to
+     the questions. */
+  {
+    id: 'importOffer',
+    question: 'Let us start with what you already have. Do you have a resume or your LinkedIn?',
+    hint: 'Upload it and I will do most of the work. No resume is fine too, we will build it together.',
+    kind: 'branch',
+    chipSet: 'importChoices',
+    // Typing here is choosing to chat; see submitText.
+    freeText: true,
+    aiStep: null,
+    assign: null,
+  },
   {
     id: 'sector',
     question: "Let's start broad. Which field are you in?",
@@ -596,17 +625,6 @@ export const LADDER = [
     assign: 'title',
   },
   {
-    id: 'importOffer',
-    question: 'Quick shortcut before we go on: do you have a resume or a LinkedIn profile?',
-    hint: 'I can fill in most of the rest from either one. Or we just keep talking.',
-    kind: 'branch',
-    chipSet: 'importChoices',
-    // Typing here is choosing to chat; see submitText.
-    freeText: true,
-    aiStep: null,
-    assign: null,
-  },
-  {
     /* After the first document, ask for the other one. A resume says what
        they did; LinkedIn adds what the resume left out, and the two
        together are the fullest picture anyone hands over. Asked once, and
@@ -637,6 +655,23 @@ export const LADDER = [
     // Only worth doing when there is a document to react to. Reviewing a
     // profile the person has not built yet is just describing an empty page.
     skipIf: 'noImport',
+  },
+  {
+    /* How to do the rest: one choice, once. Voice runs the whole thing to
+       the preview; chat types it, with a short call offered near the end.
+       Offering a call at several points, as before, mixed the two and left
+       people unsure which mode they were in. Skipped silently when a call
+       is not possible right now (see askStep). */
+    id: 'mode',
+    question: (draft) => (draft.importedFrom
+      ? 'That is my read. How would you like to finish? We can talk it through, under 5 minutes, or carry on here in the chat.'
+      : 'How would you like to do the rest? We can talk it through, about 5 minutes, or carry on here in the chat.'),
+    hint: '',
+    kind: 'branch',
+    chipSet: 'mode',
+    freeText: true,
+    aiStep: null,
+    assign: null,
   },
   {
     id: 'lookingFor',
@@ -843,6 +878,19 @@ export const LADDER = [
     aiStep: null,
     assign: null,
     skipIf: 'noTarget',
+  },
+  {
+    /* The chat path's short call: near the end, once the facts are in, a
+       few questions only a conversation gets (why, what is in the way, what
+       matters in the next team). Not on the voice path, which was a call. */
+    id: 'talkOffer',
+    question: 'Almost done. Want to talk for 2 or 3 minutes? A few questions so I understand you better and find the jobs that fit you best.',
+    hint: '',
+    kind: 'branch',
+    chipSet: 'talkOffer',
+    freeText: true,
+    aiStep: null,
+    assign: null,
   },
   {
     /* The review's advice, done: a new headline, summary, bullets and
@@ -1240,6 +1288,10 @@ export const getChips = (step, draft = {}) => {
       return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
     case 'moreSources':
       return sourcesOf(draft).includes('resume') ? MORE_FROM_LINKEDIN : MORE_FROM_RESUME;
+    case 'mode':
+      return MODE_CHOICES;
+    case 'talkOffer':
+      return TALK_OFFER_CHOICES;
     default:
       return [];
   }
@@ -1668,14 +1720,18 @@ export const applyFixPlan = (draft = {}, plan = {}, picked = []) => {
 };
 
 export const IMPORT_ORDER = [
-  'sector', 'level', 'title', 'importOffer', 'moreSources',
-  'review',
+  'importOffer', 'moreSources', 'sector', 'title',
+  'review', 'mode',
   'target', 'targetWhy', 'targetBlocker', 'assess',
-  'fix',
   'lookingFor', 'workStyle', 'careerStage',
   'skills', 'education', 'location', 'links',
+  'talkOffer', 'fix',
   'build', 'tour', 'convert',
 ];
+
+/* After choosing voice, nothing more is asked in the chat: the call
+   covered it. What is left is the work that turns it into the preview. */
+const VOICE_FINISH = new Set(['importOffer', 'moreSources', 'review', 'mode', 'assess', 'fix', 'build', 'tour', 'convert']);
 
 const DEFAULT_ORDER = LADDER.map((_, i) => i);
 const IMPORT_ORDER_INDICES = IMPORT_ORDER
@@ -1683,9 +1739,10 @@ const IMPORT_ORDER_INDICES = IMPORT_ORDER
   .filter((i) => i >= 0);
 
 /** Which order the ladder walks in for this draft, as LADDER indices. */
-export const ladderOrder = (draft = {}) => (
-  draft.importedFrom && (draft.experience || []).length ? IMPORT_ORDER_INDICES : DEFAULT_ORDER
-);
+export const ladderOrder = (draft = {}) => {
+  const order = draft.importedFrom && (draft.experience || []).length ? IMPORT_ORDER_INDICES : DEFAULT_ORDER;
+  return draft.mode === 'voice' ? order.filter((i) => VOICE_FINISH.has(LADDER[i].id)) : order;
+};
 
 export const nextStepIndex = (fromIndex, draft = {}) => {
   const order = ladderOrder(draft);
@@ -1734,6 +1791,10 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.importedFrom;
     case 'moreSources':
       return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2;
+    case 'mode':
+      return !!draft.mode;
+    case 'talkOffer':
+      return !!draft.talkOfferDone || draft.mode === 'voice';
     case 'review':
       return !!draft.review;
     case 'lookingFor':
@@ -2149,6 +2210,15 @@ export const attachBullets = (draft, bullets = [], fallbackText = '') => {
 export const sourcesOf = (draft = {}) => (
   draft.sources || (draft.importedFrom ? [draft.importedFrom] : [])
 );
+
+export const MODE_CHOICES = [
+  { id: 'voice', label: 'Talk it through' },
+  { id: 'chat', label: 'Continue in chat' },
+];
+export const TALK_OFFER_CHOICES = [
+  { id: 'voice', label: "Sure, let's talk" },
+  { id: 'skip', label: 'Skip, show my resume' },
+];
 
 export const MORE_FROM_LINKEDIN = [
   { id: 'pdf', label: 'Add my LinkedIn PDF' },
