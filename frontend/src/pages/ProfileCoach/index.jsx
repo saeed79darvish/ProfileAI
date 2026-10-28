@@ -275,6 +275,8 @@ const attachmentMeta = (file) => {
 };
 
 const TAP_GUARD_MS = 600;
+// A voice message sent before its accurate transcript is back.
+const PENDING_BUBBLE = { opacity: 0.6, transition: 'opacity 200ms ease' };
 // The resume-reading window: closed, and how long "All read" stays up
 // (its remaining steps fast-forward at 700ms each first).
 const CLOSED_READING = { open: false, done: false, fileName: '' };
@@ -379,6 +381,25 @@ const ProfileCoach = () => {
   /* Send was pressed while the accurate transcript was on its way. Sent the
      moment it lands, from the box the transcript just filled. */
   const sendWhenTranscribedRef = useRef(false);
+  /* Sent by voice, before the accurate transcript is back. The message goes
+     into the chat at once, from the live preview and faded, instead of
+     sitting in the box for the second the transcript takes: that wait read
+     as the send not working. It is swapped for the accurate words when
+     they land, or kept as it is if the transcript fails. */
+  const pendingSendRef = useRef(null);
+  const showPendingSend = (preview) => {
+    if (!preview || pendingSendRef.current) return;
+    const id = nextId();
+    pendingSendRef.current = { id, text: preview };
+    setInput('');
+    setMessages((prev) => [...prev, { id, role: 'me', text: preview, pending: true, ephemeral: true }]);
+  };
+  const takePendingSend = () => {
+    const pending = pendingSendRef.current;
+    pendingSendRef.current = null;
+    if (pending) setMessages((prev) => prev.filter((m) => m.id !== pending.id));
+    return pending?.text || '';
+  };
   useEffect(() => {
     if (dictation.transcribing || !sendWhenTranscribedRef.current) return;
     sendWhenTranscribedRef.current = false;
@@ -1893,7 +1914,7 @@ const ProfileCoach = () => {
            questions since are all in view. Ten messages was a few minutes,
            and the coach then asked about things said just before that. */
         history: messagesRef.current
-          .filter((m) => m.text)
+          .filter((m) => m.text && !m.pending)
           .slice(-30)
           .map((m) => ({ role: m.role, text: m.text })),
         message: text,
@@ -2091,16 +2112,24 @@ const ProfileCoach = () => {
        button was disabled), which read as the box not sending. It goes the
        moment the transcript lands — see the effect on dictation.transcribing. */
     if (dictation.transcribing) {
+      showPendingSend(input.trim());
       sendWhenTranscribedRef.current = true;
       return;
     }
     /* Send while the mic is on means "that is my answer": stop, wait for the
-       accurate transcript, and send that, not the live preview. */
+       accurate transcript, and send that, not the live preview. The preview
+       shows in the chat meanwhile (see pendingSendRef). */
     let text = input.trim();
     if (dictation.listening) {
+      showPendingSend(text);
       const final = await dictation.finish();
+      setInput('');
       if (final && String(final).trim()) text = String(final).trim();
     }
+    // The faded stand-in comes out; the real message goes in below. If the
+    // accurate transcript never came, the preview is what is sent.
+    const preview = takePendingSend();
+    if (!text) text = preview;
     // An attached file goes first, through the same reader as an upload.
     // Anything typed beside it stays in the box for the next message.
     if (attached && !busy) {
@@ -2723,7 +2752,7 @@ const ProfileCoach = () => {
                           <EditHint aria-hidden="true"><EditIcon /> {TEXT.CHANGE_ANSWER}</EditHint>
                         </Bubble>
                       ) : (
-                        <Bubble $mine={message.role === 'me'}>
+                        <Bubble $mine={message.role === 'me'} style={message.pending ? PENDING_BUBBLE : undefined}>
                           {message.text}
                           {message.hint && <BubbleHint>{message.hint}</BubbleHint>}
                         </Bubble>
