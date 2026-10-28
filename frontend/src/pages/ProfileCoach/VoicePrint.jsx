@@ -122,7 +122,9 @@ const VoicePrint = ({ mode = 'listening', level = 0, className }) => {
         if (current === 'speaking') {
           // Each bar its own texture, all of them scaled by the real level.
           const texture = 0.55 + 0.45 * Math.abs(Math.sin(t * 7.3 + i * 1.7) * Math.sin(t * 3.1 + i * 0.6));
-          target = 0.1 + lvl * 0.95 * texture;
+          // A floor of motion, so the ring still reads as talking on a
+          // browser that reports no output level at all.
+          target = 0.14 + Math.max(lvl, 0.18) * 0.95 * texture;
         } else if (current === 'listening') {
           target = 0.12 + 0.45 * Math.max(0, Math.sin(angle * 2 - t * 3.2)) ** 3;
         } else if (current === 'connecting') {
