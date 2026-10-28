@@ -654,13 +654,18 @@ const ProfileCoach = () => {
          nothing to tap, the box locked, "Picked up where you left off" and
          then nothing. Anything left waiting on an answer is fine as it is;
          otherwise the step it stopped on starts again. */
-      const step = LADDER[restored.stepIndex];
+      /* A save with no step recorded (-1) is picked up at the first thing
+         the draft is still missing, the same way a call hands back. */
+      const at = LADDER[restored.stepIndex] ? restored.stepIndex : nextStepIndex(-1, restored.draft);
+      const step = LADDER[at];
       const waiting = restored.messages.some((m) => !m.spent
         && (m.stepId === step?.id || m.chips?.length || m.checkKeys || m.tour || m.convert));
-      if (step && (step.kind === 'run' || !waiting)) {
-        later(() => askStep(restored.stepIndex, restored.draft), TIMING.ACK_MS);
+      const restart = !!step && (step.kind === 'run' || !waiting);
+      if (restart) {
+        setStepIndex(at);
+        later(() => askStep(at, restored.draft), TIMING.ACK_MS);
       }
-      trackEvent('coach_resumed', { restarted: !!step && (step.kind === 'run' || !waiting) });
+      trackEvent('coach_resumed', { restarted: restart, at: step?.id || null });
       return;
     }
     clearConversation();
