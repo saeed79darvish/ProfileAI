@@ -990,7 +990,8 @@ export const CONVERSATION_KEY = 'profileai_coach_conversation';
 // are not worth migrating — bumping the version drops them.
 // 4: v3 conversations were saved by a different question order; their
 // stepIndex points at the wrong question here.
-const CONVERSATION_VERSION = 4;
+// 5: the resume question moved to the front, so saved step numbers shifted.
+const CONVERSATION_VERSION = 5;
 // Long enough to survive a phone call, a closed laptop or a commute; short
 // enough that a half-finished conversation from a fortnight ago does not
 // ambush someone who came back to start again.
