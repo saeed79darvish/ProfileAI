@@ -1315,9 +1315,6 @@ const ProfileCoach = () => {
      could not do this: the model ran on a server somewhere and the browser
      found out what had been said only after hanging up. */
   const heardAnythingRef = useRef(false);
-  // The plan's time limit for the call in progress; cleared when it ends.
-  const callCapTimerRef = useRef(null);
-  useEffect(() => () => { if (callCapTimerRef.current) clearTimeout(callCapTimerRef.current); }, []);
   // Which facts the call produced, so only those are checked afterwards.
   const heardKeysRef = useRef(new Set());
 
@@ -1352,10 +1349,6 @@ const ProfileCoach = () => {
    */
   const onCallEnded = useCallback(() => {
     setLastSpoken(null);
-    if (callCapTimerRef.current) {
-      clearTimeout(callCapTimerRef.current);
-      callCapTimerRef.current = null;
-    }
     refreshVoiceStatus();
     /* The call kept as a few sentences on their record; the transcript is
        sent to be summarised and is not stored. Signed-in only: guests
@@ -1464,15 +1457,14 @@ const ProfileCoach = () => {
         pushCoach(TEXT.VOICE_FAILED);
         return false;
       }
-      await voice.start({ clientSecret: data.clientSecret, model: data.model });
-      /* The plan's allowance for this call. The server counts it when the
-         call starts; ending it here is what makes the count true. */
-      if (data.maxSessionMinutes > 0) {
-        // Cancelled when the call ends (onCallEnded): a timer left running
-        // stopped the NEXT state of the page minutes later.
-        if (callCapTimerRef.current) clearTimeout(callCapTimerRef.current);
-        callCapTimerRef.current = setTimeout(() => voice.stop(), data.maxSessionMinutes * 60 * 1000);
-      }
+      /* The plan's allowance for this call. The call winds itself up when
+         it runs out (useVoiceCall): Remi lets them finish and says goodbye,
+         rather than the line going dead mid-sentence. */
+      await voice.start({
+        clientSecret: data.clientSecret,
+        model: data.model,
+        maxMinutes: data.maxSessionMinutes,
+      });
       trackEvent('coach_voice_started', { guest: !isAuthenticated, maxMinutes: data.maxSessionMinutes || null });
       return true;
     } catch (err) {

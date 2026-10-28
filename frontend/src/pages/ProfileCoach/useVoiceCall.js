@@ -32,18 +32,29 @@ export const VOICE_STATES = {
   ending: 'ending',
 };
 
-/* A call that has not ended on its own by now is not going to. Nothing caps
-   this for us any more: the platform that used to enforce a ceiling is gone,
-   and a forgotten open tab is billed by the minute like any other call. The
-   conversation this exists for is two to three minutes, so three is the
-   ceiling and anything past it is a call that has gone wrong. */
-/* Two stages, because a call that simply vanishes at a deadline is a worse
-   experience than one that runs slightly long. At WRAP_AT_MS Remi is told to
-   land it — out loud, in its own words — and the call ends the way every
-   other call ends. MAX_CALL_MS is the backstop for when that does not work,
-   and reaching it means something has already gone wrong. */
-const WRAP_AT_MS = 2 * 60 * 1000 + 20 * 1000;
-const MAX_CALL_MS = 3 * 60 * 1000 + 30 * 1000;
+/* How a call ends when its time runs out.
+   A call that simply vanishes at a deadline is the worst way to end one, and
+   it happened: the plan's minutes ran out mid-sentence and the screen closed
+   on someone who was still answering. So the time is a budget, not a guillotine:
+     - a minute before it runs out Remi is told, quietly, to start landing it;
+     - when it runs out nothing is cut. If they are talking, Remi waits for
+       them to finish, then thanks them, says the preview is on its way and
+       hangs up the way every call ends;
+     - only a call still running well past that is put down, because by then
+       something has gone wrong and a forgotten tab is billed by the minute.
+   Without a plan allowance (it is always sent today) the budget is five
+   minutes, which is what Remi is told to aim for anyway. */
+const DEFAULT_BUDGET_MS = 5 * 60 * 1000;
+const HEADS_UP_BEFORE_MS = 60 * 1000;
+// Past the budget: how long someone may finish a thought before Remi says
+// goodbye regardless, and how long before the call is put down regardless.
+const FINISH_THOUGHT_MS = 45 * 1000;
+const OVERTIME_CAP_MS = 2 * 60 * 1000;
+// A goodbye can come back as a tool call with no words; ask again, then leave.
+const MAX_GOODBYE_TRIES = 2;
+
+const HEADS_UP_TEXT = 'About a minute left on this call. Do not start any new topic. Let them finish what they are saying, cover the most important thing still open if there is one, and get ready to wrap up.';
+const GOODBYE_TEXT = 'Time is up. Do not ask anything else. Briefly thank them for what they just said, tell them you have what you need, that their profile preview is being put together and will be on screen in a moment, and that once they have checked it you will finish the rest of the profile together. Then call hand_back_to_chat.';
 
 /* How long to let silence run after somebody finishes speaking before
    deciding the model is not going to answer. Long enough that a slow turn is
@@ -87,6 +98,17 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const rafRef = useRef(null);
   const capRef = useRef(null);
   const wrapRef = useRef(null);
+  const deadlineRef = useRef(null);
+  const finishThoughtRef = useRef(null);
+  /* The ending, in order: the budget ran out (closing), Remi was asked to
+     say goodbye (goodbyeSent), and Remi actually said something
+     (goodbyeSpoken). */
+  const closingRef = useRef(false);
+  const goodbyeSentRef = useRef(false);
+  const goodbyeSpokenRef = useRef(false);
+  const goodbyeTriesRef = useRef(0);
+  // True between their speech starting and stopping.
+  const theyAreTalkingRef = useRef(false);
   const endedRef = useRef(false);
   /* Whether the person has actually said anything yet. The model asking to
      hang up before it has heard a single word means it is reacting to its
@@ -117,8 +139,10 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const teardown = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (capRef.current) clearTimeout(capRef.current);
-    if (wrapRef.current) clearTimeout(wrapRef.current);
-    wrapRef.current = null;
+    [wrapRef, deadlineRef, finishThoughtRef].forEach((ref) => {
+      if (ref.current) clearTimeout(ref.current);
+      ref.current = null;
+    });
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = null;
     if (greetingCapRef.current) clearTimeout(greetingCapRef.current);
@@ -182,14 +206,39 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
 
      The receiver reports an audio level for free, computed from the RTP it
      is already decoding. No second consumer of the stream, no graph, no
-     artefacts. */
+     artefacts.
+
+     The synchronization source only carries a level when the sender adds
+     the audio-level RTP header extension, and OpenAI's stream does not, so
+     on its own it read 0 for the whole call and the ring never moved while
+     Remi spoke. The receiver's inbound-rtp stats carry a level the browser
+     computes from the decoded audio, so that is polled too and the louder
+     of the two wins. */
   const watchLevel = useCallback((receiver) => {
-    if (!receiver?.getSynchronizationSources) return;
-    const tick = () => {
-      let peak = 0;
+    if (!receiver) return;
+    let statsLevel = 0;
+    let polling = false;
+    let lastPoll = 0;
+    const poll = async () => {
+      if (polling || !receiver.getStats) return;
+      polling = true;
       try {
-        const [source] = receiver.getSynchronizationSources();
-        if (typeof source?.audioLevel === 'number') peak = source.audioLevel;
+        const report = await receiver.getStats();
+        report.forEach((stat) => {
+          if (stat.type === 'inbound-rtp' && typeof stat.audioLevel === 'number') statsLevel = stat.audioLevel;
+        });
+      } catch { /* the receiver went away with the call */ }
+      polling = false;
+    };
+    const tick = (now) => {
+      if (now - lastPoll > 80) {
+        lastPoll = now;
+        poll();
+      }
+      let peak = statsLevel;
+      try {
+        const [source] = receiver.getSynchronizationSources?.() || [];
+        if (typeof source?.audioLevel === 'number') peak = Math.max(peak, source.audioLevel);
       } catch { /* the receiver went away with the call */ }
       // Eased, so the orb swells and settles rather than twitching.
       setLevel((prev) => prev * 0.7 + Math.min(1, peak * 2.4) * 0.3);
@@ -254,6 +303,44 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     setTimeout(check, 700);
   }, [finish]);
 
+  /** A system turn: steers the next response, never spoken or transcribed. */
+  const tellRemi = useCallback((text) => {
+    try {
+      channelRef.current?.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+      }));
+    } catch { /* channel already closed */ }
+  }, []);
+
+  /* Ask for the goodbye, once nobody has the floor. Called whenever the floor
+     might have just freed up; it does nothing until it is the right moment. */
+  const sayGoodbyeWhenFree = useCallback((force = false) => {
+    if (!closingRef.current || goodbyeSentRef.current) return;
+    if (endedRef.current || leavingRef.current) return;
+    if (!force && (theyAreTalkingRef.current || responseInFlightRef.current || speakingRef.current)) return;
+    goodbyeSentRef.current = true;
+    goodbyeTriesRef.current = 1;
+    clearNudge();
+    if (finishThoughtRef.current) clearTimeout(finishThoughtRef.current);
+    finishThoughtRef.current = null;
+    try {
+      /* From here a sound in the room must not start a new question or cut
+         the goodbye short. */
+      channelRef.current?.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          audio: { input: { turn_detection: { ...REPLYING_TURN_DETECTION, create_response: false, interrupt_response: false } } },
+        },
+      }));
+    } catch { /* channel already closed */ }
+    tellRemi(GOODBYE_TEXT);
+    try {
+      channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+    } catch { /* channel already closed */ }
+  }, [clearNudge, tellRemi]);
+
   /* Everything that is not audio arrives here. */
   const onEvent = useCallback((raw) => {
     let event;
@@ -272,13 +359,38 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
         nudgesRef.current = 0;
         // The first response is the greeting.
         startReplying();
+        if (goodbyeSentRef.current) {
+          /* The goodbye has been said: leave once it has finished playing.
+             A goodbye that came back as only a note-taking tool call gets
+             asked for once more. */
+          if (goodbyeSpokenRef.current || goodbyeTriesRef.current >= MAX_GOODBYE_TRIES) {
+            hangUpWhenQuiet();
+          } else {
+            goodbyeTriesRef.current += 1;
+            try {
+              channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+            } catch { /* channel already closed */ }
+          }
+        } else {
+          // Remi was mid-reply when time ran out; that reply is now over.
+          sayGoodbyeWhenFree();
+        }
         break;
       // They are talking; nothing is owed yet.
       case 'input_audio_buffer.speech_started':
+        theyAreTalkingRef.current = true;
         clearNudge();
         break;
       // They stopped. Something should happen now.
       case 'input_audio_buffer.speech_stopped':
+        theyAreTalkingRef.current = false;
+        if (closingRef.current && !goodbyeSentRef.current) {
+          /* Out of time and they have just finished: that is the moment.
+             Turn detection may be about to reply to them; give it a beat to
+             start, and the goodbye follows whatever it says. */
+          setTimeout(() => sayGoodbyeWhenFree(), 400);
+          break;
+        }
         scheduleNudge();
         break;
 
@@ -306,6 +418,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       // What Remi said, once it is finished saying it.
       case 'response.output_audio_transcript.done': {
         const text = String(event.transcript || '').trim();
+        if (text && goodbyeSentRef.current) goodbyeSpokenRef.current = true;
         if (text) handlersRef.current.onTranscript?.({ role: 'coach', text });
         break;
       }
@@ -340,10 +453,12 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
               output: JSON.stringify({ ok: true }),
             },
           }));
-          if (!hangUp) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+          /* During the goodbye the response.done handler decides what comes
+             next; asking here as well would start a second reply. */
+          if (!hangUp && !goodbyeSentRef.current) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
         } catch { /* channel already closed */ }
         // Belt for the braces above: if that response never arrives, ask again.
-        if (!hangUp) scheduleNudge();
+        if (!hangUp && !goodbyeSentRef.current) scheduleNudge();
 
         /* Leaving: wait for the goodbye to actually finish rather than
            counting off a fixed delay. A sentence takes as long as it takes,
@@ -362,9 +477,13 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       default:
         break;
     }
-  }, [clearNudge, finish, hangUpWhenQuiet, scheduleNudge, startReplying]);
+  }, [clearNudge, finish, hangUpWhenQuiet, sayGoodbyeWhenFree, scheduleNudge, startReplying]);
 
-  const start = useCallback(async ({ clientSecret, model }) => {
+  /**
+   * maxMinutes is the plan's allowance for this call. It sets when Remi
+   * starts wrapping up, not when the line goes dead.
+   */
+  const start = useCallback(async ({ clientSecret, model, maxMinutes = null }) => {
     if (!clientSecret || !model) {
       handlersRef.current.onError?.('not-configured');
       return;
@@ -376,6 +495,11 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     responseInFlightRef.current = false;
     nudgesRef.current = 0;
     greetedRef.current = false;
+    closingRef.current = false;
+    goodbyeSentRef.current = false;
+    goodbyeSpokenRef.current = false;
+    goodbyeTriesRef.current = 0;
+    theyAreTalkingRef.current = false;
     setState(VOICE_STATES.connecting);
 
     try {
@@ -443,28 +567,21 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
 
       await pc.setRemoteDescription({ type: 'answer', sdp: await answer.text() });
 
-      /* Ask for the ending rather than imposing one. The instruction goes
-         in as a system turn so it steers the next response without ever
-         being spoken or appearing in the transcript. */
+      /* The time budget. Asked for, never imposed: see DEFAULT_BUDGET_MS. */
+      const budgetMs = maxMinutes > 0 ? maxMinutes * 60 * 1000 : DEFAULT_BUDGET_MS;
       wrapRef.current = setTimeout(() => {
         if (endedRef.current || leavingRef.current) return;
-        try {
-          channelRef.current?.send(JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'message',
-              role: 'system',
-              content: [{
-                type: 'input_text',
-                text: 'You are out of time. Finish the thought you are on, then say goodbye the way you were told to and call hand_back_to_chat. Do not start anything new.',
-              }],
-            },
-          }));
-          channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
-        } catch { /* channel already closed */ }
-      }, WRAP_AT_MS);
-
-      capRef.current = setTimeout(() => finish(), MAX_CALL_MS);
+        // Steers the next reply; it does not start one.
+        tellRemi(HEADS_UP_TEXT);
+      }, Math.max(budgetMs / 2, budgetMs - HEADS_UP_BEFORE_MS));
+      deadlineRef.current = setTimeout(() => {
+        if (endedRef.current || leavingRef.current) return;
+        closingRef.current = true;
+        sayGoodbyeWhenFree();
+        // Someone still mid-thought this long after gets the goodbye anyway.
+        finishThoughtRef.current = setTimeout(() => sayGoodbyeWhenFree(true), FINISH_THOUGHT_MS);
+      }, budgetMs);
+      capRef.current = setTimeout(() => finish(), budgetMs + OVERTIME_CAP_MS);
     } catch (err) {
       teardown();
       setState(VOICE_STATES.idle);
@@ -472,7 +589,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       const denied = /permission|denied|NotAllowed/i.test(String(err?.name || err?.message || err));
       handlersRef.current.onError?.(denied ? 'mic-denied' : 'failed');
     }
-  }, [finish, onEvent, startReplying, teardown, watchLevel]);
+  }, [finish, onEvent, sayGoodbyeWhenFree, startReplying, teardown, tellRemi, watchLevel]);
 
   // A call still running after the page changes keeps the microphone open.
   useEffect(() => () => teardown(), [teardown]);
