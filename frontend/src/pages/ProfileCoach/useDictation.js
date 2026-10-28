@@ -33,6 +33,15 @@ const canRecord = typeof window !== 'undefined'
 // Long enough for a real answer; a forgotten mic should not record forever.
 const MAX_RECORDING_MS = 3 * 60 * 1000;
 
+/* Transcribing ahead. The accurate pass used to start only when they
+   pressed send, so every voice answer waited a second or more for it. Now,
+   after a short pause in speech, the recording so far is transcribed in the
+   background; if they send without speaking again, that text is ready, or
+   nearly. Speaking again just means the full recording is used, as before. */
+const SPEECH_LEVEL = 0.08;
+const SPECULATE_AFTER_MS = 900;
+const CHUNK_MS = 400;
+
 /**
  * What the input should show: what they had typed, plus what they have said
  * so far. Kept pure and separate because it is the one part worth reasoning
@@ -72,6 +81,9 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
      not state: it changes every frame and only the canvas reads it. */
   const levelRef = useRef(0);
   const meterRef = useRef(null);
+  // When speech was last heard, and the transcript started for that pause.
+  const lastVoiceAtRef = useRef(0);
+  const aheadRef = useRef(null);
   // Resolves finish(): the text that should end up in the box.
   const settleRef = useRef(null);
   const settle = (text) => {
@@ -123,11 +135,26 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         for (let i = 0; i < data.length; i += 1) { const v = (data[i] - 128) / 128; sum += v * v; }
         const rms = Math.sqrt(sum / data.length);
         levelRef.current = levelRef.current * 0.6 + Math.min(1, rms * 4) * 0.4;
+        const now = performance.now();
+        if (levelRef.current > SPEECH_LEVEL) lastVoiceAtRef.current = now;
+        transcribeAhead(now);
         meter.raf = requestAnimationFrame(tick);
       };
       meter.raf = requestAnimationFrame(tick);
       meterRef.current = meter;
     } catch { /* no meter: the waveform stays flat, dictation still works */ }
+  };
+
+  /* Once per pause: a second of quiet after speech, with a recording to
+     send, and nothing already started for this same pause. */
+  const transcribeAhead = (now) => {
+    const recorder = recorderRef.current;
+    const voiceAt = lastVoiceAtRef.current;
+    if (!recorder || recorder.state !== 'recording' || !voiceAt) return;
+    if (now - voiceAt < SPECULATE_AFTER_MS || aheadRef.current?.voiceAt === voiceAt) return;
+    if (!chunksRef.current.length || !handlersRef.current.transcribe) return;
+    const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+    aheadRef.current = { voiceAt, text: handlersRef.current.transcribe(blob).catch(() => null) };
   };
 
   const releaseMic = useCallback(() => {
@@ -227,8 +254,13 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         chunksRef.current = [];
         setTranscribing(true);
         let result = null;
+        // Started during the last pause, and nothing said since: use it.
+        const ahead = aheadRef.current;
+        aheadRef.current = null;
+        const stillCurrent = ahead && ahead.voiceAt === lastVoiceAtRef.current;
         try {
-          const text = await handlersRef.current.transcribe(blob);
+          let text = stillCurrent ? await ahead.text : null;
+          if (!String(text || '').trim()) text = await handlersRef.current.transcribe(blob);
           if (!discardedRef.current && String(text || '').trim()) {
             result = mergeDictation(baseRef.current, text);
             handlersRef.current.onText?.(result);
@@ -241,7 +273,10 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         }
       };
       recorderRef.current = recorder;
-      recorder.start();
+      lastVoiceAtRef.current = 0;
+      aheadRef.current = null;
+      // In short pieces, so the recording so far can be sent mid-answer.
+      recorder.start(CHUNK_MS);
       capTimerRef.current = setTimeout(() => stop(), MAX_RECORDING_MS);
     } catch (error) {
       // No recording (refused, or no device): the preview alone carries on

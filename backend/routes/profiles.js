@@ -822,7 +822,8 @@ router.post('/coach/voice/session', voiceSessionGuard, async (req, res) => {
    generous daily allowance per IP (a clip is a few seconds and costs a
    fraction of a cent); in memory, like the guest call count. */
 const voiceService = require('../services/voiceService');
-const GUEST_CLIPS_PER_IP_PER_DAY = 80;
+// Transcribing ahead during pauses makes two or three clips per spoken answer.
+const GUEST_CLIPS_PER_IP_PER_DAY = 200;
 const guestClipLog = new Map();
 const clipUpload = multer({
   storage: multer.memoryStorage(),
