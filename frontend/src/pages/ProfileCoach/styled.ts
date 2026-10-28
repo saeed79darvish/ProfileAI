@@ -1099,70 +1099,38 @@ export const TourItem = styled.li`
   }
 `;
 
-/* The paid tier: a tinted panel with a gradient edge, present but calm. */
-export const TourPro = styled.div`
-  position: relative;
-  border-radius: 14px;
-  padding: 18px;
-  background:
-    linear-gradient(#f7f7ff, #f7f7ff) padding-box,
-    linear-gradient(135deg, #6366f1, #a5b4fc) border-box;
-  border: 1.5px solid transparent;
+export const TourAllowances = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 4px 14px;
+  border-radius: 12px;
+  background: #f7f7ff;
+  border: 1px solid #e4e5fb;
 
-  > span {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #6366f1, #7c85f5);
-    color: #fff;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-  }
-
-  h5 {
-    margin: 10px 0 6px;
-    font-size: 1rem;
-    font-weight: 700;
+  li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    font-size: 0.9rem;
     color: #1a1a2e;
   }
 
-  p {
-    margin: 0;
-    font-size: 0.9rem;
-    line-height: 1.55;
-    color: #4a4a68;
-  }
-`;
+  li + li { border-top: 1px solid #ececf6; }
 
-export const TourProStats = styled.ul`
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-
-  li {
-    background: #fff;
-    border: 1px solid #e4e5fb;
-    border-radius: 10px;
-    padding: 10px 12px;
+  svg {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    color: #22a06b;
   }
+
+  span { flex: 1; }
 
   strong {
-    display: block;
-    font-size: 0.98rem;
+    font-weight: 700;
     color: #4f46e5;
-  }
-
-  small {
-    font-size: 0.78rem;
-    color: #6c6c86;
-  }
-
-  @media (max-width: 520px) {
-    grid-template-columns: 1fr;
+    white-space: nowrap;
   }
 `;
 

@@ -275,12 +275,10 @@ const planCell = (name: string, plan: 'free' | 'pro' | 'proPlus'): string => {
 export const TOUR_TEXT = {
   READY: 'Your profile is ready',
   READY_SUB: 'Here is what it does for you from today.',
-  FREE_LABEL: 'Free with your account',
-  PRO_LABEL: 'Pro',
-  PRO_TITLE: 'Apply in about a minute, on your terms',
-  PRO_BODY:
-    'On any job page the extension tailors your resume to the posting, drafts the cover letter and fills in the application. You check every one before it goes. Nothing is sent blind.',
-  PRO_PLUS_NOTE: `Applying a lot? Pro+ goes to ${planCell('Resume Tailoring', 'proPlus')} tailored resumes.`,
+  FREE_LABEL: 'Free with your account, no card needed',
+  // Exact allowances, so nobody wonders what the catch is.
+  INCLUDED_LABEL: 'Also free, every account',
+  MORE: 'Need more later? Pro raises the limits.',
   COMPARE: 'Compare plans',
   OUTRO: 'Everything here runs off the profile you just built, so the more of it is true and specific, the better it all works.',
 } as const;
@@ -299,17 +297,19 @@ export const TOUR_FREE = [
     body: 'Your own page to send any recruiter or hiring manager. It keeps working while you are not applying.',
   },
   {
-    id: 'try',
-    icon: 'tune',
-    title: 'Try the AI tools',
-    body: `Tailored resumes (${planCell('Resume Tailoring', 'free')}), cover letters (${planCell('AI Cover Letter', 'free')}) and extension autofill (${planCell('Extension autofill', 'free')}), so you can see how it feels before paying for anything.`,
+    id: 'extension',
+    icon: 'extension',
+    title: 'The browser extension',
+    body: 'On any job page it shows how well you match and fills in the application from your profile.',
   },
 ] as const;
 
-export const TOUR_PRO = [
-  { id: 'tailor', label: 'Tailored resumes', value: planCell('Resume Tailoring', 'pro') },
-  { id: 'letter', label: 'Cover letters', value: planCell('AI Cover Letter', 'pro') },
-  { id: 'autofill', label: 'Extension autofill', value: planCell('Extension autofill', 'pro') },
+// What the free plan includes, word for word from the pricing table.
+export const TOUR_ALLOWANCES = [
+  { id: 'tailor', label: 'Tailored resumes', value: planCell('Resume Tailoring', 'free') },
+  { id: 'letter', label: 'Cover letters', value: planCell('AI Cover Letter', 'free') },
+  { id: 'autofill', label: 'Application autofill', value: planCell('Extension autofill', 'free') },
+  { id: 'match', label: 'Job match scores', value: planCell('Job match score', 'free') },
 ] as const;
 
 // Narration while the resume is parsed. Parsing takes several seconds and a

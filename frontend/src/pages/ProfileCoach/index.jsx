@@ -44,7 +44,7 @@ import {
   COACH_TEXT,
   TOUR_TEXT,
   TOUR_FREE,
-  TOUR_PRO,
+  TOUR_ALLOWANCES,
   TIMING,
   PANEL_ITEMS,
   JOB_SECTORS,
@@ -117,7 +117,7 @@ import {
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
-  TourHero, TourSection, TourList, TourItem, TourIcon, TourPro, TourProStats, TourFootnote,
+  TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
   UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
@@ -2666,7 +2666,7 @@ const ProfileCoach = () => {
     );
   };
 
-  /* What the profile unlocks: free first, then Pro as one quiet panel.
+  /* What the profile unlocks, all of it free, with the exact allowances.
      The moment belongs to the profile they just built, so this reads as
      "here is what you get", not a paywall. Numbers come from the pricing
      table (TOUR_* in constants). */
@@ -2696,26 +2696,26 @@ const ProfileCoach = () => {
         })}
       </TourList>
 
-      <TourPro>
-        <span>{TOUR_TEXT.PRO_LABEL}</span>
-        <h5>{TOUR_TEXT.PRO_TITLE}</h5>
-        <p>{TOUR_TEXT.PRO_BODY}</p>
-        <TourProStats>
-          {TOUR_PRO.map((stat) => (
-            <li key={stat.id}>
-              <strong>{stat.value}</strong>
-              <small>{stat.label}</small>
-            </li>
-          ))}
-        </TourProStats>
-        <TourFootnote>
-          {TOUR_TEXT.PRO_PLUS_NOTE}{' '}
-          <a href="/pricing" target="_blank" rel="noopener noreferrer"
-            onClick={() => trackEvent('coach_tour_pricing_clicked', {})}>
-            {TOUR_TEXT.COMPARE}
-          </a>
-        </TourFootnote>
-      </TourPro>
+      <TourSection>{TOUR_TEXT.INCLUDED_LABEL}</TourSection>
+      <TourAllowances>
+        {TOUR_ALLOWANCES.map((row) => (
+          <li key={row.id}>
+            <DoneIcon />
+            <span>{row.label}</span>
+            <strong>{row.value}</strong>
+          </li>
+        ))}
+      </TourAllowances>
+
+      {/* Pro is one line on purpose: this is the moment they finished,
+          not the moment to sell. The real offer comes at a limit. */}
+      <TourFootnote>
+        {TOUR_TEXT.MORE}{' '}
+        <a href="/pricing" target="_blank" rel="noopener noreferrer"
+          onClick={() => trackEvent('coach_tour_pricing_clicked', {})}>
+          {TOUR_TEXT.COMPARE}
+        </a>
+      </TourFootnote>
 
       <BubbleHint style={{ marginTop: 16 }}>{TOUR_TEXT.OUTRO}</BubbleHint>
     </Card>
