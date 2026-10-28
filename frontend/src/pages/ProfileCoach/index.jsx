@@ -1773,6 +1773,13 @@ const ProfileCoach = () => {
         return;
       }
       spendChips(message.id);
+      /* Remember the answer. Passing on it once brings it back once, with
+         "I don't have a resume" on it; that, or a second pass, ends it. */
+      draftRef.current = chip.id === 'none'
+        ? { ...draftRef.current, noResume: true }
+        : { ...draftRef.current, importDeclines: (draftRef.current.importDeclines || 0) + 1 };
+      setDraft(draftRef.current);
+      trackEvent('coach_import_declined', { noResume: chip.id === 'none' });
       /* The upload offer after a call is a detour, not a rung.
          `index` is where importOffer sits in the ladder — near the top — so
          advancing from it walks the whole thing again from there. It skips
@@ -2254,6 +2261,9 @@ const ProfileCoach = () => {
        the page had frozen. */
     if (step.id === 'importOffer') {
       setMessages((prev) => prev.map((m) => (m.stepId === 'importOffer' ? { ...m, spent: true } : m)));
+      // Typing instead of tapping is passing on the upload, like "just chat".
+      draftRef.current = { ...draftRef.current, importDeclines: (draftRef.current.importDeclines || 0) + 1 };
+      setDraft(draftRef.current);
       const turn = await runTurn(text, step);
       if (!turn.ok) {
         setError(TEXT.ERROR_GENERIC);

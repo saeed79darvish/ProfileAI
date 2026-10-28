@@ -20,10 +20,32 @@ import { isPresentValue } from './dateRange.js';
  * `field` stays mirrored alongside `fieldOfStudy` because the resume generator
  * and PDF renderer read `field`.
  */
+/* A model asked for a school name sometimes sends the whole school
+   ({ name, graduationYear, field }) or a list of them. Rendered as is, that
+   printed "[object Object]" in the side panel and crashed the preview
+   (React refuses an object as text). Anything that is not text becomes text. */
+export const textOf = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(textOf).filter(Boolean).join(', ');
+  if (typeof value === 'object') {
+    const named = value.name || value.institution || value.school || value.title || value.degree;
+    return named ? textOf(named) : Object.values(value).map(textOf).filter(Boolean).join(' ');
+  }
+  return '';
+};
+
+const TEXT_KEYS = ['institution', 'school', 'university', 'degree', 'fieldOfStudy', 'field', 'major', 'startDate', 'description', 'location'];
+
 export const normalizeEducationRows = (rows) =>
   (rows || []).map((row) => {
     if (!row || typeof row !== 'object') return row;
     const next = { ...row };
+    TEXT_KEYS.forEach((k) => {
+      if (next[k] !== undefined && next[k] !== null && typeof next[k] !== 'string') next[k] = textOf(next[k]);
+    });
+    if (next.endDate && typeof next.endDate === 'object') next.endDate = textOf(next.endDate);
 
     next.institution = next.institution || next.school || next.university || '';
     delete next.school;

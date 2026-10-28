@@ -1473,3 +1473,37 @@ test('chat mode offers the short call near the end, before the preview', () => {
   assert.equal(isAlreadyAnswered(LADDER.find((s) => s.id === 'talkOffer'), { mode: 'voice' }), true);
   assert.ok(voiceAgenda({ talkCall: true, target: 'Staff Engineer' }).some((a) => /why they want Staff Engineer/.test(a)));
 });
+
+test('the upload offer is made twice at most, and "I don\'t have a resume" ends it', async () => {
+  const { LADDER, isAlreadyAnswered, getChips, questionText } = await import('./coachLogic.js');
+  const step = LADDER.find((s) => s.id === 'importOffer');
+  assert.equal(isAlreadyAnswered(step, {}), false);
+  assert.ok(!getChips(step, {}).some((c) => c.id === 'none'));
+  // Passed on once: asked again, this time with the plain answer on it.
+  const once = { importDeclines: 1 };
+  assert.equal(isAlreadyAnswered(step, once), false);
+  assert.ok(getChips(step, once).some((c) => c.id === 'none'));
+  assert.match(questionText(step, once), /One more time/);
+  assert.equal(isAlreadyAnswered(step, { importDeclines: 2 }), true);
+  assert.equal(isAlreadyAnswered(step, { noResume: true }), true);
+});
+
+test('a school sent as objects becomes education rows, never "[object Object]"', async () => {
+  const { applyBraindump, resumeSections } = await import('./coachLogic.js');
+  const next = applyBraindump({ education: [] }, {
+    school: [{ name: 'University of Tehran', graduationYear: '2014', field: 'Computer Engineering' }],
+    degree: { name: 'BSc' },
+  });
+  const row = next.education.find((r) => r.institution === 'University of Tehran');
+  assert.ok(row);
+  assert.equal(row.endDate, '2014');
+  assert.equal(row.fieldOfStudy, 'Computer Engineering');
+  for (const r of next.education) {
+    for (const v of Object.values(r)) assert.ok(v === null || typeof v !== 'object', JSON.stringify(r));
+  }
+  // An already-saved bad row renders as text.
+  const sections = resumeSections({ education: [{ institution: { name: 'X', graduationYear: '2010', field: 'Y' } }] });
+  const edu = sections.find((s) => s.key === 'education');
+  assert.equal(typeof edu.items[0].heading, 'string');
+  assert.ok(!/object Object/.test(JSON.stringify(sections)));
+});

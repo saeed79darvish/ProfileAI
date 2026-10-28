@@ -25,7 +25,7 @@ import {
   mapWizardExperienceToEditor,
   mapWizardProjectToEditor,
 } from '../JobPreferencesWizard/handoff.js';
-import { normalizeEducationRows } from '../../utils/education.js';
+import { normalizeEducationRows, textOf } from '../../utils/education.js';
 import { COMPLETION_TIERS } from '../../hooks/useProfileCompletion.js';
 // The same formatter ProfileForm, the dashboard and the public profile use, so
 // a date reads identically wherever the person sees it.
@@ -423,6 +423,19 @@ export const IMPORT_CHOICES = [
   { id: 'chat', label: "No, let's just chat" },
 ];
 
+/* "Just chat" can mean "not right now" or "I have nothing to upload", and
+   reading it as the first had the offer coming back after every call. So it
+   is asked once more at most, and that second time it carries the plain
+   answer, which settles it for good. */
+export const NO_RESUME_CHIP = { id: 'none', label: "I don't have a resume" };
+export const SECOND_IMPORT_CHOICES = [
+  { id: 'resume', label: 'Upload my resume' },
+  { id: 'linkedin', label: 'Import from LinkedIn' },
+  NO_RESUME_CHIP,
+];
+// How many times the offer may be passed on before it stops being made.
+export const IMPORT_OFFER_LIMIT = 2;
+
 /* The same three, offered again after a file was refused. Same ids, so the
    answer handling does not care which row a chip came from — only the first
    label changes, because "upload my resume" is odd advice to someone who just
@@ -530,7 +543,8 @@ export const ASKED_IMPORT_CHOICES = [
 export const POST_CALL_IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
   { id: 'linkedin', label: 'Import from LinkedIn' },
-  { id: 'chat', label: 'Nothing to upload' },
+  { id: 'chat', label: 'Not now' },
+  NO_RESUME_CHIP,
 ];
 
 /* The evidence probe, in the units of the person's own trade. See
@@ -576,8 +590,13 @@ export const LADDER = [
      the questions. */
   {
     id: 'importOffer',
-    question: 'Let us start with what you already have. Do you have a resume or your LinkedIn?',
-    hint: 'Upload it and I will do most of the work. No resume is fine too, we will build it together.',
+    // Asked a second time (after a call, usually) only if passed on once.
+    question: (draft) => (draft.importDeclines
+      ? 'One more time before we go on: do you have a resume or a LinkedIn profile I can read?'
+      : 'Let us start with what you already have. Do you have a resume or your LinkedIn?'),
+    hint: (draft) => (draft.importDeclines
+      ? 'If not, just say so and I will not ask again. We will build it together.'
+      : 'Upload it and I will do most of the work. No resume is fine too, we will build it together.'),
     kind: 'branch',
     chipSet: 'importChoices',
     // Typing here is choosing to chat; see submitText.
@@ -963,6 +982,10 @@ export const emptyDraft = () => ({
   // Set when a resume or LinkedIn import seeded the draft — the coach then
   // asks only about what the import left empty.
   importedFrom: null,
+  // The upload offer: how often it was passed on, and whether they said
+  // they have nothing to upload. Either stops it being asked again.
+  importDeclines: 0,
+  noResume: false,
   // The same, for a paragraph someone typed, dictated, or said on a call.
   spokenIntake: false,
   // What they want next, and the coach's read on how far away it is.
@@ -1029,7 +1052,8 @@ export const parseConversation = (raw, now = Date.now()) => {
   const answered = saved.messages.some((m) => m.role === 'me');
   if (!answered) return null;
   return {
-    draft: { ...emptyDraft(), ...saved.draft },
+    // Rows saved before the model's odd shapes were cleaned up get cleaned here.
+    draft: { ...emptyDraft(), ...saved.draft, education: normalizeEducationRows(saved.draft.education || []) },
     stepIndex: Number.isInteger(saved.stepIndex) ? saved.stepIndex : -1,
     messages: saved.messages,
   };
@@ -1286,7 +1310,7 @@ export const getChips = (step, draft = {}) => {
     case 'targetBlockers':
       return TARGET_BLOCKERS.map((b) => ({ id: b.label, label: b.label }));
     case 'importChoices':
-      return IMPORT_CHOICES.map((c) => ({ id: c.id, label: c.label }));
+      return (draft.importDeclines ? SECOND_IMPORT_CHOICES : IMPORT_CHOICES).map((c) => ({ id: c.id, label: c.label }));
     case 'moreSources':
       return sourcesOf(draft).includes('resume') ? MORE_FROM_LINKEDIN : MORE_FROM_RESUME;
     case 'mode':
@@ -1788,8 +1812,10 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     // the review of it comes round again. After a call the ladder restarts
     // from the top, and it asked "do you have a resume?" of someone who had
     // just uploaded one.
+    // Nor once they have said they have none, or passed on it twice.
     case 'importOffer':
-      return !!draft.importedFrom;
+      return !!draft.importedFrom || !!draft.noResume
+        || (draft.importDeclines || 0) >= IMPORT_OFFER_LIMIT;
     case 'moreSources':
       return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2;
     case 'mode':
@@ -1943,8 +1969,38 @@ export const normalizePlace = (text) => String(text || '').trim().replace(/\s+/g
     : normalizeTitle(part)))
   .join(', ');
 
-export const applyBraindump = (draft = {}, fields = {}) => {
+/* What the model sends is not always the shape the tool asked for: a school
+   came back as { name, graduationYear, field }, and as a list of them. Each
+   school object becomes its own education row; every other field that should
+   be text is made text. */
+const STRING_FIELDS = ['title', 'seniority', 'field', 'company', 'previousCompany', 'startDate', 'endDate',
+  'school', 'degree', 'location', 'roleType', 'workStyle', 'target', 'graduationYear'];
+const schoolRowsOf = (school) => (Array.isArray(school) ? school : [school])
+  .filter((s) => s && typeof s === 'object')
+  .map((s) => ({
+    institution: textOf(s.name || s.institution || s.school),
+    degree: textOf(s.degree),
+    fieldOfStudy: textOf(s.field || s.fieldOfStudy || s.major),
+    endDate: textOf(s.graduationYear || s.endDate || s.year).match(/\b(19|20)\d{2}\b/)?.[0] || '',
+  }))
+  .filter((r) => r.institution || r.degree);
+
+export const applyBraindump = (draft = {}, rawFields = {}) => {
+  const fields = { ...rawFields };
+  const extraSchools = schoolRowsOf(fields.school);
+  if (extraSchools.length) delete fields.school;
+  STRING_FIELDS.forEach((k) => {
+    if (fields[k] !== undefined && fields[k] !== null && typeof fields[k] !== 'string') fields[k] = textOf(fields[k]);
+  });
+  ['bullets', 'skills'].forEach((k) => {
+    if (fields[k] !== undefined) fields[k] = (Array.isArray(fields[k]) ? fields[k] : [fields[k]]).map(textOf).filter(Boolean);
+  });
   const next = { ...draft, spokenIntake: true };
+  if (extraSchools.length) {
+    const known = new Set((draft.education || []).map((r) => norm(textOf(r.institution))));
+    const fresh = extraSchools.filter((r) => !known.has(norm(r.institution)));
+    next.education = normalizeEducationRows([...fresh, ...(draft.education || [])]);
+  }
 
   // Field first: it decides which rungs and titles the rest is read against.
   const matched = fields.field ? matchSector(fields.field) : null;
@@ -2357,7 +2413,7 @@ export const resumeSections = (draft = {}) => {
     });
   }
 
-  const education = (draft.education || []).filter((e) => e && (e.institution || e.degree));
+  const education = normalizeEducationRows(draft.education || []).filter((e) => e && (e.institution || e.degree));
   if (education.length) {
     sections.push({
       key: 'education',
