@@ -17,8 +17,17 @@ const { makeCareerContextService } = require('../services/careerContextService')
 const { callAI, HAIKU_MODEL } = require('../services/ai/core');
 const { callSummaryPrompt } = require('../services/ai/prompts/careerContext');
 
+const { invalidateJobsRankingForUser } = require('../services/jobEmbeddingService');
+
 const router = express.Router();
 const service = makeCareerContextService({ CareerContext });
+
+/* The jobs feed ranks on this record (target role, stage, level, location),
+   and caches what it read. A write here has to show on the next jobs load,
+   not minutes later, or editing "About you" looks like it did nothing. */
+const refreshJobs = (userId) => {
+  try { invalidateJobsRankingForUser(userId); } catch { /* a stale cache is not worth a failed save */ }
+};
 
 router.use(authMiddleware);
 
@@ -35,14 +44,18 @@ router.get('/', async (req, res) => {
 
 router.patch('/', async (req, res) => {
   try {
-    res.json({ success: true, context: await service.edit(req.user.id, req.body || {}) });
+    const context = await service.edit(req.user.id, req.body || {});
+    refreshJobs(req.user.id);
+    res.json({ success: true, context });
   } catch (error) { fail(res, 'edit', error); }
 });
 
 router.post('/merge', async (req, res) => {
   try {
     const { overwrite, ...patch } = req.body || {};
-    res.json({ success: true, context: await service.merge(req.user.id, patch, { overwrite: overwrite === true }) });
+    const context = await service.merge(req.user.id, patch, { overwrite: overwrite === true });
+    refreshJobs(req.user.id);
+    res.json({ success: true, context });
   } catch (error) { fail(res, 'merge', error); }
 });
 
@@ -75,19 +88,20 @@ router.post('/summarize', aiRateLimiter('profile_coach'), async (req, res) => {
 router.delete('/item', async (req, res) => {
   try {
     const { field, summaryIndex } = req.body || {};
-    res.json({
-      success: true,
-      context: await service.forget(req.user.id, {
-        field: typeof field === 'string' ? field : undefined,
-        summaryIndex: Number.isInteger(summaryIndex) ? summaryIndex : undefined,
-      }),
+    const context = await service.forget(req.user.id, {
+      field: typeof field === 'string' ? field : undefined,
+      summaryIndex: Number.isInteger(summaryIndex) ? summaryIndex : undefined,
     });
+    refreshJobs(req.user.id);
+    res.json({ success: true, context });
   } catch (error) { fail(res, 'forget', error); }
 });
 
 router.delete('/', async (req, res) => {
   try {
-    res.json({ success: true, context: await service.clear(req.user.id) });
+    const context = await service.clear(req.user.id);
+    refreshJobs(req.user.id);
+    res.json({ success: true, context });
   } catch (error) { fail(res, 'clear', error); }
 });
 

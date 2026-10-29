@@ -5,6 +5,7 @@ import { Close as CloseIcon, WorkOutline as JobIcon } from '@mui/icons-material'
 import styled from 'styled-components';
 import { externalJobAPI } from '@/services/api';
 import { trackEvent } from '@/utils/analytics';
+import { jobFiltersFrom } from '@/utils/jobPreferences';
 import { TEXT, MAX_JOBS } from './constants';
 
 /**
@@ -21,15 +22,11 @@ import { TEXT, MAX_JOBS } from './constants';
  * jobs for you" is worse than no pop-up.
  */
 
-/* Coach answers onto job filters. "Flexible" and several picked types mean
-   no filter, which is what the jobs page calls "Any". */
-export const jobFiltersFrom = (prefs = {}) => {
-  const filters = {};
-  if (['remote', 'hybrid', 'onsite'].includes(prefs.workStyle)) filters.locationType = prefs.workStyle;
-  const types = (prefs.roleTypes || []).filter((t) => ['full-time', 'part-time', 'contract', 'internship'].includes(t));
-  if (types.length === 1 && (prefs.roleTypes || []).length === 1) filters.employmentType = types[0];
-  return filters;
-};
+/* Coach answers onto job filters. Shared with the jobs page, which applies
+   the same saved preferences on a fresh visit, so the pop-up and the page
+   behind it always show the same list. Several picked types are now one
+   "any of these" filter rather than no filter at all. */
+export { jobFiltersFrom };
 
 const salaryText = (job) => {
   if (!job.salaryMin && !job.salaryMax) return '';

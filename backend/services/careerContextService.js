@@ -7,10 +7,34 @@
  * profile, and always wins.
  */
 
+const { CAREER_STAGES, SENIORITY_IDS } = require('./jobSeniorityFit');
+
 const MAX_SUMMARIES = 20;
 const MAX_TEXT = 1000;
-const CONSTRAINT_KEYS = ['location', 'workStyle', 'roleTypes', 'salary', 'noticePeriod'];
+const CONSTRAINT_KEYS = [
+  'location', 'workStyle', 'roleTypes', 'salary', 'noticePeriod',
+  'careerStage', 'seniority', 'sector',
+];
 const TEXT_KEYS = ['target', 'targetWhy', 'targetBlocker'];
+
+/* The sector ids from frontend/src/data/jobTaxonomy.js JOB_SECTORS. Keep in
+   sync when a sector is added there; an id missing here is dropped on save,
+   which costs only the sector, never the rest of the write. */
+const SECTOR_IDS = [
+  'tech', 'data', 'design', 'product', 'marketing', 'sales', 'support', 'finance',
+  'hr', 'admin', 'operations', 'healthcare', 'education', 'hospitality', 'trades',
+  'media', 'legal', 'logistics', 'manufacturing', 'engineering', 'science',
+  'socialcare', 'publicservice', 'realestate', 'agriculture', 'personal',
+];
+
+/* Keys whose value is one id from a fixed list. The jobs feed ranks on these
+   (jobSeniorityFit reads careerStage and seniority), so a free-text value
+   would silently do nothing; anything not on the list is dropped instead. */
+const ENUM_KEYS = {
+  careerStage: new Set(CAREER_STAGES),
+  seniority: new Set(SENIORITY_IDS),
+  sector: new Set(SECTOR_IDS),
+};
 
 const clean = (value, max = MAX_TEXT) => {
   if (value === null || value === undefined) return '';
@@ -20,7 +44,12 @@ const clean = (value, max = MAX_TEXT) => {
 const cleanConstraints = (raw = {}) => {
   const out = {};
   for (const key of CONSTRAINT_KEYS) {
-    const value = raw[key];
+    const value = raw?.[key];
+    if (ENUM_KEYS[key]) {
+      const id = clean(value, 40).toLowerCase();
+      if (ENUM_KEYS[key].has(id)) out[key] = id;
+      continue;
+    }
     if (Array.isArray(value)) {
       const list = value.map((v) => clean(v, 60)).filter(Boolean).slice(0, 10);
       if (list.length) out[key] = list;
@@ -133,4 +162,4 @@ function makeCareerContextService({ CareerContext }) {
   return { get, merge, edit, forget, clear };
 }
 
-module.exports = { makeCareerContextService, toView, cleanConstraints, CONSTRAINT_KEYS, TEXT_KEYS };
+module.exports = { makeCareerContextService, toView, cleanConstraints, CONSTRAINT_KEYS, TEXT_KEYS, SECTOR_IDS };

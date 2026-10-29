@@ -61,6 +61,8 @@ import {
   matchChip,
   nextStepIndex,
   NOT_ASKED_KINDS,
+  looksLikeTitle,
+  withStageDefaults,
   OPEN_CHIP_SETS,
   suggestionChips,
   fixKeys,
@@ -284,6 +286,9 @@ const attachmentMeta = (file) => {
 };
 
 const TAP_GUARD_MS = 600;
+
+// The questions about their own work, where one follow-up earns its place.
+const FOLLOW_UP_STEPS = new Set(['currentRole', 'achievements', 'previousRole', 'projects']);
 // A voice message sent before its accurate transcript is back.
 const PENDING_BUBBLE = { opacity: 0.6, transition: 'opacity 200ms ease' };
 // The resume-reading window: closed, and how long "All read" stays up
@@ -509,6 +514,10 @@ const ProfileCoach = () => {
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, spent: true } : m)));
   }, []);
 
+  // Which askStep is current: a suggestion that lands late must not ask a
+  // question the conversation has moved past.
+  const askSeqRef = useRef(0);
+
   const askStep = useCallback((index, currentDraft) => {
     const step = LADDER[index];
     if (!step) return;
@@ -561,8 +570,30 @@ const ProfileCoach = () => {
       return;
     }
 
+    /* Titles, the next role and skills: the buttons are written for this
+       person by the model while the question is on its way, instead of a
+       list by field. It gets as long as the typing pause plus a moment;
+       slower than that, or failing, the field's own list is shown, so a
+       slow model never holds the conversation up. */
+    const asked = askSeqRef.current + 1;
+    askSeqRef.current = asked;
+    const wantsSuggestions = OPEN_CHIP_SETS.has(step.chipSet) && !step.story;
+    const suggested = wantsSuggestions
+      ? Promise.race([
+        profileAPI.coachSuggest({
+          profile: draftToProfileShape(currentDraft),
+          kind: step.chipSet,
+          question: questionText(step, currentDraft),
+        }).then(({ data }) => data?.suggestions || []),
+        new Promise((resolve) => { setTimeout(() => resolve([]), TIMING.TYPING_MS + TIMING.SUGGEST_GRACE_MS); }),
+      ]).catch(() => [])
+      : Promise.resolve([]);
+
     setTyping(true);
-    later(() => {
+    later(async () => {
+      const suggestions = await suggested;
+      // Rewound or moved on while waiting: this question is no longer the one to ask.
+      if (askSeqRef.current !== asked) return;
       setTyping(false);
       pushCoach(questionText(step, currentDraft), {
         hint: hintText(step, currentDraft),
@@ -571,7 +602,7 @@ const ProfileCoach = () => {
         // is free and works signed out; the words land in the box to edit.
         chips: step.story && dictationSupportedRef.current
           ? [{ ...SAY_IT_CHIP }]
-          : getChips(step, currentDraft),
+          : suggestionChips(step, suggestions) || getChips(step, currentDraft),
         multi: step.kind === 'multi',
         selected: [],
         optional: !!step.optional,
@@ -932,7 +963,7 @@ const ProfileCoach = () => {
 
   const commit = useCallback((patch, fromIndex) => {
     setFollowUpFor(null);
-    const nextDraft = { ...draftRef.current, ...patch };
+    const nextDraft = withStageDefaults({ ...draftRef.current, ...patch });
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     advance(fromIndex, nextDraft);
@@ -1129,7 +1160,7 @@ const ProfileCoach = () => {
     later(() => {
       setTyping(false);
       setProbing(true);
-      pushCoach(question, { stepId: 'review', probe: true });
+      pushCoach(question, { stepId: LADDER[fromIndex]?.id || 'review', probe: true });
     }, TIMING.TYPING_MS);
   }, [later, pushCoach]);
 
@@ -1176,6 +1207,26 @@ const ProfileCoach = () => {
       advanceRef.current(index, draftRef.current);
     }
   }, [isAuthenticated, later, nextProbe, pushCoach]);
+
+  /* The final read: the whole draft against who they are and where they
+     are heading. Its questions are asked like the review's follow-ups;
+     none means the profile is ready. A failure skips it: a missing check
+     must not hold up a finished profile. */
+  const runGaps = useCallback(async (index) => {
+    setBusy(true);
+    setTyping(true);
+    try {
+      const { data } = await profileAPI.coachGaps(draftToProfileShape(draftRef.current));
+      probeQueueRef.current = (data?.questions || []).slice(0, 2);
+    } catch {
+      probeQueueRef.current = [];
+      trackEvent('coach_step_failed', { step: 'gapCheck' });
+    } finally {
+      setTyping(false);
+      setBusy(false);
+    }
+    nextProbe(index);
+  }, [nextProbe]);
 
   const runAssess = useCallback(async (index) => {
     setBusy(true);
@@ -1299,8 +1350,8 @@ const ProfileCoach = () => {
   }, [pushCoach]);
 
   useEffect(() => {
-    runnersRef.current = { review: runReview, assess: runAssess, fix: runFix, build: runBuild };
-  }, [runReview, runAssess, runFix, runBuild]);
+    runnersRef.current = { review: runReview, assess: runAssess, fix: runFix, build: runBuild, gaps: runGaps };
+  }, [runReview, runAssess, runFix, runBuild, runGaps]);
 
   /* ─── Answering ────────────────────────────────────────────── */
 
@@ -1948,16 +1999,21 @@ const ProfileCoach = () => {
      and its buttons: without them it could not see what the person was
      looking at, and "show me the suggested levels" got "I don't have any"
      right under a row of levels. */
+  /* Follow-ups the coach has asked per question. One is allowed; the server
+     drops a second, and past it the page moves on whatever the reply says,
+     so nobody is asked the same thing until they give up. */
+  const followUpsRef = useRef({});
+
   const runTurn = useCallback(async (text, step = null) => {
     const onScreen = step ? getChips(step, draftRef.current)
       // Real answers only: "Type my own", "More fields", "Say it instead"
       // and the like are controls, not something to pick in words.
       .filter((c) => !String(c.id).startsWith('__')) : [];
-    /* The question after this one. The model used to move on by itself, to
-       whatever it liked off the checklist, and the page never knew: no
-       buttons came with it, and the next answer was read against the old
-       question. Now it is told the one question it may move on to, and says
-       when it did. */
+    /* The question after this one, so the model leaves it to the page. It
+       used to move on by itself, to whatever it liked off the checklist:
+       that question came with no buttons, and the next answer was read
+       against the old one. The page asks it, in its own words, with its
+       buttons. */
     /* Without a call to offer, the page makes the talk-or-chat choices
        itself (askStep), so the question after them is the real next one. */
     const ahead = voiceAvailableRef.current ? draftRef.current
@@ -1965,7 +2021,6 @@ const ProfileCoach = () => {
     const nextIndex = step ? nextStepIndex(LADDER.findIndex((s) => s.id === step.id), ahead) : -1;
     const nextStep = LADDER[nextIndex];
     const nextAskable = !!nextStep && !NOT_ASKED_KINDS.has(nextStep.kind);
-    const nextOpen = nextAskable && OPEN_CHIP_SETS.has(nextStep.chipSet);
     setBusy(true);
     setTyping(true);
     try {
@@ -1985,19 +2040,29 @@ const ProfileCoach = () => {
         liveVoice: voiceAvailableRef.current ? 'live' : 'none',
         asked: step ? questionText(step, draftRef.current) : '',
         options: onScreen.map((c) => c.label),
-        next: nextAskable ? {
-          question: questionText(nextStep, draftRef.current),
-          // Open questions (titles, skills) get the model's own suggestions.
-          options: nextOpen ? [] : getChips(nextStep, draftRef.current)
-            .filter((c) => !String(c.id).startsWith('__'))
-            .map((c) => c.label),
-          open: nextOpen,
-        } : null,
+        /* Follow-ups are for the stories (a role, what they did, a
+           project), where one more question turns a vague line into a
+           result. Anywhere else the coach asked the next question itself
+           ("Got it, Toronto. Do you have a GitHub?") and then the page asked
+           it again; there it gets none. */
+        followUps: !step ? 0 : FOLLOW_UP_STEPS.has(step.id) ? (followUpsRef.current[step.id] || 0) : 1,
+        next: nextAskable ? { question: questionText(nextStep, draftRef.current) } : null,
       });
 
-      const learned = data?.learned || {};
-      if (Object.keys(learned).length) {
-        const merged = applyBraindump(draftRef.current, learned);
+      const { project, ...learned } = data?.learned || {};
+      if (Object.keys(learned).length || project) {
+        /* A project goes to projects, as its own row. It used to come back
+           as bullets, which landed on a job with no company: a new grad's
+           capstone filed as employment, and their projects left empty. */
+        let merged = Object.keys(learned).length ? applyBraindump(draftRef.current, learned) : { ...draftRef.current, spokenIntake: true };
+        if (project) {
+          merged = mergeInterpreted(merged, 'projects', {
+            projectName: project.name,
+            description: project.description,
+            url: project.url,
+            technologies: project.technologies,
+          });
+        }
         // roleTypes and workStyle are chip answers the model can also hear in
         // passing; applyBraindump deliberately does not own them.
         if (learned.roleType && !(merged.roleTypes || []).length) {
@@ -2033,12 +2098,18 @@ const ProfileCoach = () => {
       }
       // Waiting needs something to wait on: an empty reply that claims to be
       // waiting would leave the conversation sitting there with no question.
+      const awaiting = data?.awaiting !== false && !!String(data?.say || '').trim();
+      // A follow-up of its own on this question.
+      if (step && awaiting) {
+        followUpsRef.current[step.id] = (followUpsRef.current[step.id] || 0) + 1;
+      }
       return {
         ok: true,
-        awaiting: data?.awaiting !== false && !!String(data?.say || '').trim(),
+        awaiting,
         choice: onScreen.find((c) => c.label === data?.choice) || null,
-        nextIndex: nextAskable && data?.asking === 'next' ? nextIndex : -1,
         suggestions: Array.isArray(data?.suggestions) ? data.suggestions.filter((t) => typeof t === 'string') : [],
+        skip: data?.skip === true,
+        answered: data?.answered === true,
       };
     } catch {
       setTyping(false);
@@ -2360,6 +2431,16 @@ const ProfileCoach = () => {
       }
     }
 
+    /* A plain job title is the answer as typed: "Registered Nurse" under
+       Design, from someone changing careers, is still their title. Sent to
+       the model, it was questioned instead, and asked again and again. A
+       sentence ("I'm not sure what to put") still goes to the model. */
+    if (step.id === 'title' && looksLikeTitle(text) && !matchChip(text, getChips(step, current))) {
+      if (liveMessage) spendChips(liveMessage.id);
+      commit({ title: text.replace(/[.!]+$/, '').trim() }, index);
+      return;
+    }
+
     const tapped = matchChip(text, getChips(step, current));
     if (tapped && step.assign) {
       if (liveMessage) spendChips(liveMessage.id);
@@ -2400,27 +2481,38 @@ const ProfileCoach = () => {
       selected: [],
     }]);
 
+    /* Past its one follow-up, the coach does not get to keep asking, even
+       if a reply slipped through as a question: an optional question moves
+       on, a required one puts its buttons back. */
+    if ((followUpsRef.current[step.id] || 0) > 1) {
+      if (stepAnswered(step, draftRef.current) || step.optional) advance(index, draftRef.current);
+      else offerChipsAgain(step, null);
+      return;
+    }
+
     if (turn.awaiting) {
       if (!stepAnswered(step, draftRef.current)) {
         if (turn.suggestions.length) offerSuggestions();
         else offerChipsAgain(step, null);
         return;
       }
-      /* Answered, and it went straight on to the next question in its own
-         words: that question is now the one on screen, with its buttons
-         under the reply, and the next answer is read against it. */
-      const nextStep = LADDER[turn.nextIndex];
-      if (nextStep && !stepAnswered(nextStep, draftRef.current)) {
-        // The talk-or-chat choice it went past is made, as askStep would.
-        if (!voiceAvailableRef.current && !draftRef.current.mode) {
-          draftRef.current = { ...draftRef.current, mode: 'chat' };
-          setDraft(draftRef.current);
-        }
-        setStepIndex(turn.nextIndex);
-        offerChipsAgain(nextStep, null, suggestionChips(nextStep, turn.suggestions));
-        return;
-      }
       if (turn.suggestions.length) offerSuggestions();
+      return;
+    }
+
+    /* They passed on a question that can be passed on ("I haven't got
+       any", "not sure"). The coach said it is fine; the page used to sit
+       there after it, with nothing left to answer. */
+    if (turn.skip && step.optional) {
+      advance(index, draftRef.current);
+      return;
+    }
+
+    /* A question about their work ("Anywhere before that?") has no field
+       the page can check, so the coach says whether it was answered. The
+       page used to wait after "Let's move on" for an answer it already had. */
+    if (turn.answered && !step.assign) {
+      advance(index, draftRef.current);
       return;
     }
 

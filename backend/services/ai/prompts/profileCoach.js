@@ -22,6 +22,7 @@
 const { COACH_GUARDRAILS } = require('./coachGuardrails');
 const { VOICE_AND_TONE } = require('./profile');
 const { timeFacts } = require('./timeFacts');
+const { stageGuidance } = require('./coachStage');
 
 /**
  * interpretAnswerPrompt — map one free-text answer onto one step's fields.
@@ -417,7 +418,7 @@ RULES:
  * our side — the model never decides what a profile needs — but the
  * conversation belongs to the thing that can actually hold one.
  */
-const coachTurnPrompt = ({ profile, missing, history, message, liveVoice = 'none', asked = '', options = [], next = null }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
+const coachTurnPrompt = ({ profile, missing, history, message, liveVoice = 'none', asked = '', options = [], next = null, followUps = 0 }) => `You are Remi, a career coach having a short conversation that builds someone's professional profile. One turn: they just said something, and you reply.
 
 ${COACH_GUARDRAILS}
 
@@ -429,6 +430,8 @@ ${timeFacts(profile)}
 
 ═══ WHAT YOU ALREADY KNOW ABOUT THEM ═══
 ${JSON.stringify(profile, null, 2)}
+
+${stageGuidance(profile)}
 
 ═══ WHAT THE PROFILE STILL NEEDS ═══
 ${missing.length ? missing.map((m) => `- ${m}`).join('\n') : '- nothing; it is complete'}
@@ -460,19 +463,22 @@ Leave "choice" empty: they confirm it by tapping. If you know too little to
 recommend, say in one line what tells the options apart in their own line of
 work, and ask nothing.` : ''}
 
-═══ THE NEXT QUESTION ON THE PAGE ═══
-${next ? `Once the question on their screen is answered, the page asks this next:
-"${next.question}"${next.options.length ? `
-with these buttons: ${next.options.map((o) => `"${o}"`).join(', ')}.` : ''}
-That is the only new topic you may move on to. If what they said answers the
-question on their screen and you want to carry straight on, ask THIS question
-in your own words (you may fold in a few words about their answer), set
-"awaiting" to true and "asking" to "next". Never jump to another item on the
-checklist: the page asks them in order, and a question it did not expect
-leaves the person with nothing to tap.` : `None. Do not move on to a new topic yourself: answer, and the page
-asks what comes next.`}
+═══ WHAT THE PAGE ASKS NEXT ═══
+${next ? `Once the question on their screen is answered, the page asks this next,
+in its own words and with its own buttons:
+"${next.question}"
+Never ask it yourself, and never move on to anything else on the checklist:
+when they have answered, acknowledge it in a few words or leave "say" empty,
+and set "awaiting" to false. The page takes it from there.` : `Never move on to a new topic yourself: answer, and the page asks what
+comes next.`}
 
-═══ WHAT THEY JUST SAID ═══
+${followUps >= 1 ? `═══ YOU ALREADY FOLLOWED UP ═══
+You have already asked a follow-up about the question on their screen. Do not
+ask another. Take what they said as their answer, even "not sure" or "I
+don't know" (that means move on, not try again), and either leave "say" empty
+or acknowledge it in a few words, then set "awaiting" to false.
+
+` : ''}═══ WHAT THEY JUST SAID ═══
 """${message}"""
 
 WHAT TO RETURN — this object and nothing else:
@@ -483,12 +489,20 @@ WHAT TO RETURN — this object and nothing else:
   "voice": true | false,
   "show": "import" | "none",
   "choice": "one of the buttons above, copied exactly, or \"\"",
-  "asking": "next" | "",
-  "suggestions": ["short answer they could tap", "..."]
+  "suggestions": ["short answer they could tap", "..."],
+  "skip": true | false,
+  "answered": true | false
 }
 
-"asking" — "next" only when "say" asks THE NEXT QUESTION ON THE PAGE. ""
-for anything else, including a follow-up about what they just said.
+"answered" — true when what they said answers the question on their screen,
+even partly or in a few words ("Frontend Developer at Wealthsimple, 2018 to
+2021" answers "Anywhere before that?"). False when they asked something,
+went off topic, or said nothing usable.
+
+"skip" — true when they are passing on the question on their screen: they
+have none ("I haven't done any projects"), do not know, or would rather not
+say. Then make "say" a few words that it is fine, ask nothing, and set
+"awaiting" to false. False otherwise.
 
 "suggestions" — when you ask them something, 3 to 5 answers they could tap
 instead of typing, written as they would say them, each a few words. Base
@@ -497,8 +511,7 @@ for a frontend engineer asked about skills, "React", "TypeScript", "Next.js",
 not a generic list. When the question wants a job title or a role, give
 titles; when it wants skills, give skill names; otherwise short phrases
 ("About 5 people", "Yes, I led it", "Not yet").
-Leave it [] when you ask nothing, when "asking" is "next" and that question
-has buttons of its own, or when the honest answer is a fact only they know
+Leave it [] when you ask nothing, or when the honest answer is a fact only they know
 (a company, a school, a city, a date, a number of their own): guessing those
 puts words in their mouth.
 
@@ -516,7 +529,13 @@ did not say: "2021" stays "2021".
   title, seniority, field, company, startDate, endDate, bullets (array),
   skills (array), previousCompany, school, degree, location, roleType,
   workStyle, target (the role they want next), yearsExperience,
-  graduationYear (the year they finished the school or degree, as said)
+  graduationYear (the year they finished the school or degree, as said),
+  project: { "name", "description", "technologies": [], "url" } for something
+    they built or ran outside a job (a course project, capstone, hackathon,
+    side project, freelance piece). Its name is a short title you give it if
+    they did not ("Study room booking app"); its description is what they did
+    and what came of it, in their words, numbers kept. What a project achieved
+    goes in project.description, never in "bullets": bullets are for a job.
 
 "awaiting" — true when you asked them something and should wait for it. False
 when you answered and are ready for the next item on the checklist.

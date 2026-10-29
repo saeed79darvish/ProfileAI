@@ -6,6 +6,7 @@
  */
 
 const { splitTitleTokens } = require('../utils/roleQuery');
+const { resolveCandidateLevel, jobLevel, LEVEL } = require('./jobSeniorityFit');
 
 /**
  * Curated list of common tech skill tokens used as a fallback when a
@@ -169,6 +170,20 @@ function computeYearsOfExperience(profile) {
  * fall back to the title-derived level.
  */
 function inferExperienceLevel(years, profileTitle = '') {
+  return readExperienceLevel(years, profileTitle) || 'mid';
+}
+
+/**
+ * Same reading as inferExperienceLevel, but null when neither the years nor
+ * the title say anything. inferExperienceLevel defaults to 'mid' so its score
+ * table always has a row to read; a ranking signal must not, because a guessed
+ * default would nudge every signal-less profile's feed towards mid-level roles.
+ */
+function inferExperienceLevelOrNull(years, profileTitle = '') {
+  return readExperienceLevel(years, profileTitle);
+}
+
+function readExperienceLevel(years, profileTitle = '') {
   const LEVELS = ['entry', 'mid', 'senior', 'lead', 'executive'];
 
   const fromTitle = (() => {
@@ -202,8 +217,8 @@ function inferExperienceLevel(years, profileTitle = '') {
   if (fromTitle && fromYears) {
     return LEVELS[Math.max(LEVELS.indexOf(fromTitle), LEVELS.indexOf(fromYears))];
   }
-  // Neither signal — stay conservative.
-  return fromTitle || fromYears || 'mid';
+  // Neither signal: the callers decide what that means.
+  return fromTitle || fromYears || null;
 }
 
 /**
@@ -259,7 +274,7 @@ function scoreLocation(profileLocation, jobLocation, jobLocationType) {
  *   - Recency bonus: 5 points
  */
 function scoreJob(job, profileData) {
-  const { candidateSkills, experienceTitles, experienceKeywords, profileLocation, yearsExp, expLevel, profileTitle } = profileData;
+  const { candidateSkills, experienceTitles, experienceKeywords, profileLocation, yearsExp, expLevel, profileTitle, targetTitle, statedLevel } = profileData;
   
   let score = 0;
   const matchDetails = {
@@ -328,9 +343,16 @@ function scoreJob(job, profileData) {
 
   let titleScore = 0;
 
-  // Compare with profile title (0-22)
-  if (profileTitle) {
-    titleScore += weightedTitleOverlap(profileTitle) * 22;
+  // Compare with profile title (0-22). The role they told the coach they are
+  // aiming for counts as a second, slightly discounted title, the same 0.8 the
+  // feed's SQL applies (TARGET_ROLE_WEIGHT in searchSimilarJobs): a job that
+  // matches where they want to go is relevant, and taking the better of the
+  // two never lets the target push the current role out.
+  if (profileTitle || targetTitle) {
+    titleScore += Math.max(
+      profileTitle ? weightedTitleOverlap(profileTitle) : 0,
+      targetTitle ? 0.8 * weightedTitleOverlap(targetTitle) : 0
+    ) * 22;
   }
 
   // Compare with experience titles (0-23) — take the best-matching past role
@@ -410,7 +432,23 @@ function scoreJob(job, profileData) {
   
   // --- 3. Experience Level Match (0-15 pts) ---
   let expScore = 0;
-  if (job.experienceLevel && expLevel) {
+  if (statedLevel !== null && statedLevel !== undefined) {
+    // The candidate TOLD us their stage or level (coach answers stored on
+    // CareerContext), so read the job's level the same way the feed's SQL
+    // does: early-career title words, then the structured field, then title
+    // keywords. Same 15/10/4 ladder as the inferred branch below, on the
+    // shared five-step scale, so scores stay comparable across users.
+    const jl = jobLevel(job);
+    if (jl === null) {
+      expScore = 5;
+    } else if (statedLevel >= LEVEL.SENIOR && jl === LEVEL.STUDENT) {
+      // An internship is never a near-miss for a senior candidate.
+      expScore = 0;
+    } else {
+      const diff = Math.abs(jl - statedLevel);
+      expScore = diff === 0 ? 15 : diff === 1 ? 10 : diff === 2 ? 4 : 0;
+    }
+  } else if (job.experienceLevel && expLevel) {
     const levels = ['entry', 'mid', 'senior', 'lead', 'executive'];
     const jobLevelIdx = levels.indexOf(job.experienceLevel);
     const candidateLevelIdx = levels.indexOf(expLevel);
@@ -493,7 +531,7 @@ function scoreJob(job, profileData) {
  * Score and rank a list of jobs against a candidate profile.
  * Returns jobs with `relevanceScore` attached, sorted by score DESC then postedAt DESC.
  */
-function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
+function rankJobs(jobs, profile, { sortMode = 'recommended', preferences = null, target = '' } = {}) {
   // No profile (e.g. a freshly-registered user who hasn't built one yet):
   // return jobs unranked. Convert Sequelize instances to plain objects first
   // — spreading a model instance copies internal circular refs (include/
@@ -508,8 +546,9 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
   const yearsExp = computeYearsOfExperience(profile);
   const profileTitle = (profile.title || profile.headline || '').toLowerCase();
   const expLevel = inferExperienceLevel(yearsExp, profileTitle);
+  const { statedLevel, targetTitle } = careerSignals(preferences, target);
   
-  const profileData = { candidateSkills, experienceTitles, experienceKeywords, profileLocation, yearsExp, expLevel, profileTitle };
+  const profileData = { candidateSkills, experienceTitles, experienceKeywords, profileLocation, yearsExp, expLevel, profileTitle, targetTitle, statedLevel };
   
   const scored = jobs.map(job => {
     const jobPlain = job.toJSON ? job.toJSON() : job;
@@ -558,6 +597,19 @@ function rankJobs(jobs, profile, { sortMode = 'recommended' } = {}) {
 }
 
 /**
+ * The two things the coach learned that scoring can use: the level the
+ * candidate stated (null when they stated none, so the inferred reading
+ * applies unchanged) and the role they are aiming for.
+ */
+function careerSignals(preferences, target) {
+  const { level, source } = resolveCandidateLevel({ constraints: preferences || {} });
+  return {
+    statedLevel: source === 'stated' ? level : null,
+    targetTitle: String(target || '').toLowerCase().trim(),
+  };
+}
+
+/**
  * Build the pre-computed profile scoring data once per user, so callers
  * scoring many jobs in a row don't repeat the extraction work for every
  * call to `scoreJob`. Mirrors what `rankJobs` does internally.
@@ -598,5 +650,7 @@ module.exports = {
   extractExperienceKeywords,
   computeYearsOfExperience,
   inferExperienceLevel,
+  inferExperienceLevelOrNull,
   buildProfileScoringData,
+  careerSignals,
 };

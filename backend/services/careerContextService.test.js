@@ -72,3 +72,33 @@ test('one thing, or everything, can be forgotten', async () => {
   assert.equal(out.target, '');
   assert.equal((await service.get('u1')).summaries.length, 0);
 });
+
+test('stage, level and sector are kept only as known ids', async () => {
+  const { service } = make();
+  const out = await service.merge('u1', {
+    constraints: { careerStage: 'new_grad', seniority: 'Senior', sector: 'tech' },
+  });
+  assert.deepEqual(out.constraints, { careerStage: 'new_grad', seniority: 'senior', sector: 'tech' });
+
+  const bad = await service.edit('u2', {
+    constraints: { careerStage: 'wizard', seniority: 'very senior', sector: 'spaceships', workStyle: 'remote' },
+  });
+  assert.deepEqual(bad.constraints, { workStyle: 'remote' });
+});
+
+test('the coach does not overwrite a stated level unless correcting it', async () => {
+  const { service } = make();
+  await service.edit('u1', { constraints: { seniority: 'staff' } });
+  const filled = await service.merge('u1', { constraints: { seniority: 'senior', careerStage: 'experienced' } });
+  assert.equal(filled.constraints.seniority, 'staff');
+  assert.equal(filled.constraints.careerStage, 'experienced');
+  const corrected = await service.merge('u1', { constraints: { seniority: 'senior' } }, { overwrite: true });
+  assert.equal(corrected.constraints.seniority, 'senior');
+});
+
+test('the new keys can be forgotten one at a time', async () => {
+  const { service } = make();
+  await service.merge('u1', { constraints: { seniority: 'senior', sector: 'data' } });
+  const out = await service.forget('u1', { field: 'seniority' });
+  assert.deepEqual(out.constraints, { sector: 'data' });
+});

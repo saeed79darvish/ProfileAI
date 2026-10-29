@@ -515,7 +515,7 @@ export const voiceAgenda = (draft = {}) => {
     agenda.push(`ask about this gap in their resume: ${probe}`);
   }
   // Offered at the role question, so a call with no role yet starts there.
-  if (!(draft.experience || []).length && !['new_grad', 'student'].includes(draft.careerStage)) {
+  if (!(draft.experience || []).length && !NO_JOB_STAGES.has(draft.careerStage)) {
     agenda.push('their most recent role: where, what title, and roughly when');
     agenda.push('what they actually did there that they are proudest of');
   }
@@ -629,8 +629,14 @@ export const LADDER = [
   },
   {
     id: 'title',
-    question: "And what's your job title?",
-    hint: 'Pick the closest one or type your own. This is what recruiters search.',
+    /* Someone still at school has no job title yet: what they are going
+       for is their headline. */
+    question: (draft) => (EARLY_STAGES.has(draft.careerStage)
+      ? 'What kind of role are you going for?'
+      : "And what's your job title?"),
+    hint: (draft) => (EARLY_STAGES.has(draft.careerStage)
+      ? 'Pick the closest or type your own. It becomes your headline, and it is what recruiters search.'
+      : 'Pick the closest one or type your own. This is what recruiters search.'),
     kind: 'chips',
     chipSet: 'titles',
     freeText: true,
@@ -714,6 +720,10 @@ export const LADDER = [
   },
   {
     id: 'careerStage',
+    /* Asked straight after the field (see STAGE_ORDERS): a new grad, a
+       career changer and a senior engineer need different questions, and
+       asked eighth, as it was, everything before it was the same for all
+       of them. */
     question: 'Where are you in your career right now?',
     hint: 'This decides what I ask next, so pick honestly.',
     kind: 'chips',
@@ -746,7 +756,10 @@ export const LADDER = [
     id: 'achievements',
     story: true,
     question: 'What did you actually do there?',
-    hint: "Just talk normally. I'll turn it into resume bullets.",
+    // A career changer's old job matters for what carries over.
+    hint: (draft) => (draft.careerStage === 'career_change'
+      ? "Just talk normally. I'll pull out what carries over to where you are heading."
+      : "Just talk normally. I'll turn it into resume bullets."),
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -774,8 +787,18 @@ export const LADDER = [
   },
   {
     id: 'projects',
-    question: 'Then tell me about something you built, ran or organised.',
-    hint: 'A side project, a course project, something at a volunteer job. What it was and what you did.',
+    question: (draft) => ({
+      new_grad: 'Tell me about a project you are proud of.',
+      internship: 'Tell me about a project you are proud of.',
+      self_taught: 'What have you built? Start with the one you are proudest of.',
+      career_change: `What have you done in ${draft.target ? `the ${draft.target} direction` : 'the new field'} so far?`,
+    }[draft.careerStage] || 'Then tell me about something you built, ran or organised.'),
+    hint: (draft) => ({
+      new_grad: 'A capstone, a course project, a hackathon or something of your own. What it was and what you did.',
+      internship: 'A capstone, a course project, a hackathon or something of your own. What it was and what you did.',
+      self_taught: 'What it does, what you used, and anything people did with it.',
+      career_change: 'A course project, freelance work, something you built or ran. This is what shows you can do the new job.',
+    }[draft.careerStage] || 'A side project, a course project, something at a volunteer job. What it was and what you did.'),
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -816,8 +839,13 @@ export const LADDER = [
   },
   {
     id: 'education',
-    question: 'How about education? A degree, a bootcamp, certificates.',
-    hint: 'One line is fine. Skip it if it is not relevant to you.',
+    // For a new grad, school is the headline credential, not a footnote.
+    question: (draft) => (EARLY_STAGES.has(draft.careerStage)
+      ? 'Where did you study, and what?'
+      : 'How about education? A degree, a bootcamp, certificates.'),
+    hint: (draft) => (EARLY_STAGES.has(draft.careerStage)
+      ? 'School, degree, and when you finished or will. Courses that fit the job you want are worth a mention.'
+      : 'One line is fine. Skip it if it is not relevant to you.'),
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -851,7 +879,9 @@ export const LADDER = [
   },
   {
     id: 'target',
-    question: 'Now the part that actually matters. What are you aiming for next?',
+    question: (draft) => (draft.careerStage === 'career_change'
+      ? 'Now the part that actually matters. What are you moving into?'
+      : 'Now the part that actually matters. What are you aiming for next?'),
     hint: 'Pick the closest, or tell me in your own words. I will tell you honestly how far it is.',
     kind: 'chips',
     chipSet: 'targets',
@@ -957,6 +987,27 @@ export const LADDER = [
     freeText: false,
     aiStep: null,
     assign: null,
+  },
+  /* Last in the array, not in the conversation (see STAGE_ORDERS): saved
+     conversations remember their step by its index here, so new steps are
+     only ever appended. */
+  {
+    /* Before the profile is put together, the coach reads it as a whole,
+       against who this person is and where they are heading, and asks for
+       the one or two things a recruiter would miss. Without it the
+       conversation ended when the list ran out, whether the profile was
+       ready or not. Imports already had this from the resume review, and a
+       call covers it. */
+    id: 'gapCheck',
+    question: 'Let me read it through once before I put it together.',
+    hint: '',
+    kind: 'run',
+    runs: 'gaps',
+    chipSet: null,
+    freeText: false,
+    aiStep: null,
+    assign: null,
+    skipIf: 'reviewedAlready',
   },
 ];
 
@@ -1570,7 +1621,8 @@ export const readsAsAnswer = (text, step, draft = {}) => {
    Titles are short noun phrases. Sentences about oneself are not, and the
    giveaway is nearly always a first-person verb: "I work in", "I'm not
    sure", "I need help". */
-const NOT_A_TITLE = /\b(i am|i'?m|i work|i need|i want|i have|i do|i think|i guess|my |can you|help|sure|know)\b/i;
+// Not a title: a sentence about themselves, a question, or a shrug.
+const NOT_A_TITLE = /\b(i am|i'?m|i work|i need|i want|i have|i do|i think|i guess|my |can you|help|sure|know|dunno|idk|no idea|nothing|none|n\/a|skip|what|why|how)\b|\?/i;
 
 export const looksLikeTitle = (text) => {
   const typed = String(text || '').trim();
@@ -1642,24 +1694,45 @@ export const draftRewoundTo = (draft, stepId) => {
    requires. Phrased as things a person would say, because that is what the
    model has to turn back into a question. */
 
+/* Stages with no job to describe yet: their evidence is study and projects. */
+const NO_JOB_STAGES = new Set(['new_grad', 'self_taught']);
+
+/* What the profile still needs, in the order worth asking, for this person.
+   The typed coach and the call both work from this list, so a new grad's
+   list asks for their studies and a project, not their last job, and a
+   career changer's asks what they have done in the new field. */
 export const missingFields = (draft = {}) => {
   const missing = [];
+  // Read off the jobs, or a senior level, before it is asked: a staff
+  // engineer is not asked whether they have work experience.
+  const stage = inferredCareerStage(draft) || (SENIOR_LEVELS.has(draft.level) ? 'experienced' : '');
   if (!draft.sector) missing.push('what field they work in');
-  if (!draft.title) missing.push('their job title');
-  if (!draft.level) missing.push('how senior they are');
+  if (!stage) missing.push('where they are in their career: working, a new grad or student, changing careers, or self-taught');
+  if (!draft.title) {
+    missing.push(EARLY_STAGES.has(stage) ? 'the kind of role they are going for' : 'their job title');
+  }
+  if (EARLY_STAGES.has(stage) && !(draft.education || []).length) {
+    missing.push('their studies: school, degree, and when they finished or will');
+  }
+  if (!draft.level && !EARLY_STAGES.has(stage)) missing.push('how senior they are');
   if (!(draft.roleTypes || []).length) missing.push('the kind of work they want: full-time, contract, and so on');
   if (!draft.workStyle) {
     missing.push(SITE_BASED.has(draft.sector)
       ? 'whether they want work close to home or are happy to travel for it (this work is done on site, never remote)'
       : 'remote, hybrid or on-site');
   }
+  if (stage === 'career_change' && !(draft.projects || []).length) {
+    missing.push('what they have already done in the field they are moving into: a course, a project, freelance work');
+  }
   if (!(draft.experience || []).length && !(draft.projects || []).length) {
-    missing.push('their most recent role, or a project if they have no job to name');
+    missing.push(NO_JOB_STAGES.has(stage)
+      ? 'a project they are proud of (a course project, capstone, hackathon or their own), and what came of it'
+      : 'their most recent role, or a project if they have no job to name');
   } else if (!String((draft.experience || [])[0]?.description || '').trim()) {
     missing.push('what they actually did in that role, in concrete terms');
   }
   if (!(draft.skills || []).length) missing.push('what they are good at');
-  if (!(draft.education || []).length) missing.push('education, a bootcamp or certifications');
+  if (!(draft.education || []).length && !EARLY_STAGES.has(stage)) missing.push('education, a bootcamp or certifications');
   if (!draft.location) missing.push('where they are based');
   if (!draft.target) missing.push('the role they want next');
   return missing;
@@ -1695,6 +1768,8 @@ const SKIP_PREDICATES = {
   // They skipped the target question; assessing an unstated goal would mean
   // inventing one for them.
   noTarget: (draft) => !String(draft.target || '').trim(),
+  // The resume review asked its own follow-ups, and a call covers them.
+  reviewedAlready: (draft) => !!draft.importedFrom || draft.mode === 'voice',
 };
 
 /* Where someone is in their career, read off the jobs already in the draft.
@@ -1779,15 +1854,55 @@ export const IMPORT_ORDER = [
    covered it. What is left is the work that turns it into the preview. */
 const VOICE_FINISH = new Set(['importOffer', 'moreSources', 'review', 'mode', 'assess', 'fix', 'build', 'tour', 'convert']);
 
-const DEFAULT_ORDER = LADDER.map((_, i) => i);
-const IMPORT_ORDER_INDICES = IMPORT_ORDER
-  .map((id) => LADDER.findIndex((s) => s.id === id))
-  .filter((i) => i >= 0);
+/* The from-scratch conversation, by where the person is in their career.
+   The opening is the same for everyone and asks the career stage straight
+   after the field, so everything after it can be about this person:
+     new grads lead with their studies and projects, which are their
+       evidence, and get no question about a job they have not had;
+     career changers name where they are heading before the projects, so
+       those are asked about the new field, and the old job is read for
+       what carries over;
+     the self-taught lead with what they built;
+     everyone else starts from their current role, as before.
+   An order is a list of step ids; a step that does not apply is skipped
+   as it is walked (skipIf, isAlreadyAnswered). */
+const OPENING = ['importOffer', 'sector', 'careerStage', 'level', 'title', 'moreSources', 'review', 'mode', 'lookingFor', 'workStyle'];
+const GOAL = ['target', 'targetWhy', 'targetBlocker'];
+const CLOSING = ['gapCheck', 'talkOffer', 'fix', 'build', 'tour', 'convert'];
+const AROUND = ['location', 'links'];
+export const STAGE_ORDERS = {
+  experienced: [...OPENING, 'currentRole', 'achievements', 'previousRole', 'projects', 'evidence', 'skills', 'education', ...AROUND, ...GOAL, 'assess', ...CLOSING],
+  internship: [...OPENING, 'currentRole', 'achievements', 'previousRole', 'projects', 'evidence', 'education', 'skills', ...AROUND, ...GOAL, 'assess', ...CLOSING],
+  new_grad: [...OPENING, 'education', 'projects', 'evidence', 'currentRole', 'achievements', 'previousRole', 'skills', ...AROUND, ...GOAL, 'assess', ...CLOSING],
+  career_change: [...OPENING, 'currentRole', 'achievements', 'previousRole', ...GOAL, 'projects', 'evidence', 'skills', 'education', ...AROUND, 'assess', ...CLOSING],
+  self_taught: [...OPENING, 'projects', 'evidence', 'currentRole', 'achievements', 'previousRole', 'skills', 'education', ...AROUND, ...GOAL, 'assess', ...CLOSING],
+};
+const toIndices = (ids) => ids.map((id) => LADDER.findIndex((s) => s.id === id)).filter((i) => i >= 0);
+const STAGE_ORDER_INDICES = Object.fromEntries(
+  Object.entries(STAGE_ORDERS).map(([stage, ids]) => [stage, toIndices(ids)])
+);
+const IMPORT_ORDER_INDICES = toIndices(IMPORT_ORDER);
 
 /** Which order the ladder walks in for this draft, as LADDER indices. */
 export const ladderOrder = (draft = {}) => {
-  const order = draft.importedFrom && (draft.experience || []).length ? IMPORT_ORDER_INDICES : DEFAULT_ORDER;
+  const order = draft.importedFrom && (draft.experience || []).length
+    ? IMPORT_ORDER_INDICES
+    : STAGE_ORDER_INDICES[draft.careerStage] || STAGE_ORDER_INDICES.experienced;
   return draft.mode === 'voice' ? order.filter((i) => VOICE_FINISH.has(LADDER[i].id)) : order;
+};
+
+/* Early in a career: no job title yet, and school is the main credential. */
+export const EARLY_STAGES = new Set(['new_grad', 'internship']);
+
+/**
+ * What a career stage settles on its own. A new grad or an intern is at the
+ * entry rung, so the level question (Junior? Senior? Staff?) is not asked
+ * of them; the field's entry rung is used where it has one.
+ */
+export const withStageDefaults = (draft = {}) => {
+  if (draft.level || !EARLY_STAGES.has(draft.careerStage)) return draft;
+  const entry = levelsFor(draft.sector).find((l) => l.id === 'entry');
+  return entry ? { ...draft, level: entry.id } : draft;
 };
 
 export const nextStepIndex = (fromIndex, draft = {}) => {
@@ -1827,8 +1942,11 @@ export const isAlreadyAnswered = (step, draft = {}) => {
   switch (step.id) {
     case 'sector':
       return !!draft.sector;
+    /* New grads and interns are at the entry rung (see withStageDefaults).
+       A career changer's level is in a field they are leaving: asked, it
+       put "Junior" in front of "Registered Nurse". */
     case 'level':
-      return !!draft.level;
+      return !!draft.level || EARLY_STAGES.has(draft.careerStage) || draft.careerStage === 'career_change';
     // Once a resume or LinkedIn is in, neither the offer to upload one nor
     // the review of it comes round again. After a call the ladder restarts
     // from the top, and it asked "do you have a resume?" of someone who had
@@ -1887,6 +2005,8 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.importedFrom && Array.isArray(draft.experience) && draft.experience.length > 0;
     case 'skills':
       return Array.isArray(draft.skills) && draft.skills.length > 0;
+    case 'projects':
+      return Array.isArray(draft.projects) && draft.projects.length > 0;
     case 'education':
       return Array.isArray(draft.education) && draft.education.length > 0;
     case 'location':
@@ -2071,8 +2191,18 @@ export const applyBraindump = (draft = {}, rawFields = {}) => {
   // where one reads as a fragment. Once, though.
   if (fields.previousCompany
     && !(next.experience || []).some((r) => sameCompany(r.company, fields.previousCompany))) {
+    /* Said on its own ("Frontend Developer at Wealthsimple, 2018 to 2021"),
+       the title and years are the earlier job's: they were dropped, and the
+       final read then asked for them again. With a current company in the
+       same answer they belong to that one instead. */
+    const own = !fields.company;
     next.experience = [...(next.experience || []), {
-      title: '', company: fields.previousCompany, startDate: '', endDate: '', current: false, description: '',
+      title: own ? normalizeTitle(fields.title || '') : '',
+      company: fields.previousCompany,
+      startDate: own ? String(fields.startDate || '') : '',
+      endDate: own ? String(fields.endDate || '') : '',
+      current: false,
+      description: '',
     }];
   }
 
@@ -2180,7 +2310,16 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
         next.projects = [{ ...head, ...row, description: row.description || head.description }, ...rest];
         break;
       }
-      next.projects = [row, ...(draft.projects || [])];
+      /* The same project named again (said twice, or picked up again from
+         a later answer) updates its row instead of adding a copy. */
+      const same = (draft.projects || []).findIndex((p) => norm(p.title) === norm(name));
+      if (same >= 0) {
+        const rows = [...draft.projects];
+        rows[same] = { ...rows[same], ...row, description: row.description || rows[same].description, url: row.url || rows[same].url };
+        next.projects = rows;
+      } else {
+        next.projects = [row, ...(draft.projects || [])];
+      }
       // Tools named while describing a project are skills, and asking for
       // them again three questions later reads as not having listened.
       if (row.technologies.length) {
@@ -2545,7 +2684,26 @@ export const draftToResumeData = (draft = {}) => ({
  * end — both come through empty for most of the conversation, which
  * correctly keeps a mid-conversation profile under 100%.
  */
+/* Who this is, beyond the resume: the career stage, the field and level,
+   where they are heading, and how they want to work. Every model call reads
+   the profile through draftToProfileShape, and without this none of them
+   could tell a new grad from a staff engineer with the same title. Only
+   what is known goes in. */
+const aboutOf = (draft = {}) => {
+  const about = {
+    careerStage: CAREER_STAGES.find((c) => c.id === draft.careerStage)?.label || '',
+    field: JOB_SECTORS.find((s) => s.id === draft.sector)?.label || draft.sector || '',
+    level: levelsFor(draft.sector).find((l) => l.id === draft.level)?.label || '',
+    target: draft.target || '',
+    targetWhy: draft.targetWhy || '',
+    lookingFor: (draft.roleTypes || []).join(', '),
+    workStyle: draft.workStyle || '',
+  };
+  return Object.fromEntries(Object.entries(about).filter(([, v]) => v));
+};
+
 export const draftToProfileShape = (draft = {}) => ({
+  about: aboutOf(draft),
   title: buildTitle(draft),
   location: draft.location || '',
   summary: draft.summary || '',
@@ -2765,6 +2923,11 @@ export const careerContextOf = (draft = {}) => {
   if (draft.location) constraints.location = draft.location;
   if (draft.workStyle) constraints.workStyle = draft.workStyle;
   if ((draft.roleTypes || []).length) constraints.roleTypes = draft.roleTypes;
+  /* Who they are, for job matching: a new grad is shown entry roles and
+     internships, a senior engineer is not. Stored as ids. */
+  if (draft.careerStage) constraints.careerStage = draft.careerStage;
+  if (draft.level) constraints.seniority = draft.level;
+  if (draft.sector) constraints.sector = draft.sector;
   if (Object.keys(constraints).length) out.constraints = constraints;
   return out;
 };
@@ -2777,6 +2940,9 @@ export const seedFromCareerContext = (draft = {}, context = {}) => ({
   targetBlocker: draft.targetBlocker || context.targetBlocker || '',
   workStyle: draft.workStyle || context.constraints?.workStyle || '',
   roleTypes: (draft.roleTypes || []).length ? draft.roleTypes : (context.constraints?.roleTypes || []),
+  careerStage: draft.careerStage || context.constraints?.careerStage || '',
+  sector: draft.sector || context.constraints?.sector || '',
+  level: draft.level || context.constraints?.seniority || '',
   // Already assessed once: not re-run (it is the one paid step in here).
   assessment: draft.assessment || context.assessment || null,
 });

@@ -29,6 +29,7 @@ const { countOpenings } = require('./coachMarket');
 // is the right tier here — a conversation is ~10 of these calls and using
 // Sonnet would make the builder cost more than parsing a whole resume.
 const TURN_MODEL = HAIKU_MODEL;
+const { gapCheckPrompt, suggestPrompt, SUGGEST_KINDS } = require('./ai/prompts/coachStage');
 
 // Hard cap on what we'll accept as one chat answer. Voice transcripts run
 // long, but anything past this is a paste, not an answer, and would blow
@@ -425,8 +426,24 @@ async function reviewProfile({ profile, sector } = {}) {
 const TURN_FIELDS = new Set([
   'title', 'seniority', 'field', 'company', 'startDate', 'endDate', 'bullets',
   'skills', 'previousCompany', 'school', 'degree', 'location', 'roleType',
-  'workStyle', 'target', 'yearsExperience', 'graduationYear',
+  'workStyle', 'target', 'yearsExperience', 'graduationYear', 'project',
 ]);
+
+/* A project they described: something built or run outside a job. Kept to
+   the fields the profile has, as strings. */
+const cleanProject = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const text = (v, max) => String(typeof v === 'string' ? v : '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const name = text(value.name, 120);
+  if (!name) return null;
+  return {
+    name,
+    description: text(value.description, 1200),
+    url: text(value.url, 300),
+    technologies: (Array.isArray(value.technologies) ? value.technologies : [])
+      .map((t) => text(t, 40)).filter(Boolean).slice(0, 12),
+  };
+};
 
 /* Suggested answers the model wrote for the question it asked: short,
    distinct, a few at most. Anything else in the array is dropped. */
@@ -445,9 +462,9 @@ const cleanSuggestions = (value) => {
   return out;
 };
 
-async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null } = {}) {
+async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null, followUps = 0 } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
-  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', asking: '', suggestions: [] };
+  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', suggestions: [] };
 
   const response = await callAI({
     model: TURN_MODEL,
@@ -469,6 +486,7 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
         asked,
         options,
         next,
+        followUps,
       }),
     }],
   });
@@ -479,24 +497,28 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
   for (const [key, value] of Object.entries(parsed.learned || {})) {
     if (!TURN_FIELDS.has(key)) continue;
     if (value === null || value === undefined || value === '') continue;
+    if (key === 'project') {
+      const project = cleanProject(value);
+      if (project) learned.project = project;
+      continue;
+    }
     learned[key] = value;
   }
 
-  const say = String(parsed.say || '').trim();
-  /* It claimed to move on to the page's next question but asked nothing
-     ("Got it. Full-stack frontend engineer it is."): it is done, and the
-     page asks the next question itself. Trusting the claim put that
-     question's buttons under a reply with no question in it. */
-  const claimedNext = !!next && parsed.asking === 'next';
-  const asksNext = claimedNext && say.includes('?');
-  const awaiting = parsed.awaiting !== false && !!say && !(claimedNext && !asksNext);
-  /* It moved on to the page's next question in its own words. The page then
-     shows that question's buttons under the reply instead of asking it
-     again. */
-  const asking = asksNext && awaiting ? 'next' : '';
-  /* Buttons the page owns win: a question with fixed answers (full-time,
-     remote) keeps them, and the model's words are not offered beside them. */
-  const fixedButtons = asking === 'next' && !next.open && next.options.length > 0;
+  let say = String(parsed.say || '').trim();
+  /* One follow-up per question, enforced. The prompt asks for it, and a
+     new grad who answered "not sure" was still asked the same thing thirty
+     times in a row. Past the first, a question is dropped and the page
+     moves on. */
+  if (followUps >= 1 && say.includes('?')) say = '';
+  let awaiting = parsed.awaiting !== false && !!say;
+  /* A re-ask is not always a question: "Walk me through your most recent
+     job" has no question mark and was asked four times. Past the first
+     follow-up, anything still waiting on them is dropped. */
+  if (followUps >= 1 && awaiting) {
+    say = '';
+    awaiting = false;
+  }
 
   return {
     say,
@@ -504,8 +526,9 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     // Default to waiting. Pressing on when the model did not say it was
     // finished is how a conversation talks over someone.
     awaiting,
-    asking,
-    suggestions: awaiting && !fixedButtons ? cleanSuggestions(parsed.suggestions) : [],
+    suggestions: awaiting ? cleanSuggestions(parsed.suggestions) : [],
+    skip: parsed.skip === true && !awaiting,
+    answered: parsed.answered === true && !awaiting,
     // Only ever true when the page said it can open a call right now.
     voice: liveVoice === 'live' && parsed.voice === true,
     // A piece of the page to put under the reply. Only names we render.
@@ -646,7 +669,46 @@ async function planFixes({ profile = {}, review = null, target = '', motivation 
   };
 }
 
+/* Questions, cleaned: strings, one short sentence each, at most `max`. */
+const cleanLines = (value, { max, maxLength }) => (Array.isArray(value) ? value : [])
+  .map((q) => String(typeof q === 'string' ? q : '').replace(/\s+/g, ' ').trim())
+  .filter((q) => q && q.length <= maxLength)
+  .filter((q, i, all) => all.findIndex((o) => o.toLowerCase() === q.toLowerCase()) === i)
+  .slice(0, max);
+
+/**
+ * gapCheck — read the finished draft once, against who they are and where
+ * they are heading, and ask for what a recruiter would miss. Up to two
+ * questions; none when it is ready.
+ */
+async function gapCheck({ profile = {} } = {}) {
+  const response = await callAI({
+    model: TURN_MODEL,
+    max_tokens: 400,
+    messages: [{ role: 'user', content: gapCheckPrompt({ profile }) }],
+  });
+  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+  return cleanLines(parsed.questions, { max: 2, maxLength: 220 });
+}
+
+/**
+ * suggestAnswers — the buttons under a question about titles, the target
+ * role or skills, written for this person rather than for their field.
+ */
+async function suggestAnswers({ profile = {}, kind = 'titles', question = '' } = {}) {
+  if (!SUGGEST_KINDS[kind]) return [];
+  const response = await callAI({
+    model: TURN_MODEL,
+    max_tokens: 300,
+    messages: [{ role: 'user', content: suggestPrompt({ profile, kind, question }) }],
+  });
+  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+  return cleanLines(parsed.suggestions, { max: 6, maxLength: 40 });
+}
+
 module.exports = {
+  gapCheck,
+  suggestAnswers,
   planFixes,
   STEP_SCHEMAS,
   reviewProfile,

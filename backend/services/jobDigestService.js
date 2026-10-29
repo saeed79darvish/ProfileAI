@@ -15,8 +15,9 @@
 
 const crypto = require('crypto');
 const { Op, literal } = require('sequelize');
-const { User, Profile, ExternalJob, Company } = require('../models');
+const { User, Profile, ExternalJob, Company, CareerContext } = require('../models');
 const { rankJobs, inferExperienceLevel, computeYearsOfExperience } = require('./jobRelevanceService');
+const { resolveCandidateLevel, LEVEL } = require('./jobSeniorityFit');
 const { deriveRoleQuery } = require('../utils/roleQuery');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const emailService = require('./emailService');
@@ -235,6 +236,34 @@ async function loadCandidatePool(profile, roleQuery, since) {
 }
 
 /**
+ * The digest's seniority rule, as a pure function so it can be tested.
+ *
+ * The candidate's level is what they told the coach (career stage or
+ * seniority on their CareerContext) when they said anything, and the
+ * years-and-title inference otherwise. Inference defaults to mid when the
+ * profile says nothing, which keeps the long-standing behaviour for people who
+ * never answered: internships are left out for anyone not entry-level.
+ *
+ * @returns {(job: object) => boolean} true when a job is the wrong level
+ */
+function makeDigestLevelMismatch({ constraints = {}, inferredLevel = 'mid' } = {}) {
+  const { level } = resolveCandidateLevel({ constraints, inferredLevel });
+  const candidateLevel = level === null ? LEVEL.MID : level;
+  return (job) => {
+    // An internship or new-grad posting is wrong for anyone who is not
+    // entry-level, whatever else it scores. Checked on the title rather than the
+    // structured level because that field is null on most postings — which is
+    // exactly why scoreJob can only weight it lightly and why an "AI Builder
+    // Intern" scored 51 against a senior engineer's profile.
+    if (candidateLevel > LEVEL.ENTRY
+      && /\b(intern|internship|apprentice|new\s*grad|entry[-\s]level)\b/i.test(job.title || '')) {
+      return true;
+    }
+    return candidateLevel >= LEVEL.SENIOR && job.experienceLevel === 'entry';
+  };
+}
+
+/**
  * Build the matched-jobs payload for a single profile.
  * Returns { matches, jobsScanned }.
  */
@@ -258,7 +287,19 @@ async function buildMatchesForProfile(profile) {
   const pool = await loadCandidatePool(profile, roleQuery, since);
   if (pool.length === 0) return { matches: [], jobsScanned };
 
-  const ranked = rankJobs(pool, profile, { sortMode: 'match' });
+  // What the coach learned about their stage and level, when it learned it.
+  // A missing record is the common case for older accounts and changes nothing.
+  let constraints = {};
+  try {
+    const career = profile.userId && CareerContext
+      ? await CareerContext.findOne({ where: { userId: profile.userId }, attributes: ['constraints'] })
+      : null;
+    if (career?.constraints && typeof career.constraints === 'object') constraints = career.constraints;
+  } catch (e) {
+    console.warn('[JobDigest] career context unavailable:', e.message);
+  }
+
+  const ranked = rankJobs(pool, profile, { sortMode: 'match', preferences: constraints });
   const profileSkills = extractProfileSkillSet(profile);
 
   // Seniority sanity. Level inference is sparse (most postings carry no
@@ -266,21 +307,12 @@ async function buildMatchesForProfile(profile) {
   // let an "AI Builder Intern" reach a senior engineer's email on title and
   // skill overlap. Where the posting DOES declare a junior level and the
   // candidate is clearly not junior, that is not a close call worth ranking:
-  // it is wrong, and one obviously wrong row discredits the other nine.
-  const candidateLevel = inferExperienceLevel(computeYearsOfExperience(profile), profile.title);
-  const seniorCandidate = ['senior', 'lead', 'executive'].includes(candidateLevel);
-  const levelMismatch = (job) => {
-    // An internship or new-grad posting is wrong for anyone who is not
-    // entry-level, whatever else it scores. Checked on the title rather than the
-    // structured level because that field is null on most postings — which is
-    // exactly why scoreJob can only weight it lightly and why an "AI Builder
-    // Intern" scored 51 against a senior engineer's profile.
-    if (candidateLevel !== 'entry'
-      && /\b(intern|internship|apprentice|new\s*grad|entry[-\s]level)\b/i.test(job.title || '')) {
-      return true;
-    }
-    return seniorCandidate && job.experienceLevel === 'entry';
-  };
+  // it is wrong, and one obviously wrong row discredits the other nine. A level
+  // the candidate stated to the coach wins over the inference.
+  const levelMismatch = makeDigestLevelMismatch({
+    constraints,
+    inferredLevel: inferExperienceLevel(computeYearsOfExperience(profile), profile.title),
+  });
 
   // At most N per employer. The pool is drawn from whichever boards are largest,
   // so without this one company takes the whole email — a measured run sent six
@@ -622,6 +654,7 @@ module.exports = {
   runDailyJobDigest,
   sendDigestToUser,
   buildMatchesForProfile,
+  makeDigestLevelMismatch,
   signUnsubscribeToken,
   verifyUnsubscribeToken,
 };

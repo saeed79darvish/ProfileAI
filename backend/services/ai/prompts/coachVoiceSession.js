@@ -1,6 +1,7 @@
 const { VOICE_AND_TONE } = require('./profile');
 const { timeFacts } = require('./timeFacts');
 const { COACH_GUARDRAILS } = require('./coachGuardrails');
+const { stageGuidance } = require('./coachStage');
 
 /**
  * The instructions a spoken session runs on.
@@ -58,6 +59,8 @@ ${VOICE_AND_TONE}
 No em dashes (—) in anything you write down, including the bullets you send back.
 
 ${timeFacts(profile)}
+
+${stageGuidance(profile)}
 
 ═══ TIME ═══
 Aim to finish in under 5 minutes. Nobody wants a long call about their resume. Short questions, one per item on your list, and move on as soon as you have a usable answer: you are not interviewing them.${maxMinutes ? ` You have about ${maxMinutes} minutes. You will get a quiet note when about a minute is left, and another when time is up. The call never cuts them off: when time is up you let them finish, then say goodbye.` : ''}

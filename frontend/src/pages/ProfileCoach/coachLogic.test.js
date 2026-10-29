@@ -67,6 +67,8 @@ import {
   draftToProfileShape,
   panelState,
   suggestionChips,
+  STAGE_ORDERS,
+  withStageDefaults,
 } from './coachLogic.js';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion.js';
 
@@ -204,14 +206,55 @@ test('new grads skip the work-history questions', () => {
 });
 
 test('nextStepIndex walks over skipped steps and ends at -1', () => {
-  const draft = { ...emptyDraft(), careerStage: 'new_grad' };
-  const roleIdx = LADDER.findIndex((s) => s.id === 'currentRole');
-  const next = nextStepIndex(roleIdx - 1, draft);
-  // Past the two employer questions, and onto projects — which is the whole
-  // point: a new grad with no job still needs something in the section
-  // recruiters read first.
-  assert.equal(LADDER[next].id, 'projects');
-  assert.equal(nextStepIndex(LADDER.length - 1, draft), -1);
+  const draft = { ...emptyDraft(), sector: 'tech', careerStage: 'new_grad', title: 'Software Engineer', mode: 'chat', roleTypes: ['internship'], workStyle: 'remote' };
+  const stageIdx = LADDER.findIndex((s) => s.id === 'careerStage');
+  // A new grad is not asked their level, and their studies come first:
+  // school is the credential they have.
+  const ids = [];
+  for (let at = nextStepIndex(stageIdx, draft); at !== -1 && ids.length < 40; at = nextStepIndex(at, draft)) ids.push(LADDER[at].id);
+  assert.ok(!ids.includes('level'));
+  assert.deepEqual(ids.slice(0, 2), ['title', 'education']);
+  // No employer questions for someone who has not had a job, but projects,
+  // the section recruiters read first, still asked.
+  assert.ok(!ids.includes('currentRole') && !ids.includes('achievements'));
+  assert.ok(ids.includes('projects'));
+  assert.equal(nextStepIndex(LADDER.findIndex((s) => s.id === 'convert'), draft), -1);
+});
+
+test('career stage is asked straight after the field, and shapes the rest', () => {
+  for (const [stage, ids] of Object.entries(STAGE_ORDERS)) {
+    assert.equal(ids.indexOf('careerStage'), ids.indexOf('sector') + 1, `${stage}: stage right after field`);
+    // Every question is reachable on every path; only the order differs.
+    const missing = LADDER.map((s) => s.id).filter((id) => !ids.includes(id));
+    assert.deepEqual(missing, [], `${stage} order leaves out ${missing.join(', ')}`);
+    assert.equal(new Set(ids).size, ids.length, `${stage} asks something twice`);
+  }
+  const at = (stage, id) => STAGE_ORDERS[stage].indexOf(id);
+  // A career changer names the new field before being asked about work in it.
+  assert.ok(at('career_change', 'target') < at('career_change', 'projects'));
+  // The self-taught lead with what they built.
+  assert.ok(at('self_taught', 'projects') < at('self_taught', 'currentRole'));
+});
+
+test('a new grad starts at the entry rung', () => {
+  assert.equal(withStageDefaults({ sector: 'tech', careerStage: 'new_grad' }).level, 'entry');
+  assert.equal(withStageDefaults({ sector: 'tech', careerStage: 'experienced' }).level, undefined);
+  assert.equal(withStageDefaults({ sector: 'tech', careerStage: 'new_grad', level: 'ic' }).level, 'ic');
+});
+
+test('every model call knows who it is talking to', () => {
+  const shape = draftToProfileShape({ ...emptyDraft(), sector: 'tech', careerStage: 'career_change', target: 'Product Manager' });
+  assert.equal(shape.about.field, 'Software & IT');
+  assert.equal(shape.about.careerStage, 'Changing careers');
+  assert.equal(shape.about.target, 'Product Manager');
+});
+
+test('who they are is saved for job matching', () => {
+  const ctx = careerContextOf({ ...emptyDraft(), sector: 'tech', careerStage: 'new_grad', level: 'entry', roleTypes: ['internship'] });
+  assert.deepEqual(ctx.constraints, { roleTypes: ['internship'], careerStage: 'new_grad', seniority: 'entry', sector: 'tech' });
+  const seeded = seedFromCareerContext(emptyDraft(), ctx);
+  assert.equal(seeded.careerStage, 'new_grad');
+  assert.equal(seeded.level, 'entry');
 });
 
 test('projects are asked of whoever has nothing else, and nobody else', () => {
@@ -435,14 +478,15 @@ test('target chips never offer the job they already have', () => {
 });
 
 test('the closing steps run in order and end the conversation', () => {
-  const ids = LADDER.map((s) => s.id);
-  const order = ['target', 'assess', 'build', 'tour', 'convert'];
-  const positions = order.map((id) => ids.indexOf(id));
-  positions.forEach((pos, i) => {
-    assert.ok(pos > -1, `${order[i]} is missing from the ladder`);
-    if (i > 0) assert.ok(pos > positions[i - 1], `${order[i]} must come after ${order[i - 1]}`);
-  });
-  assert.equal(ids[ids.length - 1], 'convert', 'the sign-up ask is the last thing that happens');
+  for (const [stage, ids] of Object.entries(STAGE_ORDERS)) {
+    const order = ['target', 'assess', 'gapCheck', 'build', 'tour', 'convert'];
+    const positions = order.map((id) => ids.indexOf(id));
+    positions.forEach((pos, i) => {
+      assert.ok(pos > -1, `${stage}: ${order[i]} is missing`);
+      if (i > 0) assert.ok(pos > positions[i - 1], `${stage}: ${order[i]} must come after ${order[i - 1]}`);
+    });
+    assert.equal(ids[ids.length - 1], 'convert', 'the sign-up ask is the last thing that happens');
+  }
 });
 
 test('a probe answer lands on the role it was about, and keeps what was there', () => {
@@ -1542,4 +1586,26 @@ test('model suggestions become chips only on open questions', () => {
   assert.equal(suggestionChips(step('lookingFor'), ['Full-time']), undefined);
   assert.equal(suggestionChips(step('workStyle'), ['Remote']), undefined);
   assert.equal(suggestionChips(step('title'), []), undefined);
+});
+
+test('the same project said twice is one project', () => {
+  const once = mergeInterpreted(emptyDraft(), 'projects', { projectName: 'Study room booking app', description: 'React and Node' });
+  const twice = mergeInterpreted(once, 'projects', { projectName: 'Study Room Booking App', description: 'React and Node, 400 students' });
+  assert.equal(twice.projects.length, 1);
+  assert.match(twice.projects[0].description, /400 students/);
+});
+
+test('an earlier job keeps its own title and years, and the headline is untouched', () => {
+  const draft = { ...emptyDraft(), title: 'Senior Frontend Engineer', experience: [{ title: 'Senior Frontend Engineer', company: 'Shopify', startDate: '2021', endDate: '', current: true, description: '' }] };
+  const out = applyBraindump(draft, { previousCompany: 'Wealthsimple', title: 'Frontend Developer', startDate: '2018', endDate: '2021' });
+  assert.equal(out.title, 'Senior Frontend Engineer');
+  const earlier = out.experience.find((r) => r.company === 'Wealthsimple');
+  assert.equal(earlier.title, 'Frontend Developer');
+  assert.equal(earlier.startDate, '2018');
+  assert.equal(earlier.endDate, '2021');
+});
+
+test('a career changer is not asked their level in the field they are leaving', () => {
+  const level = LADDER.find((s) => s.id === 'level');
+  assert.equal(isAlreadyAnswered(level, { careerStage: 'career_change' }), true);
 });

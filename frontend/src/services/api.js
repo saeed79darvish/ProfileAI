@@ -330,8 +330,13 @@ export const profileAPI = {
   // what it learned, and whether it is waiting on them.
   // asked/options: the question on screen and its buttons; next: the
   // question after it, the only one the coach may move on to.
-  coachTurn: ({ profile, missing, history, message, liveVoice, asked, options, next }) =>
-    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next }),
+  coachTurn: ({ profile, missing, history, message, liveVoice, asked, options, next, followUps }) =>
+    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next, followUps }),
+  // The final read before the profile is built: up to two questions.
+  coachGaps: (profile) => api.post('/profiles/coach/gaps', { profile }),
+  // Suggested answers (titles, the next role, skills) for this person.
+  coachSuggest: ({ profile, kind, question }, config) =>
+    api.post('/profiles/coach/suggest', { profile, kind, question }, config),
   // Answer a question someone asked instead of answering ours.
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),

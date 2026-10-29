@@ -154,26 +154,48 @@ async function loadProfileForJobsRanking(userId) {
   }
   // Lazy require to avoid the require cycle (Profile model →
   // afterSave → this service → Profile model).
-  const { Profile } = require('../models');
-  const row = await Profile.findOne({
-    where: { userId },
-    // title/headline ride along so GET /external-jobs can derive the role hint
-    // without the browser first fetching the profile itself — that round-trip
-    // used to gate the whole jobs list request. Two small text columns on a row
-    // we were already reading.
-    attributes: ['id', 'skills', 'openaiEmbedding', 'title', 'headline', 'location'],
-  });
+  const { Profile, CareerContext } = require('../models');
+  // The career context is read beside the profile, not after it: it is what the
+  // coach learned (target role, stage, level, where they want to work), and the
+  // feed needs it on the same request. Both are single-row primary lookups.
+  const [row, career] = await Promise.all([
+    Profile.findOne({
+      where: { userId },
+      // title/headline ride along so GET /external-jobs can derive the role hint
+      // without the browser first fetching the profile itself — that round-trip
+      // used to gate the whole jobs list request. Two small text columns on a row
+      // we were already reading. `experience` is read for the years-based level
+      // reading the seniority term falls back on when the person never stated one.
+      attributes: ['id', 'skills', 'openaiEmbedding', 'title', 'headline', 'location', 'experience'],
+    }),
+    CareerContext
+      ? CareerContext.findOne({ where: { userId }, attributes: ['target', 'constraints'] }).catch((e) => {
+        // The feed works without it, just less personally; never fail on it.
+        console.warn('[JobEmbedding] career context unavailable for ranking:', e.message);
+        return null;
+      })
+      : null,
+  ]);
   if (!row) {
     return null;
   }
+  const { computeYearsOfExperience, inferExperienceLevelOrNull } = require('./jobRelevanceService');
+  const roleTitle = row.title || row.headline || null;
   const value = {
     profileId: row.id,
     profileEmbedding: _parseEmbeddingValue(row.openaiEmbedding),
     skillSet: _buildSkillSet(row.skills),
     // Raw, unreduced. Callers apply deriveRoleQuery themselves so this cache
     // doesn't have to be invalidated if that reduction ever changes.
-    roleTitle: row.title || row.headline || null,
+    roleTitle,
     profileLocation: row.location || null,
+    // Five-step level reading from years + title, or null when the profile
+    // carries no level signal. Only used when the person stated no level.
+    inferredLevel: inferExperienceLevelOrNull(computeYearsOfExperience(row), roleTitle || ''),
+    // What the coach learned. Raw, like roleTitle; the route reduces the target
+    // to a role query and resolves the level.
+    careerTarget: career?.target || null,
+    careerConstraints: (career?.constraints && typeof career.constraints === 'object') ? career.constraints : {},
   };
   if (profileForJobsCache.size >= PROFILE_FOR_JOBS_CACHE_MAX) {
     const oldest = profileForJobsCache.keys().next().value;
@@ -189,6 +211,24 @@ async function loadProfileForJobsRanking(userId) {
 function invalidateProfileForJobsCache(userId) {
   if (!userId) return;
   profileForJobsCache.delete(userId);
+}
+
+/**
+ * Called when a candidate's CareerContext changes (the coach or their own edit
+ * on About you). Drops the cached ranking inputs AND their cached feed pages,
+ * so a changed target role or level shows on the next jobs load rather than
+ * after the 5-minute profile cache and 90-second page cache both run out.
+ * The page cache key starts with the user id (see buildJobsListCacheKey), so
+ * one prefix covers every page and filter combination they have open.
+ */
+function invalidateJobsRankingForUser(userId) {
+  if (!userId) return;
+  profileForJobsCache.delete(userId);
+  try {
+    require('./simpleCache').invalidatePrefix(`external_jobs:list:u=${userId}|`);
+  } catch (e) {
+    console.warn('[JobEmbedding] could not drop cached job pages:', e.message);
+  }
 }
 
 // Simple hash to detect profile changes
@@ -774,7 +814,8 @@ async function generateSearchQueryEmbedding(searchText) {
  * @returns {Object[]} - Jobs with relevanceScore (0-100)
  */
 async function searchSimilarJobs(profileEmbedding, options = {}) {
-  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, rankText = null, datePosted = null, defaultMaxAgeDays = 0, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended' } = options;
+  const { limit = 100, offset = 0, locationType = null, location = null, search = null, searchEmbedding = null, rankText = null, rankTextAlt = null, datePosted = null, defaultMaxAgeDays = 0, company = null, experienceLevel = null, employmentType = null, department = null, skills = null, startup = false, salaryMin = null, salaryMax = null, sortMode = 'recommended', candidateLevel = null, excludeEarlyCareer = false } = options;
+  const { levelFitSql, notEarlyCareerSql } = require('./jobSeniorityFit');
   const { NON_STARTUP_COMPANIES, NON_STARTUP_FUNDING_STAGES } = require('../utils/startupClassifier');
 
   const conditions = [
@@ -812,10 +853,26 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // sink, but stay in the result set, which is what went wrong when the role
   // was applied as a hard WHERE clause.
   let rankTsqBindIdx = null;
-  const rankTsq = rankText ? buildJobSearchTsquery(rankText) : null;
+  // A second role to rank on: the role the candidate told the coach they are
+  // aiming for. Bound as its own tsquery and scored separately, the job taking
+  // the better of the two lexical scores (the target's slightly discounted, see
+  // TARGET_ROLE_WEIGHT), so jobs matching the target rise into the feed and the
+  // current role is never displaced. Not merged into one OR-ed tsquery: ts_rank_cd scores a match
+  // against a larger query lower, which measurably pushed same-role jobs down
+  // the page for everyone who had set a target.
+  let altTsqBindIdx = null;
+  const primaryTsq = rankText ? buildJobSearchTsquery(rankText) : null;
+  const altCandidate = rankTextAlt ? buildJobSearchTsquery(rankTextAlt) : null;
+  const rankTsq = primaryTsq || altCandidate;
+  const altTsq = primaryTsq && altCandidate && altCandidate !== primaryTsq ? altCandidate : null;
   if (rankTsq) {
     rankTsqBindIdx = bindIndex;
     binds.push(rankTsq);
+    bindIndex++;
+  }
+  if (altTsq) {
+    altTsqBindIdx = bindIndex;
+    binds.push(altTsq);
     bindIndex++;
   }
 
@@ -863,9 +920,19 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   if (employmentType) {
     // LENIENT NULL policy — mirror routes/externalJobs.js: employmentType is
     // sparsely/unreliably populated, so match jobs with the type OR no type.
-    conditions.push(`(ej."employmentType" IS NULL OR ej."employmentType" = $${bindIndex})`);
-    binds.push(employmentType);
-    bindIndex++;
+    // Accepts a list (array or comma-separated) so a candidate open to both
+    // full-time and contract work is not forced to pick one.
+    const types = (Array.isArray(employmentType) ? employmentType : String(employmentType).split(','))
+      .map((t) => String(t).trim()).filter(Boolean);
+    if (types.length === 1) {
+      conditions.push(`(ej."employmentType" IS NULL OR ej."employmentType" = $${bindIndex})`);
+      binds.push(types[0]);
+      bindIndex++;
+    } else if (types.length > 1) {
+      conditions.push(`(ej."employmentType" IS NULL OR ej."employmentType" = ANY($${bindIndex}::text[]))`);
+      binds.push(types);
+      bindIndex++;
+    }
   }
 
   if (department) {
@@ -1015,6 +1082,17 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     bindIndex++;
   }
 
+  // Internships, apprenticeships and new-grad postings are left out for senior
+  // and above. Unlike every other level rule this is a filter, because an
+  // internship is never a close call for a senior engineer and one on the first
+  // page discredits the rest of it. The caller decides when it applies (see
+  // jobSeniorityFit.excludesEarlyCareer, which never applies it when the person
+  // asked for internships). Part of the WHERE so the count, and with it the
+  // pagination, agree with the rows.
+  if (excludeEarlyCareer) {
+    conditions.push(notEarlyCareerSql('ej.title'));
+  }
+
   const whereClause = conditions.join(' AND ');
 
   // ── COUNT first: it drives the query-plan choice below ──────────────────
@@ -1022,8 +1100,10 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // $2 (limit), $3 (offset), or the optional searchEmbedding bind. We must
   // re-index the filter-only params so PostgreSQL gets the right bind count.
   // filterBinds holds only the values for $4+ (filters); we remap $4→$1, $5→$2, etc.
-  const filterBindStartIndex = rankTsq ? 5 : 4; // $4, or $5 when a rank tsquery is bound
-  const filterBinds = binds.slice(filterBindStartIndex - 1); // 0-based: slice(3) or slice(4)
+  // $4 when no rank tsquery is bound, +1 for the role tsquery, +1 more for a
+  // target-role tsquery.
+  const filterBindStartIndex = 4 + (rankTsqBindIdx ? 1 : 0) + (altTsqBindIdx ? 1 : 0);
+  const filterBinds = binds.slice(filterBindStartIndex - 1);
 
   // Rebuild WHERE clause with re-indexed bind params for the count query
   let countWhereClause = whereClause;
@@ -1133,9 +1213,20 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   const profileCosExpr = `(1 - (ej.embedding <=> $1::vector))`;
   // Normalised lexical title match, 0..1. ts_rank_cd for a solid title hit sits
   // around 0.9, so 0.5 is a generous saturation point.
+  const lexNormOf = (idx) => `LEAST(1.0, ts_rank_cd(ej."searchTsvAB", to_tsquery('english', $${idx})) / 0.5)`;
+  // The target role is worth a little less than the current one. At full
+  // weight a candidate aiming for "Engineering Manager" saw a feed made almost
+  // entirely of manager roles, because those titles match their query so
+  // cleanly; at 0.8 a perfect target match lands about a band below a perfect
+  // current-role match, so both show and the role they do today leads.
+  // A malformed setting falls back to the default rather than putting NaN in the SQL.
+  const TARGET_ROLE_WEIGHT = Math.min(1, Math.max(0, parseFloat(process.env.JOBS_TARGET_ROLE_WEIGHT) || 0.8));
   const lexNormExpr = rankTsqBindIdx
-    ? `LEAST(1.0, ts_rank_cd(ej."searchTsvAB", to_tsquery('english', $${rankTsqBindIdx})) / 0.5)`
+    ? (altTsqBindIdx
+      ? `GREATEST(${lexNormOf(rankTsqBindIdx)}, ${TARGET_ROLE_WEIGHT} * ${lexNormOf(altTsqBindIdx)})`
+      : lexNormOf(rankTsqBindIdx))
     : null;
+
 
   // Profile fit carries the semantic load — it recognises a relevant job whose
   // title lacks the keyword — but the lexical term decides the top of the list,
@@ -1202,8 +1293,17 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // the SELECT list and the ORDER BY — so PostgreSQL evaluated it roughly four
   // times per candidate row. Measured on the pool this query actually uses,
   // computing it once cut the scoring stage from 293ms to 71ms.
+  // Seniority fit. Added beside relevance rather than folded into it, for the
+  // same reason as the ghost penalty: `_rel` is also the match % on the card,
+  // and that should keep meaning "how well this role fits your profile". The
+  // term is between -0.18 and +0.10 (see jobSeniorityFit.LEVEL_FIT), against a
+  // relevance contribution of up to 0.8 and bands 0.1 wide, so it moves a job
+  // a band or two and never past a much better role match. Computed once per
+  // row as `_lvl` in the scored CTE; 0 when the candidate's level is unknown.
+  const levelFitExpr = levelFitSql(candidateLevel, 'ej');
+  const levelTermExpr = levelFitExpr ? ' + ej._lvl' : '';
   const recommendedRankExpr =
-    `(${REL_WEIGHT} * ej._rel + ${FRESH_WEIGHT} * (${freshnessNormExpr}) - ${ghostPenaltyExpr})`;
+    `(${REL_WEIGHT} * ej._rel${levelTermExpr} + ${FRESH_WEIGHT} * (${freshnessNormExpr}) - ${ghostPenaltyExpr})`;
 
   // ── Relevance BANDING for the default ordering ─────────────────────────────
   // The continuous rank above is a good ordering and a bad reading experience.
@@ -1226,7 +1326,7 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // a real role match and a generic one.
   const BAND_WIDTH = parseFloat(process.env.JOBS_RANK_BAND_WIDTH || '0.1');
   const bandExpr = BAND_WIDTH > 0
-    ? `FLOOR(GREATEST(0.0, ${REL_WEIGHT} * ej._rel - ${ghostPenaltyExpr}) / ${BAND_WIDTH})`
+    ? `FLOOR(GREATEST(0.0, ${REL_WEIGHT} * ej._rel${levelTermExpr} - ${ghostPenaltyExpr}) / ${BAND_WIDTH})`
     : null;
   // Materialised as `_band` in the scored CTE so the ORDER BY and the company
   // interleave below can both reference it without recomputing the cosine.
@@ -1311,6 +1411,11 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // This arm is a GIN-indexed `@@` over the same tsvector the search filter
   // already uses, so it is cheap and it targets the actual failure.
   const lexPoolExpr = `LEAST(GREATEST(500, ($2::int + $3::int) * 3), 2000)`;
+  // A target role gets an arm of its own rather than sharing this one. Sharing
+  // it measurably crowded current-role postings out of the pool: "Engineering
+  // Manager" matches thousands of fresh rows, and a shared LIMIT filled with
+  // them dropped Staff Engineer roles a senior engineer should still see.
+  // Only exists when a target is set, so nobody else pays for it.
 
   const candidateCte = isRecommended
     ? (rankTsqBindIdx
@@ -1331,7 +1436,16 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
           AND ej."searchTsvAB" @@ to_tsquery('english', $${rankTsqBindIdx})
         ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
         LIMIT ${lexPoolExpr}
-      )
+      )${altTsqBindIdx ? `
+      UNION
+      (
+        SELECT ej.id
+        FROM "ExternalJobs" ej
+        WHERE ${whereClause}
+          AND ej."searchTsvAB" @@ to_tsquery('english', $${altTsqBindIdx})
+        ORDER BY ej."effectivePostedAt" DESC NULLS LAST, ej.id DESC
+        LIMIT ${lexPoolExpr}
+      )` : ''}
     )`
       : `
     WITH ann_candidates AS (
@@ -1457,7 +1571,8 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
     ${usesCandidateCte ? `${candidateCte},` : 'WITH'}
     scored AS (
       SELECT ${SELECT_COLS},
-             ${orderingRelevanceExpr} AS _rel
+             ${orderingRelevanceExpr} AS _rel${levelFitExpr ? `,
+             ${levelFitExpr} AS _lvl` : ''}
       ${scoredSource}
     )${bandExpr ? `,
     banded AS (
@@ -1552,6 +1667,7 @@ module.exports = {
   invalidateJobsCountCache,
   loadProfileForJobsRanking,
   invalidateProfileForJobsCache,
+  invalidateJobsRankingForUser,
   EMBEDDING_MODEL,
   EMBEDDING_DIMENSIONS
 };

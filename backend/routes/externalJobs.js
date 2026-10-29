@@ -13,6 +13,7 @@ const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const { deriveRoleQuery } = require('../utils/roleQuery');
+const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = require('../services/jobSeniorityFit');
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
 
@@ -36,6 +37,24 @@ function parseSkillCsv(csv) {
     if (out.length >= 12) break; // hard cap — over-filtering would empty the list
   }
   return out;
+}
+
+/**
+ * Parse the employmentType query param into a list of known types, or null.
+ * Accepts one value or a comma-separated list ("full-time,contract"), which
+ * is how the jobs page applies a candidate's saved work preferences. Unknown
+ * values are dropped rather than passed to SQL as-is, so a typo cannot empty
+ * the feed by matching nothing but the NULL-type rows.
+ */
+const EMPLOYMENT_TYPE_VALUES = new Set(['full-time', 'part-time', 'contract', 'internship', 'temporary']);
+function parseEmploymentTypes(raw) {
+  if (!raw) return null;
+  const list = (Array.isArray(raw) ? raw.join(',') : String(raw))
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => EMPLOYMENT_TYPE_VALUES.has(t));
+  const unique = [...new Set(list)];
+  return unique.length ? unique : null;
 }
 
 /**
@@ -205,6 +224,35 @@ function normalizeSortMode(s) {
   // 'relevance' was a legacy alias for the default; missing → default.
   return 'recommended';
 }
+
+/**
+ * The ranking inputs the coach learned, read off the cached profile record.
+ *
+ *   targetRole       the role they are aiming for, reduced the same way the
+ *                    current title is ("Senior Engineering Manager" becomes
+ *                    "Engineering Manager"), or '' when unset or identical to
+ *                    the current role hint
+ *   candidateLevel   jobSeniorityFit's 0-4 level: stated career stage or
+ *                    seniority first, the profile's years and title second,
+ *                    null when neither says anything
+ */
+function careerRankingInputs(cachedProfile, roleHint = '') {
+  if (!cachedProfile) return { targetRole: '', candidateLevel: null };
+  const target = deriveRoleQuery(cachedProfile.careerTarget || '').slice(0, 80);
+  const { level } = resolveCandidateLevel({
+    constraints: cachedProfile.careerConstraints || {},
+    inferredLevel: cachedProfile.inferredLevel || null,
+  });
+  return {
+    targetRole: target && target.toLowerCase() !== String(roleHint || '').toLowerCase() ? target : '',
+    candidateLevel: level,
+  };
+}
+
+// A stated location that names no place. Seeding it as a substring filter
+// would keep only postings whose location text says "remote", which is the
+// work-type filter's job, not the location filter's.
+const NON_PLACE_LOCATION_RE = /^(remote|anywhere|any|flexible|worldwide|global|n\/a|none)$/i;
 
 /**
  * Lightweight in-process counters for the observability endpoint.
@@ -452,11 +500,18 @@ router.get('/', optionalAuth, async (req, res) => {
             appliedSeeds.roleHint = derived;
           }
         }
-        if (location === undefined && !locationType && cachedProfile?.profileLocation) {
+        // The profile's own location first; where they told the coach they
+        // want to work second. Someone who built their profile through the
+        // coach often has the latter and not the former, and was getting an
+        // unlocalised feed for it.
+        const stated = cachedProfile?.careerConstraints?.location;
+        const locationSource = cachedProfile?.profileLocation
+          || (typeof stated === 'string' && !NON_PLACE_LOCATION_RE.test(stated.trim()) ? stated : null);
+        if (location === undefined && !locationType && locationSource) {
           // First comma-separated chunk only: "San Francisco, CA" -> "San
           // Francisco", so the metro expansion can do its work. Country/region
           // would over-restrict.
-          const seeded = String(cachedProfile.profileLocation).split(',')[0].trim();
+          const seeded = sanitizeQueryText(String(locationSource).split(',')[0], 100);
           if (seeded) {
             location = seeded;
             appliedSeeds.location = seeded;
@@ -623,14 +678,22 @@ router.get('/', optionalAuth, async (req, res) => {
       where.locationType = locationType;
     }
 
-    if (employmentType) {
+    const employmentTypes = parseEmploymentTypes(employmentType);
+    if (employmentTypes) {
       // LENIENT NULL policy (same rationale as the salary filter below):
       // employmentType is sparsely/unreliably populated upstream (most
       // greenhouse jobs expose no structured employment type), so an exact
       // match emptied results. Include jobs that match OR have no listed type.
+      // A comma-separated list matches any of its types, so saved preferences
+      // like "full-time or contract" apply as one filter.
       where[Op.and] = [
         ...(where[Op.and] || []),
-        { [Op.or]: [{ employmentType: null }, { employmentType }] }
+        {
+          [Op.or]: [
+            { employmentType: null },
+            { employmentType: employmentTypes.length === 1 ? employmentTypes[0] : { [Op.in]: employmentTypes } },
+          ],
+        }
       ];
     }
 
@@ -729,6 +792,18 @@ router.get('/', optionalAuth, async (req, res) => {
       // a profile-less user on a 200-job slice of the corpus.
       if (profileCached) {
 
+      // What the coach learned, as ranking inputs. The target role ranks beside
+      // the current one whenever role ranking is in effect: an explicit role
+      // hint, or one the server is allowed to seed. It never applies to a typed
+      // search, and not once the candidate dismissed role ranking (which sends
+      // an empty roleHint with seed=0).
+      const roleRankingOn = !search && (roleHint || (seedingAllowed && rawRoleHint === undefined));
+      const career = careerRankingInputs(profileCached, roleHint);
+      const targetRole = roleRankingOn ? sanitizeQueryText(career.targetRole, 80) : '';
+      if (targetRole) appliedSeeds.targetRole = targetRole;
+      const { candidateLevel } = career;
+      const dropEarlyCareer = excludesEarlyCareer(candidateLevel, { employmentType, experienceLevel, search });
+
       // --- AI Semantic Ranking via pgvector ---
       let profileEmbedding = profileCached?.profileEmbedding || null;
       if (profileCached && !profileEmbedding) {
@@ -785,10 +860,13 @@ router.get('/', optionalAuth, async (req, res) => {
             location: location || null,
             search: search || null,
             rankText: rankingText || null,
+            rankTextAlt: targetRole || null,
             datePosted: datePosted || null,
             company: company || null,
             experienceLevel: experienceLevel || null,
-            employmentType: employmentType || null,
+            employmentType: parseEmploymentTypes(employmentType),
+            candidateLevel,
+            excludeEarlyCareer: dropEarlyCareer,
             department: department || null,
             skills: skillTokens.length > 0 ? skillTokens : null,
             // Honor the same default freshness window as the recency/keyword
@@ -885,7 +963,13 @@ router.get('/', optionalAuth, async (req, res) => {
       // role-matching postings are in the pool wherever they sit in the recency
       // ordering. Same reasoning as searchSimilarJobs' relevance arm.
       const POOL_SIZE = parseInt(process.env.JOBS_KEYWORD_POOL || '2000', 10);
-      const keywordRankTsq = buildJobSearchTsquery(search || roleHint || '');
+      // Same early-career exclusion as the semantic path, so the two agree on
+      // the result set; added here rather than above because only the ranked
+      // paths know the candidate's level.
+      if (dropEarlyCareer) {
+        where[Op.and] = [...(where[Op.and] || []), literal(notEarlyCareerSql('"ExternalJob"."title"'))];
+      }
+      const keywordRankTsq = buildJobSearchTsquery(search || roleHint || targetRole || '');
       if (keywordRankTsq) {
         whereReplacements.keywordRankTsq = keywordRankTsq;
       }
@@ -929,7 +1013,11 @@ router.get('/', optionalAuth, async (req, res) => {
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
 
-      const ranked = rankJobs(allJobs, profileForKeyword, { sortMode });
+      const ranked = rankJobs(allJobs, profileForKeyword, {
+        sortMode,
+        preferences: profileCached.careerConstraints,
+        target: targetRole,
+      });
       // `ranked.length` was reported as the pagination total, so the page
       // announced "200 jobs" against a corpus of tens of thousands. The pool is
       // genuinely all this path can paginate through, so the honest number is
@@ -1560,6 +1648,22 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
       }
     }
 
+    // The same coach-learned inputs the main feed ranks on: the current role
+    // and the target role as lexical hints, the candidate's level for the
+    // seniority term, and the early-career exclusion for senior people. The
+    // cached record is the one the feed already reads, so this is usually free.
+    let rail = { roleHint: '', targetRole: '', candidateLevel: null, careerConstraints: {} };
+    try {
+      const cachedProfile = await loadProfileForJobsRanking(req.user.id);
+      const roleHint = deriveRoleQuery(profile.title || profile.headline || '');
+      const career = careerRankingInputs(cachedProfile, roleHint);
+      rail = { roleHint, ...career, careerConstraints: cachedProfile?.careerConstraints || {} };
+    } catch (e) {
+      // The rail still ranks on the profile embedding without these.
+      console.warn('[Recommended] career inputs unavailable:', e.message);
+    }
+    const railDropsEarlyCareer = excludesEarlyCareer(rail.candidateLevel);
+
     // Try a tight 14-day window first; widen to 30 days if too few results.
     const tryWindow = async (days) => {
       if (profileEmbedding) {
@@ -1568,6 +1672,10 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
             limit,
             offset: 0,
             datePosted: days <= 7 ? 'week' : (days <= 14 ? '2weeks' : 'month'),
+            rankText: rail.roleHint || null,
+            rankTextAlt: rail.targetRole || null,
+            candidateLevel: rail.candidateLevel,
+            excludeEarlyCareer: railDropsEarlyCareer,
           });
           const semanticRows = result.rows || [];
           // Empty result here almost always means the ExternalJob corpus
@@ -1588,6 +1696,7 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
           isActive: true,
           [Op.and]: [
             literal(`"ExternalJob"."effectivePostedAt" >= '${since.toISOString()}'`),
+            ...(railDropsEarlyCareer ? [literal(notEarlyCareerSql('"ExternalJob"."title"'))] : []),
           ]
         },
         // COALESCE so Greenhouse jobs (postedAt = NULL) sort by when we
@@ -1598,7 +1707,7 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
         attributes: { exclude: ['descriptionHtml', 'metadata', 'embedding'] },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
-      return rankJobs(pool, profile).slice(0, limit);
+      return rankJobs(pool, profile, { preferences: rail.careerConstraints, target: rail.targetRole }).slice(0, limit);
     };
 
     let jobs = await tryWindow(14);

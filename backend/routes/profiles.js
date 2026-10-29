@@ -866,12 +866,69 @@ router.post('/coach/transcribe', transcribeGuard, clipUpload.single('audio'), as
   }
 });
 
+// @route   POST /api/profiles/coach/gaps
+// @desc    The final read: what a recruiter would miss, as up to two questions
+// @access  Public (guests metered by IP)
+router.post('/coach/gaps', coachGuard, async (req, res) => {
+  try {
+    const { profile } = req.body || {};
+    if (!profile || typeof profile !== 'object') {
+      return res.status(400).json({ error: 'Profile is required' });
+    }
+    const questions = await profileCoachService.gapCheck({ profile });
+    await recordCoachUsage(req);
+    res.json({ success: true, questions });
+  } catch (error) {
+    console.error('Error checking profile gaps:', error);
+    res.status(500).json({ error: 'Could not read that profile' });
+  }
+});
+
+/* Suggested answers under a question (titles, the next role, skills),
+   written for this person. A small, cheap call made while the question is
+   on its way, so it is not counted against the coach allowance; guests get
+   their own daily allowance per IP, like dictation. On any failure the page
+   shows its own list instead. */
+const GUEST_SUGGESTS_PER_IP_PER_DAY = 120;
+const guestSuggestLog = new Map();
+function suggestGuard(req, res, next) {
+  optionalAuth(req, res, () => {
+    if (req.userId || process.env.DISABLE_AI_RATE_LIMIT === 'true') return next();
+    const ipHash = hashIp(clientIp(req));
+    const now = Date.now();
+    const kept = (guestSuggestLog.get(ipHash) || []).filter((t) => now - t < GUEST_CALL_WINDOW_MS);
+    if (kept.length >= GUEST_SUGGESTS_PER_IP_PER_DAY) {
+      return res.status(429).json({ error: 'Suggestion limit reached', code: 'guest_suggest_used' });
+    }
+    guestSuggestLog.set(ipHash, [...kept, now]);
+    return next();
+  });
+}
+
+// @route   POST /api/profiles/coach/suggest
+// @desc    Suggested answers for a titles, target or skills question
+// @access  Public (guests capped per IP per day)
+router.post('/coach/suggest', suggestGuard, async (req, res) => {
+  try {
+    const { profile, kind, question } = req.body || {};
+    const suggestions = await profileCoachService.suggestAnswers({
+      profile: profile && typeof profile === 'object' ? profile : {},
+      kind: typeof kind === 'string' ? kind : '',
+      question: typeof question === 'string' ? question.slice(0, 300) : '',
+    });
+    res.json({ success: true, suggestions });
+  } catch (error) {
+    console.error('Error suggesting answers:', error.message);
+    res.status(502).json({ error: 'Could not suggest answers', code: 'suggest_failed' });
+  }
+});
+
 // @route   POST /api/profiles/coach/turn
 // @desc    One turn of the coach conversation, decided by the model
 // @access  Public (guests metered by IP)
 router.post('/coach/turn', coachGuard, async (req, res) => {
   try {
-    const { profile, missing, history, message, liveVoice, asked, options, next } = req.body || {};
+    const { profile, missing, history, message, liveVoice, asked, options, next, followUps } = req.body || {};
     if (!message || !String(message).trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -887,14 +944,9 @@ router.post('/coach/turn', coachGuard, async (req, res) => {
         ? options.filter((o) => typeof o === 'string').map((o) => o.slice(0, 80)).slice(0, 40)
         : [],
       next: next && typeof next === 'object' && typeof next.question === 'string'
-        ? {
-          question: next.question.slice(0, 300),
-          options: Array.isArray(next.options)
-            ? next.options.filter((o) => typeof o === 'string').map((o) => o.slice(0, 80)).slice(0, 40)
-            : [],
-          open: next.open === true,
-        }
+        ? { question: next.question.slice(0, 300) }
         : null,
+      followUps: Number.isInteger(followUps) && followUps > 0 ? Math.min(followUps, 9) : 0,
     });
 
     await recordCoachUsage(req);

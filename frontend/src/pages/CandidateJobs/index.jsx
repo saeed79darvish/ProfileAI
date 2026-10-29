@@ -179,7 +179,8 @@ import {
 } from './styled';
 import { ROUTES, WITHDRAWABLE_STATUSES, STATUS_CONFIG, THRESHOLDS, TEXT, SALARY_OPTIONS } from './constants';
 import { formatSalary, formatTimeAgo, formatJobPostedTime } from './utils';
-import { externalJobAPI, profileAPI } from '@/services/api';
+import { externalJobAPI, profileAPI, careerContextAPI } from '@/services/api';
+import { jobFiltersFrom, employmentTypeLabel, locationTypeLabel } from '@/utils/jobPreferences';
 import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
 import { matchTier, orderByMatch, matchLists } from '@/utils/jobMatchScore';
 
@@ -663,11 +664,73 @@ const CandidateJobs = () => {
       // NOTE: we deliberately do NOT auto-seed the EXPERIENCE filter.
       // Role + location already narrow the feed; adding seniority as a third
       // hard AND-filter is what turned a first visit into "No jobs match your
-      // filters" over a 70k-job corpus. Seniority is not lost — the ranking
-      // path scores level fit (see jobRelevanceService.inferExperienceLevel),
-      // so senior candidates still see senior roles first. The filter stays
-      // available as an explicit user choice in the chip row.
+      // filters" over a 70k-job corpus. Seniority is handled by the server
+      // instead: the default ranking adds a level-fit term (see
+      // backend/services/jobSeniorityFit.js) using the career stage and level
+      // the candidate gave the coach, or their years and title when they gave
+      // none, and leaves internships out for senior candidates. It is a
+      // ranking signal, not a filter, so nothing here needs to send it. The
+      // filter stays available as an explicit user choice in the chip row.
     }).catch(() => {});
+  }, [isAuthenticated]);
+
+  // Saved work preferences as default filters.
+  //
+  // The coach asks how someone wants to work (remote, hybrid, on-site) and
+  // what kind of work (full-time, contract...). Those answers are stored on
+  // the career context and used to be applied exactly once, in the matches
+  // pop-up after onboarding; every later visit to this page ignored them. Now
+  // a signed-in candidate landing here with no filters in the URL gets them
+  // pre-applied as ordinary filters: visible as chips, cleared like any other.
+  //
+  // Applied once per tab session. Once applied they live in the URL, so a
+  // reload keeps them; once the candidate clears or changes them, the
+  // session flag stops them coming back. A new tab starts fresh, which is the
+  // same "every fresh visit re-personalizes" rule the role and location seeds
+  // follow.
+  const SAVED_PREFS_KEY = 'jobs.savedPrefsApplied';
+  // The filters we applied from preferences, so their chips can say so.
+  const [prefFilters, setPrefFilters] = useState({});
+  const prefFiltersRef = useRef({});
+  // Role the candidate is aiming for, as the server ranked on it (appliedSeeds).
+  const [targetRoleHint, setTargetRoleHint] = useState('');
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    const FILTER_KEYS = ['search', 'locationType', 'location', 'datePosted', 'experienceLevel', 'company',
+      'department', 'employmentType', 'salary', 'skills', 'startup', 'hideStale'];
+    if (FILTER_KEYS.some((k) => searchParams.get(k))) return undefined;
+    let alreadyApplied = false;
+    try { alreadyApplied = sessionStorage.getItem(SAVED_PREFS_KEY) === '1'; } catch { /* storage blocked: apply */ }
+    if (alreadyApplied) return undefined;
+    let cancelled = false;
+    careerContextAPI.get().then((res) => {
+      if (cancelled) return;
+      const prefs = jobFiltersFrom(res.data?.context?.constraints || {});
+      try { sessionStorage.setItem(SAVED_PREFS_KEY, '1'); } catch { /* best effort */ }
+      if (!Object.keys(prefs).length) return;
+      prefFiltersRef.current = prefs;
+      setPrefFilters(prefs);
+      setFilters((prev) => {
+        // Never over a filter the candidate set while this was in flight.
+        const next = { ...prev };
+        if (prefs.locationType && !prev.locationType) next.locationType = prefs.locationType;
+        if (prefs.employmentType && !prev.employmentType) next.employmentType = prefs.employmentType;
+        // Someone who wants remote work does not want it limited to their
+        // city. Drop the city only when it was our seed, never one they chose.
+        if (next.locationType === 'remote' && prev.location
+          && prev.location === autoSeededRef.current.location) {
+          next.location = '';
+        }
+        return next;
+      });
+      if (prefs.locationType === 'remote' && autoSeededRef.current.location) {
+        setAutoSeeded((prev) => ({ ...prev, location: null }));
+      }
+    }).catch(() => { /* preferences are a nicety; the page works without them */ });
+    return () => { cancelled = true; };
+    // Mount-time decision only: re-running on every URL change would re-apply
+    // preferences the candidate just cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // Auto-seed the search box with the detected role on first load.
@@ -1013,7 +1076,11 @@ const CandidateJobs = () => {
           setRoleHint(seeds.roleHint);
           setAutoSeeded(prev => ({ ...prev, role: seeds.roleHint }));
         }
-        if (seeds.location && !locationAutoAppliedRef.current) {
+        if (seeds.targetRole) setTargetRoleHint(seeds.targetRole);
+        // A saved remote preference that landed before this response wins over
+        // the city seed, for the reason given where preferences are applied.
+        if (seeds.location && !locationAutoAppliedRef.current
+          && prefFiltersRef.current.locationType !== 'remote') {
           locationAutoAppliedRef.current = true;
           setLocationInput(seeds.location);
           // `filters` only — NOT `debouncedFilters`. Writing the seed into the
@@ -2477,10 +2544,11 @@ const CandidateJobs = () => {
                     minWidth: 0, flex: 1,
                   }}>
                     Ranked for <strong>{detectedRole}</strong>
+                    {targetRoleHint && <> and <strong>{targetRoleHint}</strong></>}
                   </span>
                   <button
                     type="button"
-                    onClick={() => { seedOptOutRef.current = true; setRoleHint(''); setAutoSeeded(prev => ({ ...prev, role: null })); }}
+                    onClick={() => { seedOptOutRef.current = true; setRoleHint(''); setTargetRoleHint(''); setAutoSeeded(prev => ({ ...prev, role: null })); }}
                     aria-label="Stop ranking by my role"
                     style={{
                       background: 'none', border: 'none', padding: 0,
@@ -2609,6 +2677,37 @@ const CandidateJobs = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* Work type and job type. Their dropdowns were taken out of
+                      this row on purpose, but the filters still exist: saved
+                      preferences and the onboarding pop-up set them, and a deep
+                      link can carry them. A filter that narrows the list has to
+                      be visible and removable, so each shows as a chip while it
+                      is active, and only then. */}
+                  {filters.locationType && (
+                    <FilterChip
+                      $active
+                      onClick={() => handleFilterChange('locationType', '')}
+                      title={prefFilters.locationType === filters.locationType
+                        ? 'From your saved work preferences. Click to show every work type.'
+                        : 'Click to show every work type.'}
+                      aria-label={`Remove the ${locationTypeLabel(filters.locationType)} filter`}
+                    >
+                      {locationTypeLabel(filters.locationType)} <CloseIcon style={{ fontSize: 14, marginLeft: 2 }} />
+                    </FilterChip>
+                  )}
+                  {filters.employmentType && (
+                    <FilterChip
+                      $active
+                      onClick={() => handleFilterChange('employmentType', '')}
+                      title={prefFilters.employmentType === filters.employmentType
+                        ? 'From your saved work preferences. Click to show every job type.'
+                        : 'Click to show every job type.'}
+                      aria-label={`Remove the ${employmentTypeLabel(filters.employmentType)} filter`}
+                    >
+                      {employmentTypeLabel(filters.employmentType)} <CloseIcon style={{ fontSize: 14, marginLeft: 2 }} />
+                    </FilterChip>
+                  )}
 
                   {/* Date Posted */}
                   <div style={{ position: 'relative' }}>

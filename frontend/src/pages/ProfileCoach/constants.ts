@@ -345,5 +345,9 @@ export const TIMING = {
   // someone answering you.
   ACK_MS: 420,
   TYPING_MS: 650,
+  /* How much longer than the typing pause a question waits for its
+     suggested answers. A model reply usually lands within it; past it the
+     field's own list is shown rather than keep someone waiting. */
+  SUGGEST_GRACE_MS: 1800,
 } as const;
 
