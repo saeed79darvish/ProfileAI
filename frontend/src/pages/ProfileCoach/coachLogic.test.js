@@ -66,6 +66,7 @@ import {
   draftToResumeData,
   draftToProfileShape,
   panelState,
+  suggestionChips,
 } from './coachLogic.js';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion.js';
 
@@ -1524,4 +1525,21 @@ test('a saved conversation with schools stored as objects loads as text', async 
   assert.ok(restored, 'conversation restored');
   assert.ok(!/object Object/.test(JSON.stringify(restored.draft.education)));
   assert.deepEqual(restored.draft.education.map((r) => r.institution), ['Pre-university', 'Azad University', 'MIT']);
+});
+
+/* The model's suggested answers replace the chips only on open questions
+   (a title, a target role, skills). Fixed answers stay fixed: "full-time"
+   is an id the profile stores, not a phrase to improvise. */
+test('model suggestions become chips only on open questions', () => {
+  const step = (id) => LADDER.find((s) => s.id === id);
+  const titles = suggestionChips(step('title'), ['Frontend Engineer', 'Full Stack Engineer']);
+  assert.deepEqual(titles.map((c) => c.label), ['Frontend Engineer', 'Full Stack Engineer', 'Type my own']);
+  assert.equal(titles[0].id, 'Frontend Engineer');
+
+  const skills = suggestionChips(step('skills'), ['React', 'TypeScript']);
+  assert.deepEqual(skills.map((c) => c.id), ['React', 'TypeScript']);
+
+  assert.equal(suggestionChips(step('lookingFor'), ['Full-time']), undefined);
+  assert.equal(suggestionChips(step('workStyle'), ['Remote']), undefined);
+  assert.equal(suggestionChips(step('title'), []), undefined);
 });

@@ -289,7 +289,7 @@ export const ChipRow = styled.div`
 
   @media (max-width: 480px) {
     padding-left: 0;
-    gap: 8px;
+    gap: 6px;
   }
 `;
 
@@ -313,6 +313,13 @@ export const Chip = styled.button`
   }
 
   &:disabled { box-shadow: none; }
+
+  /* Smaller on a phone: the field question's fifteen chips took a whole
+     screen at full size, and pushed the question itself out of view. */
+  @media (max-width: 480px) {
+    padding: 8px 13px;
+    font-size: 0.9rem;
+  }
 
   /* The confirm on a multi-select. It ends the question rather than
      answering it, so it leads as a filled action — wearing the same
@@ -812,15 +819,68 @@ export const StripLabel = styled.span`
   white-space: nowrap;
 `;
 
+/* Holds the strip and the steps that open from it, so the steps can sit
+   over the chat directly under the strip. */
+export const MobileProgress = styled.div`
+  position: relative;
+  z-index: 30;
+  flex-shrink: 0;
+`;
+
+export const StripChevron = styled.span`
+  display: inline-flex;
+  color: #6b6b80;
+  transition: transform 180ms ease;
+  transform: rotate(${({ $open }) => ($open ? '180deg' : '0deg')});
+`;
+
 export const MobilePanel = styled.div`
   display: none;
-  padding: 4px 16px 14px;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 65dvh;
+  overflow-y: auto;
+  padding: 4px 16px 12px;
   background: #fff;
   border-bottom: 1px solid #ececf3;
-  flex-shrink: 0;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 12px 28px rgba(26, 26, 46, 0.14);
 
   @media (max-width: 1024px) {
     display: ${({ $open }) => ($open ? 'block' : 'none')};
+  }
+`;
+
+export const PanelClose = styled.button`
+  /* Pinned to the bottom of the list, so closing never needs a scroll. */
+  position: sticky;
+  bottom: 0;
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  box-shadow: 0 -10px 0 #fff, 0 10px 0 #fff;
+  padding: 11px;
+  border: 1.5px solid #e6e6ef;
+  border-radius: 12px;
+  background: #fff;
+  color: #1a1a2e;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+`;
+
+/* Dims the chat while the steps are open; a tap on it closes them. */
+export const MobileScrim = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(26, 26, 46, 0.28);
+
+  @media (min-width: 1025px) {
+    display: none;
   }
 `;
 

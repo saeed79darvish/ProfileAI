@@ -122,6 +122,9 @@ export const TEXT = {
   INPUT_PLACEHOLDER_MULTI: 'Tap the ones that fit, or type them',
   MULTI_DONE: (n: number) => `Continue (${n})`,
   CHIP_REMOVE: 'tap to remove',
+  STEPS_SHOW: 'Show your profile steps',
+  STEPS_HIDE: 'Hide your profile steps',
+  STEPS_CLOSE: 'Close',
   SEND: 'Send',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 

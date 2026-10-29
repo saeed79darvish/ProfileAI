@@ -328,8 +328,10 @@ export const profileAPI = {
   // What the call collected, once it has ended.
   // One turn of the coach conversation, decided by the model: what to say,
   // what it learned, and whether it is waiting on them.
-  coachTurn: ({ profile, missing, history, message, liveVoice }) =>
-    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice }),
+  // asked/options: the question on screen and its buttons; next: the
+  // question after it, the only one the coach may move on to.
+  coachTurn: ({ profile, missing, history, message, liveVoice, asked, options, next }) =>
+    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next }),
   // Answer a question someone asked instead of answering ours.
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),

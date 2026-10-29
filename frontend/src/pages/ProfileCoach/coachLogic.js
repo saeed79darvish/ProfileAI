@@ -1280,6 +1280,27 @@ export const careerStageChips = (draft = {}) => CAREER_STAGES
   .filter((c) => !SENIOR_LEVELS.has(draft.level) || !['new_grad', 'internship'].includes(c.id))
   .map((c) => ({ id: c.id, label: CAREER_STAGE_LABELS[draft.sector]?.[c.id] || c.label }));
 
+/* Steps that announce or show something rather than ask: never a question
+   the model can ask on the page's behalf. */
+export const NOT_ASKED_KINDS = new Set(['run', 'tour', 'convert']);
+
+/* Questions whose answer is the person's own words (a title, a role, their
+   skills), so the model's suggestions, written from what they have said,
+   fit better than a list by field. The rest have fixed answers the profile
+   stores as ids (full-time, remote), and keep them. */
+export const OPEN_CHIP_SETS = new Set(['titles', 'targets', 'skills']);
+
+/**
+ * The model's suggested answers as chips for a step, or undefined to keep
+ * the step's own. Only open questions take them; "Type my own" stays where
+ * the step had it.
+ */
+export const suggestionChips = (step, suggestions = []) => {
+  if (!step || !OPEN_CHIP_SETS.has(step.chipSet) || !suggestions.length) return undefined;
+  const chips = suggestions.map((label) => ({ id: label, label }));
+  return step.chipSet === 'skills' ? chips : [...chips, { ...CUSTOM_ANSWER_CHIP }];
+};
+
 export const getChips = (step, draft = {}) => {
   if (!step || !step.chipSet) return [];
   switch (step.chipSet) {

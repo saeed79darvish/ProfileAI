@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Mic as MicIcon,
   Add as AttachIcon,
+  ExpandMore as ExpandMoreIcon,
   Send as SendIcon,
   Tune as TuneIcon,
   Extension as ExtensionIcon,
@@ -59,6 +60,9 @@ import {
   matchSector,
   matchChip,
   nextStepIndex,
+  NOT_ASKED_KINDS,
+  OPEN_CHIP_SETS,
+  suggestionChips,
   fixKeys,
   applyFixPlan,
   linkedinProfileUrl,
@@ -113,7 +117,7 @@ import {
   FixItem, FixList, ComposerWrap, Composer, ComposerField, ComposerInput, ComposerWave, ClearButton, DropOverlay, AttachmentCard, IconButton, Footnote, ErrorNote,
   SidePanel, PanelHead, Meter, PanelTitle, PanelTier, PanelSub,
   PanelItem, PanelItemHead, Dot, PanelItemBody, PanelRoles, PanelTags,
-  MobileStrip, StripBar, StripLabel, MobilePanel,
+  MobileStrip, StripBar, StripLabel, MobilePanel, MobileProgress, StripChevron, PanelClose, MobileScrim,
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
@@ -812,6 +816,23 @@ const ProfileCoach = () => {
       return;
     }
     if (anchorIdRef.current) return;
+    /* A question whose chips are taller than the screen (the field question
+       on a phone) is shown from the question down. Scrolling to the bottom
+       put the last chip in view and the question under the header. */
+    const list = listRef.current;
+    const lastMine = messages.map((m) => m.role).lastIndexOf('me');
+    const question = !typing && messages.slice(lastMine + 1).reverse().find((m) => m.role === 'coach' && m.text);
+    const questionEl = question && list?.querySelector(`[data-qid="${question.id}"]`);
+    if (questionEl && messages[messages.length - 1]?.chips?.length) {
+      const top = questionEl.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      if (list.scrollHeight - top > list.clientHeight) {
+        list.scrollTop = Math.max(0, top - 12);
+        // Not following the bottom: the chips growing in must not drag
+        // the question back out of view. Scrolling down picks it up again.
+        stickRef.current = false;
+        return;
+      }
+    }
     listEndRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, typing]);
 
@@ -1677,6 +1698,14 @@ const ProfileCoach = () => {
       answerResumeOffer(message, chip.id);
       return;
     }
+    // A suggested answer to a follow-up: the same as typing it and sending.
+    if (chip.asText) {
+      if (message.spent || busy) return;
+      spendChips(message.id);
+      submitTextRef.current?.(null, chip.label);
+      return;
+    }
+
     const step = LADDER.find((s) => s.id === message.stepId);
     if (!step || message.spent || busy) return;
     const index = LADDER.findIndex((s) => s.id === step.id);
@@ -1924,6 +1953,19 @@ const ProfileCoach = () => {
       // Real answers only: "Type my own", "More fields", "Say it instead"
       // and the like are controls, not something to pick in words.
       .filter((c) => !String(c.id).startsWith('__')) : [];
+    /* The question after this one. The model used to move on by itself, to
+       whatever it liked off the checklist, and the page never knew: no
+       buttons came with it, and the next answer was read against the old
+       question. Now it is told the one question it may move on to, and says
+       when it did. */
+    /* Without a call to offer, the page makes the talk-or-chat choices
+       itself (askStep), so the question after them is the real next one. */
+    const ahead = voiceAvailableRef.current ? draftRef.current
+      : { ...draftRef.current, mode: draftRef.current.mode || 'chat', talkOfferDone: true };
+    const nextIndex = step ? nextStepIndex(LADDER.findIndex((s) => s.id === step.id), ahead) : -1;
+    const nextStep = LADDER[nextIndex];
+    const nextAskable = !!nextStep && !NOT_ASKED_KINDS.has(nextStep.kind);
+    const nextOpen = nextAskable && OPEN_CHIP_SETS.has(nextStep.chipSet);
     setBusy(true);
     setTyping(true);
     try {
@@ -1943,6 +1985,14 @@ const ProfileCoach = () => {
         liveVoice: voiceAvailableRef.current ? 'live' : 'none',
         asked: step ? questionText(step, draftRef.current) : '',
         options: onScreen.map((c) => c.label),
+        next: nextAskable ? {
+          question: questionText(nextStep, draftRef.current),
+          // Open questions (titles, skills) get the model's own suggestions.
+          options: nextOpen ? [] : getChips(nextStep, draftRef.current)
+            .filter((c) => !String(c.id).startsWith('__'))
+            .map((c) => c.label),
+          open: nextOpen,
+        } : null,
       });
 
       const learned = data?.learned || {};
@@ -1987,6 +2037,8 @@ const ProfileCoach = () => {
         ok: true,
         awaiting: data?.awaiting !== false && !!String(data?.say || '').trim(),
         choice: onScreen.find((c) => c.label === data?.choice) || null,
+        nextIndex: nextAskable && data?.asking === 'next' ? nextIndex : -1,
+        suggestions: Array.isArray(data?.suggestions) ? data.suggestions.filter((t) => typeof t === 'string') : [],
       };
     } catch {
       setTyping(false);
@@ -2002,8 +2054,8 @@ const ProfileCoach = () => {
    * A text-only step gets nothing: the composer is already there, and an
    * empty row would be noise.
    */
-  const offerChipsAgain = useCallback((step, liveMessage) => {
-    const chips = getChips(step, draftRef.current);
+  const offerChipsAgain = useCallback((step, liveMessage, chipsOverride) => {
+    const chips = chipsOverride || getChips(step, draftRef.current);
     if (!chips.length) return;
     /* One live row, under the latest reply. Every off-topic turn used to
        add another copy and grey out the one before, so a short exchange left
@@ -2125,13 +2177,15 @@ const ProfileCoach = () => {
    * it decides how to ask for the next missing piece, and the chips keep
    * working exactly as before for anyone who would rather tap.
    */
-  const submitText = useCallback(async (event) => {
+  const submitText = useCallback(async (event, said) => {
     event?.preventDefault();
+    // A tapped suggestion: its words, not the box, and the mic is done with.
+    if (said != null && dictation.listening) dictation.cancel();
     /* Pressed while the accurate transcript is still coming back: that is
        still "send this". It used to be ignored (Enter) or impossible (the
        button was disabled), which read as the box not sending. It goes the
        moment the transcript lands — see the effect on dictation.transcribing. */
-    if (dictation.transcribing) {
+    if (said == null && dictation.transcribing) {
       showPendingSend(input.trim());
       sendWhenTranscribedRef.current = true;
       return;
@@ -2139,8 +2193,8 @@ const ProfileCoach = () => {
     /* Send while the mic is on means "that is my answer": stop, wait for the
        accurate transcript, and send that, not the live preview. The preview
        shows in the chat meanwhile (see pendingSendRef). */
-    let text = input.trim();
-    if (dictation.listening) {
+    let text = (said ?? input).trim();
+    if (said == null && dictation.listening) {
       showPendingSend(text);
       const final = await dictation.finish();
       setInput('');
@@ -2333,8 +2387,40 @@ const ProfileCoach = () => {
     /* It asked them something. Wait for the answer rather than talking over
        it, but keep the buttons under it: a reply on a button question used
        to retire the row for good, leaving the question with nothing to tap. */
+    /* A follow-up of its own ("frontend or full-stack?", "how big was the
+       team?"): its suggested answers, to tap instead of typing. A tap is
+       sent like typed words, so the coach reads it; it is never saved as
+       the answer to the step directly. */
+    const offerSuggestions = () => setMessages((prev) => [...prev, {
+      id: nextId(),
+      role: 'coach',
+      text: '',
+      stepId: step.id,
+      chips: turn.suggestions.map((label) => ({ id: `__say:${label}`, label, asText: true })),
+      selected: [],
+    }]);
+
     if (turn.awaiting) {
-      if (!stepAnswered(step, draftRef.current)) offerChipsAgain(step, null);
+      if (!stepAnswered(step, draftRef.current)) {
+        if (turn.suggestions.length) offerSuggestions();
+        else offerChipsAgain(step, null);
+        return;
+      }
+      /* Answered, and it went straight on to the next question in its own
+         words: that question is now the one on screen, with its buttons
+         under the reply, and the next answer is read against it. */
+      const nextStep = LADDER[turn.nextIndex];
+      if (nextStep && !stepAnswered(nextStep, draftRef.current)) {
+        // The talk-or-chat choice it went past is made, as askStep would.
+        if (!voiceAvailableRef.current && !draftRef.current.mode) {
+          draftRef.current = { ...draftRef.current, mode: 'chat' };
+          setDraft(draftRef.current);
+        }
+        setStepIndex(turn.nextIndex);
+        offerChipsAgain(nextStep, null, suggestionChips(nextStep, turn.suggestions));
+        return;
+      }
+      if (turn.suggestions.length) offerSuggestions();
       return;
     }
 
@@ -2344,6 +2430,9 @@ const ProfileCoach = () => {
     if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
     else offerChipsAgain(step, null);
   }, [advance, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  // Read by a tapped suggestion, whose handler is declared above this one.
+  const submitTextRef = useRef(submitText);
+  submitTextRef.current = submitText;
 
   /* ─── Converting ───────────────────────────────────────────── */
 
@@ -2762,11 +2851,27 @@ const ProfileCoach = () => {
             conversation is the way through to the profile. */}
       </TopBar>
 
-      <MobileStrip type="button" onClick={() => setPanelOpen((v) => !v)} aria-expanded={panelOpen}>
-        <StripLabel>{completion.pct}% · {completion.label}</StripLabel>
-        <StripBar $pct={completion.pct}><i /></StripBar>
-      </MobileStrip>
-      <MobilePanel $open={panelOpen}>{renderPanelItems()}</MobilePanel>
+      {/* The steps open over the chat, not above it: pushed down, the
+          conversation went out of view with no sign of how to get it back.
+          The chevron says it opens; tapping the bar, outside, or Close
+          shuts it. */}
+      <MobileProgress>
+        <MobileStrip
+          type="button"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+          aria-label={panelOpen ? TEXT.STEPS_HIDE : TEXT.STEPS_SHOW}
+        >
+          <StripLabel>{completion.pct}% · {completion.label}</StripLabel>
+          <StripBar $pct={completion.pct}><i /></StripBar>
+          <StripChevron $open={panelOpen} aria-hidden="true"><ExpandMoreIcon fontSize="small" /></StripChevron>
+        </MobileStrip>
+        <MobilePanel $open={panelOpen}>
+          {renderPanelItems()}
+          <PanelClose type="button" onClick={() => setPanelOpen(false)}>{TEXT.STEPS_CLOSE}</PanelClose>
+        </MobilePanel>
+      </MobileProgress>
+      {panelOpen && <MobileScrim onClick={() => setPanelOpen(false)} aria-hidden="true" />}
 
       <Body>
         <ChatColumn {...dropHandlers}>
@@ -2790,7 +2895,7 @@ const ProfileCoach = () => {
                       have no bubble text, and an empty bubble is just a grey
                       rectangle floating above them. */}
                   {!!message.text && (
-                    <Row $mine={message.role === 'me'}>
+                    <Row $mine={message.role === 'me'} data-qid={message.role === 'coach' ? message.id : undefined}>
                       {message.role === 'coach' && (
                         <CoachAvatar><CoachMark /></CoachAvatar>
                       )}

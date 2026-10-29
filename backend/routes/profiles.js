@@ -871,7 +871,7 @@ router.post('/coach/transcribe', transcribeGuard, clipUpload.single('audio'), as
 // @access  Public (guests metered by IP)
 router.post('/coach/turn', coachGuard, async (req, res) => {
   try {
-    const { profile, missing, history, message, liveVoice, asked, options } = req.body || {};
+    const { profile, missing, history, message, liveVoice, asked, options, next } = req.body || {};
     if (!message || !String(message).trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -886,6 +886,15 @@ router.post('/coach/turn', coachGuard, async (req, res) => {
       options: Array.isArray(options)
         ? options.filter((o) => typeof o === 'string').map((o) => o.slice(0, 80)).slice(0, 40)
         : [],
+      next: next && typeof next === 'object' && typeof next.question === 'string'
+        ? {
+          question: next.question.slice(0, 300),
+          options: Array.isArray(next.options)
+            ? next.options.filter((o) => typeof o === 'string').map((o) => o.slice(0, 80)).slice(0, 40)
+            : [],
+          open: next.open === true,
+        }
+        : null,
     });
 
     await recordCoachUsage(req);

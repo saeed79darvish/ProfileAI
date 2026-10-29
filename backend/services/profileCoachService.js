@@ -428,13 +428,31 @@ const TURN_FIELDS = new Set([
   'workStyle', 'target', 'yearsExperience', 'graduationYear',
 ]);
 
-async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [] } = {}) {
+/* Suggested answers the model wrote for the question it asked: short,
+   distinct, a few at most. Anything else in the array is dropped. */
+const MAX_SUGGESTIONS = 6;
+const cleanSuggestions = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of value) {
+    const text = String(typeof item === 'string' ? item : '').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > 60 || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    out.push(text);
+    if (out.length >= MAX_SUGGESTIONS) break;
+  }
+  return out;
+};
+
+async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
-  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none' };
+  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', asking: '', suggestions: [] };
 
   const response = await callAI({
     model: TURN_MODEL,
-    max_tokens: 700,
+    // Room for the suggested answers on top of the reply.
+    max_tokens: 900,
     temperature: 0.5,
     messages: [{
       role: 'user',
@@ -450,6 +468,7 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
         liveVoice,
         asked,
         options,
+        next,
       }),
     }],
   });
@@ -463,12 +482,30 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     learned[key] = value;
   }
 
+  const say = String(parsed.say || '').trim();
+  /* It claimed to move on to the page's next question but asked nothing
+     ("Got it. Full-stack frontend engineer it is."): it is done, and the
+     page asks the next question itself. Trusting the claim put that
+     question's buttons under a reply with no question in it. */
+  const claimedNext = !!next && parsed.asking === 'next';
+  const asksNext = claimedNext && say.includes('?');
+  const awaiting = parsed.awaiting !== false && !!say && !(claimedNext && !asksNext);
+  /* It moved on to the page's next question in its own words. The page then
+     shows that question's buttons under the reply instead of asking it
+     again. */
+  const asking = asksNext && awaiting ? 'next' : '';
+  /* Buttons the page owns win: a question with fixed answers (full-time,
+     remote) keeps them, and the model's words are not offered beside them. */
+  const fixedButtons = asking === 'next' && !next.open && next.options.length > 0;
+
   return {
-    say: String(parsed.say || '').trim(),
+    say,
     learned,
     // Default to waiting. Pressing on when the model did not say it was
     // finished is how a conversation talks over someone.
-    awaiting: parsed.awaiting !== false && !!String(parsed.say || '').trim(),
+    awaiting,
+    asking,
+    suggestions: awaiting && !fixedButtons ? cleanSuggestions(parsed.suggestions) : [],
     // Only ever true when the page said it can open a call right now.
     voice: liveVoice === 'live' && parsed.voice === true,
     // A piece of the page to put under the reply. Only names we render.
