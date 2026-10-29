@@ -229,6 +229,34 @@ export const levelsFor = (sector) => LEVELS_BY_SECTOR[sector] || DEFAULT_LEVELS;
 // Kept for the wizard and anything else importing the office-job ladder.
 export const SENIORITY_LEVELS = DEFAULT_LEVELS;
 
+/* Typed or spoken preferences, to the ids the jobs filter reads. "Mostly
+   remote, hybrid is fine" was stored as that sentence, which no filter
+   understands. The first one named wins; nothing recognisable gives ''. */
+const WORK_STYLE_WORDS = [
+  ['remote', /\bremote|from home|wfh\b/i],
+  ['hybrid', /\bhybrid\b/i],
+  ['onsite', /\bon-?site|in[- ]office|in person|office\b/i],
+  ['flexible', /\bflexible|any|either|don'?t mind|no preference\b/i],
+];
+export const workStyleIdFrom = (text) => {
+  const said = String(text || '');
+  const found = WORK_STYLE_WORDS
+    .map(([id, re]) => [id, said.search(re)])
+    .filter(([, at]) => at >= 0)
+    .sort((a, b) => a[1] - b[1]);
+  return found[0]?.[0] || '';
+};
+const ROLE_TYPE_WORDS = [
+  ['full-time', /\bfull[- ]?time|permanent\b/i],
+  ['part-time', /\bpart[- ]?time\b/i],
+  ['contract', /\bcontract/i],
+  ['freelance', /\bfreelanc/i],
+  ['internship', /\bintern(ship)?|co-?op\b/i],
+];
+export const roleTypeIdsFrom = (text) => ROLE_TYPE_WORDS
+  .filter(([, re]) => re.test(String(text || '')))
+  .map(([id]) => id);
+
 export const WORK_STYLES = [
   { id: 'remote', label: 'Remote' },
   { id: 'hybrid', label: 'Hybrid' },
@@ -714,7 +742,8 @@ export const LADDER = [
     hint: (draft) => workStyleHint(draft),
     kind: 'chips',
     chipSet: 'workStyles',
-    freeText: false,
+    // Typed answers ("mostly remote, hybrid is fine") are matched to a button.
+    freeText: true,
     aiStep: null,
     assign: 'workStyle',
   },
@@ -728,7 +757,10 @@ export const LADDER = [
     hint: 'This decides what I ask next, so pick honestly.',
     kind: 'chips',
     chipSet: 'careerStages',
-    freeText: false,
+    /* Open to typing: "final year of CS" or "nurse moving into UX" says it
+       better than a button, and the coach matches it to one. The box was
+       locked here, which read as the page being broken. */
+    freeText: true,
     aiStep: null,
     assign: 'careerStage',
   },

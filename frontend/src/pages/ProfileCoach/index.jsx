@@ -61,6 +61,8 @@ import {
   matchChip,
   nextStepIndex,
   NOT_ASKED_KINDS,
+  workStyleIdFrom,
+  roleTypeIdsFrom,
   looksLikeTitle,
   withStageDefaults,
   OPEN_CHIP_SETS,
@@ -2173,11 +2175,11 @@ const ProfileCoach = () => {
         }
         // roleTypes and workStyle are chip answers the model can also hear in
         // passing; applyBraindump deliberately does not own them.
-        if (learned.roleType && !(merged.roleTypes || []).length) {
-          merged.roleTypes = [String(learned.roleType).toLowerCase()];
+        if (learned.roleType && !(merged.roleTypes || []).length && roleTypeIdsFrom(learned.roleType).length) {
+          merged.roleTypes = roleTypeIdsFrom(learned.roleType);
         }
-        if (learned.workStyle && !merged.workStyle) {
-          merged.workStyle = String(learned.workStyle).toLowerCase();
+        if (learned.workStyle && !merged.workStyle && workStyleIdFrom(learned.workStyle)) {
+          merged.workStyle = workStyleIdFrom(learned.workStyle);
         }
         if (learned.target && !merged.target) merged.target = String(learned.target);
         draftRef.current = merged;

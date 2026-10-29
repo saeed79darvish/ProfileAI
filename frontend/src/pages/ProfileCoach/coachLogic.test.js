@@ -67,6 +67,8 @@ import {
   draftToProfileShape,
   panelState,
   suggestionChips,
+  workStyleIdFrom,
+  roleTypeIdsFrom,
   STAGE_ORDERS,
   withStageDefaults,
 } from './coachLogic.js';
@@ -574,8 +576,11 @@ test('a probe question accepts typing even though its step does not', () => {
 test('canAnswer tracks the step for every ordinary question', () => {
   assert.equal(canAnswer(step('currentRole'), false), true);
   assert.equal(canAnswer(step('sector'), false), true);
-  // Chip-only steps take no typing.
-  assert.equal(canAnswer(step('workStyle'), false), false);
+  // Every question takes typing now; the coach matches it to a button.
+  assert.equal(canAnswer(step('workStyle'), false), true);
+  assert.equal(canAnswer(step('careerStage'), false), true);
+  // Steps that only do work take none.
+  assert.equal(canAnswer(step('review'), false), false);
   // And nothing blows up before the first question arrives.
   assert.equal(canAnswer(undefined, false), false);
   assert.equal(canAnswer(null, true), true);
@@ -1608,4 +1613,14 @@ test('an earlier job keeps its own title and years, and the headline is untouche
 test('a career changer is not asked their level in the field they are leaving', () => {
   const level = LADDER.find((s) => s.id === 'level');
   assert.equal(isAlreadyAnswered(level, { careerStage: 'career_change' }), true);
+});
+
+test('a typed preference is stored as the id the job filters read', () => {
+  assert.equal(workStyleIdFrom('mostly remote, hybrid is fine too'), 'remote');
+  assert.equal(workStyleIdFrom('Hybrid, or remote at a push'), 'hybrid');
+  assert.equal(workStyleIdFrom('in the office is best'), 'onsite');
+  assert.equal(workStyleIdFrom("I don't mind"), 'flexible');
+  assert.equal(workStyleIdFrom('whatever pays'), '');
+  assert.deepEqual(roleTypeIdsFrom('Full time, and I would consider contract'), ['full-time', 'contract']);
+  assert.deepEqual(roleTypeIdsFrom('an internship or co-op'), ['internship']);
 });
