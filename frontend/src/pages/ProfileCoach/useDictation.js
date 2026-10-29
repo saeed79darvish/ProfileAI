@@ -30,6 +30,16 @@ const canRecord = typeof window !== 'undefined'
   && typeof window.MediaRecorder !== 'undefined'
   && !!navigator?.mediaDevices?.getUserMedia;
 
+/* Phones get the recording alone, no browser preview. On Android Chrome and
+   iOS Safari the recogniser and the recorder fight over the one microphone:
+   whichever opens second gets silence or an error, and which one opens
+   second depends on how fast the permission check comes back. That race
+   was "dictation works sometimes". Without the preview, the transcript made
+   during each pause fills the box instead, so the words still arrive while
+   they talk. */
+const isTouchDevice = () => typeof window !== 'undefined'
+  && !!window.matchMedia?.('(pointer: coarse)').matches;
+
 // Long enough for a real answer; a forgotten mic should not record forever.
 const MAX_RECORDING_MS = 3 * 60 * 1000;
 
@@ -103,6 +113,16 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
      could land after the accurate text and overwrite it. It is still kept
      (finalRef) as the fallback. */
   const previewClosedRef = useRef(false);
+  /* Bumped by every start and stop. Asking for the microphone takes a
+     moment (longer on a phone); a session stopped or replaced while it
+     waited must not start recording when the answer comes back. Tapping
+     stop during that wait used to leave a recorder running unseen, with the
+     mic light on, for up to three minutes. */
+  const sessionRef = useRef(0);
+  // The microphone has been asked for and the recorder is not running yet.
+  const micPendingRef = useRef(false);
+  // A pause transcript was put in the box (phones, with no preview).
+  const aheadShownRef = useRef(false);
   // Read inside callbacks that are created once.
   const handlersRef = useRef({ onText, onError, transcribe });
   useEffect(() => { handlersRef.current = { onText, onError, transcribe }; }, [onText, onError, transcribe]);
@@ -124,6 +144,10 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
+      /* Created after awaiting the microphone, so outside the tap: iOS
+         starts it suspended, the level reads zero, and no pause is ever
+         detected. */
+      if (ctx.state === 'suspended') ctx.resume?.().catch(() => {});
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       ctx.createMediaStreamSource(stream).connect(analyser);
@@ -154,7 +178,16 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     if (now - voiceAt < SPECULATE_AFTER_MS || aheadRef.current?.voiceAt === voiceAt) return;
     if (!chunksRef.current.length || !handlersRef.current.transcribe) return;
     const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-    aheadRef.current = { voiceAt, text: handlersRef.current.transcribe(blob).catch(() => null) };
+    const ahead = { voiceAt, text: handlersRef.current.transcribe(blob).catch(() => null) };
+    aheadRef.current = ahead;
+    // No preview running (phones): this is the live text.
+    if (recognitionRef.current) return;
+    ahead.text.then((text) => {
+      if (discardedRef.current || previewClosedRef.current || aheadRef.current !== ahead) return;
+      if (!String(text || '').trim()) return;
+      aheadShownRef.current = true;
+      handlersRef.current.onText?.(mergeDictation(baseRef.current, text));
+    });
   };
 
   const releaseMic = useCallback(() => {
@@ -168,6 +201,8 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
   /* Stop listening and keep what was said: the mic button. The recording
      goes to the accurate pass; the preview stays in the box meanwhile. */
   const stop = useCallback(() => {
+    sessionRef.current += 1;
+    micPendingRef.current = false;
     try { recognitionRef.current?.stop(); } catch { /* already stopped */ }
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
@@ -181,6 +216,8 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
 
   /** Throw the session away, keeping nothing: sending. */
   const cancel = useCallback(() => {
+    sessionRef.current += 1;
+    micPendingRef.current = false;
     discardedRef.current = true;
     try { recognitionRef.current?.abort(); } catch { /* nothing running */ }
     try { if (recorderRef.current?.state !== 'inactive') recorderRef.current?.stop(); } catch { /* done */ }
@@ -212,8 +249,11 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
     recognition.onerror = (event) => {
       // Silence is not a failure worth a message; a refused microphone is.
       if (event.error === 'no-speech' || event.error === 'aborted') return;
-      // With a recording running, the preview failing is not worth a message.
-      if (recorderRef.current) return;
+      /* With a recording running, or about to, the preview failing is not
+         worth a message. The microphone request is still out while the
+         recogniser starts, and an error from it then used to turn the mic
+         off on screen while the recorder went on to start anyway. */
+      if (recorderRef.current || micPendingRef.current) return;
       setListening(false);
       handlersRef.current.onError?.(event.error);
     };
@@ -223,20 +263,34 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
 
   const start = useCallback(async (currentText = '') => {
     if (!dictationSupported) return;
+    sessionRef.current += 1;
+    const session = sessionRef.current;
     baseRef.current = currentText;
     finalRef.current = '';
     discardedRef.current = false;
     previewClosedRef.current = false;
+    aheadShownRef.current = false;
     chunksRef.current = [];
     recorderRef.current = null;
+    recognitionRef.current = null;
     setListening(true);
-    startPreview();
 
-    if (!canRecord || !handlersRef.current.transcribe) return;
+    const recordable = canRecord && !!handlersRef.current.transcribe;
+    const withPreview = !!Recognition && !(recordable && isTouchDevice());
+    if (withPreview) startPreview();
+
+    if (!recordable) return;
+    micPendingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      if (session !== sessionRef.current) {
+        // Stopped, sent or restarted while the microphone was being asked for.
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      micPendingRef.current = false;
       streamRef.current = stream;
       startMeter(stream);
       const mimeType = pickMimeType();
@@ -270,6 +324,13 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
         } finally {
           setTranscribing(false);
           settle(result);
+          /* They spoke and nothing came back from either engine: say so,
+             rather than leave an empty box that looks like the mic did
+             nothing. Silence (they said nothing) stays quiet. */
+          const heardNothing = !result && !finalRef.current.trim() && !aheadShownRef.current;
+          if (heardNothing && lastVoiceAtRef.current && !discardedRef.current) {
+            handlersRef.current.onError?.('transcribe-failed');
+          }
         }
       };
       recorderRef.current = recorder;
@@ -279,10 +340,12 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
       recorder.start(CHUNK_MS);
       capTimerRef.current = setTimeout(() => stop(), MAX_RECORDING_MS);
     } catch (error) {
+      if (session !== sessionRef.current) return;
+      micPendingRef.current = false;
       // No recording (refused, or no device): the preview alone carries on
       // if it is running; otherwise this is the message.
       recorderRef.current = null;
-      if (!Recognition) {
+      if (!withPreview) {
         setListening(false);
         handlersRef.current.onError?.(error?.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture');
       }
@@ -297,6 +360,8 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
    */
   const finish = useCallback(() => {
     if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      sessionRef.current += 1;
+      micPendingRef.current = false;
       try { recognitionRef.current?.stop(); } catch { /* already stopped */ }
       setListening(false);
       return Promise.resolve(null);
@@ -313,6 +378,7 @@ export const useDictation = ({ onText, onError, transcribe } = {}) => {
 
   // Nothing left recording, and the mic light off, when the page changes.
   useEffect(() => () => {
+    sessionRef.current += 1;
     discardedRef.current = true;
     try { recognitionRef.current?.abort(); } catch { /* nothing to abort */ }
     try { if (recorderRef.current?.state !== 'inactive') recorderRef.current?.stop(); } catch { /* done */ }
