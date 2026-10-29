@@ -257,6 +257,20 @@ export const roleTypeIdsFrom = (text) => ROLE_TYPE_WORDS
   .filter(([, re]) => re.test(String(text || '')))
   .map(([id]) => id);
 
+/* Where someone is in their career, from how they put it. Read on the page
+   because a model asked to pick a button from "final year of computer
+   science" sometimes asked back instead, and the answer was lost. Career
+   change is checked first: "switching from nursing after six years" is a
+   change, not experience. '' when it is not clear; the coach decides then. */
+const STAGE_WORDS = [
+  ['career_change', /\b(switch|chang|pivot|transition|moving (in)?to|retrain)/i],
+  ['self_taught', /\b(self[- ]taught|taught myself|bootcamp|boot camp)/i],
+  ['internship', /\b(intern(ship)?s?|co-?ops?)\b/i],
+  ['new_grad', /\b(student|final year|last year|senior year|graduat\w*|new grad|fresh grad|uni(versity)?|college|degree|studying)\b/i],
+  ['experienced', /\b(\d+\+? years|years of experience|work(ing)? as|currently (a|an|work)|full[- ]time|employed|experienced)\b/i],
+];
+export const careerStageFrom = (text) => STAGE_WORDS.find(([, re]) => re.test(String(text || '')))?.[0] || '';
+
 export const WORK_STYLES = [
   { id: 'remote', label: 'Remote' },
   { id: 'hybrid', label: 'Hybrid' },

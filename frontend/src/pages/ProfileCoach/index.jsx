@@ -61,6 +61,7 @@ import {
   matchChip,
   nextStepIndex,
   NOT_ASKED_KINDS,
+  careerStageFrom,
   workStyleIdFrom,
   roleTypeIdsFrom,
   looksLikeTitle,
@@ -2541,6 +2542,13 @@ const ProfileCoach = () => {
         commit(field.title && !current.title ? { sector: field.sector, title: field.title } : { sector: field.sector }, index);
         return;
       }
+    }
+
+    // Said in words, read on the page: see careerStageFrom.
+    if (step.id === 'careerStage' && careerStageFrom(text)) {
+      if (liveMessage) spendChips(liveMessage.id);
+      commit({ careerStage: careerStageFrom(text) }, index);
+      return;
     }
 
     /* A plain job title is the answer as typed: "Registered Nurse" under

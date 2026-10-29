@@ -68,6 +68,7 @@ import {
   panelState,
   suggestionChips,
   workStyleIdFrom,
+  careerStageFrom,
   roleTypeIdsFrom,
   STAGE_ORDERS,
   withStageDefaults,
@@ -1623,4 +1624,14 @@ test('a typed preference is stored as the id the job filters read', () => {
   assert.equal(workStyleIdFrom('whatever pays'), '');
   assert.deepEqual(roleTypeIdsFrom('Full time, and I would consider contract'), ['full-time', 'contract']);
   assert.deepEqual(roleTypeIdsFrom('an internship or co-op'), ['internship']);
+});
+
+test('a career stage said in words lands on the right path', () => {
+  assert.equal(careerStageFrom("I'm in my final year of computer science at UofT"), 'new_grad');
+  assert.equal(careerStageFrom('just graduated in May'), 'new_grad');
+  assert.equal(careerStageFrom('switching from nursing after six years'), 'career_change');
+  assert.equal(careerStageFrom('did two internships at Shopify'), 'internship');
+  assert.equal(careerStageFrom('taught myself to code, then a bootcamp'), 'self_taught');
+  assert.equal(careerStageFrom('8 years as a backend engineer'), 'experienced');
+  assert.equal(careerStageFrom('hmm'), '');
 });
