@@ -109,3 +109,9 @@ test('the greeting proves it read the profile instead of asking again', () => {
   assert.match(instructions, /NEVER ASK FOR ANY OF THIS/);
   assert.match(instructions, /company: Equinix/);
 });
+
+test('a project said on a call is kept as a project', () => {
+  const out = filterLearned({ project: { name: 'Study room app', description: '400 students', technologies: ['React', ' '], extra: 'x' } });
+  assert.deepEqual(out.project, { name: 'Study room app', description: '400 students', technologies: ['React'] });
+  assert.equal(filterLearned({ project: { description: 'no name' } }).project, undefined);
+});

@@ -905,6 +905,33 @@ function suggestGuard(req, res, next) {
   });
 }
 
+/* Something shared during a call: a project write-up, a portfolio PDF.
+   Only its text goes back, for the call to read; nothing is stored. Images
+   never come here: the browser hands those to the call directly. */
+const { extractTextFromResume, isSupportedFileType } = require('../services/resume/extractors');
+const sharedDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, isSupportedFileType(file.mimetype)),
+});
+const MAX_SHARED_TEXT = 8000;
+
+// @route   POST /api/profiles/coach/voice/document
+// @desc    The text of a document shared during a call
+// @access  Public (guests capped per IP per day, with the suggestions)
+router.post('/coach/voice/document', suggestGuard, sharedDocUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) return res.status(400).json({ error: 'No file', code: 'file_required' });
+    const raw = await extractTextFromResume(req.file);
+    const text = String(raw || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text) return res.status(422).json({ error: 'No text in that file', code: 'no_text' });
+    res.json({ success: true, text: text.slice(0, MAX_SHARED_TEXT), truncated: text.length > MAX_SHARED_TEXT });
+  } catch (error) {
+    console.error('Error reading a shared document:', error.message);
+    res.status(422).json({ error: 'Could not read that file', code: 'unreadable' });
+  }
+});
+
 // @route   POST /api/profiles/coach/suggest
 // @desc    Suggested answers for a titles, target or skills question
 // @access  Public (guests capped per IP per day)

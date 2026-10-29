@@ -54,6 +54,7 @@ const OVERTIME_CAP_MS = 2 * 60 * 1000;
 const MAX_GOODBYE_TRIES = 2;
 
 const HEADS_UP_TEXT = 'About a minute left on this call. Do not start any new topic. Let them finish what they are saying, cover the most important thing still open if there is one, and get ready to wrap up.';
+const SHARE_ERROR_WINDOW_MS = 8000;
 const GOODBYE_TEXT = 'Time is up. Do not ask anything else. Briefly thank them for what they just said, tell them you have what you need, that their profile preview is being put together and will be on screen in a moment, and that once they have checked it you will finish the rest of the profile together. Then call hand_back_to_chat.';
 
 /* How long to let silence run after somebody finishes speaking before
@@ -81,7 +82,7 @@ const REPLYING_TURN_DETECTION = {
   interrupt_response: true,
 };
 
-export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {}) => {
+export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShareFailed } = {}) => {
   const [state, setState] = useState(VOICE_STATES.idle);
   // True while Remi is the one talking, so the UI can say who has the floor.
   const [speaking, setSpeaking] = useState(false);
@@ -130,13 +131,46 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
   const greetedRef = useRef(false);
   const greetingCapRef = useRef(null);
 
-  const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError });
+  const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError, onShareFailed });
   useEffect(() => {
-    handlersRef.current = { onTranscript, onLearned, onEnded, onError };
-  }, [onTranscript, onLearned, onEnded, onError]);
+    handlersRef.current = { onTranscript, onLearned, onEnded, onError, onShareFailed };
+  }, [onTranscript, onLearned, onEnded, onError, onShareFailed]);
 
   /** Put everything down, once, whoever asked. */
+  /* The screen stays on for the call. People put the phone down to talk,
+     the screen dimmed and locked, and the call carried on behind a lock
+     screen they then had to fight to get back to. The lock is dropped by
+     the browser whenever the page is hidden, so it is taken again when the
+     page comes back while the call is still on. Not every browser has it
+     (iOS before 16.4); there the phone just sleeps as before. */
+  const wakeLockRef = useRef(null);
+  // When something was last shared, to tell a refused picture from a broken call.
+  const sharedAtRef = useRef(0);
+  const holdScreen = useCallback(async () => {
+    try {
+      if (!navigator.wakeLock || wakeLockRef.current) return;
+      const lock = await navigator.wakeLock.request('screen');
+      wakeLockRef.current = lock;
+      lock.addEventListener?.('release', () => {
+        if (wakeLockRef.current === lock) wakeLockRef.current = null;
+      });
+    } catch { /* refused (battery saver, hidden page): the phone may sleep */ }
+  }, []);
+  const releaseScreen = useCallback(() => {
+    const lock = wakeLockRef.current;
+    wakeLockRef.current = null;
+    try { lock?.release(); } catch { /* already released */ }
+  }, []);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && pcRef.current && !endedRef.current) holdScreen();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [holdScreen]);
+
   const teardown = useCallback(() => {
+    releaseScreen();
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (capRef.current) clearTimeout(capRef.current);
     [wrapRef, deadlineRef, finishThoughtRef].forEach((ref) => {
@@ -163,7 +197,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     setSpeaking(false);
     setLevel(0);
     setMuted(false);
-  }, []);
+  }, [releaseScreen]);
 
   const finish = useCallback(() => {
     if (endedRef.current) return;
@@ -471,13 +505,23 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       case 'error':
         // A greeting that failed must not leave the call unable to reply.
         startReplying();
+        /* Just after something was shared, the error is about that (a
+           picture the model would not take), not the call: say so on the
+           call screen and let Remi ask for it in words instead. */
+        if (Date.now() - sharedAtRef.current < SHARE_ERROR_WINDOW_MS) {
+          sharedAtRef.current = 0;
+          handlersRef.current.onShareFailed?.();
+          tellRemi('What they just tried to show you did not come through. Tell them so in a few words and ask them to describe it instead.');
+          try { channelRef.current?.send(JSON.stringify({ type: 'response.create' })); } catch { /* closed */ }
+          break;
+        }
         handlersRef.current.onError?.('failed');
         break;
 
       default:
         break;
     }
-  }, [clearNudge, finish, hangUpWhenQuiet, sayGoodbyeWhenFree, scheduleNudge, startReplying]);
+  }, [clearNudge, finish, hangUpWhenQuiet, sayGoodbyeWhenFree, scheduleNudge, startReplying, tellRemi]);
 
   /**
    * maxMinutes is the plan's allowance for this call. It sets when Remi
@@ -501,6 +545,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     goodbyeTriesRef.current = 0;
     theyAreTalkingRef.current = false;
     setState(VOICE_STATES.connecting);
+    // Asked for here, inside the tap that started the call: iOS wants that.
+    holdScreen();
 
     try {
       /* These three are the difference between a call and a feedback loop.
@@ -589,10 +635,42 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
       const denied = /permission|denied|NotAllowed/i.test(String(err?.name || err?.message || err));
       handlersRef.current.onError?.(denied ? 'mic-denied' : 'failed');
     }
-  }, [finish, onEvent, sayGoodbyeWhenFree, startReplying, teardown, tellRemi, watchLevel]);
+  }, [finish, holdScreen, onEvent, sayGoodbyeWhenFree, startReplying, teardown, tellRemi, watchLevel]);
 
   // A call still running after the page changes keeps the microphone open.
   useEffect(() => () => teardown(), [teardown]);
+
+  /**
+   * Show Remi something mid-call: a photo or screenshot (seen as an image)
+   * or a document's text. It goes in as their own turn, so Remi reacts to it
+   * out loud, then the floor is theirs again.
+   */
+  const share = useCallback(({ name = '', imageUrl = '', text = '' } = {}) => {
+    const channel = channelRef.current;
+    if (!channel || channel.readyState !== 'open') return false;
+    sharedAtRef.current = Date.now();
+    const intro = imageUrl
+      ? `I just shared an image with you${name ? ` (${name})` : ''}. Look at it.`
+      : `I just shared a document with you${name ? `, ${name}` : ''}. Here is its text:\n\n${text}`;
+    try {
+      channel.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: intro },
+            ...(imageUrl ? [{ type: 'input_image', image_url: imageUrl }] : []),
+          ],
+        },
+      }));
+      if (!responseInFlightRef.current) channel.send(JSON.stringify({ type: 'response.create' }));
+      scheduleNudge();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [scheduleNudge]);
 
   return {
     state,
@@ -602,6 +680,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError } = {})
     toggleMute,
     start,
     stop,
+    share,
     live: state === VOICE_STATES.live,
   };
 };

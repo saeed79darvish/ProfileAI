@@ -1497,6 +1497,16 @@ export const MuteButton = styled(RoundControl)`
   &:hover { background: ${({ $on }) => ($on ? '#fbdfe0' : '#eeeef5')}; }
 `;
 
+// Share a photo or document mid-call; quiet, like mute.
+export const ShareButton = styled(RoundControl)`
+  border: 1px solid #e4e4ef;
+  background: #f6f6fa;
+  color: #4a4a68;
+
+  &:hover { background: #eeeef5; }
+  &:disabled { opacity: 0.5; cursor: default; }
+`;
+
 export const EndCall = styled(RoundControl)`
   border: none;
   background: #16162a;

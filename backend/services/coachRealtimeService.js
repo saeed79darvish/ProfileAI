@@ -123,8 +123,9 @@ async function createVoiceSession({ firstName, profile = {}, missing = [], maxMi
 const VOICE_FIELDS = new Set([
   'title', 'seniority', 'field', 'company', 'previousCompany', 'startDate',
   'endDate', 'bullets', 'skills', 'school', 'degree', 'location', 'roleType',
-  'workStyle', 'target', 'yearsExperience', 'graduationYear',
+  'workStyle', 'target', 'yearsExperience', 'graduationYear', 'project',
 ]);
+const PROJECT_KEYS = ['name', 'description', 'url'];
 
 /** Keep what the call is allowed to have heard, drop the rest. */
 function filterLearned(fields = {}) {
@@ -132,6 +133,16 @@ function filterLearned(fields = {}) {
   for (const [key, value] of Object.entries(fields || {})) {
     if (!VOICE_FIELDS.has(key)) continue;
     if (value === null || value === undefined || value === '') continue;
+    // A project is the one object: its own string fields, and its tools.
+    if (key === 'project') {
+      if (typeof value !== 'object' || Array.isArray(value) || !String(value.name || '').trim()) continue;
+      const project = {};
+      for (const k of PROJECT_KEYS) if (value[k]) project[k] = String(value[k]).trim();
+      const tech = (Array.isArray(value.technologies) ? value.technologies : []).map((t) => String(t).trim()).filter(Boolean);
+      if (tech.length) project.technologies = tech;
+      clean.project = project;
+      continue;
+    }
     if (Array.isArray(value)) {
       const items = value.map((v) => String(v).trim()).filter(Boolean);
       if (items.length) clean[key] = items;

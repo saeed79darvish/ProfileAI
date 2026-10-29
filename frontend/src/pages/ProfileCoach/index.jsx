@@ -287,6 +287,25 @@ const attachmentMeta = (file) => {
 
 const TAP_GUARD_MS = 600;
 
+/* A picture for the call: at most 768px on its longest side, as JPEG. The
+   call's data channel carries messages of a few hundred kilobytes at most,
+   and a phone photo is several megabytes. */
+const shrinkImage = (file, max = 768) => new Promise((resolve, reject) => {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, max / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+    resolve(canvas.toDataURL('image/jpeg', 0.7));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable image')); };
+  img.src = url;
+});
+
 // The questions about their own work, where one follow-up earns its place.
 const FOLLOW_UP_STEPS = new Set(['currentRole', 'achievements', 'previousRole', 'projects']);
 // A voice message sent before its accurate transcript is back.
@@ -1418,7 +1437,17 @@ const ProfileCoach = () => {
     if (!Object.keys(clean).length) return;
     heardAnythingRef.current = true;
     Object.keys(clean).forEach((k) => heardKeysRef.current.add(k));
-    const merged = applyBraindump(draftRef.current, clean);
+    // A project goes to projects, as in the typed coach (see runTurn).
+    const { project, ...rest } = clean;
+    let merged = Object.keys(rest).length ? applyBraindump(draftRef.current, rest) : { ...draftRef.current, spokenIntake: true };
+    if (project && typeof project === 'object' && project.name) {
+      merged = mergeInterpreted(merged, 'projects', {
+        projectName: project.name,
+        description: project.description,
+        url: project.url,
+        technologies: project.technologies,
+      });
+    }
     if (clean.target && !merged.target) merged.target = String(clean.target);
     draftRef.current = merged;
     setDraft(merged);
@@ -1508,12 +1537,44 @@ const ProfileCoach = () => {
     pushCoach(kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED);
   }, [pushCoach]);
 
+  // A file being sent to the call, and a word about it on the call screen.
+  const [sharingFile, setSharingFile] = useState(false);
+  const [shareNote, setShareNote] = useState('');
   const voice = useVoiceCall({
     onTranscript,
     onLearned,
     onEnded: onCallEnded,
     onError: onVoiceError,
+    onShareFailed: () => {
+      setShareNote(TEXT.VOICE_SHARE_FAILED);
+      setTimeout(() => setShareNote(''), 5000);
+    },
   });
+
+  /* Something shown to Remi mid-call. A picture goes to the call as it is,
+     made small enough for the call's data channel; a document is read on
+     the server and its text goes in. */
+  const shareDuringCall = useCallback(async (file) => {
+    setShareNote('');
+    setSharingFile(true);
+    try {
+      let sent = false;
+      if (/^image\//.test(file.type)) {
+        const imageUrl = await shrinkImage(file);
+        sent = voice.share({ name: file.name, imageUrl });
+      } else {
+        const { data } = await profileAPI.coachVoiceDocument(file);
+        sent = voice.share({ name: file.name, text: data?.text || '' });
+      }
+      if (!sent) throw new Error('not sent');
+      trackEvent('coach_voice_shared', { kind: /^image\//.test(file.type) ? 'image' : 'document' });
+    } catch {
+      setShareNote(TEXT.VOICE_SHARE_FAILED);
+      setTimeout(() => setShareNote(''), 5000);
+    } finally {
+      setSharingFile(false);
+    }
+  }, [voice]);
 
   /** Take the offer: create this person's voice coach, then open the session. */
   /**
@@ -3307,6 +3368,9 @@ const ProfileCoach = () => {
           // After an import Remi already knows the resume; the prompt says so.
           hint={draft.importedFrom ? TEXT.VOICE_HINT_IMPORTED : TEXT.VOICE_HINT}
           onEnd={voice.stop}
+          onShare={shareDuringCall}
+          sharing={sharingFile}
+          note={shareNote}
         />
       )}
 

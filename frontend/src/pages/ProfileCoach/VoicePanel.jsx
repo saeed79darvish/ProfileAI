@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  AttachFile as AttachIcon,
   Close as CloseIcon,
   Mic as MicIcon,
   MicOff as MicOffIcon,
@@ -10,8 +11,11 @@ import { VOICE_STATES } from './useVoiceCall';
 import VoicePrint from './VoicePrint';
 import {
   VoiceVeil, VoiceWho, VoiceStage, VoiceMark, VoiceStatus, VoiceCaption, VoiceActions,
-  EndCall, VoiceQuiet, MuteButton,
+  EndCall, VoiceQuiet, MuteButton, ShareButton,
 } from './styled';
+
+// What can be shown mid-call: pictures are seen, documents are read.
+const SHARE_ACCEPT = 'image/*,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
  * Voice mode.
@@ -31,8 +35,9 @@ import {
  * while you are still in the call is the difference between fixing it in
  * three words and finding it on your profile a week later.
  */
-const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine, onEnd, hint }) => {
+const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine, onEnd, hint, onShare, sharing = false, note = '' }) => {
   const connecting = state === VOICE_STATES.connecting;
+  const fileRef = React.useRef(null);
 
   const status = connecting
     ? TEXT.VOICE_CONNECTING
@@ -63,8 +68,8 @@ const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine,
             without the caption re-reading itself on every partial. */}
         <VoiceStatus aria-live="polite">{status}</VoiceStatus>
 
-        <VoiceCaption $dim={!lastLine}>
-          {lastLine ? (
+        <VoiceCaption $dim={!lastLine || sharing || !!note}>
+          {sharing || note ? (sharing ? TEXT.VOICE_SHARING : note) : lastLine ? (
             <>
               <span>{lastLine.role === 'coach' ? TEXT.COACH_NAME : 'You'}</span>
               {lastLine.text}
@@ -92,6 +97,33 @@ const VoicePanel = ({ state, speaking, level = 0, muted, onToggleMute, lastLine,
         >
           {muted ? <MicOffIcon /> : <MicIcon />}
         </MuteButton>
+        {/* "I can upload it" used to lead nowhere: there was no way to show
+            Remi anything without hanging up. A photo is seen as it is; a
+            PDF or Word file is read. */}
+        {onShare && (
+          <>
+            <ShareButton
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={connecting || sharing}
+              aria-label={TEXT.VOICE_SHARE}
+              title={TEXT.VOICE_SHARE}
+            >
+              <AttachIcon />
+            </ShareButton>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={SHARE_ACCEPT}
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onShare(file);
+              }}
+            />
+          </>
+        )}
         <EndCall type="button" onClick={onEnd} aria-label={TEXT.VOICE_END} title={TEXT.VOICE_END}>
           <CloseIcon />
         </EndCall>

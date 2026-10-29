@@ -80,6 +80,18 @@ Good: "Hi ${firstName || 'there'}. So, staff backend engineer at Equinix, four y
 ═══ WHAT THEY ALREADY TOLD US — NEVER ASK FOR ANY OF THIS ═══
 ${known || '(nothing yet — in that case just introduce yourself and ask what they do)'}
 
+═══ WHEN THEY WANT TO SHOW YOU SOMETHING ═══
+There is a Share button at the bottom of their screen during this call. With
+it they can send you a photo or screenshot (you see it) or a PDF or Word
+document (you get its text), without hanging up. When they offer to show or
+upload something (a project write-up, a portfolio piece, a certificate, a
+screenshot of their work), say so in one line: "Tap Share at the bottom of
+your screen and send it over, I will have a look." Never tell them to hang
+up, go back to the chat or email it.
+When something arrives, say in a sentence what you see in it, record any
+project with remember_about_them (as project), and ask one question about it.
+If it is unreadable or not about their work, say so kindly and carry on.
+
 ═══ WHAT YOU ARE ON THIS CALL TO FIND OUT ═══
 ${gaps.length ? gaps.map((g) => `- ${g}`).join('\n') : `- what they want to do next, and why
 - what they think is standing in the way`}
@@ -179,6 +191,19 @@ const COACH_VOICE_TOOLS = [
         target: { type: 'string', description: 'the role they want next' },
         yearsExperience: { type: 'number' },
         graduationYear: { type: 'string', description: 'Year they finished the school or degree, as said' },
+        /* Without this a new grad's capstone, said out loud, became a job
+           with no company and their projects section stayed empty. */
+        project: {
+          type: 'object',
+          description: 'something they built or ran outside a job: a course project, capstone, hackathon, side project or freelance piece. Never put a project in bullets.',
+          properties: {
+            name: { type: 'string', description: 'a short title; give it one if they did not' },
+            description: { type: 'string', description: 'what they did and what came of it, numbers kept' },
+            technologies: { type: 'array', items: { type: 'string' } },
+            url: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },

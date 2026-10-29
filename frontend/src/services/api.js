@@ -334,6 +334,12 @@ export const profileAPI = {
     api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next, followUps }),
   // The final read before the profile is built: up to two questions.
   coachGaps: (profile) => api.post('/profiles/coach/gaps', { profile }),
+  // The text of a PDF or Word file shared during a call.
+  coachVoiceDocument: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/profiles/coach/voice/document', form);
+  },
   // Suggested answers (titles, the next role, skills) for this person.
   coachSuggest: ({ profile, kind, question }, config) =>
     api.post('/profiles/coach/suggest', { profile, kind, question }, config),
