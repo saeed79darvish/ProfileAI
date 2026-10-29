@@ -55,6 +55,8 @@ const MAX_GOODBYE_TRIES = 2;
 
 const HEADS_UP_TEXT = 'About a minute left on this call. Do not start any new topic. Let them finish what they are saying, cover the most important thing still open if there is one, and get ready to wrap up.';
 const SHARE_ERROR_WINDOW_MS = 8000;
+// How long a connection that went quiet gets to come back before the call ends.
+const RECONNECT_GRACE_MS = 6000;
 const GOODBYE_TEXT = 'Time is up. Do not ask anything else. Briefly thank them for what they just said, tell them you have what you need, that their profile preview is being put together and will be on screen in a moment, and that once they have checked it you will finish the rest of the profile together. Then call hand_back_to_chat.';
 
 /* How long to let silence run after somebody finishes speaking before
@@ -144,6 +146,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
      page comes back while the call is still on. Not every browser has it
      (iOS before 16.4); there the phone just sleeps as before. */
   const wakeLockRef = useRef(null);
+  // A connection that went quiet, given a moment to come back (see start).
+  const blipRef = useRef(null);
   // When something was last shared, to tell a refused picture from a broken call.
   const sharedAtRef = useRef(0);
   const holdScreen = useCallback(async () => {
@@ -199,12 +203,15 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
     setMuted(false);
   }, [releaseScreen]);
 
-  const finish = useCallback(() => {
+  /** End the call. `dropped` when the connection went, not the person. */
+  const finish = useCallback(({ dropped = false } = {}) => {
     if (endedRef.current) return;
     endedRef.current = true;
+    if (blipRef.current) clearTimeout(blipRef.current);
+    blipRef.current = null;
     teardown();
     setState(VOICE_STATES.idle);
-    handlersRef.current.onEnded?.();
+    handlersRef.current.onEnded?.({ dropped });
   }, [teardown]);
 
   const stop = useCallback(() => {
@@ -593,9 +600,23 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         greetingCapRef.current = setTimeout(startReplying, GREETING_CAP_MS);
       });
 
-      // A dropped connection is an ended call, not a frozen screen.
+      /* A dropped connection is an ended call, not a frozen screen. But
+         "disconnected" is often a blip that recovers on its own (Wi-Fi, a
+         VPN, the tab losing focus): ending on it hung up calls right after
+         the greeting. It gets a few seconds to come back first. */
       pc.onconnectionstatechange = () => {
-        if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) finish();
+        const now = pc.connectionState;
+        if (now === 'connected' && blipRef.current) {
+          clearTimeout(blipRef.current);
+          blipRef.current = null;
+        } else if (now === 'disconnected' && !blipRef.current) {
+          blipRef.current = setTimeout(() => {
+            blipRef.current = null;
+            if (pc.connectionState !== 'connected') finish({ dropped: true });
+          }, RECONNECT_GRACE_MS);
+        } else if (now === 'failed' || now === 'closed') {
+          finish({ dropped: now === 'failed' });
+        }
       };
 
       const offer = await pc.createOffer();

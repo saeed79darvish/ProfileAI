@@ -287,6 +287,9 @@ const attachmentMeta = (file) => {
 
 const TAP_GUARD_MS = 600;
 
+// The chips offered when a call drops: call again, or carry on typing.
+const VOICE_RETRY = '__voice_retry';
+
 /* A picture for the call: at most 768px on its longest side, as JPEG. The
    call's data channel carries messages of a few hundred kilobytes at most,
    and a phone photo is several megabytes. */
@@ -355,6 +358,9 @@ const ProfileCoach = () => {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
   const [stepIndex, setStepIndex] = useState(-1);
+  // Read by callbacks that outlive a render (a call ending).
+  const stepIndexRef = useRef(-1);
+  stepIndexRef.current = stepIndex;
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1469,7 +1475,28 @@ const ProfileCoach = () => {
    * The call is over. Everything it heard is already in the draft, so this
    * only has to decide what the screen says next.
    */
-  const onCallEnded = useCallback(() => {
+  /* After a call that caught nothing: back to where they were, not the
+     top. Restarting the list asked a new grad, who had already said they
+     would chat, for their resume again. From the talk-or-chat question the
+     conversation moves past it; from anywhere else that question is asked
+     again. */
+  const resumeAfterEmptyCall = useCallback(() => {
+    if (!draftRef.current.mode || draftRef.current.mode === 'voice') {
+      draftRef.current = { ...draftRef.current, mode: 'chat' };
+      setDraft(draftRef.current);
+    }
+    const at = stepIndexRef.current;
+    const step = LADDER[at];
+    if (!step) {
+      startLadderFrom(draftRef.current, { silent: true, from: 'voice' });
+    } else if (step.id === 'mode' || step.id === 'talkOffer') {
+      advanceRef.current(at, draftRef.current);
+    } else {
+      askStep(at, draftRef.current);
+    }
+  }, [askStep, startLadderFrom]);
+
+  const onCallEnded = useCallback(({ dropped = false } = {}) => {
     setLastSpoken(null);
     refreshVoiceStatus();
     /* The call kept as a few sentences on their record; the transcript is
@@ -1493,14 +1520,23 @@ const ProfileCoach = () => {
       return;
     }
     if (!heardAnythingRef.current) {
+      /* The connection went, not them: say so, and offer the call again. */
+      if (dropped) {
+        trackEvent('coach_voice_dropped', {});
+        pushCoach(TEXT.VOICE_DROPPED, {
+          stepId: VOICE_RETRY,
+          chips: [
+            { id: 'retry', label: TEXT.VOICE_RETRY_CHIP },
+            { id: 'chat', label: TEXT.VOICE_CHAT_CHIP },
+          ],
+          selected: [],
+        });
+        return;
+      }
       /* A call that caught nothing cannot finish the profile on its own: the
          rest is done in the chat. */
-      if (draftRef.current.mode === 'voice') {
-        draftRef.current = { ...draftRef.current, mode: 'chat' };
-        setDraft(draftRef.current);
-      }
       pushCoach(TEXT.VOICE_NOTHING);
-      later(() => startLadderFrom(draftRef.current, { silent: true, from: 'voice' }), TIMING.ACK_MS);
+      later(resumeAfterEmptyCall, TIMING.ACK_MS);
       return;
     }
     heardAnythingRef.current = false;
@@ -1517,7 +1553,7 @@ const ProfileCoach = () => {
       return;
     }
     afterCall(merged);
-  }, [afterCall, isAuthenticated, later, pushCoach, refreshVoiceStatus, saveCareerContext]);
+  }, [afterCall, isAuthenticated, later, pushCoach, refreshVoiceStatus, resumeAfterEmptyCall, saveCareerContext]);
 
   const saveCheckEdit = useCallback((kind, text) => {
     const next = applyCheckEdit(draftRef.current, kind, text);
@@ -1758,6 +1794,17 @@ const ProfileCoach = () => {
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
     // resolves before any ladder lookup.
+    if (message.stepId === VOICE_RETRY) {
+      if (message.spent) return;
+      pushMine(chip.label);
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+      if (chip.id === 'retry') {
+        startTalking().then((started) => { if (!started) resumeAfterEmptyCall(); });
+      } else {
+        later(resumeAfterEmptyCall, TIMING.ACK_MS);
+      }
+      return;
+    }
     if (message.stepId === VOICE_SIGNIN_CHOICE) {
       if (message.spent) return;
       pushMine(chip.label);
@@ -1956,7 +2003,7 @@ const ProfileCoach = () => {
 
     spendChips(message.id);
     commit(step.assign ? { [step.assign]: chip.id } : {}, index);
-  }, [advance, answerResumeOffer, askStep, busy, commit, dictation, input, later, navigate, nextProbe, openFilePicker, pushCoach, pushMine, spendChips, startTalking, stepIndex]);
+  }, [advance, answerResumeOffer, askStep, busy, commit, dictation, input, later, navigate, nextProbe, openFilePicker, pushCoach, pushMine, resumeAfterEmptyCall, spendChips, startTalking, stepIndex]);
 
   /**
    * @param {object} [extra]
