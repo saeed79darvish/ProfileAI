@@ -125,6 +125,8 @@ export const TEXT = {
   STEPS_SHOW: 'Show your profile steps',
   STEPS_HIDE: 'Hide your profile steps',
   STEPS_CLOSE: 'Close',
+  NUDGE_CHIPS: 'I did not quite catch that. Pick one below, or say it in your own words.',
+  NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',
   SEND: 'Send',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 

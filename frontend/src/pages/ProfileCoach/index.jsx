@@ -2110,6 +2110,8 @@ const ProfileCoach = () => {
         suggestions: Array.isArray(data?.suggestions) ? data.suggestions.filter((t) => typeof t === 'string') : [],
         skip: data?.skip === true,
         answered: data?.answered === true,
+        // Nothing said and nothing taken: the page owes them a word.
+        silent: !String(data?.say || '').trim() && !Object.keys(data?.learned || {}).length && !data?.choice,
       };
     } catch {
       setTyping(false);
@@ -2514,6 +2516,12 @@ const ProfileCoach = () => {
     if (turn.answered && !step.assign) {
       advance(index, draftRef.current);
       return;
+    }
+
+    /* The coach had nothing to say and took nothing from it (a typo, a
+       stray word). Silence there read as the page having frozen. */
+    if (turn.silent && !stepAnswered(step, draftRef.current)) {
+      pushCoach(getChips(step, draftRef.current).length ? TEXT.NUDGE_CHIPS : TEXT.NUDGE_TEXT);
     }
 
     /* Did that fill in what this step was for? If so the conversation moves
