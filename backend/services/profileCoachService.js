@@ -471,6 +471,13 @@ const withoutQuestions = (say) => say
   .join(' ')
   .trim();
 
+/* Did they put a question to the coach, rather than answer one? */
+const theyAsked = (message) => {
+  const text = String(message || '').trim();
+  return /\?\s*$/.test(text)
+    || /^(what|what's|whats|how|why|which|who|when|where|is|are|can|could|do|does|should|would|explain|tell me)\b/i.test(text);
+};
+
 async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null, followUps = 0 } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
   if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', suggestions: [] };
@@ -527,7 +534,8 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
      job" has no question mark and was asked four times. Past the first
      follow-up, anything still waiting on them is dropped. */
   if (followUps >= 1 && awaiting) {
-    say = '';
+    // Unless they asked us something: then it is an answer, not a re-ask.
+    if (!theyAsked(message)) say = '';
     awaiting = false;
   }
 
@@ -733,5 +741,6 @@ module.exports = {
   // exported for unit tests
   pickExpected,
   withoutQuestions,
+  theyAsked,
   MAX_ANSWER_CHARS,
 };
