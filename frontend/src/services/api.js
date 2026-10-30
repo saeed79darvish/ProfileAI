@@ -1133,6 +1133,9 @@ export const supportAPI = {
   createTicket: (body) => api.post('/support/ticket', body),
   // List the current user's own tickets.
   myTickets: () => api.get('/support/my-tickets'),
+  // File a crash from the error screen. Works signed out.
+  // Body: { error, note?, email?, url?, build? }
+  crashReport: (body) => api.post('/support/crash-report', body),
 
   // ── Admin-only endpoints (require admin role) ──
   admin: {

@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { SupportTicket, User } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { optionalAuth } = authMiddleware;
 const adminMiddleware = require('../middleware/admin');
 const { callAI } = require('../services/ai/core');
 const {
@@ -245,6 +246,100 @@ router.post(
         error: 'Could not create your support ticket. Please try again.',
         detail: error?.message || 'unknown'
       });
+    }
+  }
+);
+
+// Crash reports come from the error screen, which guests see too, so the
+// cap is per IP rather than per account.
+const crashReportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'We already have a few reports from you. Thank you, we’re on it.' }
+});
+
+// Placeholder for a guest who left no email. The column is NOT NULL, and an
+// .invalid address can never be delivered to, so a reply simply goes nowhere.
+const ANONYMOUS_REPORTER = 'anonymous@reporter.invalid';
+
+// @route   POST /api/support/crash-report
+// @desc    "Send report" from the error screen. Files a bug ticket carrying
+//          the error and stack, so nobody has to copy and paste anything.
+//          Works signed out: most crashes happen before people register.
+// @access  Public (account details used when a token is present)
+router.post(
+  '/crash-report',
+  optionalAuth,
+  crashReportLimiter,
+  [
+    body('error').isString().isLength({ min: 1, max: 8000 }).withMessage('error must be 1–8000 chars'),
+    body('note').optional({ checkFalsy: true }).isString().trim().isLength({ max: 2000 }),
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Invalid email'),
+    body('url').optional({ checkFalsy: true }).isString().isLength({ max: 500 }),
+    body('build').optional({ checkFalsy: true }).isString().isLength({ max: 100 })
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const user = req.user || null;
+      const email = (user?.email || req.body.email || '').trim();
+      const name = user
+        ? [user.firstName, user.lastName].filter(Boolean).join(' ') || null
+        : null;
+      const note = (req.body.note || '').trim();
+      const errorText = req.body.error;
+      const firstLine = errorText.split('\n')[0].slice(0, 120);
+      let path = '';
+      try { path = new URL(req.body.url).pathname; } catch { /* no or bad url */ }
+
+      const ticket = await SupportTicket.create({
+        userId: user?.id || null,
+        email: email || ANONYMOUS_REPORTER,
+        name,
+        category: 'bug',
+        subject: `Crash${path ? ` on ${path}` : ''}: ${firstLine}`.slice(0, 200),
+        message: [
+          note ? `What they were doing:\n${note}` : 'No note left.',
+          `Page: ${req.body.url || 'unknown'}`,
+          `Build: ${req.body.build || 'unknown'}`,
+          `\nTechnical details:\n${errorText}`
+        ].join('\n'),
+        source: 'error_screen',
+        metadata: {
+          userAgent: req.get('user-agent') || null,
+          plan: user?.subscriptionTier || null,
+          url: req.body.url || null,
+          build: req.body.build || null
+        }
+      });
+
+      const sends = [sendSupportTicketToAdmin(ticket.toJSON())];
+      if (email) sends.push(sendSupportTicketConfirmation(ticket.toJSON()));
+      Promise.allSettled(sends).then((results) => {
+        results.forEach((r) => {
+          if (r.status === 'rejected') {
+            console.warn('[Support] crash report email failed:', r.reason?.message);
+          }
+        });
+      });
+
+      res.status(201).json({
+        success: true,
+        ticket: { id: ticket.id, reference: ticket.id.slice(0, 8) }
+      });
+    } catch (error) {
+      console.error('[Support crash report] Error:', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack?.split('\n').slice(0, 4).join('\n')
+      });
+      res.status(500).json({ error: 'Could not send the report. Please try again.' });
     }
   }
 );
