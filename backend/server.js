@@ -256,8 +256,9 @@ app.get('/health', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 // Mounted ahead of the profiles router so /api/profiles/coach/tailor-preview
-// resolves here first.
+// and /job-preview resolve here first.
 app.use('/api/profiles/coach', require('./routes/coachTailor'));
+app.use('/api/profiles/coach', require('./routes/coachJobs'));
 app.use('/api/profiles', profileRoutes);
 // Recruiter-only surfaces — gated by ENABLE_RECRUITER_SURFACE.
 // Candidate-only launch keeps these dormant (no route mounted = 404).

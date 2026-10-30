@@ -535,7 +535,8 @@ an achievement about the job they already named is just "bullets", without the
 company and dates again. Never fill in a month, a job type or a number they
 did not say: "2021" stays "2021".
   title, seniority, field, company, startDate, endDate, bullets (array),
-  skills (array), previousCompany, school, degree, location, roleType,
+  skills (array: tools and abilities they already have, never what they want to
+    do or learn next), previousCompany, school, degree, location, roleType,
   workStyle, target (the role they want next), yearsExperience,
   graduationYear (the year they finished the school or degree, as said),
   project: { "name", "description", "technologies": [], "url" } for something

@@ -146,6 +146,7 @@ export const TEXT = {
 
   PANEL_TITLE: 'PROFILE STRENGTH',
   PANEL_ENCOURAGE: 'Keep going. Each answer adds to this.',
+  PANEL_COMPLETE: 'Every part of it is filled in.',
 
   THINKING: 'Thinking',
   // Offered, not done to them. A silent restore after a deliberate refresh
@@ -300,6 +301,9 @@ export const TOUR_TEXT = {
   MORE: 'Need more later? Pro raises the limits.',
   COMPARE: 'Compare plans',
   OUTRO: 'Everything here runs off the profile you just built, so the more of it is true and specific, the better it all works.',
+  JOBS_LABEL: 'Open now, and a fit for this profile',
+  JOBS_NOTE: 'Your match score for each one, and what to change to land it, come with your free account.',
+  JOBS_OPEN: 'See how you match',
 } as const;
 
 export const TOUR_FREE = [

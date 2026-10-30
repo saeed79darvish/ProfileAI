@@ -22,8 +22,8 @@ import { profileAPI, careerContextAPI } from '../../services/api';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
 import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
-import { markReturningUser } from '../../utils/returningUser';
-import { takeCoachReturn } from '../../utils/coachReturn';
+import { markReturningUser, hasReturningUser } from '../../utils/returningUser';
+import { takeCoachReturn, setCoachReturn } from '../../utils/coachReturn';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
@@ -70,6 +70,7 @@ import {
   withStageDefaults,
   OPEN_CHIP_SETS,
   EARLY_STAGES,
+  GOAL_STEPS,
   suggestionChips,
   fixKeys,
   applyFixPlan,
@@ -136,11 +137,21 @@ import {
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
-  TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote,
+  TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote, TourJobs, TourJobsNote,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
   UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
 } from './styled';
+
+/* "Posted 3 days ago", for the openings on the tour card. */
+const postedAgo = (date) => {
+  const at = new Date(date).getTime();
+  if (!Number.isFinite(at)) return '';
+  const days = Math.max(0, Math.floor((Date.now() - at) / 86400000));
+  if (days === 0) return 'Posted today';
+  if (days === 1) return 'Posted yesterday';
+  return `Posted ${days} days ago`;
+};
 
 const TOUR_ICONS = {
   tune: TuneIcon,
@@ -377,6 +388,10 @@ const ProfileCoach = () => {
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  /* Live openings for the finished profile, fetched once the tour card is
+     up. null until asked; [] when there were too few to be worth showing. */
+  const [jobPreview, setJobPreview] = useState(null);
+  const jobPreviewAskedRef = useRef(false);
   // A phone-width box, for the short placeholder.
   const [narrowScreen, setNarrowScreen] = useState(() => !!window.matchMedia?.('(max-width: 560px)').matches);
   useEffect(() => {
@@ -765,7 +780,10 @@ const ProfileCoach = () => {
       draftRef.current = restored.draft;
       setDraft(restored.draft);
       setStepIndex(restored.stepIndex);
-      setMessages([...restored.messages, {
+      /* A finished conversation has nothing to pick up: "Picked up where you
+         left off" landed under the save card, after the last word. */
+      const finished = restored.messages.some((m) => m.convert);
+      setMessages(finished ? restored.messages : [...restored.messages, {
         id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
       }]);
       /* A conversation saved in the middle of a step that does work (putting
@@ -2274,6 +2292,8 @@ const ProfileCoach = () => {
         }
         merged = withStageDefaults(merged);
         draftRef.current = merged;
+      // What they want next is not something they can already do.
+      if (step && GOAL_STEPS.has(step.id)) delete learned.skills;
         setDraft(merged);
       }
 
@@ -2877,10 +2897,35 @@ const ProfileCoach = () => {
         return draft.location || '';
       // The labels they tapped ("Full-time"), not the stored ids.
       case 'lookingFor':
-        return preferenceLabels(draft);
+        return [draft.target, preferenceLabels(draft)].filter(Boolean).join(' · ');
       /* Skills as tags, a dozen at most: a comma list cut at four read as if
          the import had only found four. */
       case 'skills': {
+  /* Real openings for this profile, by name, on the tour card: a better
+     reason to make the account than a list of features. Asked once, when
+     the card goes up, from the finished draft. Fewer than three and the
+     section stays hidden; the coach has already quoted the count. */
+  const tourShown = messages.some((m) => m.tour);
+  useEffect(() => {
+    if (!tourShown || jobPreviewAskedRef.current) return;
+    jobPreviewAskedRef.current = true;
+    const { title, location, summary, skills, experience } = draftToProfileShape(draftRef.current);
+    profileAPI.coachJobPreview({ title, target: draftRef.current.target || '', location, summary, skills, experience })
+      .then(({ data }) => {
+        const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+        setJobPreview(jobs.length >= 3 ? jobs : []);
+        trackEvent('coach_job_preview_shown', { count: jobs.length });
+      })
+      .catch(() => setJobPreview([]));
+  }, [tourShown]);
+
+  /* A job on the card is the way in: the account, then that job, scored. */
+  const openPreviewJob = useCallback((job) => {
+    trackEvent('coach_job_preview_clicked', { jobId: job.id });
+    setCoachReturn(`/jobs/${job.id}`);
+    handleConvert(hasReturningUser() ? 'signin' : 'register');
+  }, [handleConvert]);
+
         const all = draft.skills || [];
         if (!all.length) return '';
         return (
@@ -2907,6 +2952,9 @@ const ProfileCoach = () => {
             {rows.length > 3 && <li className="more">+{rows.length - 3} more role{rows.length - 3 === 1 ? '' : 's'}</li>}
           </PanelRoles>
         );
+      /* The role they are aiming for leads. After a call, the job-type and
+         work-style buttons were never shown, and the row stayed empty under a
+         profile that said "Targeting Staff Software Engineer". */
       }
       case 'proj':
         return (draft.projects || []).map((p) => p.title).filter(Boolean).slice(0, 3).join(', ');
@@ -3140,7 +3188,8 @@ const ProfileCoach = () => {
 
       <TourSection>{TOUR_TEXT.FREE_LABEL}</TourSection>
       <TourList>
-        {TOUR_FREE.map((item) => {
+        {/* The openings above are that promise, made good. */}
+        {TOUR_FREE.filter((item) => !(item.id === 'jobs' && jobPreview?.length)).map((item) => {
           const Icon = TOUR_ICONS[item.icon];
           return (
             <TourItem key={item.id}>
@@ -3169,6 +3218,26 @@ const ProfileCoach = () => {
           not the moment to sell. The real offer comes at a limit. */}
       <TourFootnote>
         {TOUR_TEXT.MORE}{' '}
+      {!!jobPreview?.length && (
+        <>
+          <TourSection>{TOUR_TEXT.JOBS_LABEL}</TourSection>
+          <TourJobs>
+            {jobPreview.map((job) => (
+              <li key={job.id}>
+                <button type="button" onClick={() => openPreviewJob(job)} disabled={busy}>
+                  <div>
+                    <h5>{job.title}</h5>
+                    <p>{[job.company, job.location, postedAgo(job.postedAt)].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <strong>{TOUR_TEXT.JOBS_OPEN}</strong>
+                </button>
+              </li>
+            ))}
+          </TourJobs>
+          <TourJobsNote>{TOUR_TEXT.JOBS_NOTE}</TourJobsNote>
+        </>
+      )}
+
         <a href="/pricing" target="_blank" rel="noopener noreferrer"
           onClick={() => trackEvent('coach_tour_pricing_clicked', {})}>
           {TOUR_TEXT.COMPARE}
@@ -3554,7 +3623,7 @@ const ProfileCoach = () => {
             <div>
               <PanelTitle>{TEXT.PANEL_TITLE}</PanelTitle>
               <PanelTier $color={completion.color}>{completion.label}</PanelTier>
-              <PanelSub>{TEXT.PANEL_ENCOURAGE}</PanelSub>
+              <PanelSub>{completion.pct >= 100 ? TEXT.PANEL_COMPLETE : TEXT.PANEL_ENCOURAGE}</PanelSub>
             </div>
           </PanelHead>
           {renderPanelItems()}

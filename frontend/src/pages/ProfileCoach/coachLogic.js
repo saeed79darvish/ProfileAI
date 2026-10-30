@@ -1924,6 +1924,9 @@ const VOICE_FINISH = new Set(['importOffer', 'moreSources', 'review', 'mode', 'a
    as it is walked (skipIf, isAlreadyAnswered). */
 const OPENING = ['importOffer', 'sector', 'careerStage', 'level', 'title', 'moreSources', 'review', 'mode', 'lookingFor', 'workStyle'];
 const GOAL = ['target', 'targetWhy', 'targetBlocker'];
+/* Answers to these are about where they want to go, not what they can do.
+   "Startup zero-to-one product building" said here was filed as a skill. */
+export const GOAL_STEPS = new Set(GOAL);
 const CLOSING = ['gapCheck', 'talkOffer', 'fix', 'build', 'tour', 'convert'];
 const AROUND = ['location', 'links'];
 export const STAGE_ORDERS = {
@@ -2864,7 +2867,7 @@ export const panelState = (draft = {}, rubricItems = []) => {
   return {
     title: !!byKey.title,
     location: !!byKey.location,
-    lookingFor: !!(draft.roleTypes || []).length || !!draft.workStyle,
+    lookingFor: !!(draft.roleTypes || []).length || !!draft.workStyle || !!draft.target,
     skills: !!byKey.skills,
     exp: !!byKey.exp,
     proj: !!byKey.proj,

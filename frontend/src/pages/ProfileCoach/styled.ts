@@ -1215,6 +1215,69 @@ export const TourFootnote = styled.div`
   a:hover { text-decoration: underline; }
 `;
 
+/* The live openings on the tour card. Each row is a button: tapping one is
+   the way into the account, and back to that job. */
+export const TourJobs = styled.ul`
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 1px solid #e4e5fb;
+  border-radius: 12px;
+  overflow: hidden;
+
+  li + li { border-top: 1px solid #ececf6; }
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 0;
+    background: #fff;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  button:hover { background: #f7f7ff; }
+  button:disabled { cursor: default; }
+
+  div { flex: 1; min-width: 0; }
+
+  h5 {
+    margin: 0 0 2px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.84rem;
+    color: #6c6c86;
+  }
+
+  strong {
+    flex: none;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #4f46e5;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 480px) {
+    strong { display: none; }
+  }
+`;
+
+export const TourJobsNote = styled.p`
+  margin: 0 0 18px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #6c6c86;
+`;
+
 export const TourIcon = styled.div`
   flex: none;
   width: 34px;

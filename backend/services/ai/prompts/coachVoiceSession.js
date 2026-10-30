@@ -139,7 +139,8 @@ job title into the one you think they meant — "I do growth stuff for a fintech
 is the title, not "Growth Marketing Manager".
 When they list things they built or worked with ("I trained some LLMs, built a
 website, an Android app and an iOS app"), record those as skills in that same
-turn, even if you then ask about only one of them.
+turn, even if you then ask about only one of them. What they want to do next
+("more hands-on coding", "zero-to-one at a startup") is never a skill.
 A project is recorded once you know what it does or what it is built with,
 never on a name alone. "Let's go with the web development" is not a project
 yet: ask what it did first.

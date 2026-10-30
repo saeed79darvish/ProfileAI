@@ -267,6 +267,10 @@ export const profileAPI = {
      gaps }, jobTitle, company }. */
   coachTailorPreview: ({ profile, jobUrl, jobDescription }) =>
     api.post('/profiles/coach/tailor-preview', { profile, jobUrl, jobDescription }),
+  /* A few live openings for the finished coach draft, shown before sign-up.
+     No model call and no score. Resolves to { jobs: [{ id, title, company,
+     location, postedAt }] }. */
+  coachJobPreview: (profile) => api.post('/profiles/coach/job-preview', profile),
   // Same parser as uploadResume, reachable before login — no Authorization
   // header, so no token is sent even if a stale one is sitting in storage.
   /* A dictated answer, transcribed by a real speech model with the

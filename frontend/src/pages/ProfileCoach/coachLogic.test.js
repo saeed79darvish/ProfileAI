@@ -450,6 +450,8 @@ test('the coach meter agrees with the canonical rubric', () => {
   // Preferences aren't part of the shared rubric, so the panel scores them.
   assert.equal(panel.lookingFor, false);
   assert.equal(panelState({ ...draft, workStyle: 'remote' }, result.items).lookingFor, true);
+  // After a call the preference buttons are never shown; the role they named is enough.
+  assert.equal(panelState({ ...draft, target: 'Staff Engineer' }, result.items).lookingFor, true);
 });
 
 test('an empty draft scores 0 and hands off without throwing', () => {
