@@ -1200,22 +1200,23 @@ const ProfileCoach = () => {
       if (ok) applyImport(data.data, 'resume');
       else offerImportAgain(TEXT.UPLOAD_FAILED);
     } catch (err) {
-      finishProgress(false);
       /* Their resume's email already has an account: the profile exists, and
-         nothing built here could land on it. Sign in is the way on. */
+         nothing built here could land on it. Sign in is the way on. The file
+         was read fine, so the card says so. */
       if (err?.code === 'account_exists') {
+        finishProgress(true);
         markReturningUser();
         trackEvent('coach_account_exists');
         pushCoach(TEXT.ACCOUNT_EXISTS, {
           stepId: ACCOUNT_EXISTS_CHOICE,
           chips: [
             { id: 'signin', label: TEXT.ACCOUNT_EXISTS_SIGNIN },
-            { id: 'reset', label: TEXT.ACCOUNT_EXISTS_RESET },
           ],
           selected: [],
         });
         return;
       }
+      finishProgress(false);
       // The server can tell a file that is not a resume from a parse that
       // failed. Saying "I could not read that file" about a contract we read
       // perfectly well is both wrong and unhelpable.
@@ -1869,7 +1870,7 @@ const ProfileCoach = () => {
     }
     if (message.stepId === ACCOUNT_EXISTS_CHOICE) {
       pushMine(chip.label);
-      navigate(chip.id === 'reset' ? ROUTES.FORGOT_PASSWORD : ROUTES.LOGIN);
+      navigate(ROUTES.LOGIN);
       return;
     }
     if (message.stepId === VOICE_SIGNIN_CHOICE) {

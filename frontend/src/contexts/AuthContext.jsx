@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { authAPI, resolveImageUrl } from '../services/api';
 import { diag } from '../utils/diagLogger';
-import { markReturningUser } from '../utils/returningUser';
+import { markReturningUser, clearReturningUser, isReturningCheckExempt } from '../utils/returningUser';
 
 const AuthContext = createContext(null);
 
@@ -182,8 +182,10 @@ export const AuthProvider = ({ children }) => {
   // Any signed-in session marks this browser, so signing out and coming back
   // through "Get started" is steered to sign in (see utils/returningUser).
   useEffect(() => {
-    if (user?.id) markReturningUser();
-  }, [user?.id]);
+    if (!user?.id) return;
+    if (isReturningCheckExempt(user)) clearReturningUser();
+    else markReturningUser();
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for late-arriving auth from the Chrome extension content script
   // (e.g. when the page is loaded inside an iframe overlay on a third-party

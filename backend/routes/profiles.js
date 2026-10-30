@@ -151,7 +151,17 @@ router.post('/upload-resume', authMiddleware, aiRateLimiter('resume_parse', { fr
    who signed out and came back through "Get started". Their profile already
    exists and signing in is the only way a draft could ever land on it, so
    the coach stops here instead of spending a whole conversation of AI calls
-   that can never be used. The reply names no one: it only says sign in. */
+   that can never be used. The reply names no one: it only says sign in.
+   The owner's own accounts are exempt, so the guest coach can be tested with
+   a real resume. Mirrored in frontend/src/utils/returningUser.js. */
+const RETURNING_CHECK_EXEMPT_EMAILS = new Set([
+  's79darvish@gmail.com',
+  'saeed79darvish@gmail.com',
+  'saeeddarvish7959@gmail.com',
+]);
+const isExemptAccount = (u) => RETURNING_CHECK_EXEMPT_EMAILS.has(String(u.email || '').toLowerCase())
+  || `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase() === 'saeed darvish';
+
 async function accountExistsForResume(parsed) {
   const email = String(parsed?.email || '').trim().toLowerCase();
   if (!email) return false;
@@ -159,9 +169,9 @@ async function accountExistsForResume(parsed) {
     const { Sequelize } = require('sequelize');
     const hit = await User.findOne({
       where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('email')), email),
-      attributes: ['id'],
+      attributes: ['id', 'email', 'firstName', 'lastName'],
     });
-    return !!hit;
+    return !!hit && !isExemptAccount(hit);
   } catch (err) {
     // A lookup failure must not cost a real newcomer their upload.
     console.error('[guest resume] account lookup failed:', err.message);

@@ -16,7 +16,6 @@ export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',
   REGISTER: '/register',
-  FORGOT_PASSWORD: '/forgot-password',
   CREATE_FORM: '/profile/create-form',
   // Where a finished profile lands. This is the candidate's own portfolio
   // view, which is the thing the whole conversation was building toward.
@@ -179,9 +178,8 @@ export const TEXT = {
   UPLOAD_PROMPT: 'Great. Pick your resume file and I will read it.',
   UPLOAD_DONE: 'Read it. I filled in what I found. Let me just check the gaps.',
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
-  ACCOUNT_EXISTS: 'You already have a profile with us under the email on this resume. Sign in and it is all there waiting for you.',
+  ACCOUNT_EXISTS: 'I read your resume, and you already have a profile with us under that email. Sign in and it is all there waiting for you.',
   ACCOUNT_EXISTS_SIGNIN: 'Sign in',
-  ACCOUNT_EXISTS_RESET: 'Reset my password',
   UPLOAD_NO_TEXT: 'That PDF looks like a scan with no text I can read. Try another file, or we can keep chatting.',
   UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Try another file, or we can keep chatting.',
   UPLOAD_UNREADABLE: 'Could not read this one',

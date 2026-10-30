@@ -9,6 +9,16 @@
 
 const RETURNING_USER_KEY = 'profileai_returning_user';
 
+// The owner's own accounts never mark the browser, so the guest coach can be tested
+// on the owner's device. Mirrored in backend/routes/profiles.js.
+const EXEMPT_EMAILS = ['s79darvish@gmail.com', 'saeed79darvish@gmail.com', 'saeeddarvish7959@gmail.com'];
+
+export function isReturningCheckExempt(user) {
+  const email = String(user?.email || '').toLowerCase();
+  const name = `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase();
+  return EXEMPT_EMAILS.includes(email) || name === 'saeed darvish';
+}
+
 export function hasReturningUser() {
   try {
     return localStorage.getItem(RETURNING_USER_KEY) === '1';
