@@ -1496,7 +1496,7 @@ const ProfileCoach = () => {
      ends it is the only record — so it has to be the same messages, not a
      summary of them. */
   const onTranscript = useCallback((line) => {
-    setLastSpoken(line);
+    if (line.text) setLastSpoken(line);
     setMessages((prev) => {
       /* A transcript is final per utterance, not per turn: somebody who
          pauses in the middle of a thought produces two of them, and a
@@ -1505,11 +1505,35 @@ const ProfileCoach = () => {
          join into one bubble. Roles alternate, so this never glues two
          people together. */
       const last = prev[prev.length - 1];
-      /* Only the person's lines are joined: their pauses split one thought
-         into several transcripts. Remi's arrive one whole reply at a time,
-         and joining them glued an interrupted reply to the next one into a
-         single bubble that repeated itself. */
-      if (last?.spoken && last.role === line.role && line.role === 'me') {
+      /* Their turn, kept in place before its words arrive (see
+         useVoiceCall): a faded bubble, or a pause inside the turn already
+         on screen. */
+      if (line.pending) {
+        if (last?.spoken && last.role === 'me') {
+          return [...prev.slice(0, -1), { ...last, itemIds: [...(last.itemIds || []), line.itemId] }];
+        }
+        return [...prev, {
+          id: nextId(), role: 'me', text: TEXT.VOICE_PENDING, spoken: true, pending: true, itemIds: [line.itemId],
+        }];
+      }
+      const held = line.itemId ? prev.findIndex((m) => (m.itemIds || []).includes(line.itemId)) : -1;
+      if (held >= 0) {
+        const m = prev[held];
+        const parts = (m.pending ? [] : [m.text]).concat(line.text ? [line.text] : []);
+        const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+        // Nothing was said after all: the place kept is let go.
+        if (!text) return prev.filter((_, i) => i !== held);
+        return prev.map((x, i) => (i === held ? { ...x, text, pending: !text } : x));
+      }
+      if (!line.text) return prev;
+      /* Their pauses split one thought into several transcripts, so their
+         lines join. Remi's join too now that their turn always holds its
+         place: two replies with nothing of theirs between are one turn, the
+         second coming after Remi saved something ("Let me just capture
+         that", then the question), which read as Remi talking twice. An
+         interrupted reply has their words after it, so it is never glued
+         to the next one. */
+      if (last?.spoken && last.role === line.role) {
         const joined = `${last.text} ${line.text}`.replace(/\s+/g, ' ').trim();
         return [...prev.slice(0, -1), { ...last, text: joined }];
       }
@@ -1526,12 +1550,15 @@ const ProfileCoach = () => {
   const heardAnythingRef = useRef(false);
   // Which facts the call produced, so only those are checked afterwards.
   const heardKeysRef = useRef(new Set());
+  // The skills the call added, the only ones the check shows.
+  const heardSkillsRef = useRef(new Set());
 
   const onLearned = useCallback((fields) => {
-    const { draft: merged, heard } = applyCallFacts(draftRef.current, fields);
+    const { draft: merged, heard, addedSkills } = applyCallFacts(draftRef.current, fields);
     if (!heard.length) return;
     heardAnythingRef.current = true;
     heard.forEach((k) => heardKeysRef.current.add(k));
+    addedSkills.forEach((k) => heardSkillsRef.current.add(k));
     draftRef.current = merged;
     setDraft(merged);
   }, []);
@@ -1579,7 +1606,8 @@ const ProfileCoach = () => {
     /* The call kept as a few sentences on their record; the transcript is
        sent to be summarised and is not stored. Signed-in only: guests
        cannot place a call. */
-    const spoken = messagesRef.current.filter((m) => m.spoken && m.text)
+    setMessages((prev) => prev.filter((m) => !(m.spoken && m.pending)));
+    const spoken = messagesRef.current.filter((m) => m.spoken && m.text && !m.pending)
       .map((m) => ({ role: m.role, text: m.text }));
     if (isAuthenticated && spoken.length >= 2) {
       careerContextAPI.summarizeCall(spoken).catch(() => {});
@@ -1596,6 +1624,7 @@ const ProfileCoach = () => {
     }
     if (!heardAnythingRef.current && theySpoke) {
       heardKeysRef.current = new Set();
+      heardSkillsRef.current = new Set();
       pushCoach(TEXT.VOICE_DONE_TALK);
       afterCall(draftRef.current);
       return;
@@ -1623,21 +1652,23 @@ const ProfileCoach = () => {
     heardAnythingRef.current = false;
     const heard = Array.from(heardKeysRef.current);
     heardKeysRef.current = new Set();
+    const checkSkills = Array.from(heardSkillsRef.current);
+    heardSkillsRef.current = new Set();
     const merged = draftRef.current;
     pushCoach(TEXT.VOICE_DONE);
     trackEvent('coach_voice_completed', { fields: heard.length });
     /* Names and dates are what speech gets wrong, and on a resume they are
        the mistakes that matter. The facts the call heard are shown once,
        each fixable in place, before the conversation moves on. */
-    if (checkLines(merged, heard).length) {
-      later(() => pushCoach(TEXT.CHECK_TITLE, { checkKeys: heard }), TIMING.ACK_MS);
+    if (checkLines(merged, heard, { skills: checkSkills }).length) {
+      later(() => pushCoach(TEXT.CHECK_TITLE, { checkKeys: heard, checkSkills }), TIMING.ACK_MS);
       return;
     }
     afterCall(merged);
   }, [afterCall, isAuthenticated, later, pushCoach, refreshVoiceStatus, resumeAfterEmptyCall, saveCareerContext]);
 
-  const saveCheckEdit = useCallback((kind, text) => {
-    const next = applyCheckEdit(draftRef.current, kind, text);
+  const saveCheckEdit = useCallback((kind, text, skills) => {
+    const next = applyCheckEdit(draftRef.current, kind, text, { skills });
     draftRef.current = next;
     setDraft(next);
     trackEvent('coach_check_fixed', { kind });
@@ -3387,10 +3418,10 @@ const ProfileCoach = () => {
                   )}
                   {message.checkKeys && (
                     <CheckCard
-                      lines={checkLines(draft, message.checkKeys)}
+                      lines={checkLines(draft, message.checkKeys, { skills: message.checkSkills })}
                       spent={message.spent}
                       busy={busy}
-                      onSave={saveCheckEdit}
+                      onSave={(kind, text) => saveCheckEdit(kind, text, message.checkSkills)}
                       onDone={() => finishCheck(message)}
                     />
                   )}

@@ -1712,3 +1712,39 @@ test('"not sure" is read as passing, and an answer is not', async () => {
   ['Not sure, honestly.', 'not sure', "I don't know", 'no idea', 'idk', 'skip this', "honestly I'm not sure"].forEach((t) => assert.equal(saysUnsure(t), true, t));
   ['Not sure if it counts, but I built a React app for my club that 200 people used', 'Senior Frontend Engineer', 'passionate about design'].forEach((t) => assert.equal(saysUnsure(t), false, t));
 });
+
+test('a headline agreed on a call replaces the resume one, for anyone', async () => {
+  const { applyCallFacts } = await import('./coachLogic.js');
+  const draft = { careerStage: 'experienced', title: 'Staff Software Engineer', experience: [{ title: 'Architect', company: 'Equinix' }] };
+  const { draft: next, heard } = applyCallFacts(draft, { title: 'Staff Software Engineer, AI and LLM Platform' });
+  assert.equal(next.title, 'Staff Software Engineer, AI and LLM Platform');
+  assert.ok(heard.includes('headline'));
+  assert.ok(!heard.includes('title'), 'shown once, as the headline, not as a role');
+  // A title with a company is that job's, not the headline.
+  const job = applyCallFacts(draft, { title: 'Principal Architect', company: 'Equinix' });
+  assert.equal(job.draft.title, 'Staff Software Engineer');
+});
+
+test('the check after a call shows only the skills the call added', async () => {
+  const { applyCallFacts } = await import('./coachLogic.js');
+  const draft = { skills: ['React', 'TypeScript'] };
+  const { draft: next, heard, addedSkills } = applyCallFacts(draft, { skills: ['React', 'LLM integration', 'RAG'] });
+  assert.deepEqual(addedSkills, ['LLM integration', 'RAG']);
+  const line = checkLines(next, heard, { skills: addedSkills }).find((l) => l.kind === 'skills');
+  assert.equal(line.text, 'LLM integration, RAG');
+  const edited = applyCheckEdit(next, 'skills', 'LLM integration, Retrieval pipelines', { skills: addedSkills });
+  assert.ok(edited.skills.includes('React') && edited.skills.includes('TypeScript'), 'the resume skills stay');
+  assert.ok(!edited.skills.includes('RAG'));
+  // Nothing new: no skills row at all.
+  assert.ok(!applyCallFacts(draft, { skills: ['React'] }).heard.includes('skills'));
+});
+
+test('"Do you have your LinkedIn too?" is not asked again once it is moot', async () => {
+  const { isAlreadyAnswered } = await import('./coachLogic.js');
+  const step = LADDER.find((s) => s.id === 'moreSources');
+  const base = { importedFrom: 'resume', sources: ['resume'] };
+  assert.equal(isAlreadyAnswered(step, base), false);
+  assert.equal(isAlreadyAnswered(step, { ...base, linkedinUrl: 'https://www.linkedin.com/in/x' }), true);
+  assert.equal(isAlreadyAnswered(step, { ...base, review: { summary: 'x' } }), true);
+  assert.equal(isAlreadyAnswered(step, { ...base, callHeld: true }), true);
+});

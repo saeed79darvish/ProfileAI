@@ -452,12 +452,27 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         setLevel(0);
         break;
 
+      /* They have finished a turn. Its words come later, from a separate
+         transcriber, often after Remi has already answered: the answer then
+         sat above what it answered, and Remi read as saying two things in a
+         row. Their place in the conversation is kept from here. */
+      case 'input_audio_buffer.committed':
+        if (event.item_id) handlersRef.current.onTranscript?.({ role: 'me', itemId: event.item_id, pending: true });
+        break;
+      // Nothing came of it (a cough, a noise): the place kept goes.
+      case 'conversation.item.input_audio_transcription.failed':
+        if (event.item_id) handlersRef.current.onTranscript?.({ role: 'me', itemId: event.item_id, text: '' });
+        break;
+
       // What the person said, once the transcriber is sure of it.
       case 'conversation.item.input_audio_transcription.completed': {
         const text = String(event.transcript || '').trim();
-        if (!text) break;
+        if (!text) {
+          if (event.item_id) handlersRef.current.onTranscript?.({ role: 'me', itemId: event.item_id, text: '' });
+          break;
+        }
         heardThemRef.current = true;
-        handlersRef.current.onTranscript?.({ role: 'me', text });
+        handlersRef.current.onTranscript?.({ role: 'me', text, itemId: event.item_id });
         /* They said goodbye: that is the end, not a turn to answer. Whatever
            Remi had started saying back is dropped, and once it has stopped
            the goodbye is asked for, as when time runs out. */

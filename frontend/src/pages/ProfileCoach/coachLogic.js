@@ -702,8 +702,8 @@ export const LADDER = [
        not at all once both kinds are in. */
     id: 'moreSources',
     question: (draft) => (sourcesOf(draft).includes('resume')
-      ? 'Got it. Do you have your LinkedIn too? Your resume and LinkedIn together give me the full picture.'
-      : 'Got it. Do you have a resume too? Together with LinkedIn it gives me the full picture.'),
+      ? 'Do you have your LinkedIn too? Your resume and LinkedIn together give me the full picture.'
+      : 'Do you have a resume too? Together with LinkedIn it gives me the full picture.'),
     hint: '',
     kind: 'branch',
     chipSet: 'moreSources',
@@ -2028,8 +2028,14 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     case 'importOffer':
       return !!draft.importedFrom || !!draft.noResume || !!draft.callHeld
         || (draft.importDeclines || 0) >= IMPORT_OFFER_LIMIT;
+    /* Nor once they have given a LinkedIn link (read or not), the review of
+       what they sent has run, or they have talked on a call. Typing "that's
+       all" moved past it without marking it, and the ladder restarting
+       after a call asked "Do you have your LinkedIn too?" of someone who
+       had pasted it, been reviewed and talked for five minutes. */
     case 'moreSources':
-      return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2;
+      return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2
+        || !!draft.linkedinUrl || !!draft.review || !!draft.callHeld;
     case 'mode':
       return !!draft.mode;
     case 'talkOffer':
@@ -2952,7 +2958,7 @@ export const applyCallFacts = (draft = {}, fields = {}) => {
     Object.entries(fields || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
   );
   const { project, ...rest } = clean;
-  const heard = Object.keys(rest);
+  let heard = Object.keys(rest);
   let next = heard.length ? applyBraindump(draft, rest) : { ...draft };
   /* A project is kept once something is known about it. "Let's go with the
      web development" came back as a project the model had named "Web
@@ -2977,15 +2983,28 @@ export const applyCallFacts = (draft = {}, fields = {}) => {
      the call shows it. */
   const said = String(clean.target || '').trim();
   if (said) next.target = said;
-  const goingFor = said || String(clean.title || '').trim();
-  if (goingFor && EARLY_STAGES.has(next.careerStage) && looksLikeTitle(goingFor)) {
-    const title = normalizeTitle(goingFor);
+  /* A title with no company is a headline (the call is told to pass the
+     company whenever a title is about a job). One they agreed to on the
+     call, "Staff Software Engineer, AI and LLM Platform", never replaced
+     the resume's "Staff Software Engineer": only a new grad's headline
+     used to move. */
+  const headline = !clean.company ? String(clean.title || '').trim() : '';
+  const goingFor = headline || (EARLY_STAGES.has(next.careerStage) ? said : '');
+  if (goingFor && (headline || looksLikeTitle(goingFor))) {
+    const title = headline || normalizeTitle(goingFor);
     if (norm(title) !== norm(draft.title)) {
       next.title = title;
       heard.push('headline');
     }
   }
-  return { draft: next, heard };
+  // A headline is not a job's title: the check shows it once, as a headline.
+  if (headline) heard = heard.filter((k) => k !== 'title');
+  /* Only the skills this call added are checked. The whole list went in,
+     forty of them, the resume's own included. */
+  const had = new Set((draft.skills || []).map(norm));
+  const addedSkills = (next.skills || []).filter((k) => !had.has(norm(k)));
+  if (!addedSkills.length) heard = heard.filter((k) => k !== 'skills');
+  return { draft: next, heard, addedSkills };
 };
 
 /* "Bye." on a call is them ending it. Remi answered it with two more
@@ -3015,7 +3034,7 @@ const EDU_KEYS = ['school', 'degree', 'graduationYear'];
  * @param {Set<string>|string[]} heard the learned-field keys the call produced
  * @returns {{kind: string, label: string, text: string}[]}
  */
-export const checkLines = (draft = {}, heard = []) => {
+export const checkLines = (draft = {}, heard = [], { skills: onlySkills } = {}) => {
   const keys = new Set(heard);
   const lines = [];
   if (keys.has('headline') && draft.title) lines.push({ kind: 'headline', label: 'Headline', text: draft.title });
@@ -3035,8 +3054,9 @@ export const checkLines = (draft = {}, heard = []) => {
   const project = (draft.projects || [])[0];
   if (project?.title && keys.has('project')) lines.push({ kind: 'project', label: 'Project', text: project.title });
   if (keys.has('location') && draft.location) lines.push({ kind: 'location', label: 'Location', text: draft.location });
-  if (keys.has('skills') && (draft.skills || []).length) {
-    lines.push({ kind: 'skills', label: 'Skills', text: draft.skills.join(', ') });
+  const shownSkills = onlySkills ? (draft.skills || []).filter((k) => onlySkills.some((o) => norm(o) === norm(k))) : (draft.skills || []);
+  if (keys.has('skills') && shownSkills.length) {
+    lines.push({ kind: 'skills', label: onlySkills ? 'New skills' : 'Skills', text: shownSkills.join(', ') });
   }
   return lines;
 };
@@ -3045,7 +3065,7 @@ const YEAR = /\b(19|20)\d{2}\b/g;
 const parts = (text) => String(text || '').split(/\s*[·,|]\s*|\s+at\s+/i).map((p) => p.trim()).filter(Boolean);
 
 /** A corrected line, written back over what the call heard. */
-export const applyCheckEdit = (draft = {}, kind, text) => {
+export const applyCheckEdit = (draft = {}, kind, text, { skills: onlySkills } = {}) => {
   const next = { ...draft };
   const rows = [...(draft.experience || [])];
   if (kind === 'role' && rows.length) {
@@ -3080,7 +3100,11 @@ export const applyCheckEdit = (draft = {}, kind, text) => {
     next.projects = [{ ...draft.projects[0], title: String(text).trim() }, ...draft.projects.slice(1)];
   }
   if (kind === 'location') next.location = normalizePlace(text);
-  if (kind === 'skills') next.skills = parseSkillList(text);
+  if (kind === 'skills') {
+    // The new ones were shown, so only the new ones are replaced.
+    const kept = onlySkills ? (draft.skills || []).filter((k) => !onlySkills.some((o) => norm(o) === norm(k))) : [];
+    next.skills = Array.from(new Set([...kept, ...parseSkillList(text)]));
+  }
   return next;
 };
 
