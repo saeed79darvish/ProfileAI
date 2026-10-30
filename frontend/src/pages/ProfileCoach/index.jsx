@@ -23,6 +23,7 @@ import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
 import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
 import { markReturningUser } from '../../utils/returningUser';
+import { takeCoachReturn } from '../../utils/coachReturn';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
@@ -2837,8 +2838,9 @@ const ProfileCoach = () => {
       await refreshUser();
       saveCareerContext(finalDraft);
       trackEvent('coach_profile_saved', { imported: finalDraft.importedFrom || 'none' });
-      // The profile page opens on the jobs that fit it.
-      navigate(ROUTES.PORTFOLIO, { state: { onboardingMatches: careerContextOf(finalDraft).constraints || {} } });
+      // The profile page opens on the jobs that fit it, unless a job sent
+      // them here: then that job, now scored.
+      navigate(takeCoachReturn() || ROUTES.PORTFOLIO, { state: { onboardingMatches: careerContextOf(finalDraft).constraints || {} } });
     } catch {
       // Saving failed, so do not pretend it worked — hand them to the editor,
       // which has the full save path and can surface the real error.

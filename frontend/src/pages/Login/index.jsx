@@ -22,6 +22,7 @@ import { trackEvent } from '@/utils/analytics';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { safeRedirect } from '@/utils/safeRedirect';
+import { takeCoachReturn } from '@/utils/coachReturn';
 import {
   GradientButton,
   inputSx,
@@ -86,7 +87,7 @@ const Login = () => {
       clearGuestProfileDraft();
       await refreshUser();
       trackEvent('coach_profile_published', { via: 'login' });
-      return { to: '/profile', state: { onboardingMatches: meta.careerContext?.constraints || {} } };
+      return { to: takeCoachReturn() || '/profile', state: { onboardingMatches: meta.careerContext?.constraints || {} } };
     } catch {
       clearGuestProfileDraft();
       return { to: '/profile/create-form', state: { guestDraft: draft } };

@@ -21,7 +21,6 @@ import LaunchIcon from '@mui/icons-material/Launch';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PsychologyIcon from '@mui/icons-material/Psychology';
-import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import CheckIcon from '@mui/icons-material/Check';
@@ -183,6 +182,8 @@ import { externalJobAPI, profileAPI, careerContextAPI } from '@/services/api';
 import { jobFiltersFrom, employmentTypeLabel, locationTypeLabel } from '@/utils/jobPreferences';
 import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
 import { matchTier, orderByMatch, matchLists } from '@/utils/jobMatchScore';
+import { hasReturningUser } from '@/utils/returningUser';
+import { setCoachReturn } from '@/utils/coachReturn';
 
 // Company name -> domain mapping for logo resolution
 const COMPANY_DOMAINS = {
@@ -2249,7 +2250,7 @@ const CandidateJobs = () => {
                 </div>
                 <div>
                   <div className="job-detail-ai-title">AI Job Tools</div>
-                  <div className="job-detail-ai-subtitle">Free with your ProfilleAI account</div>
+                  <div className="job-detail-ai-subtitle">Free with your ProfilleAI profile</div>
                 </div>
               </div>
               <div className="job-detail-ai-teaser-list">
@@ -2270,20 +2271,45 @@ const CandidateJobs = () => {
                   <span><strong>Spot skill gaps</strong> to close before applying</span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="job-detail-ai-teaser-cta"
-                onClick={() => navigate('/register')}
-              >
-                Sign up free to unlock AI tools <ArrowForwardIcon />
-              </button>
-              <button
-                type="button"
-                className="job-detail-ai-teaser-signin"
-                onClick={() => navigate('/login')}
-              >
-                Already have an account? Sign in
-              </button>
+              {/* Every tool here runs on a profile, so the way in is the
+                  coach, which builds one and asks for the account at the end.
+                  It brings them back to this job once the profile is up. A
+                  browser that has had an account is steered to sign in. */}
+              {hasReturningUser() ? (
+                <>
+                  <button
+                    type="button"
+                    className="job-detail-ai-teaser-cta"
+                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/jobs/${selectedJob.id}`)}`)}
+                  >
+                    Sign in to unlock AI tools
+                  </button>
+                  <button
+                    type="button"
+                    className="job-detail-ai-teaser-signin"
+                    onClick={() => { setCoachReturn(`/jobs/${selectedJob.id}`); navigate('/profile/create'); }}
+                  >
+                    New here? Build your profile
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="job-detail-ai-teaser-cta"
+                    onClick={() => { setCoachReturn(`/jobs/${selectedJob.id}`); navigate('/profile/create'); }}
+                  >
+                    Build your profile free
+                  </button>
+                  <button
+                    type="button"
+                    className="job-detail-ai-teaser-signin"
+                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/jobs/${selectedJob.id}`)}`)}
+                  >
+                    Already have an account? Sign in
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

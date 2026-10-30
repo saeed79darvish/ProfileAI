@@ -29,6 +29,7 @@ import { authAPI, referralAPI, profileAPI, careerContextAPI } from '@/services/a
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { trackEvent } from '@/utils/analytics';
+import { takeCoachReturn } from '@/utils/coachReturn';
 import { loadGuestProfileDraft, loadGuestDraftMeta, clearGuestProfileDraft } from '@/utils/guestDraft';
 import {
   RoleToggleWrapper,
@@ -177,7 +178,8 @@ const Register = () => {
         // route guard stops sending them back to build one.
         await refreshUser();
         trackEvent('coach_profile_published', {});
-        navigate('/profile', { state: { onboardingMatches: meta?.careerContext?.constraints || {} } });
+        // Back to the job that sent them to the coach, if one did.
+        navigate(takeCoachReturn() || '/profile', { state: { onboardingMatches: meta?.careerContext?.constraints || {} } });
         return;
       } catch {
         // fall through to the editor
