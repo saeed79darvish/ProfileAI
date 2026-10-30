@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import {
   Psychology as AIIcon,
@@ -27,6 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import GapReviewDialog from './GapReviewDialog';
 import LimitReachedModal from './LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
+import { setCoachReturn } from '@/utils/coachReturn';
 import TailorSettingsModal from './TailorSettingsModal';
 import TailoringProgressModal from './TailoringProgressModal';
 import TailoredResultsModal from './TailoredResultsModal';
@@ -523,6 +525,7 @@ const flattenSkills = (skills) => {
 // === Main Component ===
 export default function JobAIToolsPanel({ job }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [error, setError] = useState('');
@@ -894,7 +897,19 @@ export default function JobAIToolsPanel({ job }) {
         </PanelHeader>
         <NoProfileMessage>
           <p>Create your profile to unlock AI analytics & Resume Tailoring tools for this job and a personalized experience.</p>
-          <p><a href="/profile/create">Create Profile →</a></p>
+          <p>
+            <a
+              href="/profile/create"
+              onClick={(e) => {
+                e.preventDefault();
+                // Back to this job, now scored, once the profile is published.
+                if (job?.id) setCoachReturn(`/jobs/${job.id}`);
+                navigate('/profile/create');
+              }}
+            >
+              Create your profile
+            </a>
+          </p>
         </NoProfileMessage>
       </PanelContainer>
     );
