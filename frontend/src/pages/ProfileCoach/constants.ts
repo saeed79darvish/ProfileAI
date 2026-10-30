@@ -134,6 +134,8 @@ export const TEXT = {
   NUDGE_CHIPS: 'I did not quite catch that. Pick one below, or say it in your own words.',
   NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',
   SEND: 'Send',
+  // Their voice answer in the chat while its words are being written out.
+  VOICE_PENDING: '…',
   FOOTER: 'The coach fills your profile as you answer. You can edit everything before publishing.',
 
   SKIP_CHIP: 'Skip this',

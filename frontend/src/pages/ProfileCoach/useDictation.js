@@ -49,7 +49,7 @@ const MAX_RECORDING_MS = 3 * 60 * 1000;
    background; if they send without speaking again, that text is ready, or
    nearly. Speaking again just means the full recording is used, as before. */
 const SPEECH_LEVEL = 0.08;
-const SPECULATE_AFTER_MS = 900;
+const SPECULATE_AFTER_MS = 600;
 const CHUNK_MS = 400;
 
 /**

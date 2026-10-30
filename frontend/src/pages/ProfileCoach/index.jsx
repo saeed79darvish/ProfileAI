@@ -431,11 +431,14 @@ const ProfileCoach = () => {
      they land, or kept as it is if the transcript fails. */
   const pendingSendRef = useRef(null);
   const showPendingSend = (preview) => {
-    if (!preview || pendingSendRef.current) return;
+    if (pendingSendRef.current) return;
     const id = nextId();
     pendingSendRef.current = { id, text: preview };
     setInput('');
-    setMessages((prev) => [...prev, { id, role: 'me', text: preview, pending: true, ephemeral: true }]);
+    /* A phone has no live preview, so there is nothing to show yet; the
+       bubble still goes up at once, as dots, and the words replace it. An
+       empty box after pressing send read as the send not working. */
+    setMessages((prev) => [...prev, { id, role: 'me', text: preview || TEXT.VOICE_PENDING, pending: true, ephemeral: true }]);
   };
   const takePendingSend = () => {
     const pending = pendingSendRef.current;
@@ -3412,9 +3415,15 @@ const ProfileCoach = () => {
               >
                 <MicIcon fontSize="small" />
               </IconButton>
-              {/* Held while the accurate transcript is on its way, so the
-                  rough live preview is never what gets sent. */}
-              <IconButton type="submit" $primary disabled={attached ? busy : (!canType || !input.trim())} aria-label={TEXT.SEND}>
+              <IconButton
+                type="submit"
+                $primary
+                /* Recording counts as an answer in progress: a phone has no
+                   live preview, so the box is empty while they talk, and the
+                   button used to stay off until the mic was stopped. */
+                disabled={attached ? busy : (!canType || (!input.trim() && !dictation.listening && !dictation.transcribing))}
+                aria-label={TEXT.SEND}
+              >
                 <SendIcon fontSize="small" />
               </IconButton>
             </Composer>
