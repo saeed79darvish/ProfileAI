@@ -22,6 +22,7 @@ import { profileAPI, careerContextAPI } from '../../services/api';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
 import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
+import { markReturningUser } from '../../utils/returningUser';
 import BrandLogo from '../../components/BrandLogo';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
@@ -108,6 +109,7 @@ import {
   RESUME_CHOICE,
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
+  ACCOUNT_EXISTS_CHOICE,
   RETRY_IMPORT_CHOICES,
   ASKED_IMPORT_CHOICES,
   POST_CALL_IMPORT_CHOICES,
@@ -1190,6 +1192,21 @@ const ProfileCoach = () => {
       else offerImportAgain(TEXT.UPLOAD_FAILED);
     } catch (err) {
       finishProgress(false);
+      /* Their resume's email already has an account: the profile exists, and
+         nothing built here could land on it. Sign in is the way on. */
+      if (err?.code === 'account_exists') {
+        markReturningUser();
+        trackEvent('coach_account_exists');
+        pushCoach(TEXT.ACCOUNT_EXISTS, {
+          stepId: ACCOUNT_EXISTS_CHOICE,
+          chips: [
+            { id: 'signin', label: TEXT.ACCOUNT_EXISTS_SIGNIN },
+            { id: 'reset', label: TEXT.ACCOUNT_EXISTS_RESET },
+          ],
+          selected: [],
+        });
+        return;
+      }
       // The server can tell a file that is not a resume from a parse that
       // failed. Saying "I could not read that file" about a contract we read
       // perfectly well is both wrong and unhelpable.
@@ -1204,7 +1221,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [applyImport, isAuthenticated, later, offerImportAgain, pushMine]);
+  }, [applyImport, isAuthenticated, later, offerImportAgain, pushCoach, pushMine]);
 
   /* ─── Run steps: the coach does work and reports back ──────── */
 
@@ -1849,6 +1866,11 @@ const ProfileCoach = () => {
       } else {
         later(resumeAfterEmptyCall, TIMING.ACK_MS);
       }
+      return;
+    }
+    if (message.stepId === ACCOUNT_EXISTS_CHOICE) {
+      pushMine(chip.label);
+      navigate(chip.id === 'reset' ? ROUTES.FORGOT_PASSWORD : ROUTES.LOGIN);
       return;
     }
     if (message.stepId === VOICE_SIGNIN_CHOICE) {

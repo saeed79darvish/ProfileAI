@@ -147,6 +147,33 @@ router.post('/upload-resume', authMiddleware, aiRateLimiter('resume_parse', { fr
   }
 });
 
+/* A guest whose resume carries the email of an existing account is someone
+   who signed out and came back through "Get started". Their profile already
+   exists and signing in is the only way a draft could ever land on it, so
+   the coach stops here instead of spending a whole conversation of AI calls
+   that can never be used. The reply names no one: it only says sign in. */
+async function accountExistsForResume(parsed) {
+  const email = String(parsed?.email || '').trim().toLowerCase();
+  if (!email) return false;
+  try {
+    const { Sequelize } = require('sequelize');
+    const hit = await User.findOne({
+      where: Sequelize.where(Sequelize.fn('lower', Sequelize.col('email')), email),
+      attributes: ['id'],
+    });
+    return !!hit;
+  } catch (err) {
+    // A lookup failure must not cost a real newcomer their upload.
+    console.error('[guest resume] account lookup failed:', err.message);
+    return false;
+  }
+}
+
+const ACCOUNT_EXISTS = {
+  error: 'An account already exists for this resume. Sign in to continue.',
+  code: 'account_exists',
+};
+
 // @route   POST /api/profiles/guest/upload-resume
 // @desc    Same pattern-matching parse as /upload-resume, reachable before
 //          registration so a visitor can see their profile built before
@@ -170,6 +197,10 @@ router.post('/guest/upload-resume', guestAnalysisLimiter({ perIpPerDay: 20 }), u
         error: result.error || 'Failed to parse resume',
         code: result.code || undefined,
       });
+    }
+
+    if (await accountExistsForResume(result.data)) {
+      return res.status(409).json(ACCOUNT_EXISTS);
     }
 
     res.json({
@@ -237,6 +268,9 @@ router.post('/guest/parse-resume-text', guestAnalysisLimiter({ perIpPerDay: 20 }
     const result = await resumeParserService.parseResumeText(readPastedText(req));
     if (!result.success) {
       return res.status(400).json({ error: result.error || 'Failed to parse resume', code: result.code || undefined });
+    }
+    if (await accountExistsForResume(result.data)) {
+      return res.status(409).json(ACCOUNT_EXISTS);
     }
     res.json({ success: true, message: 'Resume parsed successfully', data: result.data });
   } catch (error) {

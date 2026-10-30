@@ -3,6 +3,7 @@ import { Link as RouterLink, useLocation } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { Box, Typography, Link, IconButton } from '@mui/material';
 import BrandLogo from './BrandLogo';
+import { hasReturningUser } from '@/utils/returningUser';
 import {
   AutoAwesome as SparkleIcon,
   Extension as ExtensionIcon,
@@ -246,6 +247,27 @@ export const HideOnMobile = styled.div`
   }
 `;
 
+// A guest who lands on sign in or sign up has no other way into the coach,
+// which needs no account. Top-right on desktop, in the top bar on a phone.
+const CoachCorner = styled.div`
+  position: absolute;
+  top: 28px;
+  right: 40px;
+  z-index: 2;
+  @media (max-width: 899px) {
+    display: none;
+  }
+`;
+
+const coachLinkSx = {
+  display: 'inline-flex', alignItems: 'center', gap: 0.75,
+  px: 1.75, py: 0.75, borderRadius: '999px',
+  border: '1px solid rgba(102,126,234,0.35)', background: '#ffffff',
+  color: '#5a67d8', textDecoration: 'none', fontSize: '0.82rem', fontWeight: 600,
+  whiteSpace: 'nowrap', transition: 'all 0.2s',
+  '&:hover': { borderColor: '#667eea', background: 'rgba(102,126,234,0.06)' },
+};
+
 // Top-left, where the Navbar logo sits on every other page, so it reads as
 // the way home rather than as decoration in the middle of the panel.
 const BrandMark = styled(RouterLink)`
@@ -304,6 +326,9 @@ const features = [
 const AuthLayout = ({ children }) => {
   const location = useLocation();
   const isLogin = location.pathname === '/login';
+  // Not for a browser that has had an account: their way back is sign in.
+  const showCoachLink = ['/login', '/register', '/signup'].includes(location.pathname)
+    && !hasReturningUser();
 
   return (
     <PageContainer>
@@ -403,24 +428,41 @@ const AuthLayout = ({ children }) => {
           pointerEvents: 'none',
         }} />
 
+        {showCoachLink && (
+          <CoachCorner>
+            <Link component={RouterLink} to="/profile/create" sx={coachLinkSx}>
+              <SparkleIcon sx={{ fontSize: 16 }} />
+              New here? Build your profile with AI
+            </Link>
+          </CoachCorner>
+        )}
+
         <FormContainer>
           <MobileTopBar>
             <MobileBrand to="/">
               <BrandLogo iconSize={30} fontSize="1.05rem" />
             </MobileBrand>
-            <Link
-              component={RouterLink}
-              to="/"
-              sx={{
-                display: 'inline-flex', alignItems: 'center', gap: 0.5,
-                color: '#64748b', textDecoration: 'none', fontSize: '0.82rem',
-                fontWeight: 500,
-                '&:hover': { color: '#667eea' },
-              }}
-            >
-              <ArrowBackIcon sx={{ fontSize: 15 }} />
-              Home
-            </Link>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              {showCoachLink && (
+                <Link component={RouterLink} to="/profile/create" sx={{ ...coachLinkSx, px: 1.25, py: 0.5, fontSize: '0.78rem' }}>
+                  <SparkleIcon sx={{ fontSize: 14 }} />
+                  Build with AI
+                </Link>
+              )}
+              <Link
+                component={RouterLink}
+                to="/"
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                  color: '#64748b', textDecoration: 'none', fontSize: '0.82rem',
+                  fontWeight: 500,
+                  '&:hover': { color: '#667eea' },
+                }}
+              >
+                <ArrowBackIcon sx={{ fontSize: 15 }} />
+                Home
+              </Link>
+            </Box>
           </MobileTopBar>
 
           <MobileHero>

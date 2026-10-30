@@ -372,6 +372,10 @@ export const VOICE_CHOICE = '__voice_choice';
    buttons route to auth instead of into the ladder. */
 export const VOICE_SIGNIN_CHOICE = '__voice_signin';
 
+/* The resume they uploaded belongs to an existing account. Its own stepId so
+   the buttons route to auth and nothing carries the ladder on. */
+export const ACCOUNT_EXISTS_CHOICE = '__account_exists';
+
 // Not an answer either: it hands the person the keyboard. The chip row is a
 // shortcut, never the whole answer space — most job titles are not on it.
 export const CUSTOM_ANSWER_CHIP = { id: '__custom', label: 'Type my own' };

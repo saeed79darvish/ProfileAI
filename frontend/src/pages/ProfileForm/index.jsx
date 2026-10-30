@@ -1924,6 +1924,8 @@ const ProfileForm = () => {
         return 'That file looks empty.';
       case 'not_a_resume':
         return userMessage || 'That file does not look like a resume.';
+      case 'account_exists':
+        return userMessage || 'An account already exists for this resume. Sign in to continue.';
       default:
         return 'We could not read that resume.';
     }

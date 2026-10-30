@@ -9,6 +9,7 @@ import { BackgroundTasksProvider } from './contexts/BackgroundTasksContext';
 import BackgroundTasksIndicator from './components/BackgroundTasksIndicator';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
+import ReturningUserGate from './components/ReturningUserGate';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import CookieConsentBanner from './components/CookieConsent';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -539,7 +540,9 @@ function AppContent() {
               path="/profile/create"
               element={
                 <PrivateRoute allowedRoles={['candidate', 'admin']} allowGuest>
-                  <ProfileCoach />
+                  <ReturningUserGate>
+                    <ProfileCoach />
+                  </ReturningUserGate>
                 </PrivateRoute>
               }
             />
