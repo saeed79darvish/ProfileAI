@@ -310,6 +310,34 @@ const SOURCE_LABELS = {
   hn_hiring: 'HN: Who is Hiring'
 };
 
+// One spelling for compound role words, so "Front/End UI Architect" is read
+// as "Frontend", not "Front" + "End". Mirrors backend utils/roleQuery.js.
+const ROLE_COMPOUNDS = [
+  { re: /\bfront[\s\-/_.]*end\b/gi, word: 'Frontend' },
+  { re: /\bback[\s\-/_.]*end\b/gi, word: 'Backend' },
+  { re: /\bfull[\s\-/_.]*stack\b/gi, word: 'Fullstack' },
+  { re: /\bdev[\s\-/_.]*ops\b/gi, word: 'DevOps' },
+  { re: /\bml[\s\-/_.]*ops\b/gi, word: 'MLOps' },
+  { re: /\be[\s\-]*commerce\b/gi, word: 'Ecommerce' },
+];
+const normalizeRoleCompounds = (text) => ROLE_COMPOUNDS.reduce((out, { re, word }) => out.replace(re, word), String(text || ''));
+
+// "Architect" beside an engineer word is dropped; after a software surface it
+// means that surface's engineer ("Frontend UI Architect" → frontend jobs).
+const SOFTWARE_SURFACE_WORDS = new Set([
+  'frontend', 'backend', 'fullstack', 'ui', 'web', 'mobile', 'ios', 'android',
+  'react', 'javascript', 'typescript', 'node', 'node.js',
+]);
+const settleArchitect = (words) => {
+  const at = words.findIndex((w) => /^architect(ure)?$/i.test(w));
+  if (at === -1) return words;
+  if (words.some((w) => /^(engineer|developer|programmer)$/i.test(w))) return words.filter((_, i) => i !== at);
+  if (words.slice(0, at).some((w) => SOFTWARE_SURFACE_WORDS.has(w.toLowerCase()))) {
+    return words.map((w, i) => (i === at ? 'Engineer' : w));
+  }
+  return words;
+};
+
 // Words that describe seniority rather than the role itself. The jobs API ANDs
 // every search token, and most postings don't repeat the candidate's exact
 // level in the title, so keeping these only shrinks the result set.
@@ -349,7 +377,7 @@ export function deriveRoleQuery(rawTitle) {
 
   // Employer / location clause: " at Equinix", " @ Stripe", " | Acme",
   // " - Acme", " , Acme". Also drop parenthetical asides like "(Contract)".
-  const head = text.split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
+  const head = normalizeRoleCompounds(text).split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
     .replace(/[([{].*?[)\]}]/g, ' ');
 
   const tokens = head
@@ -360,7 +388,7 @@ export function deriveRoleQuery(rawTitle) {
   // Seniority always goes. Filler only goes while at least two words remain —
   // "Frontend Software Engineer" should shed "Software", but "Staff Software
   // Engineer" must not be reduced all the way to a bare "Engineer".
-  const meaningful = tokens.filter((t) => !SENIORITY_WORD_RE.test(t));
+  const meaningful = settleArchitect(tokens.filter((t) => !SENIORITY_WORD_RE.test(t)));
   for (let i = meaningful.length - 1; i >= 0 && meaningful.length > 2; i--) {
     if (ROLE_FILLER_RE.test(meaningful[i])) meaningful.splice(i, 1);
   }
@@ -445,6 +473,9 @@ const CandidateJobs = () => {
   // disappear under the user when fetching the next page.
   const [loadingMoreExternal, setLoadingMoreExternal] = useState(false);
   const [externalJobsPagination, setExternalJobsPagination] = useState({ total: 0, page: 1, pages: 1 });
+  // { from, to } when the typed search matched nothing and the server ran a
+  // wider one; said above the list so the change is never silent.
+  const [searchRelaxed, setSearchRelaxed] = useState(null);
   // (The "Recommended for you" rail was removed in favor of unifying the
   // signal into the main list — fresh + relevant jobs now sort to the top
   // automatically. The /external-jobs/recommended endpoint is still
@@ -1065,6 +1096,7 @@ const CandidateJobs = () => {
         setExternalJobs(fetchedExtJobs);
       }
       setExternalJobsPagination(response.data.pagination || { total: 0, page: 1, pages: 1 });
+      if (!append) setSearchRelaxed(response.data.searchRelaxed || null);
 
       // Reflect the filters the SERVER applied from the candidate's profile.
       // These are real, active filters — the candidate has to be able to see
@@ -3058,6 +3090,11 @@ const CandidateJobs = () => {
                 )
               ) : (
                 <>
+                  {searchRelaxed && (
+                    <p style={{ margin: '0 0 12px', fontSize: 13, color: '#667085' }}>
+                      No titles match &ldquo;{searchRelaxed.from}&rdquo;. Showing jobs for &ldquo;{searchRelaxed.to}&rdquo;.
+                    </p>
+                  )}
                   <JobsGrid>
                     {(() => {
                       let lastSection = null;

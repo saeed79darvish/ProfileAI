@@ -11,7 +11,7 @@ const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
-const { buildJobSearchTsquery } = require('../utils/searchQuery');
+const { buildJobSearchTsquery, relaxedSearches } = require('../utils/searchQuery');
 const { deriveRoleQuery } = require('../utils/roleQuery');
 const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = require('../services/jobSeniorityFit');
 const { normalizeJobUrl } = require('../utils/jobUrl');
@@ -46,6 +46,49 @@ function parseSkillCsv(csv) {
  * values are dropped rather than passed to SQL as-is, so a typo cannot empty
  * the feed by matching nothing but the NULL-type rows.
  */
+/**
+ * The search to run for what was typed.
+ *
+ * Every word of a search must appear in a posting's title, company or
+ * department, so one word no title uses ("UI Architecture Remote") showed
+ * "No jobs match your filters" over a corpus of seventy thousand. A search
+ * with no live match at all is retried without its least telling word, one at
+ * a time (utils/searchQuery relaxedSearches), and the page says what it
+ * searched for instead. One indexed LIMIT 1 per try, cached with the list
+ * under external_jobs: so a sync clears it.
+ *
+ * @returns {Promise<{ search: string, relaxedFrom: string|null }>}
+ */
+async function settleSearch(search) {
+  if (!search) return { search, relaxedFrom: null };
+  const key = `external_jobs:settled:${search.toLowerCase()}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const anyLive = async (text) => {
+    const tsQuery = buildJobSearchTsquery(text);
+    if (!tsQuery) return false;
+    const hit = await ExternalJob.findOne({
+      where: { [Op.and]: [{ isActive: true }, literal(`"ExternalJob"."searchTsvAB" @@ to_tsquery('english', :tsQuery)`)] },
+      replacements: { tsQuery },
+      attributes: ['id'],
+    });
+    return !!hit;
+  };
+
+  let settled = { search, relaxedFrom: null };
+  if (!(await anyLive(search))) {
+    for (const wider of relaxedSearches(search)) {
+      if (await anyLive(wider)) {
+        settled = { search: wider, relaxedFrom: search };
+        break;
+      }
+    }
+  }
+  cache.set(key, settled, 10 * 60 * 1000);
+  return settled;
+}
+
 const EMPLOYMENT_TYPE_VALUES = new Set(['full-time', 'part-time', 'contract', 'internship', 'temporary']);
 function parseEmploymentTypes(raw) {
   if (!raw) return null;
@@ -462,7 +505,18 @@ router.get('/', optionalAuth, async (req, res) => {
           .slice(0, maxLen)
       : '');
 
-    const search = sanitizeQueryText(rawSearch, 200);
+    // What was typed, or a wider version of it when that matches nothing.
+    let search = sanitizeQueryText(rawSearch, 200);
+    let searchRelaxed = null;
+    try {
+      const settled = await settleSearch(search);
+      if (settled.relaxedFrom) {
+        searchRelaxed = { from: settled.relaxedFrom, to: settled.search };
+        search = settled.search;
+      }
+    } catch (e) {
+      console.warn('[ExternalJobs] search relaxation skipped:', e.message);
+    }
     // Mutable: may be filled in from the candidate's profile below.
     let location = rawLocation;
     // Ignored entirely when the user typed a real query — an explicit search
@@ -928,7 +982,8 @@ router.get('/', optionalAuth, async (req, res) => {
               page: pageNum,
               pages: Math.ceil(total / limitNum)
             },
-            sortMethod: 'semantic'
+            sortMethod: 'semantic',
+            ...(searchRelaxed && { searchRelaxed }),
           });
           }
         } catch (semanticError) {
@@ -1049,7 +1104,8 @@ router.get('/', optionalAuth, async (req, res) => {
           page: pageNum,
           pages: Math.ceil(total / limitNum)
         },
-        sortMethod: 'keyword'
+        sortMethod: 'keyword',
+        ...(searchRelaxed && { searchRelaxed }),
       });
       } // end: profileCached
     }
@@ -1115,7 +1171,8 @@ router.get('/', optionalAuth, async (req, res) => {
         total: count,
         page: pageNum,
         pages: Math.ceil(count / limitNum)
-      }
+      },
+      ...(searchRelaxed && { searchRelaxed }),
     });
   } catch (error) {
     console.error('Error fetching external jobs:', error);

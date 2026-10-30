@@ -71,6 +71,9 @@ const CONCEPT_GROUPS = [
   syn('backend', 'back end'),
   syn('fullstack', 'full stack'),
   syn('engineer', 'developer', 'programmer'),
+  // "UI Architecture" is a search for UI architects; the stemmer keeps
+  // "architectur" and "architect" apart, so the noun found nothing.
+  syn('architect', 'architecture'),
   syn('devops', 'dev ops', 'sre', 'site reliability'),
   syn('mobile', 'ios', 'android'),
   syn('machine learning', 'ml'),
@@ -171,19 +174,24 @@ function renderGroup(alternatives) {
   return parts.length > 1 ? `(${parts.join(' | ')})` : parts[0];
 }
 
-/**
- * Build a `to_tsquery`-compatible string from a free-text job search, expanding
- * known role-spelling/synonym concepts. Distinct concepts are AND-ed; each
- * concept's variants are OR-ed. Tokens are sanitized to [a-z0-9]+ so the result
- * is always safe to pass to to_tsquery (also pass it via a bind, not inline).
- *
- * @param {string} search raw user query
- * @returns {string|null} a to_tsquery string, or null if nothing usable remains
- */
-function buildJobSearchTsquery(search) {
-  const tokens = sanitizeTokens(search);
-  if (tokens.length === 0) return null;
+/* Concepts that name a software surface. An architect of one is, as far as
+   postings go, a senior engineer of it: "Frontend Architect" postings are
+   rare, "Staff Frontend Engineer" postings are not. */
+const SURFACE_GROUPS = new Set(
+  ['frontend', 'backend', 'fullstack', 'mobile', 'devops']
+    .map((word) => SORTED_GROUPS.find((g) => g.triggers.some((t) => t.length === 1 && t[0] === word)))
+);
+const ARCHITECT_GROUP = SORTED_GROUPS.find((g) => g.triggers.some((t) => t[0] === 'architect'));
+const ENGINEER_GROUP = SORTED_GROUPS.find((g) => g.triggers.some((t) => t[0] === 'engineer'));
 
+/**
+ * The query as concepts, in order: each is the tokens it was read from and
+ * either the synonym group it matched or nothing (a plain word, matched as a
+ * prefix). Exposed so a search that finds nothing can be retried without its
+ * least telling word (see relaxedSearches).
+ */
+function parseSearchConcepts(search) {
+  const tokens = sanitizeTokens(search);
   const concepts = [];
   let i = 0;
   while (i < tokens.length) {
@@ -202,16 +210,67 @@ function buildJobSearchTsquery(search) {
     }
 
     if (matched) {
-      concepts.push(renderGroup(matched.group.expand));
+      concepts.push({ tokens: tokens.slice(i, i + matched.len), group: matched.group });
       i += matched.len;
     } else {
-      concepts.push(`${tokens[i]}:*`);
+      concepts.push({ tokens: [tokens[i]], group: null });
       i += 1;
     }
   }
-
-  if (concepts.length === 0) return null;
-  return concepts.join(' & ');
+  return concepts;
 }
 
-module.exports = { buildJobSearchTsquery };
+function renderConcept(concept, index, concepts) {
+  if (!concept.group) return `${concept.tokens[0]}:*`;
+  if (concept.group === ARCHITECT_GROUP && concepts.slice(0, index).some((c) => SURFACE_GROUPS.has(c.group))) {
+    return renderGroup([...ARCHITECT_GROUP.expand, ...ENGINEER_GROUP.expand]);
+  }
+  return renderGroup(concept.group.expand);
+}
+
+/**
+ * Build a `to_tsquery`-compatible string from a free-text job search, expanding
+ * known role-spelling/synonym concepts. Distinct concepts are AND-ed; each
+ * concept's variants are OR-ed. Tokens are sanitized to [a-z0-9]+ so the result
+ * is always safe to pass to to_tsquery (also pass it via a bind, not inline).
+ *
+ * @param {string} search raw user query
+ * @returns {string|null} a to_tsquery string, or null if nothing usable remains
+ */
+function buildJobSearchTsquery(search) {
+  const concepts = parseSearchConcepts(search);
+  if (concepts.length === 0) return null;
+  return concepts.map(renderConcept).join(' & ');
+}
+
+/**
+ * Narrower-to-wider retries for a search that matched nothing, as search
+ * strings, best first. Every concept is AND-ed, so one word no posting title
+ * uses ("UI Architecture Remote Lead") empties the page. A plain word goes
+ * before a recognized role word, and later words before earlier ones: people
+ * type the role first and the qualifiers after. Never down to nothing, and
+ * never to a lone generic role word ("engineer") that would match half the
+ * corpus.
+ */
+function relaxedSearches(search) {
+  let concepts = parseSearchConcepts(search);
+  const out = [];
+  while (concepts.length > 1) {
+    let drop = -1;
+    for (let i = concepts.length - 1; i >= 0 && drop === -1; i -= 1) {
+      if (!concepts[i].group) drop = i;
+    }
+    if (drop === -1) {
+      for (let i = concepts.length - 1; i >= 0 && drop === -1; i -= 1) {
+        if (concepts[i].group !== ENGINEER_GROUP) drop = i;
+      }
+    }
+    if (drop === -1) break;
+    concepts = concepts.filter((_, i) => i !== drop);
+    if (concepts.length === 1 && concepts[0].group === ENGINEER_GROUP) break;
+    out.push(concepts.map((c) => c.tokens.join(' ')).join(' '));
+  }
+  return out;
+}
+
+module.exports = { buildJobSearchTsquery, relaxedSearches, parseSearchConcepts };

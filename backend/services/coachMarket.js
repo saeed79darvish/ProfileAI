@@ -16,6 +16,7 @@
 const { Op, fn, col, where: sqlWhere, literal } = require('sequelize');
 const { ExternalJob } = require('../models');
 const { GHOST_THRESHOLD } = require('./ghostJobDetector');
+const { normalizeRoleCompounds, roleWordSpellings } = require('../utils/roleQuery');
 
 // Titles are noisy across boards ("Sr. Frontend Engineer (Remote)"), so match
 // on the distinctive words. Seniority and job-board furniture carry no signal
@@ -42,7 +43,8 @@ const GENERIC_ROLE_NOUNS = new Set([
  * furniture, which is what makes a title match too broad to mean anything.
  */
 function titleTerms(title) {
-  const words = String(title || '')
+  // "Front-End" is one word, "frontend", not "front" and "end".
+  const words = normalizeRoleCompounds(title)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
@@ -73,6 +75,16 @@ function titleTerms(title) {
  *          into "there is nothing out there" — that would be a discouraging
  *          claim invented out of missing data.
  */
+/**
+ * A posting title containing this word, however it is spelled there: the
+ * term "frontend" matches "Front-End Engineer" and "Front End Developer".
+ */
+function titleTermWhere(term) {
+  const spellings = roleWordSpellings(term);
+  const like = (s) => sqlWhere(fn('LOWER', col('title')), { [Op.like]: `%${s}%` });
+  return spellings.length === 1 ? like(spellings[0]) : { [Op.or]: spellings.map(like) };
+}
+
 async function countOpenings({ title, location, workStyle } = {}) {
   const terms = titleTerms(title);
   if (!terms.length) {
@@ -85,7 +97,7 @@ async function countOpenings({ title, location, workStyle } = {}) {
   ];
   // Every distinctive word must appear somewhere in the title. Two terms is a
   // narrow enough net that the number means something.
-  const titleMatch = terms.map((term) => sqlWhere(fn('LOWER', col('title')), { [Op.like]: `%${term}%` }));
+  const titleMatch = terms.map(titleTermWhere);
 
   const total = await ExternalJob.count({ where: { [Op.and]: [...live, ...titleMatch] } });
 
@@ -144,4 +156,4 @@ async function countOpenings({ title, location, workStyle } = {}) {
   };
 }
 
-module.exports = { countOpenings, titleTerms, STOPWORDS, GENERIC_ROLE_NOUNS };
+module.exports = { countOpenings, titleTerms, titleTermWhere, STOPWORDS, GENERIC_ROLE_NOUNS };

@@ -16,6 +16,71 @@
  * to stop.
  */
 
+/**
+ * One spelling for the compound role words.
+ *
+ * The same role is written "Front-End", "Front End", "front/end" and
+ * "Frontend". Split on punctuation, the first three become "front" + "end",
+ * which never equals the "frontend" token of the fourth: a Frontend Engineer
+ * scored nothing on title against a "Front-End Engineer" posting, and a
+ * "Front/End UI Architect" profile searched for "Front Architect". Every title
+ * goes through this before it is split, on both sides of a comparison.
+ */
+const ROLE_COMPOUNDS = [
+  { re: /\bfront[\s\-/_.]*end\b/gi, word: 'Frontend' },
+  { re: /\bback[\s\-/_.]*end\b/gi, word: 'Backend' },
+  { re: /\bfull[\s\-/_.]*stack\b/gi, word: 'Fullstack' },
+  { re: /\bdev[\s\-/_.]*ops\b/gi, word: 'DevOps' },
+  { re: /\bml[\s\-/_.]*ops\b/gi, word: 'MLOps' },
+  { re: /\be[\s\-]*commerce\b/gi, word: 'Ecommerce' },
+];
+
+function normalizeRoleCompounds(text) {
+  return ROLE_COMPOUNDS.reduce((out, { re, word }) => out.replace(re, word), String(text || ''));
+}
+
+/**
+ * Every way a compound is written in a posting title, for matching titles in
+ * SQL with LIKE. Lowercase; a word that is not a compound is its own only
+ * spelling.
+ */
+const COMPOUND_SPELLINGS = {
+  frontend: ['frontend', 'front-end', 'front end', 'front/end'],
+  backend: ['backend', 'back-end', 'back end', 'back/end'],
+  fullstack: ['fullstack', 'full-stack', 'full stack', 'full/stack'],
+  devops: ['devops', 'dev-ops', 'dev ops'],
+  mlops: ['mlops', 'ml-ops', 'ml ops'],
+  ecommerce: ['ecommerce', 'e-commerce', 'e commerce'],
+};
+
+function roleWordSpellings(word) {
+  const w = String(word || '').toLowerCase();
+  return COMPOUND_SPELLINGS[w] || [w];
+}
+
+/* Specialties that are software surfaces. "Frontend Architect" is looking for
+   frontend engineering jobs; postings rarely say "Architect" for them. A
+   Solutions, Cloud or Data Architect is a real posting title and stays. */
+const SOFTWARE_SURFACE_WORDS = new Set([
+  'frontend', 'backend', 'fullstack', 'ui', 'web', 'mobile', 'ios', 'android',
+  'react', 'javascript', 'typescript', 'node', 'node.js',
+]);
+
+/**
+ * "Architect" next to an engineer word adds nothing but a word every result
+ * must contain ("UI Software Architect Engineer"); after a software surface it
+ * means that surface's engineer ("Frontend UI Architect" → frontend jobs).
+ */
+function settleArchitect(words) {
+  const at = words.findIndex((w) => /^architect(ure)?$/i.test(w));
+  if (at === -1) return words;
+  const hasEngineerWord = words.some((w) => /^(engineer|developer|programmer)$/i.test(w));
+  if (hasEngineerWord) return words.filter((_, i) => i !== at);
+  const surface = words.slice(0, at).some((w) => SOFTWARE_SURFACE_WORDS.has(w.toLowerCase()));
+  if (surface) return words.map((w, i) => (i === at ? 'Engineer' : w));
+  return words;
+}
+
 const SENIORITY_WORD_RE = /^(?:senior|sr\.?|junior|jr\.?|staff|principal|chief|head|entry|mid|associate|intern|interim|lead|vp|vice|president|deputy|assistant|level)$/i;
 // Filler that appears in a person's title but rarely in the postings they want
 // ("Frontend Software Engineer" should still match a "Frontend Engineer" role).
@@ -39,7 +104,7 @@ function deriveRoleQuery(rawTitle) {
 
   // Employer / location clause: " at Equinix", " @ Stripe", " | Acme",
   // " - Acme", " , Acme". Also drop parenthetical asides like "(Contract)".
-  const head = text.split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
+  const head = normalizeRoleCompounds(text).split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
     .replace(/[([{].*?[)\]}]/g, ' ');
 
   const tokens = head
@@ -50,7 +115,7 @@ function deriveRoleQuery(rawTitle) {
   // Seniority always goes. Filler only goes while at least two words remain —
   // "Frontend Software Engineer" should shed "Software", but "Staff Software
   // Engineer" must not be reduced all the way to a bare "Engineer".
-  const meaningful = tokens.filter((t) => !SENIORITY_WORD_RE.test(t));
+  const meaningful = settleArchitect(tokens.filter((t) => !SENIORITY_WORD_RE.test(t)));
   for (let i = meaningful.length - 1; i >= 0 && meaningful.length > 2; i--) {
     if (ROLE_FILLER_RE.test(meaningful[i])) meaningful.splice(i, 1);
   }
@@ -95,7 +160,7 @@ const GENERIC_TITLE_TOKENS = new Set([
  * Specialty tokens are what actually identify a role.
  */
 function splitTitleTokens(title) {
-  const toks = String(title || '')
+  const toks = normalizeRoleCompounds(title)
     .toLowerCase()
     .replace(/[^a-z0-9+#.\s-]/g, ' ')
     .split(/[\s/-]+/)
@@ -110,4 +175,4 @@ function splitTitleTokens(title) {
   return { specialty: [...new Set(specialty)], generic: [...new Set(generic)] };
 }
 
-module.exports = { deriveRoleQuery, splitTitleTokens, GENERIC_TITLE_TOKENS };
+module.exports = { deriveRoleQuery, splitTitleTokens, normalizeRoleCompounds, roleWordSpellings, GENERIC_TITLE_TOKENS };

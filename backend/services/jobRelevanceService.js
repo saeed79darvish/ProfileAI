@@ -5,7 +5,7 @@
  * No AI calls — fast enough to run on every page load.
  */
 
-const { splitTitleTokens } = require('../utils/roleQuery');
+const { splitTitleTokens, normalizeRoleCompounds } = require('../utils/roleQuery');
 const { resolveCandidateLevel, jobLevel, LEVEL } = require('./jobSeniorityFit');
 
 /**
@@ -294,8 +294,9 @@ function scoreJob(job, profileData) {
   // mismatched title (e.g. a "Solutions Engineer" or "Designer" role for a
   // "Frontend Engineer") must NOT rank highly just because it shares generic
   // keywords like git/rest/api. Skills are the secondary signal below.
-  const jobTitleTokens = tokenize(job.title);
-  const jobTitleLower = (job.title || '').toLowerCase();
+  // "Front-End Engineer" read as "frontend", the way the profile side is.
+  const jobTitleTokens = tokenize(normalizeRoleCompounds(job.title));
+  const jobTitleLower = normalizeRoleCompounds(job.title).toLowerCase();
 
   // Token overlap, WEIGHTED by how much each token actually identifies a role.
   //
