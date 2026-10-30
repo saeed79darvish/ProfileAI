@@ -577,7 +577,7 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     // Only ever true when the page said it can open a call right now.
     voice: liveVoice === 'live' && parsed.voice === true,
     // A piece of the page to put under the reply. Only names we render.
-    show: parsed.show === 'import' ? 'import' : 'none',
+    show: ['import', 'signup'].includes(parsed.show) ? parsed.show : 'none',
     // Only a button that is actually on their screen.
     choice: options.find((o) => o.toLowerCase() === String(parsed.choice || '').trim().toLowerCase()) || '',
   };

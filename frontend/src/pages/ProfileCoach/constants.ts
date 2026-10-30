@@ -155,6 +155,11 @@ export const TEXT = {
   RESUME_CHIP: 'Pick up where we left off',
   FRESH_CHIP: 'Start fresh',
   RESUMED: 'Picked up where you left off.',
+  // A guest asked to sign up or finish later: the buttons to do it.
+  SAVE_OFFER: 'Save what you have to a free account now. Your profile is kept, and you can finish the rest with me later on this device.',
+  SAVE_REGISTER: 'Create my free account',
+  SAVE_SIGNIN: 'I already have an account',
+  SAVE_KEEP_GOING: 'Keep going',
   // The per-conversation ceiling on answered asides. Generous for a person,
   // closed to a script.
   ASIDE_LIMIT_HIT:

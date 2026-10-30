@@ -120,6 +120,9 @@ import {
   RESUME_CHOICE,
   VOICE_CHOICE,
   VOICE_SIGNIN_CHOICE,
+  SAVE_CHOICE,
+  wantsToSaveForLater,
+  conversationFinished,
   ACCOUNT_EXISTS_CHOICE,
   RETRY_IMPORT_CHOICES,
   ASKED_IMPORT_CHOICES,
@@ -381,6 +384,9 @@ const ProfileCoach = () => {
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  /* handleConvert is defined far below the chip handler that needs it, and a
+     dependency named before its declaration throws on render. */
+  const handleConvertRef = useRef(null);
   /* Live openings for the finished profile, fetched once the tour card is
      up. null until asked; [] when there were too few to be worth showing. */
   const [jobPreview, setJobPreview] = useState(null);
@@ -775,7 +781,7 @@ const ProfileCoach = () => {
       setStepIndex(restored.stepIndex);
       /* A finished conversation has nothing to pick up: "Picked up where you
          left off" landed under the save card, after the last word. */
-      const finished = restored.messages.some((m) => m.convert);
+      const finished = conversationFinished(restored.messages);
       setMessages(finished ? restored.messages : [...restored.messages, {
         id: nextId(), role: 'coach', text: TEXT.RESUMED, ephemeral: true,
       }]);
@@ -842,6 +848,15 @@ const ProfileCoach = () => {
   );
 
   useEffect(() => {
+    /* Finished: the profile is built and only the account is left, so there
+       is nothing to pick up and no reason to ask. It opens on the profile,
+       the jobs and the sign-up card. The question is for a conversation
+       dropped partway. */
+    if (restored && conversationFinished(restored.messages)) {
+      answerResumeOffer({ id: null }, 'resume');
+      trackEvent('coach_reopened_finished', {});
+      return;
+    }
     if (restored) {
       pushCoach(TEXT.RESUME_OFFER, {
         ephemeral: true,
@@ -1739,6 +1754,25 @@ const ProfileCoach = () => {
     });
   }, [pushCoach]);
 
+  /* A guest asked to sign up, save, or finish later. The answer alone was
+     not enough: "yes, you can come back after you sign up" sat above a
+     question's buttons with no way to sign up anywhere on the page. These
+     keep what they have, and "Keep going" puts the question back. */
+  const offerSaveForLater = useCallback(() => {
+    if (isAuthenticated) return false;
+    pushCoach(TEXT.SAVE_OFFER, {
+      stepId: SAVE_CHOICE,
+      chips: [
+        { id: 'register', label: TEXT.SAVE_REGISTER },
+        { id: 'signin', label: TEXT.SAVE_SIGNIN },
+        { id: 'keep', label: TEXT.SAVE_KEEP_GOING },
+      ],
+      selected: [],
+    });
+    trackEvent('coach_save_offered', { at: LADDER[stepIndexRef.current]?.id || null });
+    return true;
+  }, [isAuthenticated, pushCoach]);
+
   const startTalking = useCallback(async () => {
     setError('');
     setBusy(true);
@@ -1914,6 +1948,21 @@ const ProfileCoach = () => {
     if (message.stepId === ACCOUNT_EXISTS_CHOICE) {
       pushMine(chip.label);
       navigate(ROUTES.LOGIN);
+      return;
+    }
+    if (message.stepId === SAVE_CHOICE) {
+      if (message.spent) return;
+      pushMine(chip.label);
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, spent: true } : m)));
+      if (chip.id === 'register' || chip.id === 'signin') {
+        /* What they have so far is saved and published the way the end card
+           does it, and they land on their profile. The conversation stays in
+           this browser, and the profile page offers to finish it. */
+        trackEvent('coach_saved_partway', { via: chip.id, at: LADDER[stepIndex]?.id || null });
+        handleConvertRef.current?.(chip.id);
+        return;
+      }
+      if (stepIndex >= 0) later(() => askStep(stepIndex, draftRef.current), TIMING.ACK_MS);
       return;
     }
     if (message.stepId === VOICE_SIGNIN_CHOICE) {
@@ -2323,6 +2372,11 @@ const ProfileCoach = () => {
 
       setTyping(false);
       if (data?.say) pushCoach(data.say);
+      // They asked to sign up or finish later: the buttons to do it.
+      if ((data?.show === 'signup' || wantsToSaveForLater(text)) && offerSaveForLater()) {
+        setBusy(false);
+        return { ok: true, awaiting: true, shown: true };
+      }
       if (data?.voice && voiceAvailableRef.current) {
         /* They asked to talk out loud: same path as the button. Answering
            "I can only read text" next to a mic and a talk button is the coach
@@ -2364,7 +2418,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [isAuthenticated, offerImportAgain, pushCoach, startTalking]);
+  }, [isAuthenticated, offerImportAgain, offerSaveForLater, pushCoach, startTalking]);
 
   /**
    * Put the answer options back without restating the question.
@@ -2422,6 +2476,8 @@ const ProfileCoach = () => {
     // Greetings go to the model like anything else someone says. A person
     // who says hello and gets a form letter back has learned what this is.
     const answer = await answerQuestion(text, questionText(step, draftRef.current), step.id);
+    // "Can I continue after sign up?": the answer, then the way to do it.
+    if (wantsToSaveForLater(text) && offerSaveForLater()) return;
 
     /* The coach is waiting, so nothing is asked on top of it: re-asking both
        contradicts the invitation and buries it. Two ways to know — they asked
@@ -2442,7 +2498,7 @@ const ProfileCoach = () => {
        nothing is repeated, and the next thing they say can just as easily be
        another question. */
     later(() => offerChipsAgain(step, liveMessage), TIMING.ACK_MS);
-  }, [answerQuestion, later, offerChipsAgain, pushCoach]);
+  }, [answerQuestion, later, offerChipsAgain, offerSaveForLater, pushCoach]);
 
   /**
    * Typed while the intro is on screen.
@@ -2893,6 +2949,7 @@ const ProfileCoach = () => {
       navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
     }
   }, [isAuthenticated, navigate, refreshUser, saveCareerContext]);
+  handleConvertRef.current = handleConvert;
 
   /* Real openings for this profile, by name, in their own card above the
      tour: a better reason to make the account than a list of features.

@@ -185,6 +185,7 @@ import { ROUTES, ALLOWED_RESUME_TYPES, TIMINGS as DASH_TIMINGS, LIMITS, EXTENSIO
 import { COMPANY_LOGO_COLORS, EXTENSION_STEP_COLORS } from './styled';
 import { getGreeting } from './utils';
 import ProfileCompletionCard from './ProfileCompletionCard';
+import FinishCoachCard from './FinishCoachCard';
 import useProfileCompletion from '@/hooks/useProfileCompletion';
 
 // SVG illustrations for each step
@@ -1391,6 +1392,9 @@ const Dashboard = () => {
             </HeroShareStrip>
           </HeroActions>
         </ProfileHero>
+
+        {/* Saved partway through the coach: the way back to finish it. */}
+        {profile && <FinishCoachCard />}
 
         {/* Profile completion checklist — progressive profiling nudge.
             Auto-hides once the profile is 100% complete to avoid clutter. */}

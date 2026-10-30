@@ -372,6 +372,31 @@ export const VOICE_CHOICE = '__voice_choice';
    buttons route to auth instead of into the ladder. */
 export const VOICE_SIGNIN_CHOICE = '__voice_signin';
 
+/* A guest asked to sign up, save, or finish later. Its own stepId so the
+   buttons route to the account (keeping what they have so far) instead of
+   into the ladder. */
+export const SAVE_CHOICE = '__save_for_later';
+
+/**
+ * Do these words ask to make an account, save, or carry on later? Read off
+ * what they typed, so the buttons appear whichever path answered them: the
+ * coach said "yes, you can come back after you sign up" under a question's
+ * buttons, with no way on the page to sign up. Typos included ("sinup").
+ */
+export const wantsToSaveForLater = (text = '') => {
+  const t = String(text).toLowerCase().trim();
+  const account = /\b(sign|sing|sin)\s?-?\s?up\b|\bsignup\b|\bregister\b|\b(create|make|open)\s+(an?\s+|my\s+)?account\b|\b(log|sign)\s?-?\s?in\b/.test(t);
+  /* Engineers build sign-up and login flows: an account word is a request
+     only when it is asked for ("can I", "how do I", "after") or is most of
+     the message ("signin"). */
+  const asking = /\b(can|could|how|where|want|need|let me|like to|i'll|i will|should|do i|first|after|before|now)\b|\?\s*$/.test(t);
+  const short = t.split(/\s+/).length <= 4;
+  return (account && (asking || short))
+    || /\bsave\s+(my|this|it)\b|\bsave\s+(the\s+)?(progress|profile)\b/.test(t)
+    || /\b(continue|finish|come back|carry on|do (it|this|the rest)|complete( it)?)\b.{0,20}\blater\b/.test(t)
+    || /\blater\b.{0,20}\b(continue|finish|come back|carry on)\b/.test(t);
+};
+
 /* The resume they uploaded belongs to an existing account. Its own stepId so
    the buttons route to auth and nothing carries the ladder on. */
 export const ACCOUNT_EXISTS_CHOICE = '__account_exists';
@@ -1176,6 +1201,21 @@ export const saveConversation = (state) => {
 
 export const loadConversation = () => {
   try { return parseConversation(localStorage.getItem(CONVERSATION_KEY)); } catch { return null; }
+};
+
+/**
+ * A conversation saved in this browser that never reached the end cards:
+ * someone who signed up partway through and has more to tell the coach.
+ * Null when there is none, or it was finished.
+ */
+/* The conversation reached the end cards: the profile is built and only
+   the account is left. */
+export const conversationFinished = (messages = []) => messages.some((m) => m.tour || m.convert);
+
+export const unfinishedConversation = () => {
+  const saved = loadConversation();
+  if (!saved || conversationFinished(saved.messages)) return null;
+  return saved;
 };
 
 export const clearConversation = () => {

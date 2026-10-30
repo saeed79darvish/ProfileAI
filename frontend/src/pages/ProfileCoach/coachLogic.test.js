@@ -8,6 +8,8 @@ import {
 } from '../../data/jobTaxonomy.js';
 
 import {
+  wantsToSaveForLater,
+  conversationFinished,
   LADDER,
   VOICE_OFFER_STEP,
   inferredCareerStage,
@@ -1747,4 +1749,26 @@ test('"Do you have your LinkedIn too?" is not asked again once it is moot', asyn
   assert.equal(isAlreadyAnswered(step, { ...base, linkedinUrl: 'https://www.linkedin.com/in/x' }), true);
   assert.equal(isAlreadyAnswered(step, { ...base, review: { summary: 'x' } }), true);
   assert.equal(isAlreadyAnswered(step, { ...base, callHeld: true }), true);
+});
+
+test('asking to sign up, save or finish later is recognised, typos included', () => {
+  for (const said of [
+    'Can I countinue after sinup?', 'can I sign up first', 'how do I log in', 'I want to create an account',
+    'can I save my progress', 'save this please', "I'll finish it later", 'can I come back later to continue',
+    'Do I need to register?', 'signin',
+  ]) assert.equal(wantsToSaveForLater(said), true, said);
+  // Answers that only look like it.
+  for (const said of [
+    'I am a registered nurse', 'Design in Figma and sign off on specs', 'I built the login page',
+    'Senior Frontend Engineer', 'blog in my spare time', 'I designed the signage',
+    'I built the sign up flow for 2M users', 'Owned the sign-in and checkout pages',
+    'I helped save the company a lot of money',
+  ]) assert.equal(wantsToSaveForLater(said), false, said);
+});
+
+test('a conversation is finished once it reached the end cards', () => {
+  assert.equal(conversationFinished([{ role: 'me', text: 'hi' }, { role: 'coach', resume: {} }]), false);
+  assert.equal(conversationFinished([{ role: 'coach', tour: true }]), true);
+  assert.equal(conversationFinished([{ role: 'coach', convert: true }]), true);
+  assert.equal(conversationFinished(), false);
 });
