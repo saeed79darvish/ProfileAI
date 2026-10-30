@@ -301,9 +301,24 @@ export const TOUR_TEXT = {
   MORE: 'Need more later? Pro raises the limits.',
   COMPARE: 'Compare plans',
   OUTRO: 'Everything here runs off the profile you just built, so the more of it is true and specific, the better it all works.',
-  JOBS_LABEL: 'Open now, and a fit for this profile',
-  JOBS_NOTE: 'Your match score for each one, and what to change to land it, come with your free account.',
-  JOBS_OPEN: 'See how you match',
+} as const;
+
+// The jobs card at the end of the coach (JobPicks.jsx).
+export const JOB_PICKS_TEXT = {
+  INTRO: 'Before you go: these are hiring right now, and they fit you.',
+  LIVE: 'Hiring now',
+  TITLE: (n: number) => `${n} jobs that fit the profile you just built`,
+  SUB: 'Found from your roles, your skills and where you are heading.',
+  TOP_PICK: 'Top pick',
+  YOU_HAVE: 'You have',
+  REMOTE: 'Remote',
+  SCORE_LOCKED: 'Your match score unlocks with a free account',
+  APPLY: 'Apply with my profile',
+  VIEW: 'View job',
+  POSTED_TODAY: 'Posted today',
+  POSTED_YESTERDAY: 'Posted yesterday',
+  POSTED_DAYS: (n: number) => `Posted ${n} days ago`,
+  FOOT: 'Create your free account to see how well you match each one, tailor your resume to it and apply.',
 } as const;
 
 export const TOUR_FREE = [

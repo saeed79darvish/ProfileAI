@@ -24,7 +24,9 @@ import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
 import { markReturningUser, hasReturningUser } from '../../utils/returningUser';
 import { takeCoachReturn, setCoachReturn } from '../../utils/coachReturn';
+import { setCoachPicks } from '../../utils/coachPicks';
 import BrandLogo from '../../components/BrandLogo';
+import JobPicks from './JobPicks';
 import ConfirmModal from '../../components/ConfirmModal';
 import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
@@ -47,6 +49,7 @@ import {
   COACH_TEXT,
   TOUR_TEXT,
   TOUR_FREE,
+  JOB_PICKS_TEXT,
   TOUR_ALLOWANCES,
   TIMING,
   PANEL_ITEMS,
@@ -137,21 +140,11 @@ import {
   Card, CardLabel, CardList, Finding,
   VerdictRow, Verdict, MarketNote, Headline, EffortTag,
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
-  TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote, TourJobs, TourJobsNote,
+  TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
   UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
 } from './styled';
-
-/* "Posted 3 days ago", for the openings on the tour card. */
-const postedAgo = (date) => {
-  const at = new Date(date).getTime();
-  if (!Number.isFinite(at)) return '';
-  const days = Math.max(0, Math.floor((Date.now() - at) / 86400000));
-  if (days === 0) return 'Posted today';
-  if (days === 1) return 'Posted yesterday';
-  return `Posted ${days} days ago`;
-};
 
 const TOUR_ICONS = {
   tune: TuneIcon,
@@ -2901,23 +2894,30 @@ const ProfileCoach = () => {
     }
   }, [isAuthenticated, navigate, refreshUser, saveCareerContext]);
 
-  /* Real openings for this profile, by name, on the tour card: a better
-     reason to make the account than a list of features. Asked once, when
-     the card goes up, from the finished draft. Fewer than three and the
-     section stays hidden; the coach has already quoted the count. */
-  const tourShown = messages.some((m) => m.tour);
+  /* Real openings for this profile, by name, in their own card above the
+     tour: a better reason to make the account than a list of features.
+     Asked once the built profile is on screen, so they are ready by the
+     time the tour comes up. Fewer than three and the card stays hidden;
+     the coach has already quoted the count. Kept for after sign-up, where
+     the first screen opens on these same jobs, scored. */
+  const profileBuilt = messages.some((m) => m.resume || m.tour);
   useEffect(() => {
-    if (!tourShown || jobPreviewAskedRef.current) return;
+    if (!profileBuilt || jobPreviewAskedRef.current) return;
     jobPreviewAskedRef.current = true;
-    const { title, location, summary, skills, experience } = draftToProfileShape(draftRef.current);
-    profileAPI.coachJobPreview({ title, target: draftRef.current.target || '', location, summary, skills, experience })
+    const finished = draftRef.current;
+    const { title, location, summary, skills, experience } = draftToProfileShape(finished);
+    profileAPI.coachJobPreview({
+      title, target: finished.target || '', location, summary, skills, experience,
+      constraints: careerContextOf(finished).constraints || {},
+    })
       .then(({ data }) => {
         const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
         setJobPreview(jobs.length >= 3 ? jobs : []);
+        setCoachPicks(jobs);
         trackEvent('coach_job_preview_shown', { count: jobs.length });
       })
       .catch(() => setJobPreview([]));
-  }, [tourShown]);
+  }, [profileBuilt]);
 
   /* A job on the card is the way in: the account, then that job, scored. */
   const openPreviewJob = useCallback((job) => {
@@ -3217,26 +3217,6 @@ const ProfileCoach = () => {
         </div>
       </TourHero>
 
-      {!!jobPreview?.length && (
-        <>
-          <TourSection>{TOUR_TEXT.JOBS_LABEL}</TourSection>
-          <TourJobs>
-            {jobPreview.map((job) => (
-              <li key={job.id}>
-                <button type="button" onClick={() => openPreviewJob(job)} disabled={busy}>
-                  <div>
-                    <h5>{job.title}</h5>
-                    <p>{[job.company, job.location, postedAgo(job.postedAt)].filter(Boolean).join(' · ')}</p>
-                  </div>
-                  <strong>{TOUR_TEXT.JOBS_OPEN}</strong>
-                </button>
-              </li>
-            ))}
-          </TourJobs>
-          <TourJobsNote>{TOUR_TEXT.JOBS_NOTE}</TourJobsNote>
-        </>
-      )}
-
       <TourSection>{TOUR_TEXT.FREE_LABEL}</TourSection>
       <TourList>
         {/* The openings above are that promise, made good. */}
@@ -3277,6 +3257,18 @@ const ProfileCoach = () => {
 
       <BubbleHint style={{ marginTop: 16 }}>{TOUR_TEXT.OUTRO}</BubbleHint>
     </Card>
+  );
+
+  /* The jobs, ahead of the tour and in a card of their own: the one thing
+     at the end that is about them, not the product. */
+  const renderJobPicks = () => (
+    <>
+      <Row data-qid="job-picks">
+        <CoachAvatar><CoachMark /></CoachAvatar>
+        <Bubble>{JOB_PICKS_TEXT.INTRO}</Bubble>
+      </Row>
+      <JobPicks jobs={jobPreview} onOpen={openPreviewJob} busy={busy} />
+    </>
   );
 
   const renderConvert = () => (
@@ -3363,6 +3355,7 @@ const ProfileCoach = () => {
                   {/* Cards that carry their own heading (the upload progress)
                       have no bubble text, and an empty bubble is just a grey
                       rectangle floating above them. */}
+                  {message.tour && !!jobPreview?.length && renderJobPicks()}
                   {!!message.text && (
                     <Row $mine={message.role === 'me'} data-qid={message.role === 'coach' ? message.id : undefined}>
                       {message.role === 'coach' && (

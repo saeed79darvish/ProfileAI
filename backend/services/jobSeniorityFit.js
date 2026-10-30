@@ -72,6 +72,8 @@ const EARLY_CAREER_WORDS = [
   'intern', 'interns', 'internship', 'internships',
   'apprentice', 'apprentices', 'apprenticeship', 'apprenticeships',
   'graduate', 'graduates', 'co-op', 'coop',
+  // "Software Engineer, Platform (Early Career)" reached a staff engineer.
+  'early career', 'early-career',
 ];
 const NEW_GRAD = 'new[- ]?grads?';
 const ENTRY_WORDS = ['junior', 'jr', 'entry level', 'entry-level'];

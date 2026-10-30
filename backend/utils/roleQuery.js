@@ -104,8 +104,10 @@ function deriveRoleQuery(rawTitle) {
 
   // Employer / location clause: " at Equinix", " @ Stripe", " | Acme",
   // " - Acme", " , Acme". Also drop parenthetical asides like "(Contract)".
-  const head = normalizeRoleCompounds(text).split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0]
-    .replace(/[([{].*?[)\]}]/g, ' ');
+  // Asides go before the split: "UI Engineer (TypeScript, React)" was cut
+  // at the comma inside the brackets and searched "UI Engineer TypeScript".
+  const head = normalizeRoleCompounds(text).replace(/[([{].*?[)\]}]/g, ' ')
+    .split(/\s+(?:at|@|\||·|•|—|–)\s+|\s*,\s+|\s+-\s+/i)[0];
 
   const tokens = head
     .split(/[\s/]+/)

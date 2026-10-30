@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Dialog, IconButton, CircularProgress } from '@mui/material';
 import { Close as CloseIcon, WorkOutline as JobIcon } from '@mui/icons-material';
@@ -6,6 +6,9 @@ import styled from 'styled-components';
 import { externalJobAPI } from '@/services/api';
 import { trackEvent } from '@/utils/analytics';
 import { jobFiltersFrom } from '@/utils/jobPreferences';
+import { takeCoachPicks } from '@/utils/coachPicks';
+import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
+import { matchTier } from '@/utils/jobMatchScore';
 import { TEXT, MAX_JOBS } from './constants';
 
 /**
@@ -20,6 +23,10 @@ import { TEXT, MAX_JOBS } from './constants';
  *
  * Shows nothing at all when there are no jobs to show: an empty "we found
  * jobs for you" is worse than no pop-up.
+ *
+ * Someone who saw jobs on the coach's last card gets those first, with the
+ * match score the card told them an account would unlock, scored as the
+ * pop-up opens. Showing a different list here read as a bait and switch.
  */
 
 /* Coach answers onto job filters. Shared with the jobs page, which applies
@@ -47,6 +54,23 @@ const postedText = (iso) => {
 const OnboardingMatches = ({ open, onClose, prefs }) => {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState(null);
+  /* The coach's picks, read once when the pop-up first opens (reading
+     clears them, so a later visit never sees them again). */
+  const [picks, setPicks] = useState([]);
+  const [unscored, setUnscored] = useState(() => new Set());
+  const picksTakenRef = useRef(false);
+  useEffect(() => {
+    if (!open || picksTakenRef.current) return;
+    picksTakenRef.current = true;
+    const taken = takeCoachPicks();
+    setPicks(taken);
+    // The score the card promised: one read each, the same as tapping
+    // "Score" on the jobs page. A failure just leaves that row unscored.
+    taken.forEach((job) => {
+      scoreJob(job.id).catch(() => setUnscored((prev) => new Set(prev).add(job.id)));
+    });
+  }, [open]);
+  const scores = useJobMatches(picks.map((p) => p.id));
   const filters = useMemo(() => jobFiltersFrom(prefs), [prefs]);
   const query = useMemo(
     () => new URLSearchParams({ sort: 'recommended', ...filters }).toString(),
@@ -69,8 +93,8 @@ const OnboardingMatches = ({ open, onClose, prefs }) => {
 
   // Nothing to show: never open an empty pop-up.
   useEffect(() => {
-    if (open && jobs && !jobs.length) onClose();
-  }, [open, jobs, onClose]);
+    if (open && jobs && !jobs.length && !picks.length) onClose();
+  }, [open, jobs, picks, onClose]);
 
   const openJob = (job) => {
     trackEvent('onboarding_match_clicked', { jobId: job.id });
@@ -83,20 +107,34 @@ const OnboardingMatches = ({ open, onClose, prefs }) => {
     navigate(`/jobs?${query}`);
   };
 
+  const pickIds = new Set(picks.map((p) => p.id));
+  const shown = jobs && [...picks, ...jobs.filter((j) => !pickIds.has(j.id))].slice(0, Math.max(MAX_JOBS, picks.length));
+
+  const scoreBadge = (job) => {
+    if (!pickIds.has(job.id) || unscored.has(job.id)) return null;
+    const tier = matchTier(scores[job.id]?.score);
+    if (!tier) return <span className="score pending">{TEXT.SCORING}</span>;
+    return (
+      <span className="score" style={{ color: tier.color, borderColor: tier.color }}>
+        {Math.round(scores[job.id].score)}% · {tier.label}
+      </span>
+    );
+  };
+
   return (
-    <Dialog open={open && !(jobs && !jobs.length)} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="matches-title">
+    <Dialog open={open && !(jobs && !jobs.length && !picks.length)} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="matches-title">
       <Wrap>
         <IconButton aria-label={TEXT.CLOSE} onClick={onClose} className="close" size="small">
           <CloseIcon fontSize="small" />
         </IconButton>
-        <h2 id="matches-title">{TEXT.TITLE}</h2>
-        <p className="sub">{TEXT.SUB}</p>
+        <h2 id="matches-title">{picks.length ? TEXT.PICKS_TITLE : TEXT.TITLE}</h2>
+        <p className="sub">{picks.length ? TEXT.PICKS_SUB : TEXT.SUB}</p>
 
-        {!jobs ? (
+        {!shown ? (
           <div className="loading"><CircularProgress size={28} /><span>{TEXT.LOADING}</span></div>
         ) : (
           <ul>
-            {jobs.map((job) => {
+            {shown.map((job) => {
               const details = [
                 job.location,
                 job.locationType && TEXT.WORK_TYPE[job.locationType],
@@ -110,6 +148,7 @@ const OnboardingMatches = ({ open, onClose, prefs }) => {
                       <strong>{job.title}</strong>
                       <span className="company">{job.company}</span>
                       {!!details.length && <span className="meta">{details.join(' · ')}</span>}
+                      {scoreBadge(job)}
                     </span>
                     <span className="posted">{postedText(job.effectivePostedAt || job.postedAt)}</span>
                   </button>
@@ -194,6 +233,18 @@ const Wrap = styled.div`
   .text strong { font-size: 0.98rem; font-weight: 650; line-height: 1.3; }
   .company { font-size: 0.9rem; color: #3f3f5a; }
   .meta { font-size: 0.82rem; color: #8a8aa3; }
+  .score {
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 2px 9px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .score.pending { color: #8a8aa3; border-color: #dcdcea; font-weight: 600; }
+
   .posted { flex-shrink: 0; font-size: 0.78rem; color: #8a8aa3; padding-top: 2px; }
 
   .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
