@@ -515,7 +515,12 @@ const ProfileCoach = () => {
     // They acted, so they are done reading whatever was pinned.
     anchorIdRef.current = null;
     stickRef.current = true;
-    setMessages((prev) => [...prev, { id: nextId(), role: 'me', text, ...extra }]);
+    const message = { id: nextId(), role: 'me', text, ...extra };
+    /* The ref catches up after the render, and the next question is often
+       asked before that: its suggested answers were written without the
+       very thing they had just said. */
+    messagesRef.current = [...messagesRef.current, message];
+    setMessages((prev) => [...prev, message]);
   }, []);
 
   /* What the coach learned, kept on the account (CareerContext). Only for
