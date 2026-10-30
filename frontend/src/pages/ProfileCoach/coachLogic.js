@@ -1009,7 +1009,7 @@ export const LADDER = [
   },
   {
     id: 'build',
-    question: 'Right. Let me put your profile together.',
+    question: 'Let me put it all together.',
     hint: '',
     kind: 'run',
     runs: 'build',
@@ -1020,7 +1020,7 @@ export const LADDER = [
   },
   {
     id: 'tour',
-    question: 'That is your profile. Here is what it unlocks.',
+    question: 'Here is what it unlocks.',
     hint: '',
     kind: 'tour',
     chipSet: null,
@@ -1087,6 +1087,12 @@ export const emptyDraft = () => ({
   // they have nothing to upload. Either stops it being asked again.
   importDeclines: 0,
   noResume: false,
+  // They talked to Remi on a call, which hands over to the chat without
+  // asking about a resume again.
+  callHeld: false,
+  // Questions passed over after two turns that did not answer them, so a
+  // call or a reload does not bring them back.
+  passed: [],
   // The same, for a paragraph someone typed, dictated, or said on a call.
   spokenIntake: false,
   // What they want next, and the coach's read on how far away it is.
@@ -1950,9 +1956,17 @@ export const EARLY_STAGES = new Set(['new_grad', 'internship']);
  * of them; the field's entry rung is used where it has one.
  */
 export const withStageDefaults = (draft = {}) => {
-  if (draft.level || !EARLY_STAGES.has(draft.careerStage)) return draft;
-  const entry = levelsFor(draft.sector).find((l) => l.id === 'entry');
-  return entry ? { ...draft, level: entry.id } : draft;
+  if (!EARLY_STAGES.has(draft.careerStage)) return draft;
+  let next = draft;
+  if (!next.level) {
+    const entry = levelsFor(next.sector).find((l) => l.id === 'entry');
+    if (entry) next = { ...next, level: entry.id };
+  }
+  /* Someone with no job yet was asked "What kind of role are you going
+     for?" and then, a few questions later, "What are you aiming for next?".
+     The first answer is the target. */
+  if (!next.target && next.title) next = { ...next, target: next.title };
+  return next;
 };
 
 export const nextStepIndex = (fromIndex, draft = {}) => {
@@ -1989,6 +2003,8 @@ export const isAlreadyAnswered = (step, draft = {}) => {
      chips, talked for two minutes, and was then asked whether they want
      full-time or part-time has every reason to think nothing they said was
      heard. If the answer is in the draft, the question is answered. */
+  // A question they could not or would not answer, and that can go without.
+  if ((draft.passed || []).includes(step.id)) return true;
   switch (step.id) {
     case 'sector':
       return !!draft.sector;
@@ -2002,8 +2018,12 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     // from the top, and it asked "do you have a resume?" of someone who had
     // just uploaded one.
     // Nor once they have said they have none, or passed on it twice.
+    /* Nor after they have talked it through on a call. A new grad who chose
+       to chat, said on the call that the document they shared was not
+       theirs, and came back to "One more time: do you have a resume?" had
+       already answered it twice. */
     case 'importOffer':
-      return !!draft.importedFrom || !!draft.noResume
+      return !!draft.importedFrom || !!draft.noResume || !!draft.callHeld
         || (draft.importDeclines || 0) >= IMPORT_OFFER_LIMIT;
     case 'moreSources':
       return !!draft.sourcesDone || new Set(sourcesOf(draft)).size >= 2;
@@ -2577,6 +2597,42 @@ export const seedFromImport = (draft, parsed = {}, source = 'resume') => ({
  */
 export const canAnswer = (step, probing) => !!probing || !!step?.freeText;
 
+/* ─── A question that is not getting answered ─────────────────
+
+   "Not sure, honestly." at "What are you aiming for next?" put the buttons
+   back fifteen times while the coach said "we can skip this for now". Past
+   two turns that do not answer it, a question that can go without moves on.
+   These cannot: the rest of the conversation is read against them. */
+const MUST_ANSWER = new Set(['importOffer', 'sector', 'careerStage', 'level', 'title']);
+export const MAX_MISSES = 2;
+
+export const canPass = (step) => !!step && !MUST_ANSWER.has(step.id)
+  && ['chips', 'multi', 'text', 'branch'].includes(step.kind);
+
+/** The draft with this question set aside, so nothing asks it again. */
+export const passStep = (draft = {}, step) => {
+  if (step?.id === 'mode') return { ...draft, mode: 'chat' };
+  if (step?.id === 'talkOffer') return { ...draft, talkOfferDone: true };
+  const passed = draft.passed || [];
+  return passed.includes(step?.id) ? draft : { ...draft, passed: [...passed, step.id] };
+};
+
+/* "Not sure", "no idea", "I don't know": plain enough to act on without a
+   model, which read it as nothing and said "I did not quite catch that". */
+const PASSING = /^(honestly,?\s*)?(i'?m\s+)?(not\s+sure|no\s+idea|unsure|no\s+clue|dunno|idk|i\s+(really\s+)?(don'?t|do\s+not)\s+know|skip(\s+(it|this))?|pass)\b/i;
+export const saysUnsure = (text) => {
+  const t = String(text || '').trim();
+  return t.split(/\s+/).length <= 6 && PASSING.test(t);
+};
+
+/* Typed at a pick-several question: "full time i think" is Full-time. It
+   used to be dropped without a word, and the box sat there full. */
+const loose = (s) => String(s || '').toLowerCase().replace(/[-_/]+/g, ' ').replace(/\s+/g, ' ').trim();
+export const chipsInText = (text, chips = []) => {
+  const said = ` ${loose(text)} `;
+  return chips.filter((c) => !String(c.id).startsWith('__') && said.includes(` ${loose(c.label)} `)).map((c) => c.id);
+};
+
 /* ─── The closing sequence ───────────────────────────────────── */
 
 /**
@@ -2878,6 +2934,68 @@ export const roleConfirmText = (row = {}, now = new Date()) => {
   return `${start} to ${end}${length}`;
 };
 
+/* ─── What a call heard ─────────────────────────────────────
+
+   One remember_about_them call, merged into the draft. Returns the draft
+   and the keys to show in the check once the call is over. */
+
+/**
+ * @param {object} draft
+ * @param {object} fields the tool call's arguments
+ * @returns {{draft: object, heard: string[]}}
+ */
+export const applyCallFacts = (draft = {}, fields = {}) => {
+  const clean = Object.fromEntries(
+    Object.entries(fields || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
+  );
+  const { project, ...rest } = clean;
+  const heard = Object.keys(rest);
+  let next = heard.length ? applyBraindump(draft, rest) : { ...draft };
+  /* A project is kept once something is known about it. "Let's go with the
+     web development" came back as a project the model had named "Web
+     Developer App", with nothing under it, and the side panel counted
+     projects as done. */
+  const known = project && typeof project === 'object' && project.name
+    && (String(project.description || '').trim()
+      || (Array.isArray(project.technologies) && project.technologies.length));
+  if (known) {
+    next = mergeInterpreted({ ...next, spokenIntake: true }, 'projects', {
+      projectName: project.name,
+      description: project.description,
+      url: project.url,
+      technologies: project.technologies,
+    });
+    heard.push('project');
+  }
+  /* Said on the call, it is the newest answer and replaces the chip tapped
+     before it: a new grad who picked "Junior Software Developer" and then
+     said "full stack" kept the chip. For someone with no job yet, what they
+     are going for is their headline, so that moves too, and the check after
+     the call shows it. */
+  const said = String(clean.target || '').trim();
+  if (said) next.target = said;
+  const goingFor = said || String(clean.title || '').trim();
+  if (goingFor && EARLY_STAGES.has(next.careerStage) && looksLikeTitle(goingFor)) {
+    const title = normalizeTitle(goingFor);
+    if (norm(title) !== norm(draft.title)) {
+      next.title = title;
+      heard.push('headline');
+    }
+  }
+  return { draft: next, heard };
+};
+
+/* "Bye." on a call is them ending it. Remi answered it with two more
+   questions, the second opening "Hey there!", and the person had to close
+   the screen themselves. Only a short line counts: "I said bye to agency
+   work" is an answer, not a goodbye. */
+const GOODBYE = /\b(bye|goodbye|that'?s all|that is all|(got|gotta|have) to go|talk (to you )?later)\b/i;
+
+export const saysGoodbye = (text) => {
+  const words = String(text || '').replace(/[^\w\s']/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.length <= 6 && GOODBYE.test(words.join(' '));
+};
+
 /* ─── The check after a call ───────────────────────────────
 
    Speech gets names and dates wrong ("Acne", "2012" for "2021"), and on a
@@ -2897,6 +3015,7 @@ const EDU_KEYS = ['school', 'degree', 'graduationYear'];
 export const checkLines = (draft = {}, heard = []) => {
   const keys = new Set(heard);
   const lines = [];
+  if (keys.has('headline') && draft.title) lines.push({ kind: 'headline', label: 'Headline', text: draft.title });
   const row = (draft.experience || [])[0];
   if (row && ROLE_KEYS.some((k) => keys.has(k))) {
     const text = [row.title, row.company].filter(Boolean).join(' · ');
@@ -2910,6 +3029,8 @@ export const checkLines = (draft = {}, heard = []) => {
     const text = [edu.degree, edu.institution, edu.endDate].filter(Boolean).join(' · ');
     if (text) lines.push({ kind: 'education', label: 'Education', text });
   }
+  const project = (draft.projects || [])[0];
+  if (project?.title && keys.has('project')) lines.push({ kind: 'project', label: 'Project', text: project.title });
   if (keys.has('location') && draft.location) lines.push({ kind: 'location', label: 'Location', text: draft.location });
   if (keys.has('skills') && (draft.skills || []).length) {
     lines.push({ kind: 'skills', label: 'Skills', text: draft.skills.join(', ') });
@@ -2950,6 +3071,10 @@ export const applyCheckEdit = (draft = {}, kind, text) => {
       { ...draft.education[0], degree: degree || draft.education[0].degree, institution: institution || draft.education[0].institution, endDate: year || draft.education[0].endDate },
       ...draft.education.slice(1),
     ]);
+  }
+  if (kind === 'headline' && String(text).trim()) next.title = normalizeTitle(text);
+  if (kind === 'project' && String(text).trim() && (draft.projects || []).length) {
+    next.projects = [{ ...draft.projects[0], title: String(text).trim() }, ...draft.projects.slice(1)];
   }
   if (kind === 'location') next.location = normalizePlace(text);
   if (kind === 'skills') next.skills = parseSkillList(text);

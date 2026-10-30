@@ -82,6 +82,11 @@ import {
   resumeSections,
   isPresentable,
   canAnswer,
+  canPass,
+  passStep,
+  chipsInText,
+  saysUnsure,
+  MAX_MISSES,
   questionText,
   hintText,
   preferenceLabels,
@@ -104,6 +109,7 @@ import {
   seedFromCareerContext,
   checkLines,
   applyCheckEdit,
+  applyCallFacts,
   SAY_IT_CHIP,
   parseSkillList,
   RESUME_CHOICE,
@@ -804,7 +810,10 @@ const ProfileCoach = () => {
     setDraft(draft0);
     const at = Math.max(0, nextStepIndex(-1, draft0));
     setStepIndex(at);
-    if (!silent) pushCoach(TEXT.GREETING, { hint: TEXT.GREETING_SUB });
+    /* No greeting of its own: "Let's start with your profile", the card,
+       then "Let's build your profile" and "Let us start with what you
+       already have" was three openings before the first question. The
+       first question opens it. */
     if (ask) askStep(at, draft0);
     /* ask: false leaves the ladder parked on the next gap without asking it,
        for a caller that has something to put on screen first — after a call,
@@ -1499,24 +1508,10 @@ const ProfileCoach = () => {
   const heardKeysRef = useRef(new Set());
 
   const onLearned = useCallback((fields) => {
-    const clean = Object.fromEntries(
-      Object.entries(fields || {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
-    );
-    if (!Object.keys(clean).length) return;
+    const { draft: merged, heard } = applyCallFacts(draftRef.current, fields);
+    if (!heard.length) return;
     heardAnythingRef.current = true;
-    Object.keys(clean).forEach((k) => heardKeysRef.current.add(k));
-    // A project goes to projects, as in the typed coach (see runTurn).
-    const { project, ...rest } = clean;
-    let merged = Object.keys(rest).length ? applyBraindump(draftRef.current, rest) : { ...draftRef.current, spokenIntake: true };
-    if (project && typeof project === 'object' && project.name) {
-      merged = mergeInterpreted(merged, 'projects', {
-        projectName: project.name,
-        description: project.description,
-        url: project.url,
-        technologies: project.technologies,
-      });
-    }
-    if (clean.target && !merged.target) merged.target = String(clean.target);
+    heard.forEach((k) => heardKeysRef.current.add(k));
     draftRef.current = merged;
     setDraft(merged);
   }, []);
@@ -1575,6 +1570,10 @@ const ProfileCoach = () => {
        goals, or why jobs were short) still happened, and saying otherwise
        read as the call having failed. */
     const theySpoke = spoken.some((l) => l.role === 'me');
+    if (theySpoke) {
+      draftRef.current = { ...draftRef.current, callHeld: true };
+      setDraft(draftRef.current);
+    }
     if (!heardAnythingRef.current && theySpoke) {
       heardKeysRef.current = new Set();
       pushCoach(TEXT.VOICE_DONE_TALK);
@@ -2179,6 +2178,22 @@ const ProfileCoach = () => {
      drops a second, and past it the page moves on whatever the reply says,
      so nobody is asked the same thing until they give up. */
   const followUpsRef = useRef({});
+  // Turns per question that did not answer it (see canPass).
+  const missesRef = useRef({});
+  const passedCountRef = useRef(0);
+
+  /* Set a question aside and go on. The line said changes each time: the
+     same sentence three times in one conversation read as a script. */
+  const passQuestion = useCallback((step, index, { quiet = false } = {}) => {
+    if (!quiet) {
+      pushCoach(TEXT.PASSED[passedCountRef.current % TEXT.PASSED.length]);
+      passedCountRef.current += 1;
+    }
+    const next = passStep(draftRef.current, step);
+    draftRef.current = next;
+    setDraft(next);
+    advance(index, next);
+  }, [advance, pushCoach]);
 
   const runTurn = useCallback(async (text, step = null) => {
     const onScreen = step ? getChips(step, draftRef.current)
@@ -2255,6 +2270,7 @@ const ProfileCoach = () => {
         if (step?.id === 'title' && !merged.title && learned.target && EARLY_STAGES.has(merged.careerStage)) {
           merged.title = String(learned.target);
         }
+        merged = withStageDefaults(merged);
         draftRef.current = merged;
         setDraft(merged);
       }
@@ -2510,15 +2526,32 @@ const ProfileCoach = () => {
     if (liveMulti) {
       const parts = text.split(/[,;\n]/).map((p) => p.trim()).filter(Boolean);
       const byLabel = (part) => liveMulti.chips.find((c) => c.label.toLowerCase() === part.toLowerCase());
-      const ids = parts.map(byLabel).filter(Boolean).map((c) => c.id);
       const loose = parts.filter((p) => !byLabel(p));
       const typed = step.assign === 'skills' ? loose.flatMap((p) => parseSkillList(p)) : [];
+      // "full time i think" names a chip without being one.
+      const named = step.assign === 'skills' ? [] : loose.flatMap((p) => chipsInText(p, liveMulti.chips));
+      const ids = Array.from(new Set([...parts.map(byLabel).filter(Boolean).map((c) => c.id), ...named]));
       if (ids.length || liveMulti.selected.length || typed.length) {
         setInput('');
         setError('');
         confirmMulti(liveMulti, { ids, values: typed });
         return;
       }
+      /* Nothing in it matched. Their words still go in the chat with a
+         word back, rather than staying in the box as if Send did nothing;
+         twice, and a question that can go without is left. */
+      setInput('');
+      setError('');
+      pushMine(text);
+      const misses = (missesRef.current[step.id] || 0) + 1;
+      missesRef.current[step.id] = misses;
+      if ((misses >= MAX_MISSES || saysUnsure(text)) && canPass(step)) {
+        spendChips(liveMulti.id);
+        passQuestion(step, stepIndex);
+      } else {
+        pushCoach(TEXT.NUDGE_CHIPS);
+      }
+      return;
     }
 
     // canAnswer, not step.freeText: a probe question belongs to the review
@@ -2652,6 +2685,15 @@ const ProfileCoach = () => {
       return;
     }
 
+    /* "Not sure" at a question that can go without: set aside here, with
+       no model call. The model read it as nothing and said "I did not quite
+       catch that", which was not true. */
+    if (saysUnsure(text) && canPass(step) && !stepAnswered(step, current)) {
+      if (liveMessage) spendChips(liveMessage.id);
+      passQuestion(step, index);
+      return;
+    }
+
     const turn = await runTurn(text, step);
     if (!turn.ok) {
       setError(TEXT.ERROR_GENERIC);
@@ -2711,6 +2753,13 @@ const ProfileCoach = () => {
       advance(index, draftRef.current);
       return;
     }
+    /* The same for a question that is not marked optional but can go
+       without: "That's fine, we can skip this for now" used to sit over the
+       same buttons again. */
+    if (turn.skip && canPass(step) && !stepAnswered(step, draftRef.current)) {
+      passQuestion(step, index, { quiet: !turn.silent });
+      return;
+    }
 
     /* A question about their work ("Anywhere before that?") has no field
        the page can check, so the coach says whether it was answered. The
@@ -2720,18 +2769,32 @@ const ProfileCoach = () => {
       return;
     }
 
-    /* The coach had nothing to say and took nothing from it (a typo, a
-       stray word). Silence there read as the page having frozen. */
-    if (turn.silent && !stepAnswered(step, draftRef.current)) {
-      pushCoach(getChips(step, draftRef.current).length ? TEXT.NUDGE_CHIPS : TEXT.NUDGE_TEXT);
-    }
-
     /* Did that fill in what this step was for? If so the conversation moves
        on; if not — they asked a question, or said something unrelated — the
        options come back without the question being restated at them. */
-    if (stepAnswered(step, draftRef.current)) advance(index, draftRef.current);
-    else offerChipsAgain(step, null);
-  }, [advance, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+    if (stepAnswered(step, draftRef.current)) {
+      advance(index, draftRef.current);
+      return;
+    }
+
+    /* The second turn here that did not answer it. The follow-up cap above
+       never fired for this: past one follow-up the server stops waiting, so
+       the count it reads stops at one, and "Anywhere before that?" went
+       round twenty times. */
+    const misses = (missesRef.current[step.id] || 0) + 1;
+    missesRef.current[step.id] = misses;
+    if (misses >= MAX_MISSES && canPass(step)) {
+      passQuestion(step, index, { quiet: !turn.silent });
+      return;
+    }
+
+    /* The coach had nothing to say and took nothing from it (a typo, a
+       stray word). Silence there read as the page having frozen. */
+    if (turn.silent) {
+      pushCoach(getChips(step, draftRef.current).length ? TEXT.NUDGE_CHIPS : TEXT.NUDGE_TEXT);
+    }
+    offerChipsAgain(step, null);
+  }, [advance, passQuestion, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
   // Read by a tapped suggestion, whose handler is declared above this one.
   const submitTextRef = useRef(submitText);
   submitTextRef.current = submitText;

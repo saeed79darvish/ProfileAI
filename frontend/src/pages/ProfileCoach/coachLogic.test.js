@@ -1346,6 +1346,44 @@ test('after a call, only the facts it heard are checked', () => {
   assert.deepEqual(checkLines(draft, ['target']), []);
 });
 
+test('a call keeps a project only once something is known about it', async () => {
+  const { applyCallFacts } = await import('./coachLogic.js');
+  const bare = applyCallFacts({ projects: [] }, { project: { name: 'Web Developer App' } });
+  assert.deepEqual(bare.draft.projects, []);
+  assert.deepEqual(bare.heard, []);
+  const known = applyCallFacts({ projects: [] }, { project: { name: 'Campus Market', technologies: ['React'] } });
+  assert.equal(known.draft.projects[0].title, 'Campus Market');
+  assert.deepEqual(known.heard, ['project']);
+});
+
+test('a role said on a call replaces the chip, and a new grad\'s headline with it', async () => {
+  const { applyCallFacts } = await import('./coachLogic.js');
+  const draft = { careerStage: 'new_grad', title: 'Junior Software Developer', target: '' };
+  const { draft: next, heard } = applyCallFacts(draft, { target: 'Junior Full Stack Developer' });
+  assert.equal(next.target, 'Junior Full Stack Developer');
+  assert.equal(next.title, 'Junior Full Stack Developer');
+  assert.ok(heard.includes('headline'));
+  assert.deepEqual(checkLines(next, heard).map((l) => l.kind), ['headline']);
+  // Someone with a job keeps their headline; the target alone moves.
+  const working = applyCallFacts({ careerStage: 'experienced', title: 'Data Analyst' }, { target: 'Data Scientist' });
+  assert.equal(working.draft.title, 'Data Analyst');
+  assert.equal(working.draft.target, 'Data Scientist');
+});
+
+test('the check after a call shows the project it kept, and fixes it in place', () => {
+  const draft = { projects: [{ title: 'Campus Markt', description: 'A marketplace' }], title: 'Junior Developer' };
+  assert.deepEqual(checkLines(draft, ['project']).map((l) => l.kind), ['project']);
+  assert.equal(applyCheckEdit(draft, 'project', 'Campus Market').projects[0].title, 'Campus Market');
+  assert.equal(applyCheckEdit(draft, 'project', 'Campus Market').projects[0].description, 'A marketplace');
+  assert.equal(applyCheckEdit(draft, 'headline', 'junior full stack developer').title, normalizeTitle('junior full stack developer'));
+});
+
+test('a short goodbye ends the call; a sentence with "bye" in it does not', async () => {
+  const { saysGoodbye } = await import('./coachLogic.js');
+  ['Bye.', 'Okay, bye bye!', "That's all for now", 'Thanks, I have to go'].forEach((t) => assert.equal(saysGoodbye(t), true, t));
+  ['', 'I said bye to agency work and moved in house last year', 'Yes, the web development'].forEach((t) => assert.equal(saysGoodbye(t), false, t));
+});
+
 test('a corrected line replaces what the call heard', () => {
   const draft = {
     experience: [{ title: 'Staff Frontend Developer', company: 'Acne', startDate: '2012', endDate: 'Present', current: true }],
@@ -1537,6 +1575,8 @@ test('the upload offer is made twice at most, and "I don\'t have a resume" ends 
   assert.match(questionText(step, once), /One more time/);
   assert.equal(isAlreadyAnswered(step, { importDeclines: 2 }), true);
   assert.equal(isAlreadyAnswered(step, { noResume: true }), true);
+  // Talking it through on a call answers it: no second ask afterwards.
+  assert.equal(isAlreadyAnswered(step, { importDeclines: 1, callHeld: true }), true);
 });
 
 test('a school sent as objects becomes education rows, never "[object Object]"', async () => {
@@ -1634,4 +1674,39 @@ test('a career stage said in words lands on the right path', () => {
   assert.equal(careerStageFrom('taught myself to code, then a bootcamp'), 'self_taught');
   assert.equal(careerStageFrom('8 years as a backend engineer'), 'experienced');
   assert.equal(careerStageFrom('hmm'), '');
+});
+
+test('a new grad is not asked their role twice', async () => {
+  const { withStageDefaults, isAlreadyAnswered } = await import('./coachLogic.js');
+  const draft = withStageDefaults({ sector: 'Software & IT', careerStage: 'new_grad', title: 'Junior Software Engineer' });
+  assert.equal(draft.target, 'Junior Software Engineer');
+  assert.equal(isAlreadyAnswered(LADDER.find((s) => s.id === 'target'), draft), true);
+  // Someone working keeps the question: their title is not where they are going.
+  assert.equal(withStageDefaults({ careerStage: 'experienced', title: 'Data Analyst' }).target, undefined);
+});
+
+test('a question that can go without is set aside, and stays set aside', async () => {
+  const { canPass, passStep, isAlreadyAnswered } = await import('./coachLogic.js');
+  const step = (id) => LADDER.find((s) => s.id === id);
+  assert.equal(canPass(step('target')), true);
+  assert.equal(canPass(step('previousRole')), true);
+  ['sector', 'careerStage', 'title'].forEach((id) => assert.equal(canPass(step(id)), false, id));
+  const passed = passStep({}, step('target'));
+  assert.equal(isAlreadyAnswered(step('target'), passed), true);
+  assert.equal(passStep({}, step('talkOffer')).talkOfferDone, true);
+  assert.equal(passStep({}, step('mode')).mode, 'chat');
+});
+
+test('typed words name the chips they mean', async () => {
+  const { chipsInText } = await import('./coachLogic.js');
+  const chips = [{ id: 'full-time', label: 'Full-time' }, { id: 'contract', label: 'Contract' }, { id: '__skip', label: 'Skip this' }];
+  assert.deepEqual(chipsInText('full time i think', chips), ['full-time']);
+  assert.deepEqual(chipsInText('Contract or full-time', chips), ['full-time', 'contract']);
+  assert.deepEqual(chipsInText('no idea', chips), []);
+});
+
+test('"not sure" is read as passing, and an answer is not', async () => {
+  const { saysUnsure } = await import('./coachLogic.js');
+  ['Not sure, honestly.', 'not sure', "I don't know", 'no idea', 'idk', 'skip this', "honestly I'm not sure"].forEach((t) => assert.equal(saysUnsure(t), true, t));
+  ['Not sure if it counts, but I built a React app for my club that 200 people used', 'Senior Frontend Engineer', 'passionate about design'].forEach((t) => assert.equal(saysUnsure(t), false, t));
 });

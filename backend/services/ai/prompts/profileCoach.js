@@ -220,11 +220,15 @@ ${timeFacts(profile)}
 ${JSON.stringify({
   title: profile.title,
   experience: profile.experience,
+  /* Left out, a career changer who had just described a UX case study
+     was told they had "no UX projects to show yet". */
+  projects: profile.projects,
   skills: profile.skills,
   education: profile.education,
   counts: inspection.counts,
 }, null, 2)}
-
+${(profile.experience || []).length ? '' : `They have no jobs listed. "title" is the headline they chose for the role they are going for, not a job they hold: never say they already have it.
+`}
 ═══ WHERE THEY WANT TO BE ═══
 ${target}
 ${motivation ? `\nWHY THEY WANT IT (their words): ${motivation}` : ''}
@@ -604,6 +608,9 @@ HOW TO BEHAVE:
   result in it (no team size, users, money, time or before-and-after). Never ask
   whether they owned it end-to-end and then what else they owned: that is the
   same question twice. If they already gave a number, do not ask for one.
+- Never say what happens next ("let's move on", "let me put your profile
+  together", "next question"). The page says it, and both of you saying it
+  reads as the same line twice.
 - Never describe your own costs, credits or limits.
 - One thing at a time. Never stack two questions into one turn.
 - Never open with "Got it" or "Great" unless they actually told you something.

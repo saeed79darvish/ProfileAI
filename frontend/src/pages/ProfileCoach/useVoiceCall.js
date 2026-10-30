@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { saysGoodbye } from './coachLogic';
 
 /**
  * useVoiceCall — Remi, spoken, over OpenAI's Realtime API.
@@ -58,6 +59,8 @@ const SHARE_ERROR_WINDOW_MS = 8000;
 // How long a connection that went quiet gets to come back before the call ends.
 const RECONNECT_GRACE_MS = 6000;
 const GOODBYE_TEXT = 'Time is up. Do not ask anything else. Briefly thank them for what they just said, tell them you have what you need, that their profile preview is being put together and will be on screen in a moment, and that once they have checked it you will finish the rest of the profile together. Then call hand_back_to_chat.';
+// The same ending, when they are the one who said goodbye.
+const LEAVING_TEXT = 'They just said goodbye. Do not ask anything else and do not greet them. Say goodbye in one short sentence and tell them what they told you is on screen, where you will finish the rest together. Then call hand_back_to_chat.';
 
 /* How long to let silence run after somebody finishes speaking before
    deciding the model is not going to answer. Long enough that a slow turn is
@@ -110,6 +113,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
   const goodbyeSentRef = useRef(false);
   const goodbyeSpokenRef = useRef(false);
   const goodbyeTriesRef = useRef(0);
+  // What Remi is told to say on the way out: time up, or them leaving.
+  const goodbyeTextRef = useRef(GOODBYE_TEXT);
   // True between their speech starting and stopping.
   const theyAreTalkingRef = useRef(false);
   const endedRef = useRef(false);
@@ -376,7 +381,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         },
       }));
     } catch { /* channel already closed */ }
-    tellRemi(GOODBYE_TEXT);
+    tellRemi(goodbyeTextRef.current);
     try {
       channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
     } catch { /* channel already closed */ }
@@ -453,6 +458,22 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         if (!text) break;
         heardThemRef.current = true;
         handlersRef.current.onTranscript?.({ role: 'me', text });
+        /* They said goodbye: that is the end, not a turn to answer. Whatever
+           Remi had started saying back is dropped, and once it has stopped
+           the goodbye is asked for, as when time runs out. */
+        if (saysGoodbye(text) && !closingRef.current && !leavingRef.current) {
+          closingRef.current = true;
+          goodbyeTextRef.current = LEAVING_TEXT;
+          if (responseInFlightRef.current) {
+            try {
+              channelRef.current?.send(JSON.stringify({ type: 'response.cancel' }));
+              channelRef.current?.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
+            } catch { /* channel already closed */ }
+            // response.done follows the cancel, and asks for the goodbye.
+          } else {
+            sayGoodbyeWhenFree();
+          }
+        }
         break;
       }
 
@@ -472,6 +493,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         try { args = JSON.parse(event.arguments || '{}'); } catch { /* ignore a malformed call */ }
 
         let hangUp = false;
+        const theyLeft = goodbyeTextRef.current === LEAVING_TEXT;
         if (event.name === 'remember_about_them') {
           handlersRef.current.onLearned?.(args);
         } else if (event.name === 'hand_back_to_chat') {
@@ -495,11 +517,12 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
             },
           }));
           /* During the goodbye the response.done handler decides what comes
-             next; asking here as well would start a second reply. */
-          if (!hangUp && !goodbyeSentRef.current) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
+             next; asking here as well would start a second reply. The same
+             once they have said goodbye: the next thing Remi says is it. */
+          if (!hangUp && !goodbyeSentRef.current && !theyLeft) channelRef.current?.send(JSON.stringify({ type: 'response.create' }));
         } catch { /* channel already closed */ }
         // Belt for the braces above: if that response never arrives, ask again.
-        if (!hangUp && !goodbyeSentRef.current) scheduleNudge();
+        if (!hangUp && !goodbyeSentRef.current && !theyLeft) scheduleNudge();
 
         /* Leaving: wait for the goodbye to actually finish rather than
            counting off a fixed delay. A sentence takes as long as it takes,
@@ -550,6 +573,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
     goodbyeSentRef.current = false;
     goodbyeSpokenRef.current = false;
     goodbyeTriesRef.current = 0;
+    goodbyeTextRef.current = GOODBYE_TEXT;
     theyAreTalkingRef.current = false;
     setState(VOICE_STATES.connecting);
     // Asked for here, inside the tap that started the call: iOS wants that.

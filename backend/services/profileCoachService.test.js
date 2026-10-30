@@ -18,3 +18,14 @@ test('a question from them is told apart from an answer', () => {
   assert.equal(theyAsked('Data Scientist'), false);
   assert.equal(theyAsked('not sure'), false);
 });
+
+test("the page's next question is taken out of the coach's reply", () => {
+  const { withoutNext } = require('./profileCoachService');
+  assert.equal(
+    withoutNext("Got it. That's 5 years and 8 months at Shopify. What did you actually do there?", 'What did you actually do there?'),
+    "Got it. That's 5 years and 8 months at Shopify.",
+  );
+  // A follow-up of its own stays.
+  const own = 'Nice. Was that the whole checkout, or one part of it?';
+  assert.equal(withoutNext(own, 'Anywhere before that?'), own);
+});

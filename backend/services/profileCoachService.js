@@ -471,6 +471,28 @@ const withoutQuestions = (say) => say
   .join(' ')
   .trim();
 
+/* The page's next question, asked by the coach. "Got it. That's 5 years at
+   Shopify. What did you actually do there?" came back on the role answer,
+   and the page then asked "What did you actually do there?" itself. A
+   question in the reply that is mostly the next one's words is the page's
+   to ask, and is taken out. */
+const wordsOf = (text) => new Set(String(text || '').toLowerCase().replace(/[^\w\s']/g, ' ').split(/\s+/).filter((w) => w.length > 2));
+const withoutNext = (say, nextQuestion) => {
+  const next = wordsOf(nextQuestion);
+  if (!next.size) return say;
+  return say
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => {
+      if (!sentence.trim().endsWith('?')) return true;
+      const own = wordsOf(sentence);
+      let shared = 0;
+      own.forEach((w) => { if (next.has(w)) shared += 1; });
+      return !own.size || shared / Math.min(own.size, next.size) < 0.6;
+    })
+    .join(' ')
+    .trim();
+};
+
 /* Did they put a question to the coach, rather than answer one? */
 const theyAsked = (message) => {
   const text = String(message || '').trim();
@@ -522,6 +544,10 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
   }
 
   let say = String(parsed.say || '').trim();
+  const before = say;
+  if (next?.question) say = withoutNext(say, next.question);
+  // What it was waiting on was the next question: the page asks that.
+  const askedNext = say !== before;
   /* One follow-up per question, enforced. The prompt asks for it, and a
      new grad who answered "not sure" was still asked the same thing thirty
      times in a row. Past the first, a question is dropped and the page
@@ -529,7 +555,7 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
   // What is left once the questions are out is a statement: nothing to wait on.
   const questionsOut = followUps >= 1 && say.includes('?');
   if (questionsOut) say = withoutQuestions(say);
-  let awaiting = parsed.awaiting !== false && !!say && !questionsOut;
+  let awaiting = parsed.awaiting !== false && !!say && !questionsOut && !(askedNext && !say.includes('?'));
   /* A re-ask is not always a question: "Walk me through your most recent
      job" has no question mark and was asked four times. Past the first
      follow-up, anything still waiting on them is dropped. */
@@ -769,6 +795,7 @@ module.exports = {
   // exported for unit tests
   pickExpected,
   withoutQuestions,
+  withoutNext,
   theyAsked,
   MAX_ANSWER_CHARS,
 };

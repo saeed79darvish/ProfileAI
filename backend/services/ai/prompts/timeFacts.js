@@ -68,7 +68,10 @@ const timeFacts = (profile = {}, now = new Date()) => {
     const end = parseWhen(row.endDate || row.graduationYear || row.year);
     if (!end || end.y > at.y) continue;
     const name = [row.degree, row.institution || row.school].filter(Boolean).join(', ') || 'their studies';
-    lines.push(`- Finished ${name} in ${end.y}: ${plural(yearsBetween(end, at), 'year')} ago.`);
+    /* "in 2026, 0 years ago" went into a new grad's assessment word for
+       word. This year is "this year". */
+    const ago = yearsBetween(end, at);
+    lines.push(`- Finished ${name} in ${end.y}: ${ago < 1 ? 'this year, so they are a recent graduate' : `${plural(ago, 'year')} ago`}.`);
   }
 
   return `═══ DATES, ALREADY WORKED OUT ═══

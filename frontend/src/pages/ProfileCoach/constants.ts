@@ -136,6 +136,8 @@ export const TEXT = {
   STEPS_CLOSE: 'Close',
   NUDGE_CHIPS: 'I did not quite catch that. Pick one below, or say it in your own words.',
   NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',
+  // A question set aside after two turns that did not answer it.
+  PASSED: ['No problem, we can leave that one for now.', 'That is fine, we can skip it.', 'No worries.'],
   SEND: 'Send',
   // Their voice answer in the chat while its words are being written out.
   VOICE_PENDING: '…',
@@ -177,11 +179,11 @@ export const TEXT = {
   UPLOAD_PROMPT: 'Great. Pick your resume file and I will read it.',
   UPLOAD_DONE: 'Read it. I filled in what I found. Let me just check the gaps.',
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
-  UPLOAD_NO_TEXT: 'That PDF looks like a scan with no text I can read. Try another file, or we can keep chatting.',
-  UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Try another file, or we can keep chatting.',
   ACCOUNT_EXISTS: 'You already have a profile with us under the email on this resume. Sign in and it is all there waiting for you.',
   ACCOUNT_EXISTS_SIGNIN: 'Sign in',
   ACCOUNT_EXISTS_RESET: 'Reset my password',
+  UPLOAD_NO_TEXT: 'That PDF looks like a scan with no text I can read. Try another file, or we can keep chatting.',
+  UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Try another file, or we can keep chatting.',
   UPLOAD_UNREADABLE: 'Could not read this one',
   UPLOAD_CANCELLED: 'No problem. Pick another file, or we can just keep talking.',
   LINKEDIN_PROMPT: 'Let us pull it in from LinkedIn.',
@@ -237,7 +239,7 @@ export const COACH_TEXT = {
   FIX_APPLY: (n: number) => (n ? `Apply ${n} change${n === 1 ? '' : 's'}` : 'Continue'),
   FIX_KEEP: 'Keep mine',
   FIX_APPLIED: (n: number) => `Applied ${n} change${n === 1 ? '' : 's'}`,
-  FIX_DONE: 'Done. Your profile has the new version.',
+  FIX_DONE: 'Those changes are in.',
   FIX_AUTO: 'I have sharpened your headline, summary and bullets with what you told me. Here is how it all comes together.',
   REVIEW_PROBE_INTRO: 'Two quick questions and I can fix most of that.',
 

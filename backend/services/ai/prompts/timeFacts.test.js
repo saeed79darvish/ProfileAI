@@ -32,3 +32,9 @@ test('a finished role is measured to its end, not to today', () => {
 test('a future graduation is not counted as years ago', () => {
   assert.doesNotMatch(timeFacts({ education: [{ degree: 'MSc', endDate: '2028' }] }, NOW), /2028/);
 });
+
+test('graduating this year is not "0 years ago"', () => {
+  const out = timeFacts({ education: [{ degree: 'BSc CS', endDate: '2026' }] }, new Date('2026-10-30'));
+  assert.doesNotMatch(out, /0 years ago/);
+  assert.match(out, /this year/);
+});
