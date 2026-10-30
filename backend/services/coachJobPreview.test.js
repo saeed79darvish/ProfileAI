@@ -34,16 +34,18 @@ test('the best few by fit, with their own skills and no score', () => {
   }
 });
 
-test('their city or remote before anywhere else', () => {
+test('their metro, then remote they can take, then their country, never abroad', () => {
+  // The card that prompted this: El Segundo on top, Warsaw and a "remote"
+  // Budapest posting below, for someone in San Francisco.
   const pool = [
-    job(1, 'Staff Frontend Engineer', { location: 'Warsaw', description: 'React TypeScript GraphQL' }),
-    job(2, 'Frontend Engineer', { location: 'San Francisco, CA' }),
-    job(3, 'Frontend Engineer', { location: '', locationType: 'remote' }),
-    job(4, 'Frontend Engineer', { location: 'Berlin' }),
+    job(1, 'Staff Frontend Engineer', { location: 'El Segundo, California, United States', description: 'React TypeScript GraphQL' }),
+    job(2, 'Staff Frontend Engineer', { location: 'Warsaw', description: 'React TypeScript GraphQL' }),
+    job(3, 'Staff Frontend Engineer', { location: 'Budapest, Hungary', locationType: 'remote', description: 'React TypeScript GraphQL' }),
+    job(4, 'Frontend Engineer', { location: 'San Mateo, CA' }),
+    job(5, 'Frontend Engineer', { location: 'Remote - United States', locationType: 'remote' }),
   ];
   const picked = pickPreviewJobs(pool, frontendProfile());
-  assert.deepEqual(picked.slice(0, 2).map((j) => j.id).sort(), [2, 3]);
-  assert.equal(picked.find((j) => j.id === 3).location, 'Remote');
+  assert.deepEqual(picked.map((j) => j.id), [4, 5, 1]);
 });
 
 test('a senior person is not shown early-career roles', () => {
@@ -75,6 +77,10 @@ test('searches come from the target, the title and the roles they held', () => {
     ],
   }));
   assert.deepEqual(queries, ['Software Engineer', 'UI Engineer', 'UI Development Engineer', 'Frontend Developer']);
+  // A target written as a sentence is searched as its role.
+  assert.deepEqual(roleQueries(previewProfile({
+    target: 'Staff Software Engineer focused on frontend and backend, fitting an AI engineering team',
+  })), ['Software Engineer']);
 });
 
 test('an unauthenticated body is cut to profile-sized pieces', () => {

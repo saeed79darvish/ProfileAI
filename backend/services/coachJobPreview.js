@@ -13,8 +13,12 @@
  * The first version matched title words with LIKE, so a frontend engineer
  * aiming at an AI platform role was widened to "software engineer" and shown
  * Radar R&D and an infrastructure job in Warsaw. Searching each role they
- * have held finds their kind of job; their city or remote comes first; and
- * a senior person is never shown an early-career role.
+ * have held finds their kind of job, and a senior person is never shown an
+ * early-career role. Place is a tier, not a tiebreak (utils/jobLocationFit):
+ * their metro, then remote open to their country, then elsewhere in their
+ * country, and never a job in a country they cannot work from. A posting
+ * flagged remote in "Budapest, Hungary" was the top pick for someone in
+ * San Francisco while "remote" alone counted as nearby.
  *
  * No score leaves this file. The feed only shows the graded match score
  * (utils/jobMatchScore on the frontend), never text relevance, so the card
@@ -22,16 +26,19 @@
  * after sign-up.
  */
 
-const { Op, literal } = require('sequelize');
+const { Op, fn, col, where: sqlWhere, literal } = require('sequelize');
 const { ExternalJob, Company } = require('../models');
 const { GHOST_THRESHOLD } = require('./ghostJobDetector');
 const { deriveRoleQuery } = require('../utils/roleQuery');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const { rankJobs, computeYearsOfExperience, inferExperienceLevelOrNull } = require('./jobRelevanceService');
 const { resolveCandidateLevel, excludesEarlyCareer, isEarlyCareerTitle } = require('./jobSeniorityFit');
+const { locationTier, metroTerms } = require('../utils/jobLocationFit');
 
 const PREVIEW_COUNT = 3;
 const POOL_PER_QUERY = 120;
+// Per search, from anywhere: the near pool above is what usually fills the card.
+const WIDE_PER_QUERY = 60;
 const ROLE_QUERIES = 4;
 const WINDOW_DAYS = 30;
 const SKILLS_SHOWN = 4;
@@ -95,13 +102,6 @@ function candidateLevelOf(profile) {
   return resolveCandidateLevel({ constraints: profile.constraints, inferredLevel: inferred }).level;
 }
 
-/** Their city, or remote. Matched loosely: boards spell places many ways. */
-function isNearby(job, profile) {
-  if (job.locationType === 'remote') return true;
-  const city = String(profile.location || '').split(',')[0].trim().toLowerCase();
-  return !!city && String(job.location || '').toLowerCase().includes(city);
-}
-
 /** The best few of a pool, as the card shows them. */
 function pickPreviewJobs(pool, profile) {
   const level = candidateLevelOf(profile);
@@ -112,9 +112,13 @@ function pickPreviewJobs(pool, profile) {
     target: profile.target,
   });
 
-  // Nearby first, then anywhere, one per company: three teams at one
-  // employer read as one opening.
-  const ordered = [...ranked.filter((j) => isNearby(j, profile)), ...ranked.filter((j) => !isNearby(j, profile))];
+  // By place first, fit second, and nowhere they cannot work from. One per
+  // company: three teams at one employer read as one opening.
+  const tiered = ranked
+    .map((job, order) => ({ job, order, tier: locationTier(profile.location, job) }))
+    .filter((t) => t.tier > 0);
+  tiered.sort((a, b) => a.tier - b.tier || a.order - b.order);
+  const ordered = tiered.map((t) => t.job);
   const companies = new Set();
   const varied = ordered.filter((job) => {
     const key = String(job.company || '').toLowerCase().trim();
@@ -147,13 +151,27 @@ async function findPreviewJobs(body, { windowDays = WINDOW_DAYS } = {}) {
   if (!queries.length) return { jobs: [] };
 
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
-  const pools = await Promise.all(queries.map((query) => ExternalJob.findAll({
+  /* Two pools per search: their metro or remote, and anywhere. The most
+     recent 120 "Software Engineer" postings worldwide can hold no job in
+     their city at all, which is how the card came to lead with one in
+     another state. */
+  const metro = metroTerms(profile.location);
+  const like = (s) => sqlWhere(fn('LOWER', col('location')), { [Op.like]: `%${s}%` });
+  const nearOnly = {
+    [Op.or]: [
+      { locationType: 'remote' },
+      like('remote'),
+      ...metro.map(like),
+    ],
+  };
+  const fetchPool = (query, near) => ExternalJob.findAll({
     where: {
       [Op.and]: [
         { isActive: true },
         { effectivePostedAt: { [Op.gte]: since } },
         literal(`COALESCE("ExternalJob"."ghostScore", 0) < ${GHOST_THRESHOLD}`),
         literal(`"ExternalJob"."searchTsvAB" @@ to_tsquery('english', :tsQuery)`),
+        ...(near ? [nearOnly] : []),
       ],
     },
     replacements: { tsQuery: buildJobSearchTsquery(query) },
@@ -161,8 +179,9 @@ async function findPreviewJobs(body, { windowDays = WINDOW_DAYS } = {}) {
       'salaryMin', 'salaryMax', 'salaryCurrency', 'experienceLevel', 'effectivePostedAt', 'postedAt'],
     include: [{ model: Company, as: 'companyInfo', attributes: ['logoUrl'] }],
     order: [['effectivePostedAt', 'DESC']],
-    limit: POOL_PER_QUERY,
-  })));
+    limit: near ? POOL_PER_QUERY : WIDE_PER_QUERY,
+  });
+  const pools = await Promise.all(queries.flatMap((query) => [fetchPool(query, true), fetchPool(query, false)]));
 
   const byId = new Map();
   pools.flat().forEach((job) => { if (!byId.has(job.id)) byId.set(job.id, job); });

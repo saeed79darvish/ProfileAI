@@ -345,6 +345,8 @@ const SENIORITY_WORD_RE = /^(?:senior|sr\.?|junior|jr\.?|staff|principal|chief|h
 // Filler that appears in a person's title but rarely in the postings they want
 // ("Frontend Software Engineer" should still match a "Frontend Engineer" role).
 const ROLE_FILLER_RE = /^(?:full[-\s]?stack|fullstack|software|web|technical|technology|digital|global|of|the|and|for|i{1,3}|iv|v)$/i;
+// Words that turn a title into a sentence. Only cut after a role word.
+const SENTENCE_BREAK_RE = /^(?:focused|focusing|fitting|working|building|leading|specializing|with|who|that|where|which|on|in|for|to|into|within|across|using)$/i;
 // Nouns that name a role family. Used to locate the anchor token when a title
 // is long enough that we have to drop something.
 const ROLE_FAMILY_WORDS = new Set([
@@ -390,7 +392,15 @@ export function deriveRoleQuery(rawTitle) {
   // Seniority always goes. Filler only goes while at least two words remain —
   // "Frontend Software Engineer" should shed "Software", but "Staff Software
   // Engineer" must not be reduced all the way to a bare "Engineer".
-  const meaningful = settleArchitect(tokens.filter((t) => !SENIORITY_WORD_RE.test(t)));
+  // A target written as a sentence ("Staff Software Engineer focused on
+  // frontend and backend, fitting an AI team") ends at its first connecting
+  // word after the role, or "Engineer focused" is what gets searched.
+  const familyAt = tokens.findIndex((t) => ROLE_FAMILY_WORDS.has(t.toLowerCase()));
+  // "Software Engineer in Test" is a role, not a sentence.
+  const cutAt = familyAt === -1 ? -1 : tokens.findIndex((t, i) => i > familyAt && SENTENCE_BREAK_RE.test(t)
+    && !(/^in$/i.test(t) && /^test/i.test(tokens[i + 1] || '')));
+  const role = cutAt === -1 ? tokens : tokens.slice(0, cutAt);
+  const meaningful = settleArchitect(role.filter((t) => !SENIORITY_WORD_RE.test(t)));
   for (let i = meaningful.length - 1; i >= 0 && meaningful.length > 2; i--) {
     if (ROLE_FILLER_RE.test(meaningful[i])) meaningful.splice(i, 1);
   }
