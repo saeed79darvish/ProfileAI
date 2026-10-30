@@ -475,7 +475,14 @@ export const ComposerInput = styled.textarea`
   max-height: calc(1.5em * 6 + 20px);
   overflow-y: auto;
 
-  &::placeholder { color: #a0a0b8; }
+  /* One line, always: a wrapped placeholder made the box two lines tall
+     with the first one cut off under its top edge. */
+  &::placeholder {
+    color: #a0a0b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* Suppress the global ring on the field itself — the bar around it shows
      focus instead. Without this the two draw on top of each other. */

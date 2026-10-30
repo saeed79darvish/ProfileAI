@@ -368,6 +368,15 @@ const ProfileCoach = () => {
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // A phone-width box, for the short placeholder.
+  const [narrowScreen, setNarrowScreen] = useState(() => !!window.matchMedia?.('(max-width: 560px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia?.('(max-width: 560px)');
+    if (!query) return undefined;
+    const onChange = (e) => setNarrowScreen(e.matches);
+    query.addEventListener?.('change', onChange);
+    return () => query.removeEventListener?.('change', onChange);
+  }, []);
   const [error, setError] = useState('');
   const [gateOpen, setGateOpen] = useState(false);
   // Set to a step's aiStep while its clarifying question is outstanding, so
@@ -2838,7 +2847,8 @@ const ProfileCoach = () => {
   // A live pick-several row is answered from the box, whatever the step's
   // freeText says.
   const liveMultiRow = messages.some((m) => m.multi && !m.spent && m.stepId === currentStep?.id);
-  const canType = (liveMultiRow || (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing))) && !busy;
+  const answersInBox = liveMultiRow || (!currentStep ? stepIndex < 0 : canAnswer(currentStep, probing));
+  const canType = answersInBox && !busy;
 
   /* The cursor waits in the box whenever there is something to type: after
      each question, after the coach replies, after a chip was tapped. Having
@@ -3372,6 +3382,7 @@ const ProfileCoach = () => {
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
                   e.preventDefault();
+                  if (busy) return;
                   e.currentTarget.form?.requestSubmit();
                 }}
                 // When the answer is a tap, the box says so instead of just
@@ -3382,8 +3393,14 @@ const ProfileCoach = () => {
                   ? TEXT.INPUT_PLACEHOLDER_MULTI
                   : !canType && currentStep
                   ? TEXT.INPUT_PLACEHOLDER_CHIPS
-                  : dictation.supported ? TEXT.INPUT_PLACEHOLDER_VOICE : TEXT.INPUT_PLACEHOLDER}
-                disabled={!canType}
+                  : dictation.supported
+                  ? (narrowScreen ? TEXT.INPUT_PLACEHOLDER_VOICE_SHORT : TEXT.INPUT_PLACEHOLDER_VOICE)
+                  : TEXT.INPUT_PLACEHOLDER}
+                /* Not disabled while the coach is replying: a disabled box
+                   loses focus, and on a phone the keyboard closed after every
+                   answer. They can type ahead; sending waits (see onKeyDown
+                   and the send button). */
+                disabled={!answersInBox}
                 aria-label={TEXT.INPUT_PLACEHOLDER}
               />
               </ComposerField>

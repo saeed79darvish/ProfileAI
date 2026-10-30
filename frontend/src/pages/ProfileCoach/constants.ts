@@ -118,6 +118,8 @@ export const TEXT = {
 
   INPUT_PLACEHOLDER: 'Type your answer',
   INPUT_PLACEHOLDER_VOICE: 'Type your answer, or tap the mic to talk',
+  // A phone's box fits about twenty characters; the long one wrapped and was cut in half.
+  INPUT_PLACEHOLDER_VOICE_SHORT: 'Type or tap the mic',
   INPUT_PLACEHOLDER_CHIPS: 'Tap an option above',
   // After a call: the facts speech gets wrong, read back once.
   CHECK_TITLE: 'Quick check before I save this. Speech gets names and dates wrong, so fix anything that is off.',
