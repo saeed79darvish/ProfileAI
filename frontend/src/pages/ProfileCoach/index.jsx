@@ -2261,6 +2261,8 @@ const ProfileCoach = () => {
       });
 
       const { project, ...learned } = data?.learned || {};
+      // What they want next is not something they can already do.
+      if (step && GOAL_STEPS.has(step.id)) delete learned.skills;
       if (Object.keys(learned).length || project) {
         /* A project goes to projects, as its own row. It used to come back
            as bullets, which landed on a job with no company: a new grad's
@@ -2292,8 +2294,6 @@ const ProfileCoach = () => {
         }
         merged = withStageDefaults(merged);
         draftRef.current = merged;
-      // What they want next is not something they can already do.
-      if (step && GOAL_STEPS.has(step.id)) delete learned.skills;
         setDraft(merged);
       }
 
@@ -2870,6 +2870,31 @@ const ProfileCoach = () => {
     }
   }, [isAuthenticated, navigate, refreshUser, saveCareerContext]);
 
+  /* Real openings for this profile, by name, on the tour card: a better
+     reason to make the account than a list of features. Asked once, when
+     the card goes up, from the finished draft. Fewer than three and the
+     section stays hidden; the coach has already quoted the count. */
+  const tourShown = messages.some((m) => m.tour);
+  useEffect(() => {
+    if (!tourShown || jobPreviewAskedRef.current) return;
+    jobPreviewAskedRef.current = true;
+    const { title, location, summary, skills, experience } = draftToProfileShape(draftRef.current);
+    profileAPI.coachJobPreview({ title, target: draftRef.current.target || '', location, summary, skills, experience })
+      .then(({ data }) => {
+        const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+        setJobPreview(jobs.length >= 3 ? jobs : []);
+        trackEvent('coach_job_preview_shown', { count: jobs.length });
+      })
+      .catch(() => setJobPreview([]));
+  }, [tourShown]);
+
+  /* A job on the card is the way in: the account, then that job, scored. */
+  const openPreviewJob = useCallback((job) => {
+    trackEvent('coach_job_preview_clicked', { jobId: job.id });
+    setCoachReturn(`/jobs/${job.id}`);
+    handleConvert(hasReturningUser() ? 'signin' : 'register');
+  }, [handleConvert]);
+
   /* ─── Derived view state ───────────────────────────────────── */
 
   const completionRaw = useMemo(
@@ -2896,36 +2921,14 @@ const ProfileCoach = () => {
       case 'location':
         return draft.location || '';
       // The labels they tapped ("Full-time"), not the stored ids.
+      /* The role they are aiming for leads. After a call, the job-type and
+         work-style buttons were never shown, and the row stayed empty under a
+         profile that said "Targeting Staff Software Engineer". */
       case 'lookingFor':
         return [draft.target, preferenceLabels(draft)].filter(Boolean).join(' · ');
       /* Skills as tags, a dozen at most: a comma list cut at four read as if
          the import had only found four. */
       case 'skills': {
-  /* Real openings for this profile, by name, on the tour card: a better
-     reason to make the account than a list of features. Asked once, when
-     the card goes up, from the finished draft. Fewer than three and the
-     section stays hidden; the coach has already quoted the count. */
-  const tourShown = messages.some((m) => m.tour);
-  useEffect(() => {
-    if (!tourShown || jobPreviewAskedRef.current) return;
-    jobPreviewAskedRef.current = true;
-    const { title, location, summary, skills, experience } = draftToProfileShape(draftRef.current);
-    profileAPI.coachJobPreview({ title, target: draftRef.current.target || '', location, summary, skills, experience })
-      .then(({ data }) => {
-        const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
-        setJobPreview(jobs.length >= 3 ? jobs : []);
-        trackEvent('coach_job_preview_shown', { count: jobs.length });
-      })
-      .catch(() => setJobPreview([]));
-  }, [tourShown]);
-
-  /* A job on the card is the way in: the account, then that job, scored. */
-  const openPreviewJob = useCallback((job) => {
-    trackEvent('coach_job_preview_clicked', { jobId: job.id });
-    setCoachReturn(`/jobs/${job.id}`);
-    handleConvert(hasReturningUser() ? 'signin' : 'register');
-  }, [handleConvert]);
-
         const all = draft.skills || [];
         if (!all.length) return '';
         return (
@@ -2952,9 +2955,6 @@ const ProfileCoach = () => {
             {rows.length > 3 && <li className="more">+{rows.length - 3} more role{rows.length - 3 === 1 ? '' : 's'}</li>}
           </PanelRoles>
         );
-      /* The role they are aiming for leads. After a call, the job-type and
-         work-style buttons were never shown, and the row stayed empty under a
-         profile that said "Targeting Staff Software Engineer". */
       }
       case 'proj':
         return (draft.projects || []).map((p) => p.title).filter(Boolean).slice(0, 3).join(', ');
@@ -3186,6 +3186,26 @@ const ProfileCoach = () => {
         </div>
       </TourHero>
 
+      {!!jobPreview?.length && (
+        <>
+          <TourSection>{TOUR_TEXT.JOBS_LABEL}</TourSection>
+          <TourJobs>
+            {jobPreview.map((job) => (
+              <li key={job.id}>
+                <button type="button" onClick={() => openPreviewJob(job)} disabled={busy}>
+                  <div>
+                    <h5>{job.title}</h5>
+                    <p>{[job.company, job.location, postedAgo(job.postedAt)].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <strong>{TOUR_TEXT.JOBS_OPEN}</strong>
+                </button>
+              </li>
+            ))}
+          </TourJobs>
+          <TourJobsNote>{TOUR_TEXT.JOBS_NOTE}</TourJobsNote>
+        </>
+      )}
+
       <TourSection>{TOUR_TEXT.FREE_LABEL}</TourSection>
       <TourList>
         {/* The openings above are that promise, made good. */}
@@ -3218,26 +3238,6 @@ const ProfileCoach = () => {
           not the moment to sell. The real offer comes at a limit. */}
       <TourFootnote>
         {TOUR_TEXT.MORE}{' '}
-      {!!jobPreview?.length && (
-        <>
-          <TourSection>{TOUR_TEXT.JOBS_LABEL}</TourSection>
-          <TourJobs>
-            {jobPreview.map((job) => (
-              <li key={job.id}>
-                <button type="button" onClick={() => openPreviewJob(job)} disabled={busy}>
-                  <div>
-                    <h5>{job.title}</h5>
-                    <p>{[job.company, job.location, postedAgo(job.postedAt)].filter(Boolean).join(' · ')}</p>
-                  </div>
-                  <strong>{TOUR_TEXT.JOBS_OPEN}</strong>
-                </button>
-              </li>
-            ))}
-          </TourJobs>
-          <TourJobsNote>{TOUR_TEXT.JOBS_NOTE}</TourJobsNote>
-        </>
-      )}
-
         <a href="/pricing" target="_blank" rel="noopener noreferrer"
           onClick={() => trackEvent('coach_tour_pricing_clicked', {})}>
           {TOUR_TEXT.COMPARE}
