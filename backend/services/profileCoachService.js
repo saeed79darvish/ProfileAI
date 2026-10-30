@@ -462,6 +462,15 @@ const cleanSuggestions = (value) => {
   return out;
 };
 
+/* A reply with its questions taken out. Dropping the whole reply also
+   dropped the answer to a question they had asked us ("What is a graduate
+   backend developer?"), and the page said it had not caught that. */
+const withoutQuestions = (say) => say
+  .split(/(?<=[.!?])\s+/)
+  .filter((sentence) => !sentence.trim().endsWith('?'))
+  .join(' ')
+  .trim();
+
 async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null, followUps = 0 } = {}) {
   const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
   if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', suggestions: [] };
@@ -510,8 +519,10 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
      new grad who answered "not sure" was still asked the same thing thirty
      times in a row. Past the first, a question is dropped and the page
      moves on. */
-  if (followUps >= 1 && say.includes('?')) say = '';
-  let awaiting = parsed.awaiting !== false && !!say;
+  // What is left once the questions are out is a statement: nothing to wait on.
+  const questionsOut = followUps >= 1 && say.includes('?');
+  if (questionsOut) say = withoutQuestions(say);
+  let awaiting = parsed.awaiting !== false && !!say && !questionsOut;
   /* A re-ask is not always a question: "Walk me through your most recent
      job" has no question mark and was asked four times. Past the first
      follow-up, anything still waiting on them is dropped. */
@@ -721,5 +732,6 @@ module.exports = {
   writeSummary,
   // exported for unit tests
   pickExpected,
+  withoutQuestions,
   MAX_ANSWER_CHARS,
 };

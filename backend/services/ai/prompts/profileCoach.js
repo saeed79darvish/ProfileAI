@@ -477,6 +477,10 @@ You have already asked a follow-up about the question on their screen. Do not
 ask another. Take what they said as their answer, even "not sure" or "I
 don't know" (that means move on, not try again), and either leave "say" empty
 or acknowledge it in a few words, then set "awaiting" to false.
+If they asked YOU something instead ("what is a graduate backend developer?",
+"why do you need this?"), answer it in one or two plain sentences, in their
+field's terms, and end there: no question back, "awaiting" false. The page
+puts the options back under your answer.
 
 ` : ''}═══ WHAT THEY JUST SAID ═══
 """${message}"""
