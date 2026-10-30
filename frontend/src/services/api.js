@@ -338,7 +338,10 @@ export const profileAPI = {
   coachVoiceDocument: (file) => {
     const form = new FormData();
     form.append('file', file);
-    return api.post('/profiles/coach/voice/document', form);
+    /* The instance's JSON Content-Type makes axios turn a FormData body into
+       JSON, file dropped: every document shared on a call arrived empty
+       (400 file_required). Unset, the browser writes the multipart header. */
+    return api.post('/profiles/coach/voice/document', form, { headers: { 'Content-Type': undefined } });
   },
   // Suggested answers (titles, the next role, skills) for this person.
   coachSuggest: ({ profile, kind, question, said }, config) =>
