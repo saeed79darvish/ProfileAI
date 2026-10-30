@@ -725,7 +725,35 @@ async function suggestAnswers({ profile = {}, kind = 'titles', question = '', sa
   return cleanLines(parsed.suggestions, { max: 6, maxLength: 40 });
 }
 
+/**
+ * readSharedPdf — what is in a PDF shown during a call, written out as text,
+ * read by the model page by page. For the files with no text layer to pull:
+ * a slide deck exported as pictures, a poster, a scan, a design portfolio.
+ * Those are exactly what people share as "my project", and the text
+ * extractor found nothing in them, so Remi was told nothing and kept asking
+ * them to share it again.
+ */
+async function readSharedPdf(buffer, { name = '' } = {}) {
+  const response = await callAI({
+    model: HAIKU_MODEL,
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
+        {
+          type: 'text',
+          text: `Someone shared this file${name ? ` (${name})` : ''} with their career coach during a call, to show their work.
+Write out what is in it as plain text the coach can talk about: what each project or piece of work is, what it does, who it was for, the tools and methods used, their part in it, and any results or numbers. Include text that appears in pictures, slides or diagrams. Leave out contact details. No preamble, no markdown headings, no em dashes.`,
+        },
+      ],
+    }],
+  });
+  return String(response.choices[0].message.content || '').trim();
+}
+
 module.exports = {
+  readSharedPdf,
   gapCheck,
   suggestAnswers,
   planFixes,

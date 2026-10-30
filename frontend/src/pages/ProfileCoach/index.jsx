@@ -1652,6 +1652,7 @@ const ProfileCoach = () => {
     } catch {
       setShareNote(TEXT.VOICE_SHARE_FAILED);
       setTimeout(() => setShareNote(''), 5000);
+      voice.share({ name: file.name, failed: true });
     } finally {
       setSharingFile(false);
     }

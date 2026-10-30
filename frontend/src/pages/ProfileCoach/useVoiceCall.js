@@ -666,11 +666,16 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
    * or a document's text. It goes in as their own turn, so Remi reacts to it
    * out loud, then the floor is theirs again.
    */
-  const share = useCallback(({ name = '', imageUrl = '', text = '' } = {}) => {
+  const share = useCallback(({ name = '', imageUrl = '', text = '', failed = false } = {}) => {
     const channel = channelRef.current;
     if (!channel || channel.readyState !== 'open') return false;
-    sharedAtRef.current = Date.now();
-    const intro = imageUrl
+    if (!failed) sharedAtRef.current = Date.now();
+    /* A file that could not be read is still said out loud to Remi.
+       Otherwise Remi went on waiting for it and asked them to share it
+       again, which fails the same way. */
+    const intro = failed
+      ? `I tried to show you a file${name ? ` (${name})` : ''}, but it could not be opened on your side. Do not ask me to share it again; ask me to tell you about it instead.`
+      : imageUrl
       ? `I just shared an image with you${name ? ` (${name})` : ''}. Look at it.`
       : `I just shared a document with you${name ? `, ${name}` : ''}. Here is its text:\n\n${text}`;
     try {

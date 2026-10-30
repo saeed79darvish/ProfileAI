@@ -915,6 +915,8 @@ const sharedDocUpload = multer({
   fileFilter: (req, file, cb) => cb(null, isSupportedFileType(file.mimetype)),
 });
 const MAX_SHARED_TEXT = 8000;
+// Less than this from the text layer, and a PDF is read by the model instead.
+const MIN_SHARED_TEXT = 200;
 
 // @route   POST /api/profiles/coach/voice/document
 // @desc    The text of a document shared during a call
@@ -922,8 +924,15 @@ const MAX_SHARED_TEXT = 8000;
 router.post('/coach/voice/document', suggestGuard, sharedDocUpload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer?.length) return res.status(400).json({ error: 'No file', code: 'file_required' });
-    const raw = await extractTextFromResume(req.file);
-    const text = String(raw || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    const raw = await extractTextFromResume(req.file).catch(() => '');
+    let text = String(raw || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    /* Little or no text layer (slides saved as pictures, a poster, a scan):
+       the model reads the pages instead. */
+    if (text.length < MIN_SHARED_TEXT && req.file.mimetype === 'application/pdf') {
+      const read = await profileCoachService.readSharedPdf(req.file.buffer, { name: req.file.originalname })
+        .catch((error) => { console.error('Error reading a shared PDF with the model:', error.message); return ''; });
+      if (read.length > text.length) text = read;
+    }
     if (!text) return res.status(422).json({ error: 'No text in that file', code: 'no_text' });
     res.json({ success: true, text: text.slice(0, MAX_SHARED_TEXT), truncated: text.length > MAX_SHARED_TEXT });
   } catch (error) {
