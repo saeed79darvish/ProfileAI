@@ -590,6 +590,18 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
       channel.addEventListener('message', (event) => onEvent(event.data));
       channel.addEventListener('open', () => {
         setState(VOICE_STATES.live);
+        /* A phone is held at arm's length or put down on the table, not worn
+           like a headset. Near-field noise reduction treated a voice from
+           that far as room noise, so cutting in while Remi talked was never
+           heard and Remi went on talking over them. */
+        if (window.matchMedia?.('(pointer: coarse)').matches) {
+          try {
+            channel.send(JSON.stringify({
+              type: 'session.update',
+              session: { type: 'realtime', audio: { input: { noise_reduction: { type: 'far_field' } } } },
+            }));
+          } catch { /* channel closed before it opened */ }
+        }
         /* Say hello first. Nothing else starts the conversation: with server
            voice detection the model speaks when it hears something, so a
            silent opening means the first cough in the room becomes the first
