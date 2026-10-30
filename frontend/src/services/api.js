@@ -341,8 +341,8 @@ export const profileAPI = {
     return api.post('/profiles/coach/voice/document', form);
   },
   // Suggested answers (titles, the next role, skills) for this person.
-  coachSuggest: ({ profile, kind, question }, config) =>
-    api.post('/profiles/coach/suggest', { profile, kind, question }, config),
+  coachSuggest: ({ profile, kind, question, said }, config) =>
+    api.post('/profiles/coach/suggest', { profile, kind, question, said }, config),
   // Answer a question someone asked instead of answering ours.
   coachAsk: ({ question, asked, context }) =>
     api.post('/profiles/coach/ask', { question, asked, context }),

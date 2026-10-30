@@ -108,20 +108,30 @@ const SUGGEST_KINDS = {
   skills: 'skills a recruiter would filter on for their work: tools, languages, methods and specialisms, each one or two words, most specific first',
 };
 
-const suggestPrompt = ({ profile, kind, question }) => `You write the suggested answers shown as buttons under a question in a career coach's conversation.
+const saidBlock = (said = []) => (said.length
+  ? `═══ WHAT THEY SAID, IN THEIR OWN WORDS (oldest first) ═══
+${said.map((line) => `- ${JSON.stringify(line)}`).join('\n')}
+
+`
+  : '');
+
+const suggestPrompt = ({ profile, kind, question, said = [] }) => `You write the suggested answers shown as buttons under a question in a career coach's conversation.
 
 ${stageGuidance(profile)}
 
 ═══ WHAT WE KNOW ABOUT THEM ═══
 ${JSON.stringify(profile, null, 2)}
 
-═══ THE QUESTION ═══
+${saidBlock(said)}═══ THE QUESTION ═══
 "${question}"
 
 Write 4 to 6 ${SUGGEST_KINDS[kind] || SUGGEST_KINDS.titles}.
-Base them on what they told us: their field, level, career stage, title,
-roles and projects. Specific beats generic: for a frontend engineer, "React"
-and "TypeScript", not "Programming". Never repeat something already in their
+Base them on what they told us. Their own words come first: a role, a tool or
+a goal they named ("I want to be a data scientist") outranks the broad field
+they picked, so every button is about that, never a neighbouring speciality
+they did not mention. Then their level, career stage, title, roles and
+projects. Specific beats generic: for a frontend engineer, "React" and
+"TypeScript", not "Programming". Never repeat something already in their
 profile as a skill. Each one at most 40 characters.
 
 Return this object and nothing else:

@@ -27,3 +27,11 @@ test('the final read and the suggestions carry who they are', () => {
   assert.match(gapCheckPrompt({ profile }), /changing careers/i);
   assert.match(suggestPrompt({ profile, kind: 'skills', question: 'What are you good at?' }), /skills a recruiter would filter on/);
 });
+
+test('the suggestions read what they said, not only what was filed', () => {
+  const profile = { about: { field: 'Software & IT', careerStage: 'New grad or student' } };
+  const prompt = suggestPrompt({ profile, kind: 'titles', question: 'What title fits?', said: ['new grad, I want to be a data scientist'] });
+  assert.match(prompt, /IN THEIR OWN WORDS/);
+  assert.match(prompt, /I want to be a data scientist/);
+  assert.doesNotMatch(suggestPrompt({ profile, kind: 'titles', question: 'q' }), /IN THEIR OWN WORDS/, 'nothing said, no block');
+});

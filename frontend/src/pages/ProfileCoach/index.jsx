@@ -606,16 +606,26 @@ const ProfileCoach = () => {
     const asked = askSeqRef.current + 1;
     askSeqRef.current = asked;
     const wantsSuggestions = OPEN_CHIP_SETS.has(step.chipSet) && !step.story;
-    const suggested = wantsSuggestions
-      ? Promise.race([
-        profileAPI.coachSuggest({
-          profile: draftToProfileShape(currentDraft),
-          kind: step.chipSet,
-          question: questionText(step, currentDraft),
-        }).then(({ data }) => data?.suggestions || []),
-        new Promise((resolve) => { setTimeout(() => resolve([]), TIMING.TYPING_MS + TIMING.SUGGEST_GRACE_MS); }),
-      ]).catch(() => [])
+    /* What they have typed or said so far, in their own words. The draft
+       holds only what was filed; "new grad, I want to be a data scientist"
+       files a career stage and nothing else, and buttons written from the
+       draft alone then offered frontend titles. */
+    const said = messagesRef.current
+      .filter((m) => m.role === 'me' && m.text)
+      .slice(-8)
+      .map((m) => m.text);
+    const fetched = wantsSuggestions
+      ? profileAPI.coachSuggest({
+        profile: draftToProfileShape(currentDraft),
+        kind: step.chipSet,
+        question: questionText(step, currentDraft),
+        said,
+      }).then(({ data }) => data?.suggestions || []).catch(() => [])
       : Promise.resolve([]);
+    const suggested = Promise.race([
+      fetched,
+      new Promise((resolve) => { setTimeout(() => resolve(null), TIMING.TYPING_MS + TIMING.SUGGEST_GRACE_MS); }),
+    ]);
 
     setTyping(true);
     later(async () => {
@@ -623,14 +633,28 @@ const ProfileCoach = () => {
       // Rewound or moved on while waiting: this question is no longer the one to ask.
       if (askSeqRef.current !== asked) return;
       setTyping(false);
+      const messageId = nextId();
+      /* Slower than the pause: the field's list goes up so the conversation
+         never waits, and the written ones replace it the moment they land,
+         as long as nothing on the row has been tapped yet. */
+      if (suggestions === null) {
+        fetched.then((late) => {
+          const chips = suggestionChips(step, late);
+          if (!chips) return;
+          setMessages((prev) => prev.map((m) => (
+            m.id === messageId && !m.spent && !(m.selected || []).length ? { ...m, chips } : m
+          )));
+        });
+      }
       pushCoach(questionText(step, currentDraft), {
+        id: messageId,
         hint: hintText(step, currentDraft),
         stepId: step.id,
         // A story is easier said than typed. The browser's own speech input
         // is free and works signed out; the words land in the box to edit.
         chips: step.story && dictationSupportedRef.current
           ? [{ ...SAY_IT_CHIP }]
-          : suggestionChips(step, suggestions) || getChips(step, currentDraft),
+          : suggestionChips(step, suggestions || []) || getChips(step, currentDraft),
         multi: step.kind === 'multi',
         selected: [],
         optional: !!step.optional,

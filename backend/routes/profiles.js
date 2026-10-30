@@ -937,11 +937,14 @@ router.post('/coach/voice/document', suggestGuard, sharedDocUpload.single('file'
 // @access  Public (guests capped per IP per day)
 router.post('/coach/suggest', suggestGuard, async (req, res) => {
   try {
-    const { profile, kind, question } = req.body || {};
+    const { profile, kind, question, said } = req.body || {};
     const suggestions = await profileCoachService.suggestAnswers({
       profile: profile && typeof profile === 'object' ? profile : {},
       kind: typeof kind === 'string' ? kind : '',
       question: typeof question === 'string' ? question.slice(0, 300) : '',
+      said: Array.isArray(said)
+        ? said.filter((line) => typeof line === 'string').slice(-8).map((line) => line.slice(0, 400))
+        : [],
     });
     res.json({ success: true, suggestions });
   } catch (error) {

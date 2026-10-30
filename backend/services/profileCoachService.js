@@ -695,12 +695,12 @@ async function gapCheck({ profile = {} } = {}) {
  * suggestAnswers — the buttons under a question about titles, the target
  * role or skills, written for this person rather than for their field.
  */
-async function suggestAnswers({ profile = {}, kind = 'titles', question = '' } = {}) {
+async function suggestAnswers({ profile = {}, kind = 'titles', question = '', said = [] } = {}) {
   if (!SUGGEST_KINDS[kind]) return [];
   const response = await callAI({
     model: TURN_MODEL,
     max_tokens: 300,
-    messages: [{ role: 'user', content: suggestPrompt({ profile, kind, question }) }],
+    messages: [{ role: 'user', content: suggestPrompt({ profile, kind, question, said }) }],
   });
   const parsed = safeParseJSON(response.choices[0].message.content) || {};
   return cleanLines(parsed.suggestions, { max: 6, maxLength: 40 });
