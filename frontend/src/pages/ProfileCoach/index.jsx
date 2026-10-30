@@ -67,6 +67,7 @@ import {
   looksLikeTitle,
   withStageDefaults,
   OPEN_CHIP_SETS,
+  EARLY_STAGES,
   suggestionChips,
   fixKeys,
   applyFixPlan,
@@ -542,6 +543,21 @@ const ProfileCoach = () => {
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, spent: true } : m)));
   }, []);
 
+  /* Suggested answers for a titles, target or skills question, written for
+     this person, or [] on failure. What they have typed or said goes too:
+     the draft holds only what was filed, and "new grad, I want to be a data
+     scientist" files a career stage and nothing else, so buttons written
+     from the draft alone offered frontend titles. */
+  const suggestFor = useCallback((step, currentDraft) => profileAPI.coachSuggest({
+    profile: draftToProfileShape(currentDraft),
+    kind: step.chipSet,
+    question: questionText(step, currentDraft),
+    said: messagesRef.current
+      .filter((m) => m.role === 'me' && m.text)
+      .slice(-8)
+      .map((m) => m.text),
+  }).then(({ data }) => data?.suggestions || []).catch(() => []), []);
+
   // Which askStep is current: a suggestion that lands late must not ask a
   // question the conversation has moved past.
   const askSeqRef = useRef(0);
@@ -606,22 +622,7 @@ const ProfileCoach = () => {
     const asked = askSeqRef.current + 1;
     askSeqRef.current = asked;
     const wantsSuggestions = OPEN_CHIP_SETS.has(step.chipSet) && !step.story;
-    /* What they have typed or said so far, in their own words. The draft
-       holds only what was filed; "new grad, I want to be a data scientist"
-       files a career stage and nothing else, and buttons written from the
-       draft alone then offered frontend titles. */
-    const said = messagesRef.current
-      .filter((m) => m.role === 'me' && m.text)
-      .slice(-8)
-      .map((m) => m.text);
-    const fetched = wantsSuggestions
-      ? profileAPI.coachSuggest({
-        profile: draftToProfileShape(currentDraft),
-        kind: step.chipSet,
-        question: questionText(step, currentDraft),
-        said,
-      }).then(({ data }) => data?.suggestions || []).catch(() => [])
-      : Promise.resolve([]);
+    const fetched = wantsSuggestions ? suggestFor(step, currentDraft) : Promise.resolve([]);
     const suggested = Promise.race([
       fetched,
       new Promise((resolve) => { setTimeout(() => resolve(null), TIMING.TYPING_MS + TIMING.SUGGEST_GRACE_MS); }),
@@ -660,7 +661,7 @@ const ProfileCoach = () => {
         optional: !!step.optional,
       });
     }, TIMING.TYPING_MS);
-  }, [later, pushCoach]);
+  }, [later, pushCoach, suggestFor]);
 
   /**
    * Take back an answer.
@@ -2207,6 +2208,13 @@ const ProfileCoach = () => {
           merged.workStyle = workStyleIdFrom(learned.workStyle);
         }
         if (learned.target && !merged.target) merged.target = String(learned.target);
+        /* Someone still at school is asked what role they are going for, so
+           the model files the answer as their target. That is the title
+           question answered: without this the page saw no title, put the
+           same buttons back, and the coach had just said "next question". */
+        if (step?.id === 'title' && !merged.title && learned.target && EARLY_STAGES.has(merged.careerStage)) {
+          merged.title = String(learned.target);
+        }
         draftRef.current = merged;
         setDraft(merged);
       }
@@ -2262,8 +2270,20 @@ const ProfileCoach = () => {
    * A text-only step gets nothing: the composer is already there, and an
    * empty row would be noise.
    */
-  const offerChipsAgain = useCallback((step, liveMessage, chipsOverride) => {
-    const chips = chipsOverride || getChips(step, draftRef.current);
+  const offerChipsAgain = useCallback(async (step, liveMessage, chipsOverride) => {
+    /* Titles, the next role, skills: they just answered in their own words
+       and the list did not fit, so putting the same list back is the page
+       not listening. Written again from what they said; the field's list
+       only if that fails. */
+    let written;
+    if (!chipsOverride && OPEN_CHIP_SETS.has(step.chipSet) && !step.story) {
+      const asked = askSeqRef.current;
+      const at = stepIndexRef.current;
+      written = suggestionChips(step, await suggestFor(step, draftRef.current));
+      // Moved on while it was being written: this row belongs to nothing now.
+      if (askSeqRef.current !== asked || stepIndexRef.current !== at) return;
+    }
+    const chips = chipsOverride || written || getChips(step, draftRef.current);
     if (!chips.length) return;
     /* One live row, under the latest reply. Every off-topic turn used to
        add another copy and grey out the one before, so a short exchange left
@@ -2284,7 +2304,7 @@ const ProfileCoach = () => {
         optional: !!step.optional,
       },
     ]);
-  }, []);
+  }, [suggestFor]);
 
   const handleAside = useCallback(async (text, intent, step, liveMessage) => {
     const index = LADDER.findIndex((s) => s.id === step.id);
