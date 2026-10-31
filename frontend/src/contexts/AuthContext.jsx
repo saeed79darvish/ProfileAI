@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { authAPI, resolveImageUrl } from '../services/api';
 import { diag } from '../utils/diagLogger';
+import { markFreshSignIn } from '../utils/freshSignIn';
 import { markReturningUser, clearReturningUser, isReturningCheckExempt } from '../utils/returningUser';
 
 const AuthContext = createContext(null);
@@ -236,6 +237,8 @@ export const AuthProvider = ({ children }) => {
     
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
+    // The profile page opens on their job matches (OnboardingMatches).
+    markFreshSignIn();
     // Clear any impersonation state on fresh login
     localStorage.removeItem('originalToken');
     setOriginalToken(null);
@@ -270,6 +273,7 @@ export const AuthProvider = ({ children }) => {
     
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
+    markFreshSignIn();
     setToken(token);
     setUser(user);
     

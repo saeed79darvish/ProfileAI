@@ -186,6 +186,7 @@ import { COMPANY_LOGO_COLORS, EXTENSION_STEP_COLORS } from './styled';
 import { getGreeting } from './utils';
 import ProfileCompletionCard from './ProfileCompletionCard';
 import FinishCoachCard from './FinishCoachCard';
+import { takeFreshSignIn } from '@/utils/freshSignIn';
 import useProfileCompletion from '@/hooks/useProfileCompletion';
 
 // SVG illustrations for each step
@@ -322,11 +323,16 @@ const cardCompany = (t) => (t?.companyName && String(t.companyName).trim()) || c
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  /* Arrived straight from onboarding: show the jobs that fit the profile
-     they just built. The state is cleared at once so a refresh or a Back
-     does not bring the pop-up round again. */
+  /* Arrived straight from onboarding, or just signed in or signed up any
+     other way: open on the jobs that fit the profile. The state and the
+     sign-in mark are cleared at once so a refresh or a Back does not bring
+     the pop-up round again. Coach answers come in the state; a plain
+     sign-in passes none and the pop-up reads their saved ones. */
   const location = useLocation();
-  const [matchesFor, setMatchesFor] = useState(() => location.state?.onboardingMatches || null);
+  const [matchesFor, setMatchesFor] = useState(() => {
+    const fresh = takeFreshSignIn();
+    return location.state?.onboardingMatches || (fresh ? {} : null);
+  });
   useEffect(() => {
     if (location.state?.onboardingMatches) {
       navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
@@ -3255,7 +3261,8 @@ const Dashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      <OnboardingMatches open={!!matchesFor} prefs={matchesFor || undefined} onClose={closeMatches} />
+      {/* Only over a profile: someone without one is on their way to build it. */}
+      <OnboardingMatches open={!!matchesFor && !!profile} prefs={matchesFor || undefined} onClose={closeMatches} />
     </PageContainer>
   );
 };

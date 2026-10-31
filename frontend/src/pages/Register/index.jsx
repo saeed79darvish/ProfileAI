@@ -30,6 +30,7 @@ import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { trackEvent } from '@/utils/analytics';
 import { takeCoachReturn } from '@/utils/coachReturn';
+import { markFreshSignIn } from '@/utils/freshSignIn';
 import { loadGuestProfileDraft, loadGuestDraftMeta, clearGuestProfileDraft } from '@/utils/guestDraft';
 import {
   RoleToggleWrapper,
@@ -251,6 +252,7 @@ const Register = () => {
     }
     signingInRef.current = true;
     localStorage.setItem('token', token);
+    markFreshSignIn();
     setToken(token);
     setUser(user);
     if (!data.existingAccount) {

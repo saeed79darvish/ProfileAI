@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
   LockOutlined as LockIcon,
@@ -6,6 +6,7 @@ import {
   PlaceOutlined as PlaceIcon,
   AutoAwesome as SparkIcon,
 } from '@mui/icons-material';
+import CompanyMark from '@/components/CompanyMark';
 import { JOB_PICKS_TEXT as TEXT } from './constants';
 
 /**
@@ -39,26 +40,7 @@ const salaryText = (job) => {
   return `${sign}${k(job.salaryMin || job.salaryMax)}`;
 };
 
-/* A steady colour per company for the initial, so a list without logos
-   still reads as three different employers. */
-const TINTS = ['#6366f1', '#0ea5e9', '#14b8a6', '#f59e0b', '#ec4899', '#8b5cf6'];
-const tintFor = (name = '') => TINTS[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % TINTS.length];
-
-const Logo = ({ job, size }) => {
-  const [broken, setBroken] = useState(false);
-  if (job.logoUrl && !broken) {
-    return (
-      <LogoBox $size={size}>
-        <img src={job.logoUrl} alt="" onError={() => setBroken(true)} />
-      </LogoBox>
-    );
-  }
-  return (
-    <LogoBox $size={size} $tint={tintFor(job.company)} aria-hidden="true">
-      {(job.company || '?').trim().charAt(0).toUpperCase()}
-    </LogoBox>
-  );
-};
+const Logo = ({ job, size }) => <CompanyMark name={job.company} logoUrl={job.logoUrl} size={size} />;
 
 const JobPicks = ({ jobs, onOpen, busy }) => {
   const [top, ...rest] = jobs;
@@ -300,23 +282,6 @@ const FeaturedHead = styled.div`
   gap: 14px;
 
   > div { min-width: 0; }
-`;
-
-const LogoBox = styled.span`
-  flex: none;
-  width: ${({ $size }) => $size}px;
-  height: ${({ $size }) => $size}px;
-  border-radius: ${({ $size }) => Math.round($size * 0.26)}px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  background: ${({ $tint }) => $tint || '#fff'};
-  border: 1px solid ${({ $tint }) => ($tint ? 'transparent' : '#ececf3')};
-  color: #fff;
-  font-weight: 750;
-  font-size: ${({ $size }) => Math.round($size * 0.42)}px;
-
-  img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
 `;
 
 const Facts = styled.div`

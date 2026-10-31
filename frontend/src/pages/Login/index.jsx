@@ -23,6 +23,7 @@ import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { safeRedirect } from '@/utils/safeRedirect';
 import { takeCoachReturn } from '@/utils/coachReturn';
+import { markFreshSignIn } from '@/utils/freshSignIn';
 import {
   GradientButton,
   inputSx,
@@ -172,6 +173,7 @@ const Login = () => {
         redirectTarget
       });
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
+      markFreshSignIn();
       setToken(token);
       setUser(user);
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
@@ -222,6 +224,7 @@ const Login = () => {
         redirectTarget
       });
       localStorage.setItem(STORAGE_KEY_TOKEN, token);
+      markFreshSignIn();
       setToken(token);
       setUser(user);
       const roleDest = user?.role === ROLES.RECRUITER ? getRecruiterDest(user) : user?.role === ROLES.ADMIN ? ROUTES.ADMIN : getCandidateDest(user, ROUTES.PROFILE);
