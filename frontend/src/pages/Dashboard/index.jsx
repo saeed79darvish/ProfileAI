@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import OnboardingMatches from '@/components/OnboardingMatches';
 import {
@@ -158,6 +158,12 @@ import {
   ExperienceSkills,
   ExperienceDescription,
   LoadingContainer,
+  MobilePanel,
+  ShowAllButton,
+  HeroProgress,
+  MobileExtensionNote,
+  MobileToolDock,
+  mobileEmptySx,
   ExtensionInstalledCard,
   ProfileHero,
   HeroAvatar,
@@ -435,6 +441,127 @@ const Dashboard = () => {
     try { localStorage.setItem('profileai_ext_promo_dismissed', '1'); } catch { /* ignore */ }
   };
 
+  // Phone layout: the tabs pin under the navbar and follow the section being
+  // read, and the AI tools dock to the bottom once their card scrolls away.
+  const [navHeight, setNavHeight] = useState(56);
+  const [toolsDocked, setToolsDocked] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [showAllExperience, setShowAllExperience] = useState(false);
+  const aiToolsRef = useRef(null);
+  const tabsHeaderRef = useRef(null);
+  const panelRefs = useRef([]);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  // Set when the scroll moved the tab, so the tab change doesn't scroll back.
+  const spyTabRef = useRef(false);
+  // Set while a tab tap is scrolling, so the passing sections don't flicker.
+  const scrollLockRef = useRef(false);
+  const unlockTimerRef = useRef(0);
+  const didFirstScrollRef = useRef(false);
+  const pageReady = !!profile && !loading && !authLoading;
+
+  const panelOffset = () => navHeight + (tabsHeaderRef.current?.offsetHeight || 52);
+
+  const holdScrollLock = () => {
+    scrollLockRef.current = true;
+    window.clearTimeout(unlockTimerRef.current);
+    unlockTimerRef.current = window.setTimeout(() => { scrollLockRef.current = false; }, 160);
+  };
+
+  const scrollToPanel = (index, behavior) => {
+    const el = panelRefs.current[index];
+    if (!el) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    holdScrollLock();
+    window.scrollTo({
+      top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - panelOffset()),
+      behavior: reduceMotion ? 'auto' : behavior,
+    });
+  };
+
+  // The navbar's height changes with its second row of nav pills, so it is
+  // measured rather than assumed: the pinned <nav> at the top of the page.
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    const nav = [...document.querySelectorAll('nav')].find((el) => {
+      const { position } = window.getComputedStyle(el);
+      return position === 'sticky' || position === 'fixed';
+    });
+    if (!nav) return undefined;
+    const measure = () => setNavHeight(Math.round(nav.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [isMobile]);
+
+  useEffect(() => {
+    const el = aiToolsRef.current;
+    if (!isMobile || !pageReady || !el) {
+      setToolsDocked(false);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setToolsDocked(!entry.isIntersecting && entry.boundingClientRect.top < navHeight),
+      { rootMargin: `-${navHeight}px 0px 0px 0px` },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isMobile, pageReady, navHeight]);
+
+  // Scrolling moves the tab to the section under the pinned tabs.
+  useEffect(() => {
+    if (!isMobile || !pageReady) return undefined;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const line = panelOffset() + 8;
+      let current = 0;
+      let last = 0;
+      panelRefs.current.forEach((el, i) => {
+        if (!el) return;
+        last = i;
+        if (el.getBoundingClientRect().top <= line) current = i;
+      });
+      // A short last section can never reach the line; the page bottom counts.
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      if (atBottom && window.scrollY > 0) current = last;
+      if (current !== activeTabRef.current) {
+        spyTabRef.current = true;
+        setActiveTab(current);
+      }
+    };
+    const onScroll = () => {
+      if (scrollLockRef.current) {
+        holdScrollLock();
+        return;
+      }
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, pageReady, navHeight]);
+
+  // A tab tap, ?tab= or any other tab change scrolls to that section.
+  useEffect(() => {
+    if (!isMobile || !pageReady) return;
+    if (spyTabRef.current) {
+      spyTabRef.current = false;
+      return;
+    }
+    const first = !didFirstScrollRef.current;
+    didFirstScrollRef.current = true;
+    if (first && activeTab === 0) return;
+    scrollToPanel(activeTab, first ? 'auto' : 'smooth');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isMobile, pageReady]);
+
+  useEffect(() => () => window.clearTimeout(unlockTimerRef.current), []);
+
   // In-place Tailor state
   const [showTailorJobInput, setShowTailorJobInput] = useState(false);
   const [tailorJobDesc, setTailorJobDesc] = useState('');
@@ -464,12 +591,15 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ?tab= picks the tab when it changes. It used to also snap every other
+  // tab change back to it, which fought the phone's scroll-following tabs.
   useEffect(() => {
     const nextTab = TAB_MAP[requestedTab];
-    if (nextTab !== undefined && nextTab !== activeTab) {
+    if (nextTab !== undefined) {
       setActiveTab(nextTab);
     }
-  }, [activeTab, requestedTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedTab]);
 
   // Derived values
   const companyLogoColors = COMPANY_LOGO_COLORS;
@@ -1332,14 +1462,61 @@ const Dashboard = () => {
     </ExperienceItem>
   );
 
+  const aiTools = [
+    {
+      key: 'enhance', label: 'Enhance', Icon: EnhanceIcon,
+      gradient: 'linear-gradient(135deg, #667eea, #764ba2)',
+      description: 'Optimize your profile content automatically. · 1 credit',
+      usageKey: 'profile_enhance',
+      onClick: () => setShowEnhancePrompt(true), disabled: enhancing,
+    },
+    {
+      key: 'tailor', label: 'Tailor', Icon: TailorIcon,
+      gradient: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+      description: 'Customize for specific job descriptions. · 1 credit',
+      usageKey: 'tailor_profile',
+      onClick: () => setShowTailorJobInput(true), disabled: analyzingGaps || tailoring,
+    },
+    {
+      key: 'tips', label: 'Career Tips', Icon: TipsIcon,
+      gradient: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      description: 'Get AI feedback on your profile. · 1 credit',
+      usageKey: 'career_suggestions',
+      onClick: handleGetTipsInPlace, disabled: gettingTips,
+    },
+    {
+      key: 'download', label: 'Download', labelSuffix: ' Resume', Icon: DownloadIcon,
+      gradient: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+      description: 'Export your profile as a PDF resume.',
+      onClick: () => handleDownloadResume(),
+    },
+  ];
+
+  // Desktop shows the active tab's panel; phones stack every panel in one
+  // scroll so the pinned tabs can follow along.
+  const panel = (index, content) => {
+    if (!isMobile) return activeTab === index ? content : null;
+    return (
+      <MobilePanel
+        id={`profile-tabpanel-${index}`}
+        aria-labelledby={`profile-tab-${index}`}
+        ref={(el) => { panelRefs.current[index] = el; }}
+      >
+        {content}
+      </MobilePanel>
+    );
+  };
+
+  const visibleExperience = isMobile && !showAllExperience ? experience.slice(0, 3) : experience;
+
   return (
-    <PageContainer>
+    <PageContainer style={isMobile ? { '--profile-nav-h': `${navHeight}px` } : undefined}>
       {/* Main Content */}
       <MainContent>
         {/* Profile Hero, identity-first header */}
         <ProfileHero>
           <HeroAvatar src={resolveImageUrl(profile?.profilePicture)} alt={`${user?.firstName || ''} ${user?.lastName || ''}`.trim()}>
-            {user?.firstName?.[0]}
+            {user?.firstName?.[0]}{isMobile && user?.lastName?.[0]}
           </HeroAvatar>
           <HeroIdentity>
             <h1>{user?.firstName} {user?.lastName}</h1>
@@ -1363,7 +1540,7 @@ const Dashboard = () => {
             </HeroEditBtn>
             {/* Their goals and call summaries, kept by the coach; theirs to
                 see, edit and delete. */}
-            <HeroEditBtn onClick={() => navigate('/profile/about-you')} title="What ProfilleAI knows about you">
+            <HeroEditBtn className="secondary" onClick={() => navigate('/profile/about-you')} title="What ProfilleAI knows about you">
               About you
             </HeroEditBtn>
             <HeroShareStrip>
@@ -1397,6 +1574,21 @@ const Dashboard = () => {
               </Tooltip>
             </HeroShareStrip>
           </HeroActions>
+          {isMobile && !completion.done && (
+            <HeroProgress
+              type="button"
+              onClick={() => setShowChecklist((open) => !open)}
+              aria-expanded={showChecklist}
+              aria-label={`Profile ${completion.pct}% complete. ${showChecklist ? 'Hide' : 'Show'} the checklist`}
+            >
+              <span className="track">
+                <span className="fill" style={{ width: `${completion.pct}%` }} />
+              </span>
+              <span className="text">
+                <strong>{completion.pct}%</strong> · {completion.missing.length} step{completion.missing.length === 1 ? '' : 's'} left
+              </span>
+            </HeroProgress>
+          )}
         </ProfileHero>
 
         {/* Saved partway through the coach: the way back to finish it. */}
@@ -1404,58 +1596,18 @@ const Dashboard = () => {
 
         {/* Profile completion checklist — progressive profiling nudge.
             Auto-hides once the profile is 100% complete to avoid clutter. */}
-        {profile && !completion.done && (
+        {profile && !completion.done && (!isMobile || showChecklist) && (
           <ProfileCompletionCard
             completion={completion}
             onItemClick={handleCompletionItemClick}
-            defaultOpen={false}
+            defaultOpen={isMobile}
           />
         )}
 
         {/* Chrome Extension promo — educate candidates on applying anywhere.
             The extension only runs on desktop Chrome, so on mobile we show a
             compact, dismissable note pointing users to a desktop browser. */}
-        {isMobile ? (
-          !extPromoDismissed && (
-            <Card
-              sx={{
-                mb: 3,
-                borderRadius: 2.5,
-                background: 'linear-gradient(135deg,#1e1b3a 0%,#2a1d4d 100%)',
-                border: '1px solid rgba(124,58,237,0.35)',
-                overflow: 'hidden',
-              }}
-            >
-              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.75, '&:last-child': { pb: 1.75 } }}>
-                <Box
-                  sx={{
-                    width: 34, height: 34, borderRadius: 1.5, flexShrink: 0,
-                    background: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  <ExtensionIcon sx={{ color: '#fff', fontSize: 20 }} />
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontWeight: 700, fontSize: 13.5, color: '#fff', lineHeight: 1.3 }}>
-                    Get our Chrome extension on desktop
-                  </Typography>
-                  <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 1.4 }}>
-                    Open ProfilleAI on a laptop or desktop to autofill applications and tailor your resume on any career page.
-                  </Typography>
-                </Box>
-                <IconButton
-                  size="small"
-                  aria-label="Dismiss"
-                  onClick={dismissExtPromo}
-                  sx={{ color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </CardContent>
-            </Card>
-          )
-        ) : (
+        {!isMobile && (
           <Card
             sx={{
               mb: 3,
@@ -1511,7 +1663,7 @@ const Dashboard = () => {
         )}
 
 
-        <AIToolsCard>
+        <AIToolsCard ref={aiToolsRef}>
           <AIToolsHeader>
             <div className="icon">
               <EnhanceIcon />
@@ -1522,37 +1674,27 @@ const Dashboard = () => {
             </div>
           </AIToolsHeader>
           <AIToolsGrid>
-            <AIToolButton
-              onClick={() => setShowEnhancePrompt(true)}
-              disabled={enhancing}
-            >
-              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}><EnhanceIcon /></span>
-              <span className="label">Enhance</span>
-              <span className="description">Optimize your profile content automatically. · 1 credit</span>
-              {getUsageBadge('profile_enhance')}
-            </AIToolButton>
-            <AIToolButton onClick={() => setShowTailorJobInput(true)} disabled={analyzingGaps || tailoring}>
-              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}><TailorIcon /></span>
-              <span className="label">Tailor</span>
-              <span className="description">Customize for specific job descriptions. · 1 credit</span>
-              {getUsageBadge('tailor_profile')}
-            </AIToolButton>
-            <AIToolButton 
-              onClick={handleGetTipsInPlace}
-              disabled={gettingTips}
-            >
-              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}><TipsIcon /></span>
-              <span className="label">Career Tips</span>
-              <span className="description">Get AI feedback on your profile. · 1 credit</span>
-              {getUsageBadge('career_suggestions')}
-            </AIToolButton>
-            <AIToolButton onClick={() => handleDownloadResume()}>
-              <span className="icon-wrap" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}><DownloadIcon /></span>
-              <span className="label">Download Resume</span>
-              <span className="description">Export your profile as a PDF resume.</span>
-            </AIToolButton>
+            {aiTools.map((tool) => (
+              <AIToolButton key={tool.key} onClick={tool.onClick} disabled={tool.disabled}>
+                <span className="icon-wrap" style={{ background: tool.gradient }}><tool.Icon /></span>
+                <span className="label">{tool.label}{tool.labelSuffix && <span className="label-suffix">{tool.labelSuffix}</span>}</span>
+                <span className="description">{tool.description}</span>
+                {getUsageBadge(tool.usageKey)}
+              </AIToolButton>
+            ))}
           </AIToolsGrid>
         </AIToolsCard>
+
+        {/* The extension only runs on desktop Chrome, so phones get a
+            dismissable one-line note instead of the promo. */}
+        {isMobile && !extPromoDismissed && (
+          <MobileExtensionNote>
+            <p><strong>Chrome extension</strong> — open ProfilleAI on desktop to autofill applications.</p>
+            <button type="button" aria-label="Dismiss" onClick={dismissExtPromo}>
+              <CloseIcon />
+            </button>
+          </MobileExtensionNote>
+        )}
 
         {/* Skills are rendered once in the desktop sidebar below. The previous
             MobileProfileSection duplicated the Skills card into the DOM (it
@@ -1704,7 +1846,7 @@ const Dashboard = () => {
         {/* Right Content */}
         <RightContent>
           <TabsContainer>
-            <TabsHeader>
+            <TabsHeader ref={tabsHeaderRef}>
               <Tabs 
                 value={activeTab} 
                 onChange={(e, v) => setActiveTab(v)}
@@ -1729,13 +1871,15 @@ const Dashboard = () => {
             </TabsHeader>
             
             <TabContent
-              role="tabpanel"
-              id={`profile-tabpanel-${activeTab}`}
-              aria-labelledby={`profile-tab-${activeTab}`}
-              tabIndex={0}
+              {...(isMobile ? {} : {
+                role: 'tabpanel',
+                id: `profile-tabpanel-${activeTab}`,
+                'aria-labelledby': `profile-tab-${activeTab}`,
+                tabIndex: 0,
+              })}
             >
               {/* Overview Tab */}
-              {activeTab === 0 && (
+              {panel(0, (
                 <>
                   {/* Professional Summary */}
                   <Section>
@@ -1766,7 +1910,9 @@ const Dashboard = () => {
                     </Section>
                   )}
                   
-                  {/* Experience Preview */}
+                  {/* Experience Preview — phones have the full Experience
+                      section right below, so it would repeat. */}
+                  {!isMobile && (
                   <Section>
                     <SectionHeader>
                       <SectionTitle>Experience</SectionTitle>
@@ -1781,11 +1927,12 @@ const Dashboard = () => {
                       </Box>
                     )}
                   </Section>
+                  )}
                 </>
-              )}
+              ))}
               
               {/* Experience Tab */}
-              {activeTab === 1 && (
+              {panel(1, (
                 <Section>
                   <SectionHeader>
                     <SectionTitle>Work Experience</SectionTitle>
@@ -1793,17 +1940,22 @@ const Dashboard = () => {
                       <AddIcon fontSize="small" /> Add
                     </SectionAction>
                   </SectionHeader>
-                  {experience.map((exp, idx) => renderExperienceItem(exp, idx, false))}
+                  {visibleExperience.map((exp, idx) => renderExperienceItem(exp, idx, false))}
+                  {visibleExperience.length < experience.length && (
+                    <ShowAllButton type="button" onClick={() => setShowAllExperience(true)}>
+                      Show all {experience.length} roles
+                    </ShowAllButton>
+                  )}
                   {experience.length === 0 && (
-                    <Box sx={{ color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
+                    <Box sx={isMobile ? mobileEmptySx : { color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
                       No work experience added yet.
                     </Box>
                   )}
                 </Section>
-              )}
+              ))}
               
               {/* Education Tab */}
-              {activeTab === 2 && (
+              {panel(2, (
                 <Section>
                   <SectionHeader>
                     <SectionTitle>Education</SectionTitle>
@@ -1865,15 +2017,15 @@ const Dashboard = () => {
                     );
                   })}
                   {education.length === 0 && (
-                    <Box sx={{ color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
+                    <Box sx={isMobile ? mobileEmptySx : { color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
                       No education added yet.
                     </Box>
                   )}
                 </Section>
-              )}
+              ))}
               
               {/* Projects Tab */}
-              {activeTab === 3 && (
+              {panel(3, (
                 <Section>
                   <SectionHeader>
                     <SectionTitle>Projects</SectionTitle>
@@ -1972,15 +2124,15 @@ const Dashboard = () => {
                     );
                   })}
                   {projects.length === 0 && (
-                    <Box sx={{ color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
+                    <Box sx={isMobile ? mobileEmptySx : { color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
                       No projects added yet.
                     </Box>
                   )}
                 </Section>
-              )}
+              ))}
               
               {/* Tailored Profiles Tab */}
-              {activeTab === 4 && (
+              {panel(4, (
                 <Section>
                   <SectionHeader>
                     <SectionTitle>Tailored Profile Versions</SectionTitle>
@@ -2140,16 +2292,16 @@ const Dashboard = () => {
                       ))}
                     </Grid>
                   ) : (
-                    <Box sx={{ color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
+                    <Box sx={isMobile ? mobileEmptySx : { color: '#7b7f9e', fontSize: '14px', py: 4, textAlign: 'center' }}>
                       <ArticleIcon sx={{ fontSize: 48, mb: 2, opacity: 0.4, color: '#5b6abf' }} />
                       <Box>No tailored profiles yet. Create one to customize your profile for specific jobs.</Box>
                     </Box>
                   )}
                 </Section>
-              )}
+              ))}
               
               {/* Posts Tab — gated by the social-feed feature flag. */}
-              {featureFlags.feed && activeTab === 5 && (
+              {featureFlags.feed && panel(5, (
                 <>
                   {/* My Posts Section */}
                   <Section>
@@ -2301,12 +2453,23 @@ const Dashboard = () => {
                     )}
                   </Section>
                 </>
-              )}
+              ))}
             </TabContent>
           </TabsContainer>
         </RightContent>
       </ContentGrid>
     </MainContent>
+
+      {isMobile && (
+        <MobileToolDock $visible={toolsDocked} aria-hidden={!toolsDocked} inert={toolsDocked ? undefined : ''}>
+          {aiTools.map((tool) => (
+            <button key={tool.key} type="button" onClick={tool.onClick} disabled={tool.disabled}>
+              <span className="icon-wrap" style={{ background: tool.gradient }}><tool.Icon /></span>
+              {tool.label}
+            </button>
+          ))}
+        </MobileToolDock>
+      )}
 
       {/* Tailored Profile View Dialog */}
       <Dialog 

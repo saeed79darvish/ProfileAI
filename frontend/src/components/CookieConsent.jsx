@@ -1,74 +1,110 @@
 import React from 'react';
 import CookieConsent from 'react-cookie-consent';
 import { Link } from 'react-router-dom';
+import { createGlobalStyle } from 'styled-components';
+import { COOKIE_CONSENT_NAME, clearAnalyticsSession } from '@/utils/analytics';
+
+/* A compact dark bar floating above the page. disableStyles drops the
+   library's inline styles so these classes, media queries included, apply. */
+const BannerStyles = createGlobalStyle`
+  .cookie-banner {
+    position: fixed;
+    left: 50%;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 1200;
+    width: min(640px, calc(100% - 24px));
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 12px 12px 18px;
+    background: #1e2235;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.32);
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 14px;
+    line-height: 1.4;
+
+    @media (max-width: 600px) {
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      padding: 10px 10px 10px 16px;
+    }
+  }
+
+  .cookie-banner__text {
+    flex: 1;
+    min-width: 0;
+
+    a {
+      color: #a5b4fc;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+  }
+
+  .cookie-banner__buttons {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .cookie-banner__accept,
+  .cookie-banner__decline {
+    height: 42px;
+    padding: 0 18px;
+    border-radius: 12px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+
+    @media (max-width: 600px) {
+      padding: 0 14px;
+    }
+  }
+
+  .cookie-banner__accept {
+    background: #5b5fd6;
+    color: #fff;
+    border: none;
+  }
+
+  .cookie-banner__decline {
+    background: transparent;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+  }
+`;
 
 /**
- * GDPR-compliant cookie consent banner
- * Uses react-cookie-consent library which handles localStorage automatically
+ * GDPR cookie consent banner. Decline is real: it turns off the in-house
+ * usage analytics (see utils/analytics.js); sign-in storage is essential and
+ * stays either way.
  */
-const CookieConsentBanner = () => {
-  return (
+const CookieConsentBanner = () => (
+  <>
+    <BannerStyles />
     <CookieConsent
-      location="bottom"
-      buttonText="Accept All"
+      disableStyles
+      location="none"
+      buttonText="Accept"
       declineButtonText="Decline"
       enableDeclineButton
-      cookieName="profileai_cookie_consent"
-      style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        alignItems: 'center',
-        padding: '16px 24px',
-        fontSize: '14px',
-        boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
-      }}
-      buttonStyle={{
-        background: '#ffffff',
-        color: '#667eea',
-        fontSize: '14px',
-        fontWeight: '600',
-        borderRadius: '8px',
-        padding: '10px 24px',
-        cursor: 'pointer',
-        border: 'none',
-        transition: 'transform 0.2s, box-shadow 0.2s',
-      }}
-      declineButtonStyle={{
-        background: 'transparent',
-        color: '#ffffff',
-        fontSize: '14px',
-        fontWeight: '500',
-        borderRadius: '8px',
-        padding: '10px 24px',
-        cursor: 'pointer',
-        border: '1px solid rgba(255, 255, 255, 0.5)',
-        marginRight: '10px',
-        transition: 'background 0.2s',
-      }}
+      cookieName={COOKIE_CONSENT_NAME}
       expires={365}
-      onAccept={() => {
-        // Enable analytics, tracking, etc.
-        console.log('Cookie consent accepted');
-      }}
-      onDecline={() => {
-        // Disable non-essential cookies
-        console.log('Cookie consent declined');
-      }}
+      containerClasses="cookie-banner"
+      contentClasses="cookie-banner__text"
+      buttonWrapperClasses="cookie-banner__buttons"
+      buttonClasses="cookie-banner__accept"
+      declineButtonClasses="cookie-banner__decline"
+      customContainerAttributes={{ role: 'region', 'aria-label': 'Cookie consent' }}
+      onDecline={clearAnalyticsSession}
     >
-      <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        🍪 We use cookies to enhance your experience. By continuing to visit this site, you agree to our use of cookies.{' '}
-        <Link 
-          to="/privacy" 
-          style={{ 
-            color: '#ffffff', 
-            textDecoration: 'underline',
-            fontWeight: '500',
-          }}
-        >
-          Learn more in our Privacy Policy
-        </Link>
-      </span>
+      We use cookies. <Link to="/privacy">Privacy Policy</Link>
     </CookieConsent>
-  );
-};
+  </>
+);
 
 export default CookieConsentBanner;

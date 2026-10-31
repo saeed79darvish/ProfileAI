@@ -440,6 +440,11 @@ export const PageContainer = styled.div`
   overflow-x: clip;
   width: 100%;
   position: relative;
+
+  /* Room for MobileToolDock so the last section isn't hidden under it. */
+  @media (max-width: 600px) {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
 `;
 
 // AI Tools Card
@@ -458,17 +463,13 @@ export const AIToolsCard = styled.div`
     border-radius: 16px;
   }
 
+  /* Phone: scrolls with the page. Once it leaves the screen the same four
+     tools come back as MobileToolDock at the bottom. */
   @media (max-width: 600px) {
-    /* Sticky directly under ProfileHero, no gap.
-       Top offset = navbar(56) + ProfileHero stuck height(~144) = 200px. */
-    position: sticky;
-    top: 200px;
-    z-index: 9;
-    padding: 12px;
-    margin-top: 0;
-    margin-bottom: 16px;
-    border-radius: 0 0 14px 14px;
-    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+    padding: 16px 14px 14px;
+    margin-bottom: 12px;
+    border-radius: 18px;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
   }
 `;
 
@@ -527,21 +528,15 @@ export const AIToolsHeader = styled.div`
     }
   }
 
-  /* Phone: subtitle is redundant when each tool has its own icon+label below. */
+  /* Phone: just the title; each tool carries its own icon and label. */
   @media (max-width: 600px) {
-    gap: 10px;
     margin-bottom: 12px;
+    padding-left: 2px;
 
-    .icon {
-      width: 30px;
-      height: 30px;
-      border-radius: 8px;
-
-      svg { font-size: 16px; }
-    }
+    .icon { display: none; }
 
     .text {
-      .title { font-size: 14px; }
+      .title { font-size: 16px; margin-bottom: 0; }
       .subtitle { display: none; }
     }
   }
@@ -557,11 +552,10 @@ export const AIToolsGrid = styled.div`
     gap: 12px;
   }
 
-  /* Phone widths: all 4 tools fit in one tight row.
-     Total AI Tools section drops from ~520px to ~140px tall. */
+  /* Phone: two by two, icon beside label. */
   @media (max-width: 600px) {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 `;
 
@@ -681,25 +675,36 @@ export const AIToolButton = styled.button`
     .label { font-size: 13px; }
   }
   
-  /* Phone widths: tiny icon-tile button. All four sit in one row.
-     Description + UNLIMITED text are hidden, only icon + label show. */
+  /* Phone: a row tile, icon on the left and the label beside it.
+     Description + UNLIMITED text are hidden. */
   @media (max-width: 600px) {
     width: auto;
     min-height: 0;
-    padding: 10px 4px;
-    gap: 6px;
+    padding: 12px;
+    gap: 12px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    text-align: center;
+    justify-content: flex-start;
+    text-align: left;
     position: relative;
+    border-radius: 14px;
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    &:active {
+      transform: scale(0.98);
+    }
 
     .icon-wrap {
       width: 32px;
       height: 32px;
-      border-radius: 9px;
-      svg { font-size: 16px; }
+      border-radius: 10px;
+      flex-shrink: 0;
+      svg { font-size: 17px; }
     }
 
     &:hover .icon-wrap {
@@ -707,15 +712,17 @@ export const AIToolButton = styled.button`
     }
 
     .label {
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 600;
-      line-height: 1.15;
+      line-height: 1.2;
       letter-spacing: -0.01em;
-      max-width: 100%;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .label-suffix { display: none; }
 
     /* Description and "UNLIMITED" text don't fit at this width. */
     .description {
@@ -1242,6 +1249,12 @@ export const RightContent = styled.div`
   gap: 24px;
   min-width: 0;
   overflow: hidden;
+
+  /* hidden makes this a scroll container, which would pin the tabs to it
+     instead of to the page. */
+  @media (max-width: 600px) {
+    overflow: visible;
+  }
 `;
 
 // Tabs Container
@@ -1264,6 +1277,21 @@ export const TabsContainer = styled.div`
   
   @media (max-width: 480px) {
     border-radius: 16px;
+  }
+
+  /* Phone: edge to edge, cancelling MainContent's side padding. */
+  @media (max-width: 600px) {
+    overflow: visible;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0 -16px;
+    width: calc(100% + 32px);
+  }
+
+  @media (max-width: 480px) {
+    margin: 0 -12px;
+    width: calc(100% + 24px);
   }
 `;
 
@@ -1307,6 +1335,26 @@ export const TabsHeader = styled.div`
       border-radius: 2px;
     }
   }
+
+  /* Phone: pinned under the navbar. --profile-nav-h is the navbar's measured
+     height, which grows with its second row of nav pills. */
+  @media (max-width: 600px) {
+    position: sticky;
+    top: var(--profile-nav-h, 56px);
+    z-index: 9;
+    background: #fff;
+    box-shadow: 0 1px 0 #e4e7f2;
+    border-bottom: none;
+
+    && .MuiTab-root {
+      font-size: 15px;
+      min-height: 52px;
+    }
+
+    && .MuiTab-root.Mui-selected {
+      color: #13152a;
+    }
+  }
 `;
 
 export const TabContent = styled.div`
@@ -1325,6 +1373,35 @@ export const TabContent = styled.div`
   @media (max-width: 480px) {
     padding: 14px 12px;
   }
+
+  @media (max-width: 600px) {
+    padding: 0 16px;
+  }
+`;
+
+/* Phone: every tab's content stacked in one scroll; the tabs follow along. */
+export const MobilePanel = styled.section`
+  padding: 22px 0 26px;
+
+  & + & {
+    border-top: 8px solid #eef1f8;
+    margin: 0 -16px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+`;
+
+export const ShowAllButton = styled.button`
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #dfe2ec;
+  border-radius: 12px;
+  color: #5b6abf;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 `;
 
 // Section
@@ -1772,24 +1849,12 @@ export const ProfileHero = styled.section`
     margin-bottom: 16px;
   }
 
+  /* Phone: scrolls away with the page; only the tabs stay pinned. */
   @media (max-width: 600px) {
-    /* Stuck to the top, flush against AIToolsCard below (no margin gap).
-       The 56px top offset matches the global Navbar's mobile height so this
-       card sticks just below the navbar instead of underneath it. */
-    position: sticky;
-    top: 56px;
-    z-index: 10;
-    margin-bottom: 0;
-    padding: 12px;
-    gap: 10px;
-    border-radius: 14px 14px 0 0;
-    border-bottom: none;
-    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
-  }
-
-  @media (max-width: 480px) {
-    padding: 12px;
-    gap: 10px;
+    margin-bottom: 12px;
+    padding: 18px 16px 16px;
+    gap: 14px 14px;
+    border-radius: 20px;
   }
 `;
 
@@ -1803,10 +1868,12 @@ export const HeroAvatar = styled(Avatar)`
     font-weight: 700;
 
     @media (max-width: 600px) {
-      width: 64px;
-      height: 64px;
+      width: 60px;
+      height: 60px;
       font-size: 22px;
       border-width: 2px;
+      background: #eef0fb;
+      color: #4b55b5;
     }
   }
 `;
@@ -1822,7 +1889,7 @@ export const HeroIdentity = styled.div`
     line-height: 1.2;
 
     @media (max-width: 600px) {
-      font-size: 18px;
+      font-size: 20px;
       margin: 0 0 2px 0;
     }
   }
@@ -1842,9 +1909,8 @@ export const HeroTitle = styled.div`
   word-break: break-word;
 
   @media (max-width: 600px) {
-    font-size: 12.5px;
-    margin-bottom: 4px;
-    -webkit-line-clamp: 1;
+    font-size: 13.5px;
+    margin-bottom: 6px;
   }
 `;
 
@@ -1886,15 +1952,16 @@ export const HeroMeta = styled.div`
 
   @media (max-width: 600px) {
     gap: 6px 10px;
-    font-size: 11.5px;
+    font-size: 13px;
 
-    .meta-item svg { font-size: 13px; }
+    .meta-item svg { display: none; }
 
     .availability {
-      padding: 1px 8px;
-      font-size: 10.5px;
+      padding: 2px 9px;
+      font-size: 12px;
+      border: none;
 
-      .dot { width: 5px; height: 5px; }
+      .dot { width: 6px; height: 6px; }
     }
   }
 `;
@@ -1912,9 +1979,12 @@ export const HeroActions = styled.div`
     min-width: 0;
   }
 
+  /* Phone: Edit, About you and Copy link share the row; the eye stays square. */
   @media (max-width: 600px) {
-    gap: 6px;
+    gap: 8px;
     flex-wrap: nowrap;
+
+    > button { flex: 1 1 0; min-width: 0; }
   }
 `;
 
@@ -1949,15 +2019,22 @@ export const HeroEditBtn = styled.button`
   svg { font-size: 16px; }
 
   @media (max-width: 600px) {
-    height: 36px;
-    padding: 0 11px;
-    font-size: 12px;
-    border-radius: 9px;
+    &.secondary {
+      background: ${COLORS.PRIMARY}14;
+      color: ${COLORS.PRIMARY};
+      box-shadow: inset 0 0 0 1px ${COLORS.PRIMARY}33;
+    }
 
-    svg { font-size: 14px; }
+    height: 44px;
+    padding: 0 8px;
+    font-size: 14px;
+    border-radius: 12px;
+    white-space: nowrap;
+
+    svg { display: none; }
 
     /* On narrow screens the row already has Copy link + the eye icon, so
-       drop " Profile" from the label to keep all three actions on one line. */
+       drop " Profile" from the label to keep all four actions on one line. */
     .edit-profile-suffix { display: none; }
   }
 `;
@@ -2011,23 +2088,171 @@ export const HeroShareStrip = styled.div`
     width: 40px;
   }
 
+  /* Phone: the strip dissolves so Copy link sizes like Edit and About you. */
   @media (max-width: 600px) {
-    gap: 4px;
+    display: contents;
 
     .ghost-btn {
-      height: 36px;
-      padding: 0 11px;
-      font-size: 12px;
-      border-radius: 9px;
+      flex: 1;
+      min-width: 0;
+      height: 44px;
+      padding: 0 8px;
+      font-size: 14px;
+      color: #13152a;
+      border-radius: 12px;
+      white-space: nowrap;
 
-      svg { font-size: 14px; }
+      svg { display: none; }
     }
 
     .ghost-btn.icon-only {
-      width: 36px;
+      flex: 0 0 44px;
+      width: 44px;
+
+      svg { display: block; font-size: 20px; color: #5a5e7a; }
     }
   }
 `;
+
+/* Phone only: the completion score inside the hero. Tapping it opens the
+   checklist below the card. */
+export const HeroProgress = styled.button`
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 14px 0 0;
+  background: none;
+  border: none;
+  border-top: 1px solid #e7e9f2;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+
+  .track {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: #eceef6;
+    overflow: hidden;
+  }
+
+  .fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: ${GRADIENTS.PRIMARY};
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .text {
+    flex-shrink: 0;
+    font-size: 13.5px;
+    color: #5a5e7a;
+
+    strong { color: #13152a; font-weight: 700; }
+  }
+`;
+
+/* Phone only: one-line note in place of the desktop extension promo. */
+export const MobileExtensionNote = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px 10px 14px 16px;
+  border-radius: 18px;
+  background: #f0f0fc;
+  border: 1px solid #dcdcf5;
+  color: #4a4d63;
+  font-size: 13.5px;
+  line-height: 1.4;
+
+  p { flex: 1; margin: 0; }
+  strong { color: #13152a; font-weight: 700; }
+
+  button {
+    flex-shrink: 0;
+    display: inline-flex;
+    padding: 8px;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: #5a5e7a;
+    cursor: pointer;
+
+    svg { font-size: 20px; }
+  }
+`;
+
+/* Phone only: the AI tools pinned to the bottom once their card has scrolled
+   off. Slides up into view and back down when the card returns. */
+export const MobileToolDock = styled.div`
+  display: none;
+
+  @media (max-width: 600px) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1050;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: #1e2235;
+    box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.18);
+    transform: translateY(${p => (p.$visible ? '0' : '100%')});
+    visibility: ${p => (p.$visible ? 'visible' : 'hidden')};
+    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s linear ${p => (p.$visible ? '0s' : '0.28s')};
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+
+    button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 2px;
+      background: none;
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+
+      &:active { background: rgba(255, 255, 255, 0.08); }
+      &:disabled { opacity: 0.5; }
+    }
+
+    .icon-wrap {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      svg { font-size: 17px; color: #fff; }
+    }
+  }
+`;
+
+export const mobileEmptySx = {
+  border: '1.5px dashed #d6d9e6',
+  borderRadius: '14px',
+  background: '#f7f8fc',
+  color: '#7b7f9e',
+  fontSize: '14px',
+  py: 4,
+  px: 2,
+  textAlign: 'center',
+} as const;
 
 // ── Color data (kept out of constants.ts) ──
 
