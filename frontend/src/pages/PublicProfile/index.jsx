@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import PublicProfileMobile from './PublicProfileMobile';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Box,
@@ -22,6 +23,7 @@ import {
   SpeedDial,
   SpeedDialAction,
   SpeedDialIcon,
+  useMediaQuery,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -628,6 +630,8 @@ const PublicProfile = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  // Phones get their own layout (PublicProfileMobile); desktop is unchanged.
+  const isMobile = useMediaQuery('(max-width:768px)');
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -900,8 +904,7 @@ const PublicProfile = () => {
   })();
   const yearsLabel = `${yearsOfExperience}${hasOngoingRole ? '+' : ''}`;
 
-  return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: { xs: '80px', md: 0 } }}>
+  const seo = (
       <SEO
         title={`${fullName}${headline ? ` — ${headline}` : ''}`}
         description={(bio || `${fullName}'s professional profile on ProfilleAI.`).replace(/<[^>]+>/g, '').slice(0, 200)}
@@ -921,6 +924,67 @@ const PublicProfile = () => {
           url: `https://www.profilleai.com/profile/${id}`,
         }}
       />
+  );
+  const copiedSnackbar = (
+    <>
+      {/* Copy Link Success Snackbar */}
+      <Snackbar
+        open={showCopiedSnackbar}
+        autoHideDuration={3000}
+        onClose={() => setShowCopiedSnackbar(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ mb: { xs: 8, md: 0 } }}
+      >
+        <Alert 
+          onClose={() => setShowCopiedSnackbar(false)} 
+          severity="success"
+          icon={<CheckCircleIcon />}
+          sx={{ borderRadius: 3, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
+        >
+          Profile link copied to clipboard!
+        </Alert>
+      </Snackbar>
+    </>
+  );
+
+  const ownerId = profile.userId || profile.user?.id;
+  if (isMobile) {
+    return (
+      <>
+        {seo}
+        <PublicProfileMobile
+          profileId={id}
+          fullName={fullName}
+          headline={headline}
+          location={location}
+          availability={availability}
+          profileImage={profileImage}
+          bio={bio}
+          experience={experience}
+          education={education}
+          projects={projects}
+          skills={skills}
+          yearsOfExperience={yearsOfExperience}
+          yearsLabel={yearsLabel}
+          email={email}
+          phone={phone}
+          socialLinks={socialLinks}
+          portfolioUrl={portfolioUrl}
+          isOwner={!!currentUser?.id && !!ownerId && String(currentUser.id) === String(ownerId)}
+          isSignedIn={!!currentUser}
+          isRecruiter={currentUser?.role === 'recruiter'}
+          onCopyLink={handleCopyLink}
+          onShare={handleShare}
+          navigate={navigate}
+        />
+        {copiedSnackbar}
+      </>
+    );
+  }
+
+  return (
+    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: { xs: '80px', md: 0 } }}>
+      {seo}
       {/* Sticky Header - shows on scroll */}
       <Fade in={showStickyHeader}>
         <Box
@@ -1913,23 +1977,7 @@ const PublicProfile = () => {
         )}
       </SpeedDial>
 
-      {/* Copy Link Success Snackbar */}
-      <Snackbar
-        open={showCopiedSnackbar}
-        autoHideDuration={3000}
-        onClose={() => setShowCopiedSnackbar(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        sx={{ mb: { xs: 8, md: 0 } }}
-      >
-        <Alert 
-          onClose={() => setShowCopiedSnackbar(false)} 
-          severity="success"
-          icon={<CheckCircleIcon />}
-          sx={{ borderRadius: 3, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
-        >
-          Profile link copied to clipboard!
-        </Alert>
-      </Snackbar>
+      {copiedSnackbar}
 
       {/* Sticky Bottom Bar - Mobile only */}
       <Box

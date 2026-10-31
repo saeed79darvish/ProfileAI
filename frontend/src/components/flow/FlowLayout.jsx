@@ -245,12 +245,13 @@ export const ErrorText = styled.p`
 
 /**
  * @param {Object} props
- * @param {string[]} props.steps - step names for the bar
- * @param {number} props.stepIndex - the current step; earlier ones show done
+ * @param {string[]} [props.steps] - step names for the bar
+ * @param {number} [props.stepIndex] - the current step; earlier ones show done
+ * @param {React.ReactNode} [props.headerExtra] - in place of the step bar
  * @param {boolean} [props.busy] - blocks closing while work is in flight
  * @param {React.ReactNode} [props.footer]
  */
-export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, busy = false, footer, bodyRef, children }) {
+export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, headerExtra, busy = false, footer, bodyRef, children }) {
   const isMobile = useMediaQuery('(max-width:768px)');
   return (
     <Dialog
@@ -272,11 +273,13 @@ export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, b
               <CloseIcon />
             </button>
           </div>
-          <Steps aria-label="Progress">
-            {steps.map((name, i) => (
-              <li key={name} data-done={i <= stepIndex} aria-current={i === stepIndex ? 'step' : undefined}>{name}</li>
-            ))}
-          </Steps>
+          {steps ? (
+            <Steps aria-label="Progress">
+              {steps.map((name, i) => (
+                <li key={name} data-done={i <= stepIndex} aria-current={i === stepIndex ? 'step' : undefined}>{name}</li>
+              ))}
+            </Steps>
+          ) : headerExtra}
         </Header>
         <Body ref={bodyRef}>{children}</Body>
         {footer && <Footer>{footer}</Footer>}

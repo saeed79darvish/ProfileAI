@@ -39,6 +39,7 @@ const {
   findSectionIssues, buildAnalysisPrompt, mergeAnalysis, olderRoleIndexes,
 } = require('./resume/enhanceAnalysis');
 const { buildReviewChanges } = require('./resume/enhanceReview');
+const { reviewFacts, buildRecruiterReviewPrompt, normalizeReview } = require('./resume/recruiterReview');
 const { totalExperienceYears } = require('./resume/resumeHygiene');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
@@ -1795,6 +1796,37 @@ Return ONLY JSON: {"items":[{"id":"...","text":"..."}]}`,
       const ok = !!text && !invented && text.length <= 400;
       return { id: it.id, text: ok ? text : it.bullet, ok };
     });
+  }
+
+  /**
+   * Recruiter Review: verdict, strengths and fix-linked tips. The model call
+   * is the recruiter's read; the facts come from code and survive a failed
+   * call, so the review never comes back empty. `usedModel` tells the route
+   * whether to charge.
+   */
+  async recruiterReview(profileData, { hasPhoto = false, target = '', profileKey = '' } = {}) {
+    const aiProfile = toAIProfile(profileData);
+    const facts = reviewFacts(aiProfile, { hasPhoto, target });
+    let model = null;
+    try {
+      const config = buildRecruiterReviewPrompt(aiProfile, facts, { target });
+      // The default model, not Haiku: a recruiter's judgement is the product.
+      const raw = await callAI({
+        system: config.system,
+        prompt: config.prompt,
+        max_tokens: config.max_tokens,
+        temperature: config.temperature,
+        retries: 1,
+      });
+      try {
+        model = parseAIJson(raw);
+      } catch (_) {
+        model = JSON.parse(repairTruncatedJSON(raw) || 'null');
+      }
+    } catch (error) {
+      console.warn('[ProfilleAI] Recruiter review model call failed; facts only:', error.message);
+    }
+    return { review: normalizeReview(model, facts, { profileKey }), usedModel: !!(model && model.verdict) };
   }
 
   /**

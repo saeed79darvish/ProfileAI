@@ -208,7 +208,7 @@ const FEATURE_NAMES = {
   cover_letter: 'AI Cover Letter',
   post_enhance: 'Post Enhancement',
   job_enhance: 'Job Description Enhancement',
-  career_suggestions: 'Career Suggestions',
+  career_suggestions: 'Recruiter Review',
   interview_prep: 'Interview Preparation',
   job_match: 'Job Match Analysis',
   analyze_gaps: 'Skill Gap Analysis',
@@ -231,7 +231,7 @@ const ESTIMATED_COSTS = {
   cover_letter: 0.005,       // Haiku  — ~73% cheaper than Sonnet ($0.018)
   post_enhance: 0.004,       // Haiku  — ~73% cheaper than Sonnet ($0.015)
   job_enhance: 0.007,        // Haiku  — recruiter-only
-  career_suggestions: 0.006, // Haiku  — ~70% cheaper than Sonnet ($0.020)
+  career_suggestions: 0.020, // Sonnet — Recruiter Review; a recruiter's judgement is the product. Cached per profile version
   interview_prep: 0.145,     // Sonnet — 8k token response, Pro+ only
   job_match: 0.036,          // Sonnet 5.5 — measured: ~6k in / ~2.4k out per posting
   analyze_gaps: 0.015,       // Sonnet — complex analysis
@@ -269,7 +269,6 @@ const FEATURE_MODELS = {
   cover_letter: 'haiku',
   profile_coach: 'haiku',
   post_enhance: 'haiku',
-  career_suggestions: 'haiku',
   job_enhance: 'haiku',
   profile_enhance_assist: 'haiku',
 };

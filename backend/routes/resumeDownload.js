@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const { strictLimiter } = require('../middleware/rateLimiters');
+const { isUuid } = require('../utils/slug');
 const { Profile, User, TailoredProfile } = require('../models');
 const { generatePDF, generateWord, getTemplates } = require('../services/resumeGeneratorService');
 
@@ -126,6 +128,39 @@ router.post('/generate', auth, async (req, res) => {
   } catch (error) {
     console.error('Error generating resume:', error);
     res.status(500).json({ message: 'Failed to generate resume', error: error.message });
+  }
+});
+
+// @route   GET /api/resume/public/:id
+// @desc    The PDF of a PUBLIC profile, for the "Resume PDF" button recruiters
+//          see on it. :id is a user id or slug, the same as GET /api/profiles/:id.
+//          Only what that page already shows goes in, and a private profile
+//          is a 404. No AI involved; the strict limiter keeps the rendering cost
+//          bounded per visitor.
+// @access  Public
+router.get('/public/:id', strictLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = isUuid(id)
+      ? await User.findByPk(id)
+      : await User.findOne({ where: { slug: id } });
+    if (!user) return res.status(404).json({ message: 'Profile not found or not public' });
+    const profile = await Profile.findOne({
+      where: { userId: user.id, isPublic: true },
+      order: [['createdAt', 'DESC']],
+    });
+    if (!profile) return res.status(404).json({ message: 'Profile not found or not public' });
+
+    const buffer = await generatePDF(profile.toJSON(), user, undefined, undefined, undefined, undefined, exportOptions(user));
+    const filename = `${user.firstName}_${user.lastName}_Resume`.replace(/[^A-Za-z0-9_-]+/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    // inline: on a phone the PDF opens in the viewer instead of a silent download.
+    res.setHeader('Content-Disposition', `inline; filename="${filename}.pdf"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error) {
+    console.error('Error generating public resume:', error);
+    res.status(500).json({ message: 'Failed to generate resume' });
   }
 });
 

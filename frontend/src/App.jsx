@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box, useMediaQuery } from '@mui/material';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -124,6 +124,13 @@ const AUTH_ROUTES = ['/login', '/register', '/signup', '/check-email', '/onboard
 // anyone who already has a profile. /profile/edit keeps the normal Navbar.
 const FOCUSED_HEADER_ROUTES = ['/profile/create-form'];
 
+// /profile/:id is the public profile; these are the app's own /profile pages.
+const OWN_PROFILE_PATHS = ['about-you', 'create', 'create-form', 'edit', 'preferences'];
+const isPublicProfilePath = (pathname) => {
+  const m = /^\/profile\/([^/]+)\/?$/.exec(pathname);
+  return !!m && !OWN_PROFILE_PATHS.includes(m[1]);
+};
+
 // OAuth popup callbacks render in a bare relay window — site chrome there is
 // noise the user sees for the third of a second before it closes itself.
 const OAUTH_CALLBACK_ROUTE = /^\/auth\/[^/]+\/callback\/?$/;
@@ -218,7 +225,11 @@ function AppContent() {
   const isOverlayMode =
     location.pathname === '/resume/download' &&
     new URLSearchParams(location.search).get('overlay') === '1';
+  // On a phone the public profile has its own header (logo plus Create yours
+  // free / Back to editor); the app nav means nothing to a recruiter there.
+  const isPhone = useMediaQuery('(max-width:768px)');
   const hideNavbar =
+    (isPhone && isPublicProfilePath(location.pathname)) ||
     AUTH_ROUTES.includes(location.pathname) ||
     FOCUSED_HEADER_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||

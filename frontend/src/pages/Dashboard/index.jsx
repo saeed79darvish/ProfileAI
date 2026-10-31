@@ -90,6 +90,7 @@ import EnhanceFlow from '@/components/EnhanceFlow';
 import { applyEnhanceChanges } from '@/utils/enhanceApply';
 import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
 import TailorFlow from '@/components/TailorFlow';
+import RecruiterReview from '@/components/RecruiterReview';
 import LoadFailure from '@/components/common/LoadFailure';
 import { extensionConfig } from '@/config/extension';
 
@@ -426,10 +427,15 @@ const Dashboard = () => {
   const mountedRef = useMountedRef();
   const ENHANCE_TASK_ID = 'enhance-profile';
 
-  // In-place Tips/Feedback state
+  // Recruiter Review (components/RecruiterReview.jsx)
   const [gettingTips, setGettingTips] = useState(false);
-  const [tips, setTips] = useState(null);
-  const [showTipsDialog, setShowTipsDialog] = useState(false);
+  const [review, setReview] = useState(null);
+  const [reviewError, setReviewError] = useState('');
+  const [showReview, setShowReview] = useState(false);
+  const [reviewReady, setReviewReady] = useState(false);
+  const REVIEW_TASK_ID = 'recruiter-review';
+  const showReviewRef = useRef(false);
+  showReviewRef.current = showReview;
 
   // Chrome extension promo dismissal (mobile only — extension is desktop-only)
   const [extPromoDismissed, setExtPromoDismissed] = useState(
@@ -1115,23 +1121,57 @@ const Dashboard = () => {
   };
 
   // In-place AI Recruiter Feedback
+  // Runs as a background task so "Hide and keep working" doesn't lose it.
+  // Reopening an unchanged profile is a server cache hit and costs nothing.
   const handleGetTipsInPlace = async () => {
+    setReviewReady(false);
+    setReviewError('');
+    setReview(null);
+    setShowReview(true);
     setGettingTips(true);
     try {
-      const response = await profileAPI.getEnhancementSuggestions(profileData);
-      if (response.data.success) {
-        setTips(response.data.suggestions);
-        setShowTipsDialog(true);
-      } else {
-        setSnackbar({ open: true, message: 'Could not get feedback' });
-      }
+      const data = await startTask({
+        id: REVIEW_TASK_ID,
+        label: 'Recruiter Review',
+        doneLabel: 'Your Recruiter Review is ready',
+        openPath: '/profile',
+        ownerAlive: () => mountedRef.current,
+        run: async () => (await profileAPI.recruiterReview()).data,
+      });
+      if (!mountedRef.current) return;
+      dismissTask(REVIEW_TASK_ID);
+      setReview(data.review);
+      loadAiUsage();
+      // Hidden while it ran: tell them instead of popping it open.
+      if (!showReviewRef.current) setReviewReady(true);
     } catch (err) {
       const limit = parseLimitError(err);
-      if (limit) { setLimitInfo(limit); return; }
-      setSnackbar({ open: true, message: extractApiError(err, 'Failed to get feedback. Please try again.') });
+      if (limit) { setShowReview(false); setLimitInfo(limit); return; }
+      setReviewError(extractApiError(err, 'Could not review your profile. Please try again.'));
     } finally {
       setGettingTips(false);
     }
+  };
+
+  // A review that finished while the user was on another page.
+  useEffect(() => {
+    const task = bgTasks[REVIEW_TASK_ID];
+    if (!task || task.status !== 'done' || !task.needsAttention) return;
+    dismissTask(REVIEW_TASK_ID);
+    if (task.result?.review) { setReview(task.result.review); setShowReview(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgTasks]);
+
+  // Each tip's button opens the screen that fixes it.
+  const handleReviewAction = (tip) => {
+    const editSection = {
+      add_project: 'projects', clean_titles: 'experience', add_links: 'basic', add_photo: 'basic',
+      add_location: 'basic', edit_education: 'education', trim_skills: 'skills',
+    }[tip.fix];
+    setShowReview(false);
+    if (tip.fix === 'set_target_role') navigate('/profile/about-you');
+    else if (editSection) handleCompletionItemClick(editSection);
+    else setShowEnhancePrompt(true);
   };
 
   // In-place Tailor: Step 1 – Analyze gaps
@@ -1336,9 +1376,9 @@ const Dashboard = () => {
       onClick: () => setShowTailorJobInput(true),
     },
     {
-      key: 'tips', label: 'Career Tips', Icon: TipsIcon,
+      key: 'tips', label: 'Recruiter Review', dockLabel: 'Review', Icon: TipsIcon,
       gradient: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-      description: 'Get AI feedback on your profile. · 1 credit',
+      description: 'See your profile the way a recruiter does. · 1 credit',
       usageKey: 'career_suggestions',
       onClick: handleGetTipsInPlace, disabled: gettingTips,
     },
@@ -2323,7 +2363,7 @@ const Dashboard = () => {
           {aiTools.map((tool) => (
             <button key={tool.key} type="button" onClick={tool.onClick} disabled={tool.disabled}>
               <span className="icon-wrap" style={{ background: tool.gradient }}><tool.Icon /></span>
-              {tool.label}
+              {tool.dockLabel || tool.label}
             </button>
           ))}
         </MobileToolDock>
@@ -2965,142 +3005,25 @@ const Dashboard = () => {
         onLimit={setLimitInfo}
       />
 
-      {/* Tips Processing Modal */}
-      <ProcessingModal
-        open={gettingTips}
-        type="tips"
-        title="Analyzing Profile"
-        subtitle="AI recruiter is reviewing your profile..."
+      {/* Recruiter Review */}
+      <RecruiterReview
+        open={showReview}
+        onClose={() => setShowReview(false)}
+        loading={gettingTips}
+        error={reviewError}
+        review={review}
+        onRetry={handleGetTipsInPlace}
+        onHide={() => setShowReview(false)}
+        onAction={handleReviewAction}
+        onEnhance={() => { setShowReview(false); setShowEnhancePrompt(true); }}
       />
-
-      {/* Career Tips Dialog */}
-      <Dialog
-        open={showTipsDialog}
-        onClose={() => setShowTipsDialog(false)}
-        maxWidth="sm"
-        fullWidth
-        scroll="paper"
-        PaperProps={{ sx: { borderRadius: 3, background: '#fff', maxHeight: '85vh' } }}
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
-          <Box sx={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <TipsIcon sx={{ color: '#fff', fontSize: 22 }} />
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a2e' }}>Career Tips</Typography>
-            <Typography variant="body2" sx={{ color: '#666', lineHeight: 1.3 }}>Personalized suggestions to improve your profile</Typography>
-          </Box>
-          <IconButton onClick={() => setShowTipsDialog(false)} size="small" sx={{ color: '#999' }}><CloseIcon fontSize="small" /></IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ pt: 2, pb: 2 }}>
-          {tips && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-              {/* Strengths to Highlight */}
-              {tips.strengthsToHighlight?.length > 0 && (
-                <Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                    <CheckCircleIcon sx={{ color: '#10b981', fontSize: 20 }} />
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#10b981' }}>Strengths</Typography>
-                  </Box>
-                  {tips.strengthsToHighlight.map((s, i) => (
-                    <Box key={i} sx={{ pl: 1, mb: 0.8, borderLeft: '3px solid #10b981' }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof s === 'string' ? s : s.text || s.title || JSON.stringify(s)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* Missing Elements */}
-              {tips.missingElements?.length > 0 && (
-                <Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                    <WarningIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#f59e0b' }}>Missing Elements</Typography>
-                  </Box>
-                  {tips.missingElements.map((m, i) => (
-                    <Box key={i} sx={{ pl: 1, mb: 0.8, borderLeft: '3px solid #f59e0b' }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof m === 'string' ? m : m.text || m.title || JSON.stringify(m)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* Summary Tips */}
-              {tips.summaryTips?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>Summary</Typography>
-                  {tips.summaryTips.map((t, i) => (
-                    <Box key={i} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof t === 'string' ? t : t.text || t.suggestion || JSON.stringify(t)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* Experience Tips */}
-              {tips.experienceTips?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>Experience</Typography>
-                  {tips.experienceTips.map((t, i) => (
-                    <Box key={i} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof t === 'string' ? t : t.text || t.suggestion || JSON.stringify(t)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* Skills Tips */}
-              {tips.skillsTips?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>Skills</Typography>
-                  {tips.skillsTips.map((t, i) => (
-                    <Box key={i} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof t === 'string' ? t : t.text || t.suggestion || JSON.stringify(t)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* Projects Tips */}
-              {tips.projectTips?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>Projects</Typography>
-                  {tips.projectTips.map((t, i) => (
-                    <Box key={i} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof t === 'string' ? t : t.text || t.suggestion || JSON.stringify(t)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-              {/* General Tips */}
-              {tips.generalTips?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>General Advice</Typography>
-                  {tips.generalTips.map((t, i) => (
-                    <Box key={i} sx={{ p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof t === 'string' ? t : t.text || t.suggestion || JSON.stringify(t)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setShowTipsDialog(false)} variant="contained" sx={{ borderRadius: 2, textTransform: 'none', background: 'linear-gradient(135deg, #667eea, #764ba2)', '&:hover': { background: 'linear-gradient(135deg, #5a6fd6, #6a3f96)' } }}>
-            Got it
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <Snackbar
+        open={reviewReady}
+        onClose={() => setReviewReady(false)}
+        message="Your Recruiter Review is ready"
+        action={<Button size="small" onClick={() => { setReviewReady(false); setShowReview(true); }}>Open</Button>}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       {/* Tailor for a Job: Paste job, Match, Save */}
       <TailorFlow

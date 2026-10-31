@@ -7,6 +7,9 @@ import { publishApiError } from './errorBus';
 // previous localhost:5001 fallback for BASE_URL produced broken URLs in
 // production (https://profilleai.com:5001) — use same-origin instead.
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+/** A public profile's resume as a PDF (opens in the browser's viewer). */
+export const publicResumeUrl = (profileId) => `${API_URL}/resume/public/${encodeURIComponent(profileId)}`;
 const BASE_URL = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
   : (typeof window !== 'undefined' ? window.location.origin : '');
@@ -410,6 +413,8 @@ export const profileAPI = {
   enhanceResumeData: (profileData, customPrompt, config, options) =>
     api.post('/profiles/enhance-resume', { profileData, customPrompt, options }, config),
   getEnhancementSuggestions: (profileData, config) => api.post('/profiles/enhancement-suggestions', { profileData }, config),
+  // The stored profile as a recruiter reads it: verdict, strengths, fix-linked tips.
+  recruiterReview: (config) => api.post('/profiles/recruiter-review', {}, config),
   // Enhance with AI: per-section findings first, then figures typed in Review.
   analyzeForEnhancement: (profileData, config) => api.post('/profiles/enhance-analysis', { profileData }, config),
   addEnhanceResults: (items, config) => api.post('/profiles/enhance-resume/results', { items }, config),

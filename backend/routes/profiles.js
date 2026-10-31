@@ -1263,6 +1263,69 @@ router.post('/enhance-resume/results', authMiddleware, aiRateLimiter('profile_en
   }
 });
 
+// @route   POST /api/profiles/recruiter-review
+// @desc    The profile as a recruiter reads it: verdict, strengths, and tips
+//          that each open the screen that fixes them. Reads the stored profile.
+// @access  Private. career_suggestions allowance, spent only on a cache miss
+//          that reached the model.
+const RECRUITER_REVIEW_KIND = 'recruiter_review_v1';
+
+async function recruiterReviewInputs(req) {
+  const { CareerContext } = require('../models');
+  const [row, context] = await Promise.all([
+    Profile.findOne({ where: { userId: req.user.id }, attributes: ['profilePicture'] }),
+    CareerContext.findOne({ where: { userId: req.user.id }, attributes: ['target'] }).catch(() => null),
+  ]);
+  const user = await User.findByPk(req.user.id, { attributes: ['profilePictureUrl'] });
+  const hasPhoto = !!((row && row.profilePicture) || (user && user.profilePictureUrl));
+  const target = (context && context.target) || '';
+  const { profileData } = req.candidate;
+  // Everything the review reads that the cache hash does not already cover.
+  const extra = `review:${JSON.stringify({
+    hasPhoto, target, education: profileData.education || [], projects: profileData.projects || [],
+    links: [profileData.linkedinUrl, profileData.githubUrl, profileData.portfolioUrl, profileData.location],
+  })}`;
+  return { hasPhoto, target, extra };
+}
+
+router.post('/recruiter-review', authMiddleware, withServerProfile, async (req, res, next) => {
+  try {
+    req.reviewInputs = await recruiterReviewInputs(req);
+    const cached = await getCachedAnalysis({
+      kind: RECRUITER_REVIEW_KIND,
+      userId: req.user.id,
+      profileData: req.candidate.profileData,
+      jobDescription: req.reviewInputs.extra,
+    });
+    if (cached) return res.json({ success: true, cached: true, ...cached });
+    return next();
+  } catch (error) {
+    console.error('[recruiter-review] could not prepare:', error.message);
+    return res.status(500).json({ error: 'Could not review your profile' });
+  }
+}, aiRateLimiter('career_suggestions'), async (req, res) => {
+  try {
+    const { profileData } = req.candidate;
+    const { hasPhoto, target, extra } = req.reviewInputs;
+    const result = await resumeParserService.recruiterReview(profileData, { hasPhoto, target, profileKey: req.user.id });
+    if (result.usedModel) {
+      await recordAIUsage(req.user.id, 'career_suggestions');
+      await setCachedAnalysis({
+        kind: RECRUITER_REVIEW_KIND,
+        userId: req.user.id,
+        profileData,
+        jobDescription: extra,
+        result: { review: result.review },
+        ttlDays: 7,
+      });
+    }
+    res.json({ success: true, review: result.review, partial: !result.usedModel });
+  } catch (error) {
+    console.error('Error in recruiter review:', error);
+    res.status(500).json({ error: 'Could not review your profile' });
+  }
+});
+
 // @route   POST /api/profiles/enhancement-suggestions
 // @desc    Get AI-powered suggestions for profile improvement
 // @access  Private
