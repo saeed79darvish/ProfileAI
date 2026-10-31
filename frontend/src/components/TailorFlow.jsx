@@ -349,7 +349,24 @@ export default function TailorFlow({ open, onClose, profile, onSaved, onLimit, c
         />
         <div className="bar">
           <span>{Math.min(jobText.trim().length, 99999)}/{MIN_CHARS} characters minimum</span>
-          {canPaste && <button type="button" className="paste" onClick={paste}>Paste</button>}
+          {/* Empty: Paste drops a copied posting in with one tap. Typing:
+              Done closes the keyboard so Analyze match comes back. */}
+          {!jobText.trim() && canPaste && (
+            <button type="button" className="paste" onClick={paste}>Paste</button>
+          )}
+          {jobText.trim() && focused && (
+            <button
+              type="button"
+              className="paste"
+              // Keep the focus until the tap lands, or the blur would swap the
+              // button out from under the finger.
+              onPointerDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => textRef.current?.blur()}
+            >
+              Done
+            </button>
+          )}
         </div>
       </PasteBox>
       <p>Include responsibilities and requirements. Your profile stays the same; we create a separate tailored copy.</p>
