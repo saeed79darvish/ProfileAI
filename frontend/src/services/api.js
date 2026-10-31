@@ -433,7 +433,10 @@ export const profileAPI = {
   jobMatch: ({ externalJobId, jobDescription, jobTitle }) =>
     api.post('/profiles/job-match', { externalJobId, jobDescription, jobTitle }),
   // Stored scores only, for a page of jobs. Spends nothing.
-  jobMatchCached: (externalJobIds) => api.post('/profiles/job-match/cached', { externalJobIds })
+  jobMatchCached: (externalJobIds) => api.post('/profiles/job-match/cached', { externalJobIds }),
+  // The match score with confirmed requirements counted as covered; no AI, free.
+  jobMatchRescore: ({ requirements, components, confirmed }) =>
+    api.post('/profiles/job-match/rescore', { requirements, components, confirmed })
 };
 
 // Smart Match API

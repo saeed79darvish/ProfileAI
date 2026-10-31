@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyEnhanceChanges, replaceBullet } from './enhanceApply.js';
+import { applyEnhanceChanges, replaceBullet, removeBullet } from './enhanceApply.js';
 
 const PROFILE = {
   title: 'Staff Front-end UI Architect, Full-Stack',
@@ -34,4 +34,8 @@ test('only kept changes land, field by field', () => {
   assert.deepEqual(out.education[0], { school: 'SJSU', degree: 'B.S.', fieldOfStudy: 'Computer Science', startDate: '2009', endDate: '2013' });
   // The input is untouched.
   assert.equal(PROFILE.experience[0].description, '• First bullet.\n\n• Second bullet.\n• Third bullet.');
+});
+
+test('removeBullet drops one bullet by the same count', () => {
+  assert.equal(removeBullet('• A.\n\n• B.\n• C.', 1), '• A.\n\n• C.');
 });

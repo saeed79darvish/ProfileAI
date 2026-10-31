@@ -89,7 +89,7 @@ import ProcessingModal from '@/components/ProcessingModal';
 import EnhanceFlow from '@/components/EnhanceFlow';
 import { applyEnhanceChanges } from '@/utils/enhanceApply';
 import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
-import GapReviewDialog from '@/components/GapReviewDialog';
+import TailorFlow from '@/components/TailorFlow';
 import LoadFailure from '@/components/common/LoadFailure';
 import { extensionConfig } from '@/config/extension';
 
@@ -563,15 +563,6 @@ const Dashboard = () => {
 
   // In-place Tailor state
   const [showTailorJobInput, setShowTailorJobInput] = useState(false);
-  const [tailorJobDesc, setTailorJobDesc] = useState('');
-  const [analyzingGaps, setAnalyzingGaps] = useState(false);
-  const [detectedGaps, setDetectedGaps] = useState([]);
-  const [satisfiedAlts, setSatisfiedAlts] = useState([]);
-  const [showGapReview, setShowGapReview] = useState(false);
-  const [tailoring, setTailoring] = useState(false);
-  const [tailorResult, setTailorResult] = useState(null);
-  const [showTailorResultDialog, setShowTailorResultDialog] = useState(false);
-  const [savingTailored, setSavingTailored] = useState(false);
 
   // Extension onboarding state
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -1144,102 +1135,13 @@ const Dashboard = () => {
   };
 
   // In-place Tailor: Step 1 – Analyze gaps
-  const handleAnalyzeGaps = async () => {
-    if (!tailorJobDesc.trim() || tailorJobDesc.trim().length < 50) {
-      setSnackbar({ open: true, message: 'Please provide a detailed job description (at least 50 characters)' });
-      return;
-    }
+  // Tailor for a Job (components/TailorFlow.jsx) saves the tailored copy
+  // itself; the page only refreshes the list.
+  const handleTailorSaved = (jobTitle) => {
     setShowTailorJobInput(false);
-    setAnalyzingGaps(true);
-    try {
-      const response = await profileAPI.analyzeGaps({ profileData, jobDescription: tailorJobDesc });
-      if (response.data.success) {
-        setDetectedGaps(response.data.gaps || []);
-        setSatisfiedAlts(response.data.satisfiedAlternatives || []);
-        setShowGapReview(true);
-      } else {
-        setSnackbar({ open: true, message: response.data.error || 'Failed to analyze gaps' });
-      }
-    } catch (err) {
-      const limit = parseLimitError(err);
-      if (limit) { setLimitInfo(limit); return; }
-      setSnackbar({ open: true, message: extractApiError(err, 'Gap analysis failed. Please try again.') });
-    } finally {
-      setAnalyzingGaps(false);
-    }
-  };
-
-  // In-place Tailor: Step 2 – Tailor profile
-  const handleGapReviewContinue = async (gapSelections) => {
-    setShowGapReview(false);
-    setTailoring(true);
-    try {
-      const response = await profileAPI.tailorProfileForJob({
-        profileData,
-        jobDescription: tailorJobDesc,
-        gapSelections
-      });
-      if (response.data.success) {
-        setTailorResult(response.data.data);
-        setShowTailorResultDialog(true);
-      } else {
-        setSnackbar({ open: true, message: response.data.error || 'Tailoring failed' });
-      }
-    } catch (err) {
-      const limit = parseLimitError(err);
-      if (limit) { setLimitInfo(limit); return; }
-      setSnackbar({ open: true, message: extractApiError(err, 'Tailoring failed. Please try again.') });
-    } finally {
-      setTailoring(false);
-    }
-  };
-
-  // In-place Tailor: Step 3 – Save tailored profile
-  const handleSaveTailoredProfile = async () => {
-    if (!tailorResult) return;
-    setSavingTailored(true);
-    try {
-      const jobTitle = tailorResult.jobTitle || tailorResult.title || 'Untitled Position';
-      const companyName = tailorResult.company || '';
-      const matchScore = tailorResult.matchScore || null;
-
-      const tailoredData = {
-        title: tailorResult.title || profile?.title || '',
-        summary: tailorResult.summary || profile?.summary || '',
-        skills: tailorResult.skills || Object.values(profile?.skills || {}).flat(),
-        experience: tailorResult.experience || profile?.experience || [],
-        education: profile?.education || [],
-        projects: tailorResult.projects || profile?.projects || [],
-        location: profile?.location || '',
-        phone: profile?.phone || '',
-        linkedinUrl: profile?.linkedinUrl || '',
-        githubUrl: profile?.githubUrl || '',
-        matchAnalysis: tailorResult.matchAnalysis || null
-      };
-
-      await tailoredProfileAPI.save({
-        jobTitle,
-        companyName,
-        tailoredData,
-        matchScore,
-        skillGaps: tailorResult._skillGaps || detectedGaps || [],
-        learningPlan: tailorResult._learningPlan || null
-      });
-
-      setShowTailorResultDialog(false);
-      setTailorResult(null);
-      setTailorJobDesc('');
-      setDetectedGaps([]);
-      setSatisfiedAlts([]);
-      // Reload tailored profiles list
-      loadTailoredProfiles();
-      loadAiUsage();
-      setSnackbar({ open: true, message: `Tailored version "${jobTitle}" saved successfully!` });
-    } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.error || 'Failed to save tailored version' });
-    } finally {
-      setSavingTailored(false);
-    }
+    loadTailoredProfiles();
+    loadAiUsage();
+    setSnackbar({ open: true, message: `Tailored copy "${jobTitle}" saved. Your main profile is unchanged.` });
   };
   
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1431,7 +1333,7 @@ const Dashboard = () => {
       gradient: 'linear-gradient(135deg, #3b82f6, #2563eb)',
       description: 'Customize for specific job descriptions. · 1 credit',
       usageKey: 'tailor_profile',
-      onClick: () => setShowTailorJobInput(true), disabled: analyzingGaps || tailoring,
+      onClick: () => setShowTailorJobInput(true),
     },
     {
       key: 'tips', label: 'Career Tips', Icon: TipsIcon,
@@ -3200,165 +3102,15 @@ const Dashboard = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Tailor: Job Description Input Dialog */}
-      <Dialog
+      {/* Tailor for a Job: Paste job, Match, Save */}
+      <TailorFlow
         open={showTailorJobInput}
         onClose={() => setShowTailorJobInput(false)}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{ sx: { borderRadius: 3, background: '#fff' } }}
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
-          <Box sx={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <TailorIcon sx={{ color: '#fff', fontSize: 22 }} />
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a2e' }}>Tailor for a Job</Typography>
-            <Typography variant="body2" sx={{ color: '#666', lineHeight: 1.3 }}>Paste the job description to create a tailored version</Typography>
-          </Box>
-          <IconButton onClick={() => setShowTailorJobInput(false)} size="small" sx={{ color: '#999' }}><CloseIcon fontSize="small" /></IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            multiline
-            minRows={6}
-            maxRows={14}
-            placeholder="Paste the full job description here (minimum 50 characters)..."
-            value={tailorJobDesc}
-            onChange={(e) => setTailorJobDesc(e.target.value)}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
-                fontSize: 14,
-                '&:hover fieldset': { borderColor: '#667eea' },
-                '&.Mui-focused fieldset': { borderColor: '#667eea' },
-              }
-            }}
-          />
-          <Typography variant="caption" sx={{ color: tailorJobDesc.trim().length >= 50 ? '#10b981' : '#999', mt: 1, display: 'block' }}>
-            {tailorJobDesc.trim().length}/50 characters minimum
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-          <Button onClick={() => setShowTailorJobInput(false)} sx={{ borderRadius: 2, textTransform: 'none', color: '#666' }}>Cancel</Button>
-          <Button
-            onClick={handleAnalyzeGaps}
-            variant="contained"
-            disabled={tailorJobDesc.trim().length < 50}
-            sx={{ borderRadius: 2, textTransform: 'none', background: 'linear-gradient(135deg, #667eea, #764ba2)', '&:hover': { background: 'linear-gradient(135deg, #5a6fd6, #6a3f96)' }, '&.Mui-disabled': { background: '#e0e0e0' } }}
-          >
-            Analyze Gaps
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Tailor: Gap Analysis Processing Modal */}
-      <ProcessingModal
-        open={analyzingGaps}
-        type="gaps"
-        title="Analyzing Gaps"
-        subtitle="AI is comparing your profile against the job requirements..."
+        profile={profile}
+        onSaved={handleTailorSaved}
+        onLimit={setLimitInfo}
+        creditLabel={aiUsage?.usage?.tailor_profile && computeBindingFromPayload(aiUsage.usage.tailor_profile).isUnlimited ? null : '1 credit'}
       />
-
-      {/* Tailor: Gap Review Dialog */}
-      <GapReviewDialog
-        open={showGapReview}
-        onClose={() => setShowGapReview(false)}
-        gaps={detectedGaps}
-        satisfiedAlternatives={satisfiedAlts}
-        onContinue={handleGapReviewContinue}
-        loading={tailoring}
-      />
-
-      {/* Tailor: Processing Modal */}
-      <ProcessingModal
-        open={tailoring}
-        type="tailor"
-        title="Tailoring Profile"
-        subtitle="AI is customizing your profile for this job..."
-      />
-
-      {/* Tailor: Result & Save Dialog */}
-      <Dialog
-        open={showTailorResultDialog}
-        onClose={() => !savingTailored && setShowTailorResultDialog(false)}
-        maxWidth="md"
-        fullWidth
-        scroll="paper"
-        PaperProps={{ sx: { borderRadius: 3, background: '#fff', maxHeight: '85vh' } }}
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
-          <Box sx={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <CheckCircleIcon sx={{ color: '#fff', fontSize: 22 }} />
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1a1a2e' }}>Tailored Profile Ready</Typography>
-            <Typography variant="body2" sx={{ color: '#666', lineHeight: 1.3 }}>Review the changes and save as a separate tailored version</Typography>
-          </Box>
-          <IconButton onClick={() => !savingTailored && setShowTailorResultDialog(false)} size="small" sx={{ color: '#999' }}><CloseIcon fontSize="small" /></IconButton>
-        </DialogTitle>
-        <DialogContent dividers sx={{ pt: 2, pb: 2 }}>
-          {tailorResult && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-              {/* Match Score */}
-              {tailorResult.matchScore != null && (
-                <Box sx={{ textAlign: 'center', py: 2, px: 3, borderRadius: 2, bgcolor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                  <Typography variant="h3" sx={{ fontWeight: 700, color: tailorResult.matchScore >= 80 ? '#10b981' : tailorResult.matchScore >= 60 ? '#f59e0b' : '#ef4444' }}>
-                    {tailorResult.matchScore}%
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#666' }}>Match Score</Typography>
-                </Box>
-              )}
-              {/* Title */}
-              {tailorResult.title && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 0.5 }}>Title</Typography>
-                  <Typography variant="body2" sx={{ color: '#374151', p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb' }}>{tailorResult.title}</Typography>
-                </Box>
-              )}
-              {/* Summary */}
-              {tailorResult.summary && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 0.5 }}>Summary</Typography>
-                  <Typography variant="body2" sx={{ color: '#374151', p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', lineHeight: 1.7 }}>{tailorResult.summary}</Typography>
-                </Box>
-              )}
-              {/* Match Analysis */}
-              {tailorResult.matchAnalysis && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 0.5 }}>Match Analysis</Typography>
-                  <Typography variant="body2" sx={{ color: '#374151', p: 1.5, borderRadius: 2, bgcolor: '#f9fafb', border: '1px solid #e5e7eb', lineHeight: 1.7 }}>{tailorResult.matchAnalysis}</Typography>
-                </Box>
-              )}
-              {/* Changelog */}
-              {tailorResult.changelog?.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1a1a2e', mb: 1 }}>Changes Made</Typography>
-                  {tailorResult.changelog.map((change, i) => (
-                    <Box key={i} sx={{ pl: 1, mb: 0.8, borderLeft: '3px solid #667eea' }}>
-                      <Typography variant="body2" sx={{ color: '#374151', lineHeight: 1.6 }}>
-                        {typeof change === 'string' ? change : change.description || change.text || JSON.stringify(change)}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
-          <Button onClick={() => setShowTailorResultDialog(false)} disabled={savingTailored} sx={{ borderRadius: 2, textTransform: 'none', color: '#666' }}>Discard</Button>
-          <Button
-            onClick={handleSaveTailoredProfile}
-            variant="contained"
-            disabled={savingTailored}
-            sx={{ borderRadius: 2, textTransform: 'none', background: 'linear-gradient(135deg, #667eea, #764ba2)', '&:hover': { background: 'linear-gradient(135deg, #5a6fd6, #6a3f96)' } }}
-          >
-            {savingTailored ? 'Saving...' : 'Save Tailored Version'}
-          </Button>
-        </DialogActions>
-      </Dialog>
       {/* Only over a profile: someone without one is on their way to build it. */}
       <OnboardingMatches open={!!matchesFor && !!profile} prefs={matchesFor || undefined} onClose={closeMatches} />
     </PageContainer>

@@ -24,6 +24,21 @@ export function replaceBullet(description, index, text) {
   return description;
 }
 
+/** Drop the index-th bullet (same counting as replaceBullet). */
+export function removeBullet(description, index) {
+  const lines = String(description || '').split('\n');
+  let seen = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].replace(BULLET_MARK, '').trim()) continue;
+    seen += 1;
+    if (seen === index) {
+      lines.splice(i, 1);
+      return lines.join('\n');
+    }
+  }
+  return description;
+}
+
 const pickKey = (entry, preferred, alternate) =>
   (alternate in entry && !(preferred in entry) ? alternate : preferred);
 

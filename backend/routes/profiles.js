@@ -2070,10 +2070,14 @@ router.post('/tailor-for-job', authMiddleware, withServerProfile, aiRateLimiter(
     // Record AI usage
     await recordAIUsage(req.user.id, 'tailor_profile');
 
+    const { buildTailorSuggestions } = require('../services/resume/tailorSuggestions');
     res.json({
       success: true,
       message: 'Profile tailored successfully for the job',
-      data: result.data
+      data: result.data,
+      // The title, summary and key bullet as keep-or-skip changes, each with
+      // the changelog's reason (Tailor for a Job, Save step).
+      suggestions: buildTailorSuggestions(profileData, result.data),
     });
 
   } catch (error) {
@@ -3018,6 +3022,33 @@ router.post('/job-match/cached', authMiddleware, withServerProfile, async (req, 
   } catch (error) {
     console.error('[job-match/cached] failed:', error.message);
     return res.json({ scores: {} });
+  }
+});
+
+// @route   POST /api/profiles/job-match/rescore
+// @desc    The match score again, with requirements the candidate confirmed
+//          counted as covered. Pure arithmetic over a /job-match result: no
+//          model call and no allowance spent, so the Match step can update the
+//          score on every tap.
+// @access  Private
+router.post('/job-match/rescore', authMiddleware, withServerProfile, async (req, res) => {
+  try {
+    const { requirements, components, confirmed } = req.body || {};
+    if (!Array.isArray(requirements) || !requirements.length || requirements.length > 80 || !components) {
+      return res.status(400).json({ error: 'A match result is required' });
+    }
+    const yes = new Set((Array.isArray(confirmed) ? confirmed : []).map((c) => String(c)));
+    const { scoreJobMatch } = require('../services/resume/jobMatchScore');
+    const scored = scoreJobMatch({
+      requirements: requirements.map((r) => (r && yes.has(String(r.requirement)) ? { ...r, coverage: 'strong' } : r)),
+      roleFit: components.roleFit,
+      recency: components.recency,
+      seniorityFit: components.seniorityFit,
+    }, req.candidate.profileData);
+    return res.json({ success: true, score: scored.score, projectedScore: scored.projectedScore });
+  } catch (error) {
+    console.error('[job-match/rescore] failed:', error.message);
+    return res.status(500).json({ error: 'Could not update the score' });
   }
 });
 
