@@ -10,6 +10,7 @@
    ================================================================ */
 
 import styled, { keyframes, css } from 'styled-components';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 /* ================================================================
    SHARED · palette helpers
@@ -114,6 +115,8 @@ export const ArenaBottomNav = styled.nav`
 
     body.applypilot-focus & { display: none; }
   }
+
+  ${hideWhileTyping}
 `;
 
 export const ArenaBottomNavLink = styled.a<{ $active?: boolean }>`
@@ -1163,6 +1166,8 @@ export const SetupFooter = styled.div`
       button { flex: 1; }
     }
   }
+
+  ${hideWhileTyping}
 `;
 
 /* ================================================================
@@ -2476,6 +2481,8 @@ export const ReviewFooter = styled.div`
     }
     .primary-cta:disabled svg { display: none; }
   }
+
+  ${hideWhileTyping}
 `;
 
 export const MoreMenu = styled.div`

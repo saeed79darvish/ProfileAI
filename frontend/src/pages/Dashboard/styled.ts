@@ -29,6 +29,7 @@ import {
   LinearProgress,
   Collapse
 } from '@mui/material';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 // Greeting & Onboarding Section
 export const GreetingSection = styled.div`
@@ -2241,6 +2242,8 @@ export const MobileToolDock = styled.div`
       svg { font-size: 17px; color: #fff; }
     }
   }
+
+  ${hideWhileTyping}
 `;
 
 export const mobileEmptySx = {

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App';
 import './index.css';
+import { installKeyboardWatcher } from './styles/keyboard';
 // Side-effect import: installs window.error / unhandledrejection hooks and
 // the window.__profileaiDiag() helper. Keep at top so it's first to run.
 import { diag } from './utils/diagLogger';
@@ -74,6 +75,9 @@ function Fallback({ error, resetError }) {
     </div>
   );
 }
+
+// Bottom bars step aside while the phone keyboard is open (styles/keyboard.js).
+installKeyboardWatcher();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

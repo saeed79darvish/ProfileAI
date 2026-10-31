@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useApplyPilotConfig, saveApplyPilotConfig } from '../../hooks/useApplyPilot';
 import { profileAPI, applyPilotAPI } from '../../services/api';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 const SENIORITY = ['Junior', 'Mid', 'Senior', 'Staff+', 'Principal', 'Lead / EM'];
 const INDUSTRY_OPTIONS = [
@@ -2796,6 +2797,8 @@ const Footer = styled.div`
   @media (max-width: 768px) {
     padding: 12px 16px;
   }
+
+  ${hideWhileTyping}
 `;
 
 const FooterLeft = styled.div`

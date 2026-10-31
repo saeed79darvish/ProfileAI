@@ -22,6 +22,7 @@ import PollIcon from '@mui/icons-material/Poll';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { pollsAPI, postAPI } from '../../services/api';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 const ModalContent = styled(Box)`
   position: absolute;
@@ -247,6 +248,8 @@ const Footer = styled.div`
   position: sticky;
   bottom: 0;
   background: #ffffff;
+
+  ${hideWhileTyping}
 `;
 
 const SubmitButton = styled(Button)`

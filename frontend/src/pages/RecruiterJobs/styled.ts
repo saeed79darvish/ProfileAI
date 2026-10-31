@@ -1,5 +1,6 @@
 // @ts-nocheck — styled-components transient ($) props and theme keys are dynamic; TS strict typing adds no value here.
 import styled, { keyframes, css } from 'styled-components';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 export const PageContainer = styled.div`
   min-height: 100vh;
@@ -977,6 +978,8 @@ export const ModalFooter = styled.div`
   background: #f8fafc;
   position: sticky;
   bottom: 0;
+
+  ${hideWhileTyping}
 `;
 
 export const InfoBox = styled.div`

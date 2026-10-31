@@ -1,4 +1,5 @@
 import styled from 'styled-components';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 /* ================================================================
    LAYOUT
@@ -975,6 +976,8 @@ export const MobileStickyFooter = styled.div`
     z-index: 101;
     box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
   }
+
+  ${hideWhileTyping}
 `;
 
 export const MobileFooterBookmark = styled.button<{ $saved?: boolean }>`
@@ -2556,6 +2559,8 @@ export const MobileStickyFooterV2 = styled.div`
     z-index: 101;
     box-shadow: 0 -4px 12px rgba(0,0,0,0.06);
   }
+
+  ${hideWhileTyping}
 `;
 
 export const MobileFooterToolsRow = styled.div`

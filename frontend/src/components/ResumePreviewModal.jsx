@@ -13,6 +13,7 @@ import {
 import { resumeAPI, profileAPI } from '../services/api';
 import PdfCanvasPreview from './PdfCanvasPreview';
 import { buildResumeFilename, RESUME_FILENAME_MAX } from '../utils/resumeFilename';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 // === Config ===
 const TEMPLATE_OPTIONS = [
@@ -560,6 +561,11 @@ const MobileFooter = styled.div`
     font-size: 13px;
     color: #9ca3af;
   }
+
+  /* Edit tab: the button stands alone, no gap above it. */
+  > button:first-child { margin-top: 0; }
+
+  ${hideWhileTyping}
 `;
 
 // === Right pane field styles ===
@@ -1026,6 +1032,8 @@ const Footer = styled.div`
       flex: 1;
     }
   }
+
+  ${hideWhileTyping}
 `;
 
 const CancelBtn = styled.button`
@@ -2571,11 +2579,16 @@ export default function ResumePreviewModal({
       </MobileBody>
 
       <MobileFooter>
-        <div className="label-row">
-          <FieldLabel as="span" style={{ marginBottom: 0 }}>Save As</FieldLabel>
-          <span className="count">{filename.length}/{RESUME_FILENAME_MAX} characters</span>
-        </div>
-        {renderFilenameField()}
+        {/* Edit keeps the footer to the one action; the file is named on Preview. */}
+        {activeTab !== 'edit' && (
+          <>
+            <div className="label-row">
+              <FieldLabel as="span" style={{ marginBottom: 0 }}>Save As</FieldLabel>
+              <span className="count">{filename.length}/{RESUME_FILENAME_MAX} characters</span>
+            </div>
+            {renderFilenameField()}
+          </>
+        )}
         <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
           {downloadLabel}
         </DownloadBtn>

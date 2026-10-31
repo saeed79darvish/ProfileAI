@@ -59,6 +59,7 @@ import FollowButton from '@/components/FollowButton';
 import SEO from '@/components/SEO';
 import { featureFlags } from '@/config/featureFlags';
 import { ROUTES, LIMITS, DEFAULTS, ANIMATION } from './constants';
+import { KEYBOARD_OPEN_SX } from '@/styles/keyboard';
 
 // Icon aliases for consistency
 const BackIcon = ArrowBackIcon;
@@ -1933,6 +1934,7 @@ const PublicProfile = () => {
       {/* Sticky Bottom Bar - Mobile only */}
       <Box
         sx={{
+          ...KEYBOARD_OPEN_SX,
           display: { xs: 'flex', md: 'none' },
           position: 'fixed',
           bottom: 0,

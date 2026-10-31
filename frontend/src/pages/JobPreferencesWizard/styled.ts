@@ -1,5 +1,6 @@
 // @ts-nocheck — styled-components transient ($) props and theme keys are dynamic; TS strict typing adds no value here.
 import styled, { keyframes, css } from 'styled-components';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 export const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(16px); }
@@ -492,6 +493,8 @@ export const NavRow = styled.div`
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.08);
     border-radius: 0;
   }
+
+  ${hideWhileTyping}
 `;
 
 export const NavButton = styled.button`

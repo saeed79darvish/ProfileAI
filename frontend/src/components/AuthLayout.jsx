@@ -13,6 +13,7 @@ import {
   Star as StarIcon,
   Menu as MenuIcon,
 } from '@mui/icons-material';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 // ── Animations ──
 const float = keyframes`
@@ -239,6 +240,8 @@ export const MobileStickyFooter = styled(Box)`
     box-shadow: 0 -6px 24px rgba(15, 23, 42, 0.06);
     z-index: 20;
   }
+
+  ${hideWhileTyping}
 `;
 
 export const HideOnMobile = styled.div`

@@ -3,6 +3,7 @@ import {
   ToggleButtonGroup, ToggleButton, Chip, Fab
 } from '@mui/material';
 import styled from 'styled-components';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 export const PageContainer = styled.div`
   min-height: 100vh;
@@ -103,6 +104,7 @@ export const CreateFab = styled(Fab)`
     &:hover {
       background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
     }
+    ${hideWhileTyping}
   }
 `;
 

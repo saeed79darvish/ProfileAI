@@ -33,6 +33,11 @@ const BannerStyles = createGlobalStyle`
     }
   }
 
+  /* Out of the way while the phone keyboard is open (styles/keyboard.js). */
+  html[data-keyboard='open'] .cookie-banner {
+    display: none;
+  }
+
   .cookie-banner__text {
     flex: 1;
     min-width: 0;

@@ -130,6 +130,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import MonthOrYearField from '@/components/MonthOrYearField';
 import { validateHttpUrl, normalizeHttpUrl } from '@/utils/urlValidation';
 import { extractApiError } from '@/utils/apiError';
+import { KEYBOARD_OPEN_SX } from '@/styles/keyboard';
 
 // (Date helpers live in @/utils/dateRange so ProfileForm, Dashboard, and
 // PublicProfile all render periods identically.)
@@ -3853,6 +3854,7 @@ const ProfileForm = () => {
             display: 'flex', 
             gap: 2, 
             justifyContent: 'flex-end',
+            ...KEYBOARD_OPEN_SX,
             '@media (max-width: 768px)': {
               // Sticky footer on mobile so the primary action is always
               // reachable without scrolling. The top-bar Save is hidden on

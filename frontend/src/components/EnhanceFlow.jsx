@@ -5,6 +5,7 @@ import { Close as CloseIcon, Check as CheckIcon } from '@mui/icons-material';
 import { profileAPI } from '../services/api';
 import { extractApiError } from '../utils/apiError';
 import { parseLimitError } from '../utils/aiLimit';
+import { hideWhileTyping } from '@/styles/keyboard';
 
 /**
  * Enhance with AI, in three steps:
@@ -108,6 +109,8 @@ const Footer = styled.div`
   border-top: 1px solid #e8e9f0;
 
   @media (min-width: 769px) { padding: 14px 24px 18px; }
+
+  ${hideWhileTyping}
 `;
 
 const PrimaryBtn = styled.button`
