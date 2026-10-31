@@ -67,6 +67,7 @@ const AI_LIMITS = {
       career_suggestions: { lifetime: 10, weekly: -1 }, // guide them through
       profile_coach:      { monthly: -1, weekly: -1 },  // the coach IS onboarding: unlimited
       career_analysis:    { lifetime: 1, weekly: -1, monthly: -1 }, // one full verdict + gap plan
+      profile_enhance_assist: { lifetime: 60, weekly: -1, monthly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { lifetime: 0,  weekly: 0  }, // Pro feature
       job_match:          { monthly: -1, weekly: -1 },  // match score is free for all
       autofill_apply:     { monthly: 5,  weekly: -1 },
@@ -83,6 +84,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: 10, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 }, // coach-built profile: unlimited
       career_analysis:    { lifetime: 1, weekly: -1, monthly: -1 }, // the one at onboarding
+      profile_enhance_assist: { monthly: 30, weekly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro+ only
       job_match:          { monthly: -1, weekly: -1 }, // match score is free for all
       autofill_apply:     { monthly: 5,  weekly: -1 },
@@ -100,6 +102,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 }, // unlimited
       profile_coach:      { monthly: -1, weekly: -1 },
       career_analysis:    { monthly: -1, weekly: -1 },
+      profile_enhance_assist: { monthly: 60, weekly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { weekly: 0,   monthly: 0 }, // Pro only
       job_match:          { monthly: -1, weekly: -1 },
       autofill_apply:     { monthly: -1, weekly: -1 },
@@ -116,6 +119,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
       career_analysis:    { monthly: -1, weekly: -1 }, // refresh anytime
+      profile_enhance_assist: { monthly: 150, weekly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { monthly: 3,  weekly: -1 },
       job_match:          { monthly: -1, weekly: -1 },
       autofill_apply:     { monthly: -1, weekly: -1 },
@@ -136,6 +140,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1,  weekly: -1 },
       profile_coach:      { monthly: -1,  weekly: -1 },
       career_analysis:    { monthly: -1,  weekly: -1 },
+      profile_enhance_assist: { monthly: -1, weekly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { monthly: 10,  weekly: -1 },
       job_match:          { monthly: -1,  weekly: -1 },
       autofill_apply:     { monthly: -1,  weekly: -1 },
@@ -154,6 +159,7 @@ const AI_LIMITS = {
       career_suggestions: { monthly: -1, weekly: -1 },
       profile_coach:      { monthly: -1, weekly: -1 },
       career_analysis:    { monthly: -1, weekly: -1 },
+      profile_enhance_assist: { monthly: -1, weekly: -1 }, // Enhance's free Analyze step and result merges; never an Enhance credit
       interview_prep:     { monthly: -1, weekly: -1 },
       job_match:          { monthly: -1, weekly: -1 },
       autofill_apply:     { monthly: -1, weekly: -1 },
@@ -208,6 +214,7 @@ const FEATURE_NAMES = {
   analyze_gaps: 'Skill Gap Analysis',
   generate_answers: 'Application Answer Generation',
   career_analysis: 'Career Analysis',
+  profile_enhance_assist: 'Enhancement Analysis',
   autofill_apply: 'Application Autofill',
   coach_voice_session: 'Live Voice Coach',
   mock_interview: 'Mock Interview Practice',
@@ -230,6 +237,7 @@ const ESTIMATED_COSTS = {
   analyze_gaps: 0.015,       // Sonnet — complex analysis
   generate_answers: 0.025,   // Sonnet — personalized content
   career_analysis: 0.002,    // Haiku  — the coach target assessment (one call)
+  profile_enhance_assist: 0.005, // Haiku — Enhance's section analysis; cached per profile version
   autofill_apply: 0.010,     // Sonnet — one batch of field answers per application
   coach_voice_session: 0,    // billed per minute by OpenAI Realtime, tracked as minutes
   mock_interview: 0,         // not built yet
@@ -249,6 +257,7 @@ const ESTIMATED_COSTS = {
 const ONBOARDING_FREE_FEATURES = {
   resume_parse:    { safetyCap: 20 },
   profile_enhance: { safetyCap: 40 },
+  profile_enhance_assist: { safetyCap: 80 },
 };
 
 /**
@@ -262,6 +271,7 @@ const FEATURE_MODELS = {
   post_enhance: 'haiku',
   career_suggestions: 'haiku',
   job_enhance: 'haiku',
+  profile_enhance_assist: 'haiku',
 };
 
 /**

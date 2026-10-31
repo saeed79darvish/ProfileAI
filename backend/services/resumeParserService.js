@@ -10,7 +10,7 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 const { classifyDocument, rejectionMessage } = require('./resumeDocumentType');
-const { supportsTemperature, extractText, createMessage } = require('./ai/core');
+const { supportsTemperature, extractText, createMessage, HAIKU_MODEL } = require('./ai/core');
 // One PDF extractor for every upload path — see resume/pdfText.js for why
 // ordinary text PDFs used to fail here.
 const { pdfToText } = require('./resume/pdfText');
@@ -35,6 +35,10 @@ const { auditTenureClaims, stripPlaceholderEntries } = require('./resume/resumeH
 const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGaps');
 const { toAIProfile } = require('./resume/candidateProfile');
 const { diffSections, restoreUnselected, enforceAdditive } = require('./resume/enhancementDiff');
+const {
+  findSectionIssues, buildAnalysisPrompt, mergeAnalysis, olderRoleIndexes,
+} = require('./resume/enhanceAnalysis');
+const { buildReviewChanges } = require('./resume/enhanceReview');
 const { totalExperienceYears } = require('./resume/resumeHygiene');
 const { scrubBannedLanguage, METHODOLOGY_LABEL_RE } = require('./resume/writingRules');
 const {
@@ -1536,7 +1540,11 @@ Important guidelines:
       applyDeterministicRepairs(enhancedData, sourceText, null);
       stripAnnotationsInPlace(enhancedData);
 
-      let auditReport = auditProfile({ profile: enhancedData, sourceText });
+      // Per-section actions from the Analyze step, when the client sent them.
+      const chosenActions = options && options.actions && typeof options.actions === 'object' ? options.actions : null;
+      const allowSummaryMetrics = !!(chosenActions && (chosenActions.summary || []).includes('add_metrics'));
+      const checkWeakOpeners = !!(chosenActions && (options.sections || []).includes('experience'));
+      let auditReport = auditProfile({ profile: enhancedData, sourceText, allowSummaryMetrics, checkWeakOpeners });
       const initialDefects = auditReport.blocking.length;
       let reviewRan = false;
 
@@ -1587,7 +1595,7 @@ Important guidelines:
             // was fixing something else in.
             applyDeterministicRepairs(corrected, sourceText, null);
             stripAnnotationsInPlace(corrected);
-            const nextReport = auditProfile({ profile: corrected, sourceText });
+            const nextReport = auditProfile({ profile: corrected, sourceText, allowSummaryMetrics, checkWeakOpeners });
 
             // Accept unless it made things worse — the same gate the tailoring
             // review uses. A "fix" that trades two defects for three is a
@@ -1638,7 +1646,20 @@ Important guidelines:
       const restoredSections = restoreUnselected(enhancedData, original, options && options.sections);
       // Nothing the candidate wrote may come back weaker. Whatever the model
       // dropped is put back and reported, so the preview is honest about it.
-      const additive = enforceAdditive(enhancedData, original);
+      // Job titles change only when the candidate asked for it; asking the
+      // model to leave them alone is the thing that has not worked before.
+      if (chosenActions && Array.isArray(enhancedData.experience) && Array.isArray(original.experience)
+        && !(chosenActions.experience || []).includes('clean_titles')) {
+        enhancedData.experience = enhancedData.experience.map((e, i) => {
+          const o = original.experience[i];
+          if (!o || !e || typeof e !== 'object') return e;
+          return { ...e, title: o.title || o.position || e.title };
+        });
+      }
+      const trimmableRoles = chosenActions && (chosenActions.experience || []).includes('trim_older')
+        ? olderRoleIndexes(original.experience)
+        : [];
+      const additive = enforceAdditive(enhancedData, original, { trimmableRoles });
       if (additive.restored.length) {
         console.log('[ProfilleAI] Enhancement dropped content; restored:', additive.restored);
         enhancedData.enhancements = enhancedData.enhancements && typeof enhancedData.enhancements === 'object' ? enhancedData.enhancements : {};
@@ -1650,11 +1671,19 @@ Important guidelines:
         `${restoredSections.length ? ` · restored unselected: [${restoredSections.join(', ')}]` : ''}`
       );
 
+      // The keep-or-skip list for the Review step. Built from the same
+      // original the client holds, so its indexes line up with the profile
+      // the client applies the kept changes to.
+      const changes = chosenActions
+        ? buildReviewChanges(original, enhancedData, { sections: options.sections || [], actions: chosenActions })
+        : undefined;
+
       return {
         success: true,
         data: enhancedData,
         changedSections,
         unchangedSections,
+        changes,
         // Counts, not claims. The product can surface these; nothing here is
         // asserted by the model that wrote the text.
         audit: {
@@ -1674,6 +1703,98 @@ Important guidelines:
         error: error.message
       };
     }
+  }
+
+  /**
+   * Enhance with AI, step one: findings and suggested actions per section.
+   *
+   * Code findings always come back; the model call only adds to them, so a
+   * failed or garbled model answer degrades to the counted findings instead
+   * of an error.
+   */
+  async analyzeForEnhancement(profileData) {
+    const aiProfile = toAIProfile(profileData);
+    const codeFindings = findSectionIssues(aiProfile);
+    let modelFindings = null;
+    try {
+      const config = buildAnalysisPrompt(aiProfile, codeFindings);
+      const raw = await callAI({
+        system: config.system,
+        prompt: config.prompt,
+        max_tokens: config.max_tokens,
+        temperature: config.temperature,
+        model: HAIKU_MODEL,
+        retries: 1,
+      });
+      try {
+        modelFindings = parseAIJson(raw);
+      } catch (_) {
+        modelFindings = JSON.parse(repairTruncatedJSON(raw) || 'null');
+      }
+    } catch (error) {
+      console.warn('[ProfilleAI] Enhance analysis model call failed; using code findings only:', error.message);
+    }
+    return { sections: mergeAnalysis(codeFindings, modelFindings), usedModel: !!modelFindings };
+  }
+
+  /**
+   * Work a figure the candidate typed into the bullet it belongs to.
+   *
+   * The Review step asks for a result wherever a rewritten bullet has none,
+   * instead of letting the model make one up. The candidate's own words are
+   * the only new source allowed: any number in the output that is in neither
+   * the bullet nor what they typed fails the item, and it comes back unchanged.
+   *
+   * @param {Array<{id: string, bullet: string, result: string, role?: string}>} items
+   * @returns {Promise<Array<{id: string, text: string, ok: boolean}>>}
+   */
+  async addResultsToBullets(items = []) {
+    const clean = items
+      .filter((it) => it && typeof it.id === 'string' && typeof it.bullet === 'string' && typeof it.result === 'string')
+      .map((it) => ({
+        id: it.id.slice(0, 40),
+        bullet: it.bullet.trim().slice(0, 600),
+        result: it.result.trim().slice(0, 200),
+        role: String(it.role || '').trim().slice(0, 120),
+      }))
+      .filter((it) => it.bullet && it.result)
+      .slice(0, 12);
+    if (!clean.length) return [];
+
+    const raw = await callAI({
+      system: 'You edit resume bullets. You add only the facts you are given, in the candidate\'s own terms.',
+      prompt: `Rewrite each bullet so it ends with, or naturally includes, the result the candidate supplied.
+
+RULES:
+- Use the candidate's figure exactly as written. Never round it, convert it or add another number.
+- Keep the bullet's verb, subject and meaning. One sentence, at most about 30 words.
+- If the result does not fit the bullet, return the bullet unchanged.
+
+ITEMS:
+${JSON.stringify(clean.map(({ id, bullet, result, role }) => ({ id, role, bullet, result })), null, 2)}
+
+Return ONLY JSON: {"items":[{"id":"...","text":"..."}]}`,
+      max_tokens: 1200,
+      temperature: 0.2,
+      retries: 1,
+    });
+
+    let parsed;
+    try {
+      parsed = parseAIJson(raw);
+    } catch (_) {
+      parsed = JSON.parse(repairTruncatedJSON(raw) || '{}');
+    }
+    const byId = new Map((Array.isArray(parsed && parsed.items) ? parsed.items : []).map((x) => [x && x.id, x && x.text]));
+    const numbers = (text) => (String(text || '').match(/\d[\d,.]*/g) || []).map((n) => n.replace(/[,.]+$/, ''));
+
+    return clean.map((it) => {
+      const text = String(byId.get(it.id) || '').trim();
+      const allowed = new Set([...numbers(it.bullet), ...numbers(it.result)]);
+      const invented = numbers(text).some((n) => !allowed.has(n));
+      const ok = !!text && !invented && text.length <= 400;
+      return { id: it.id, text: ok ? text : it.bullet, ok };
+    });
   }
 
   /**

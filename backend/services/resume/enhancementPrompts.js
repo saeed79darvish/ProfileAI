@@ -8,6 +8,7 @@
 
 const { writingRules, readAloudCheck } = require('./writingRules');
 const { toAIProfile } = require('./candidateProfile');
+const { instructionsFor, experienceMetrics } = require('./enhanceAnalysis');
 
 // Quality rules shared with the tailoring prompts, so the two paths can never
 // disagree about what good resume writing is. Enhancement is the general pass —
@@ -671,7 +672,7 @@ const FOCUS_INSTRUCTIONS = {
   verbs: 'Replace weak openers ("Responsible for", "Worked on", "Helped") with the specific verb for what was actually done.',
 };
 
-const SECTION_KEYS = ['title', 'summary', 'experience', 'projects', 'skills'];
+const SECTION_KEYS = ['title', 'summary', 'experience', 'projects', 'skills', 'education'];
 
 /**
  * Turn the candidate's modal choices into BINDING instructions.
@@ -690,6 +691,11 @@ function buildCandidateChoices(options = {}, derived = {}) {
   const lines = [];
   const role = String(options.targetRole || '').trim();
   if (role) lines.push(`- Target role: ${role}. Frame the profile toward it, using only what the history supports.`);
+  // Per-section actions from the Analyze step. Older clients send a tone and
+  // global focus chips instead, which still work.
+  if (options.actions && typeof options.actions === 'object') {
+    lines.push(...instructionsFor(Array.isArray(options.sections) ? options.sections : [], options.actions, options.notes, { metrics: derived.metrics || [] }));
+  }
   if (TONE_INSTRUCTIONS[options.tone]) lines.push(`- Tone: ${TONE_INSTRUCTIONS[options.tone]}`);
   for (const f of Array.isArray(options.focus) ? options.focus : []) {
     if (FOCUS_INSTRUCTIONS[f]) lines.push(`- ${FOCUS_INSTRUCTIONS[f]}`);
@@ -712,7 +718,7 @@ function getDepartmentEnhancementPrompt(group, profileData, customPrompt = '', o
   // Structured choices from the current modal; the free-text form is kept for
   // older clients that still send one concatenated string.
   const customInstructions = options
-    ? buildCandidateChoices(options, derived)
+    ? buildCandidateChoices(options, { ...derived, metrics: experienceMetrics(profileData && profileData.experience) })
     : customPrompt
       ? `\n\nAdditional instructions from the candidate (follow them wherever they do not conflict with the honesty rules):\n"${customPrompt}"`
       : '';

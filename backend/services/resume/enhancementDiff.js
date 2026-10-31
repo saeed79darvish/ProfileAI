@@ -75,12 +75,17 @@ function listChanged(a, b) {
   return la.some((entry, i) => textChanged(describe(entry), describe(lb[i])));
 }
 
+const educationKey = (list) => JSON.stringify((Array.isArray(list) ? list : []).map((e) => [
+  e && e.degree, e && (e.field || e.fieldOfStudy), e && (e.institution || e.school), e && (e.period || e.year),
+].map((x) => String(x || '').trim().toLowerCase())));
+
 const SECTIONS = {
   title: (o, e) => textChanged(o.title, e.title),
   summary: (o, e) => textChanged(o.summary, e.summary),
   skills: (o, e) => skillsChanged(o.skills, e.skills),
   experience: (o, e) => listChanged(o.experience, e.experience),
   projects: (o, e) => listChanged(o.projects, e.projects),
+  education: (o, e) => educationKey(o.education) !== educationKey(e.education),
 };
 
 /**
@@ -139,9 +144,14 @@ const metricsIn = (text) => (String(text || '').match(METRIC_RE) || []).map((m) 
  * The summary is left to the prompt: it legitimately changes shape (the false
  * "8+ years" must go), so length alone cannot judge it.
  *
+ * @param {Object} [opts]
+ * @param {number[]} [opts.trimmableRoles] - experience indexes the candidate
+ *   asked to trim ("Trim older roles"); losing bullets there is the request,
+ *   so those roles are left as rewritten.
  * @returns {{ restored: string[] }} human-readable list of what was put back
  */
-function enforceAdditive(enhanced, original) {
+function enforceAdditive(enhanced, original, { trimmableRoles = [] } = {}) {
+  const trimmable = new Set(trimmableRoles);
   const restored = [];
   if (!enhanced || !original) return { restored };
 
@@ -169,6 +179,7 @@ function enforceAdditive(enhanced, original) {
       const o = src[i] || {};
       const e = out[i];
       const label = o.company || o.title || o.name || `${key} ${i + 1}`;
+      if (key === 'experience' && trimmable.has(i) && e && typeof e === 'object') continue;
       if (!e || typeof e !== 'object') {
         out[i] = { ...o };
         restored.push(`${label}: entry dropped — restored`);
@@ -191,4 +202,4 @@ function enforceAdditive(enhanced, original) {
   return { restored };
 }
 
-module.exports = { diffSections, restoreUnselected, enforceAdditive, wordChangeRatio, PROSE_THRESHOLD };
+module.exports = { diffSections, restoreUnselected, enforceAdditive, wordChangeRatio, textChanged, PROSE_THRESHOLD };

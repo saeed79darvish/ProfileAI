@@ -80,9 +80,15 @@ function toDraftShape(profile) {
  *   Required: it is what every "did you invent this" question is asked against,
  *   and degrading to "looks fine" without it is the failure being fixed.
  * @param {Date} [input.now]
+ * @param {boolean} [input.allowSummaryMetrics] - the candidate chose "Add
+ *   metrics" for the summary, so up to two figures copied from the profile may
+ *   stand there. Invented figures are still blocked, wherever they are.
  * @returns {Object} per-check evidence plus `blocking`, `questions`, `passed`.
  */
-function auditProfile({ profile, sourceText, now = new Date() }) {
+// Openers the enhancement prompts ban, and the Analyze step reports.
+const WEAK_OPENER_RE = /^(?:responsible for|work(?:ed|s)? on|helped(?: with| to| build| create)?|was part of|involved in|assisted(?: with| in)?)\b/i;
+
+function auditProfile({ profile, sourceText, now = new Date(), allowSummaryMetrics = false, checkWeakOpeners = false }) {
   if (!sourceText || !String(sourceText).trim()) {
     throw new Error('auditProfile requires sourceText — there is nothing to check the enhancement against without it');
   }
@@ -98,7 +104,17 @@ function auditProfile({ profile, sourceText, now = new Date() }) {
   const artifacts = auditArtifacts(draft, sourceText);
   const skills = auditSkillsProvenance(draft, sourceText, []);
 
-  const report = { metrics, variation, banned, summary, consistency, education, artifacts, skills, now };
+  // Only when experience is being rewritten: a weak opener in a section the
+  // candidate left alone is restored anyway, and a review round spent on it
+  // would be wasted.
+  const weakOpeners = checkWeakOpeners
+    ? draft.experience.flatMap((e, i) => String(e.description || '').split('\n')
+      .map((l) => l.replace(/^\s*[•\-*–]\s*/, '').trim())
+      .filter((l) => WEAK_OPENER_RE.test(l))
+      .map((line) => ({ location: `experience_${i + 1}${e.company ? ` (${e.company})` : ''}`, opener: line.match(WEAK_OPENER_RE)[0] })))
+    : [];
+
+  const report = { metrics, variation, banned, summary, consistency, education, artifacts, skills, now, allowSummaryMetrics, weakOpeners };
 
   report.blocking = buildProfileBlockingList(report);
   report.questions = buildProfileQuestions(report);
@@ -136,7 +152,8 @@ function buildProfileBlockingList(r) {
   for (const ghost of r.metrics.ghostShapes || []) {
     out.push(`METRICS: "${ghost.phrase}" in ${ghost.location} is a metric with the number taken out. Rewrite the line so it reads as a complete thought without one.`);
   }
-  if (r.metrics.inSummary.length) {
+  const summaryMetricsAllowed = r.allowSummaryMetrics && r.metrics.inSummary.length <= 2;
+  if (r.metrics.inSummary.length && !summaryMetricsAllowed) {
     out.push(`SUMMARY: the summary contains ${r.metrics.inSummary.map((i) => i.value).join(', ')}. The summary carries no numbers — a scale claim belongs in the bullet that shows the work.`);
   }
   if (r.summary.overLength) {
@@ -150,6 +167,9 @@ function buildProfileBlockingList(r) {
   }
   for (const off of r.variation.repeatedOpeners || []) {
     out.push(`VARIATION: ${off.count} bullets open with "${off.opener}" (${off.locations.join(', ')}). Rewrite all but one.`);
+  }
+  for (const w of r.weakOpeners || []) {
+    out.push(`VARIATION: a bullet in ${w.location} opens with "${w.opener}". Open it with the verb for what was actually done.`);
   }
   for (const adj of r.variation.adjacentRepeats || []) {
     out.push(`VARIATION: two bullets in a row in ${adj.location} open with "${adj.opener}". Rewrite the second.`);

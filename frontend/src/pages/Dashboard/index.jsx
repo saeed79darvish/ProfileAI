@@ -86,8 +86,8 @@ import { parseLimitError } from '@/utils/aiLimit';
 import LimitReachedModal from '@/components/LimitReachedModal';
 import ResumePreviewModal from '@/components/ResumePreviewModal';
 import ProcessingModal from '@/components/ProcessingModal';
-import EnhancePromptModal from '@/components/EnhancePromptModal';
-import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
+import EnhanceFlow from '@/components/EnhanceFlow';
+import { applyEnhanceChanges } from '@/utils/enhanceApply';
 import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
 import GapReviewDialog from '@/components/GapReviewDialog';
 import LoadFailure from '@/components/common/LoadFailure';
@@ -416,16 +416,15 @@ const Dashboard = () => {
   const [enhancing, setEnhancing] = useState(false);
   // Full 429 payload from the AI rate limiter; null when not limited.
   const [limitInfo, setLimitInfo] = useState(null);
-  const [pendingEnhancements, setPendingEnhancements] = useState(null);
-  const [showEnhancementPreview, setShowEnhancementPreview] = useState(false);
-  const [pendingChangedSections, setPendingChangedSections] = useState(null);
+  // A finished rewrite to open Enhance at its Review step (one that completed
+  // while the dialog was closed or the user was on another page).
+  const [enhanceResult, setEnhanceResult] = useState(null);
   // Enhancement runs as a background task so it survives leaving this page:
   // it used to live in this component, and navigating away lost the result
   // while still charging the credit.
   const { tasks: bgTasks, startTask, dismissTask } = useBackgroundTasks();
   const mountedRef = useMountedRef();
   const ENHANCE_TASK_ID = 'enhance-profile';
-  const [enhanceSaving, setEnhanceSaving] = useState(false);
 
   // In-place Tips/Feedback state
   const [gettingTips, setGettingTips] = useState(false);
@@ -1068,40 +1067,27 @@ const Dashboard = () => {
     setShowResumeDialog(true);
   };
 
-  // In-place Enhancement: call API → show preview
-  /** One place that turns an enhancement response into what the user sees. */
-  const showEnhanceResult = (data) => {
-    if (!data || !data.success) {
-      setSnackbar({ open: true, message: (data && (data.error || data.message)) || 'Enhancement failed' });
-      return;
-    }
-    if (data.noChanges) {
-      // Nothing worth applying — and the server did not charge for it.
-      setSnackbar({ open: true, message: data.message || 'Your profile is already in good shape — no changes, no credit used.' });
-      return;
-    }
-    setPendingEnhancements(data.data);
-    setPendingChangedSections(data.changedSections || null);
-    setShowEnhancementPreview(true);
+  // Enhance with AI. The flow (components/EnhanceFlow.jsx) runs Analyze and
+  // Review; the rewrite itself runs here as a background task, so leaving the
+  // page doesn't lose a result that has already been paid for.
+  const openEnhanceResult = (data) => {
+    setEnhanceResult(data);
+    setShowEnhancePrompt(true);
   };
 
-  // An enhancement that finished while the user was on another page: pick it
-  // up the moment they return, instead of losing it.
+  // A rewrite that finished while the user was on another page: open it at
+  // Review the moment they return.
   useEffect(() => {
     const task = bgTasks[ENHANCE_TASK_ID];
     if (!task || task.status !== 'done' || !task.needsAttention) return;
     dismissTask(ENHANCE_TASK_ID);
-    showEnhanceResult(task.result);
+    if (task.result?.success) openEnhanceResult(task.result);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bgTasks]);
 
-  const handleEnhanceInPlace = async (choices = {}) => {
-    setShowEnhancePrompt(false);
+  const runEnhance = async (options) => {
     setEnhancing(true);
     try {
-      // The modal now hands over structured choices; a plain string still
-      // works for any caller that has not been updated.
-      const isText = typeof choices === 'string';
       const data = await startTask({
         id: ENHANCE_TASK_ID,
         label: 'Enhancing your profile',
@@ -1110,61 +1096,31 @@ const Dashboard = () => {
         ownerAlive: () => mountedRef.current,
         // Only the response body is kept: it is what the page needs, and it
         // is what survives a refresh in session storage.
-        run: async () =>
-          (await profileAPI.enhanceResumeData(
-            profileData,
-            isText ? (choices.trim() || undefined) : undefined,
-            undefined,
-            isText ? undefined : choices
-          )).data,
+        run: async () => (await profileAPI.enhanceResumeData(profileData, undefined, undefined, options)).data,
       });
       // Left the page meanwhile: the indicator offers the result instead.
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return undefined;
       dismissTask(ENHANCE_TASK_ID);
-      showEnhanceResult(data);
-    } catch (err) {
-      const limit = parseLimitError(err);
-      if (limit) { setLimitInfo(limit); return; }
-      setSnackbar({ open: true, message: extractApiError(err, 'Enhancement failed. Please try again.') });
+      loadAiUsage();
+      return data;
     } finally {
       setEnhancing(false);
     }
   };
 
-  // Apply selected enhancement sections and save to DB
-  const handleApplyEnhancements = async (selectedSections, _saveNow) => {
-    if (!pendingEnhancements) return;
-    setEnhanceSaving(true);
-    try {
-      const enhanced = pendingEnhancements;
-      const updatedProfile = { ...profile };
-      const skillsObj = {};
-      if (selectedSections.title && enhanced.title) updatedProfile.title = enhanced.title;
-      if (selectedSections.summary && enhanced.summary) updatedProfile.summary = enhanced.summary;
-      if (selectedSections.skills && enhanced.skills?.length) {
-        enhanced.skills.forEach(s => {
-          const cat = s.category || 'General';
-          if (!skillsObj[cat]) skillsObj[cat] = [];
-          skillsObj[cat].push(s.name || s);
-        });
-        updatedProfile.skills = skillsObj;
-      }
-      if (selectedSections.experience && enhanced.experience?.length) updatedProfile.experience = enhanced.experience;
-      if (selectedSections.education && enhanced.education?.length) updatedProfile.education = enhanced.education;
-      if (selectedSections.projects && enhanced.projects?.length) updatedProfile.projects = enhanced.projects;
-
-      await profileAPI.createOrUpdateProfile(updatedProfile);
-      const refreshed = await profileAPI.getMyProfile();
-      setProfile(refreshed.data);
-      loadAiUsage();
-      setPendingEnhancements(null);
-      setShowEnhancementPreview(false);
-      setSnackbar({ open: true, message: 'Profile enhanced and saved successfully!' });
-    } catch (err) {
-      setSnackbar({ open: true, message: extractApiError(err, 'Failed to save enhanced profile') });
-    } finally {
-      setEnhanceSaving(false);
-    }
+  const applyEnhance = async (keptChanges, { skippedResults = 0 } = {}) => {
+    await profileAPI.createOrUpdateProfile(applyEnhanceChanges(profile, keptChanges));
+    const refreshed = await profileAPI.getMyProfile();
+    setProfile(refreshed.data);
+    loadAiUsage();
+    setShowEnhancePrompt(false);
+    setEnhanceResult(null);
+    const n = keptChanges.length;
+    setSnackbar({
+      open: true,
+      message: `Saved ${n} change${n === 1 ? '' : 's'} to your profile.`
+        + (skippedResults ? ` ${skippedResults} result${skippedResults === 1 ? '' : 's'} couldn't be added; add ${skippedResults === 1 ? 'it' : 'them'} in Edit.` : ''),
+    });
   };
 
   // In-place AI Recruiter Feedback
@@ -3094,38 +3050,17 @@ const Dashboard = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
 
-      {/* In-place Enhance Prompt Modal */}
-      <EnhancePromptModal
+      {/* Enhance with AI: Analyze, Rewrite, Review */}
+      <EnhanceFlow
         open={showEnhancePrompt}
-        onClose={() => setShowEnhancePrompt(false)}
-        onEnhance={handleEnhanceInPlace}
-        formData={profile ? {
-          summary: profile.summary,
-          skills: profile.skills || {},
-          experience: profile.experience,
-          education: profile.education,
-          projects: profile.projects
-        } : {}}
-      />
-
-      {/* Enhancement Preview Modal */}
-      <EnhancementPreviewModal
-        open={showEnhancementPreview}
-        onClose={() => { setShowEnhancementPreview(false); setPendingEnhancements(null); }}
-        onApply={handleApplyEnhancements}
-        enhancements={pendingEnhancements}
-        originalData={profileData}
-        saving={enhanceSaving}
-        changedSections={pendingChangedSections}
-        showApplyOnly
-      />
-
-      {/* Enhancement Processing Modal */}
-      <ProcessingModal
-        open={enhancing}
-        type="enhance"
-        title="Enhancing Profile"
-        subtitle="AI is optimizing your profile content..."
+        onClose={() => { setShowEnhancePrompt(false); setEnhanceResult(null); }}
+        profileData={profileData}
+        runEnhance={runEnhance}
+        onApply={applyEnhance}
+        onLateResult={openEnhanceResult}
+        initialResult={enhanceResult}
+        creditLabel={aiUsage?.usage?.profile_enhance && computeBindingFromPayload(aiUsage.usage.profile_enhance).isUnlimited ? null : '1 credit'}
+        onLimit={setLimitInfo}
       />
 
       {/* Tips Processing Modal */}

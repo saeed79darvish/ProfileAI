@@ -161,9 +161,13 @@ function tidySpacing(text) {
  */
 function trimAbstractClosings(text) {
   const trimmed = [];
+  // The separators are kept and put back as they were: joining on a space
+  // turned every bulleted description into one paragraph, which the additive
+  // check then read as lost bullets and reverted the whole rewrite.
   const out = String(text)
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => {
+    .split(/(?<=[.!?])(\s+)/)
+    .map((sentence, i) => {
+      if (i % 2 === 1) return sentence;
       let next = sentence;
       for (const re of ABSTRACT_CLOSING_PATTERNS) {
         next = next.replace(new RegExp(re.source, re.flags), (match, offset, whole) => {
@@ -181,7 +185,7 @@ function trimAbstractClosings(text) {
       }
       return next;
     })
-    .join(' ');
+    .join('');
   return { text: tidySpacing(out).trim(), trimmed };
 }
 

@@ -410,6 +410,9 @@ export const profileAPI = {
   enhanceResumeData: (profileData, customPrompt, config, options) =>
     api.post('/profiles/enhance-resume', { profileData, customPrompt, options }, config),
   getEnhancementSuggestions: (profileData, config) => api.post('/profiles/enhancement-suggestions', { profileData }, config),
+  // Enhance with AI: per-section findings first, then figures typed in Review.
+  analyzeForEnhancement: (profileData, config) => api.post('/profiles/enhance-analysis', { profileData }, config),
+  addEnhanceResults: (items, config) => api.post('/profiles/enhance-resume/results', { items }, config),
   enhanceText: (text, type, context, config) => api.post('/profiles/enhance-text', { text, type, context }, config),
   // These no longer send the profile. The server loads the stored record
   // itself, which is the same data, can't be stale, and doesn't upload it on

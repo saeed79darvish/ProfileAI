@@ -114,8 +114,8 @@ import {
 // in-place re-upload from the editor doesn't drop to a bare 16px spinner.
 import ResumeMagicOverlay from '../ProfileCreation/ResumeMagicOverlay';
 import { computeProfileCompletion } from '@/hooks/useProfileCompletion';
-import EnhancePromptModal from '@/components/EnhancePromptModal';
-import EnhancementPreviewModal from '@/components/EnhancementPreviewModal';
+import EnhanceFlow from '@/components/EnhanceFlow';
+import { applyEnhanceChanges } from '@/utils/enhanceApply';
 import ProfileWelcomeOnboardingModal from '@/components/ProfileWelcomeOnboardingModal';
 import GapReviewDialog from '@/components/GapReviewDialog';
 import AIProcessingModal from '@/components/AIProcessingModal';
@@ -320,10 +320,7 @@ const ProfileForm = () => {
   const [saveToast, setSaveToast] = useState({ open: false, message: '' });
   const [suggestions, setSuggestions] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [enhancements, setEnhancements] = useState(null);
-  const [showEnhancementDialog, setShowEnhancementDialog] = useState(false);
   const [showEnhancePrompt, setShowEnhancePrompt] = useState(false);
-  const [enhancementChangedSections, setEnhancementChangedSections] = useState(null);
   // First-time welcome modal (one-shot per user, persisted in localStorage)
   const [showWelcome, setShowWelcome] = useState(false);
   const [expandedSections, setExpandedSections] = useState({});
@@ -773,22 +770,6 @@ const ProfileForm = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleCancel, discardDialogOpen]);
 
-  // Restore cached enhancement results from sessionStorage (survives refresh)
-  useEffect(() => {
-    if (!initialLoading && !enhancements) {
-      try {
-        const cached = sessionStorage.getItem('profileai_enhancements');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && (parsed.title || parsed.summary || parsed.skills)) {
-            setEnhancements(parsed);
-            setShowEnhancementDialog(true);
-          }
-        }
-      } catch (_) {}
-    }
-  }, [initialLoading]);
-
   // First-time welcome: show once per user when the candidate hasn't built up
   // a real profile yet (no work experience). We DON'T suppress for wizard-sourced
   // drafts — a wizard fills in title/skills but still leaves the candidate
@@ -856,7 +837,7 @@ const ProfileForm = () => {
       
       if (action === 'enhance') {
         // Show prompt modal so user can customize enhancement
-        setTimeout(() => setShowEnhancePrompt(true), 300);
+        setTimeout(() => openEnhance(), 300);
       } else if (action === 'tailor') {
         // Show job tailor section
         setShowJobTailor(true);
@@ -1488,48 +1469,21 @@ const ProfileForm = () => {
     }
   };
 
-  const handleEnhanceWithAI = async (choices = '') => {
-    setShowEnhancePrompt(false);
+  // Enhance with AI (components/EnhanceFlow.jsx). Opening it runs Analyze,
+  // which is an AI call, so guests are asked to sign in first.
+  const openEnhance = () => {
     if (!requireAuthForAction()) return;
     setError('');
     setSuccess('');
-    setEnhancing(true);
+    setShowEnhancePrompt(true);
+  };
+
+  const runEnhance = async (options) => {
     const controller = new AbortController();
     enhanceAbortRef.current = controller;
-
+    setEnhancing(true);
     try {
-
-      // Structured choices from the modal; a plain string still works.
-      const isText = typeof choices === 'string';
-      const response = await profileAPI.enhanceResumeData(
-        profileData,
-        isText ? (choices.trim() || undefined) : undefined,
-        { signal: controller.signal },
-        isText ? undefined : choices
-      );
-      
-      if (response.data.success && response.data.noChanges) {
-        // Nothing worth applying, and the server did not charge a credit.
-        setSuccess(response.data.message || 'Your profile is already in good shape — no changes, no credit used.');
-        return;
-      }
-      if (response.data.success) {
-        setEnhancementChangedSections(response.data.changedSections || null);
-        setEnhancements(response.data.data);
-        setShowEnhancementDialog(true);
-        // Persist so results survive page refresh
-        try { sessionStorage.setItem('profileai_enhancements', JSON.stringify(response.data.data)); } catch (_) {}
-      } else {
-        setError('Failed to enhance profile with AI');
-      }
-    } catch (err) {
-      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED' || controller.signal.aborted) {
-        // Cancelled by the user; no-op.
-      } else if (err.response?.status === 429) {
-        setLimitInfo(parseLimitError(err) || { featureType: err.response?.data?.feature || 'profile_enhance', upgradeRequired: true, buyMoreUrl: '/pricing' });
-      } else {
-        setError(extractApiError(err, 'Failed to enhance profile with AI'));
-      }
+      return (await profileAPI.enhanceResumeData(profileData, undefined, { signal: controller.signal }, options)).data;
     } finally {
       enhanceAbortRef.current = null;
       setEnhancing(false);
@@ -1569,67 +1523,16 @@ const ProfileForm = () => {
     }
   };
 
-  const applyEnhancements = async (selectedSections, saveImmediately = false) => {
-    if (!enhancements) return;
-
-    // Smart skill merge: preserve original categories, only categorize truly new skills
-    let mergedSkills = formData.skills;
-    const existingSkillMap = {};
-    const newCategories = { core: [], technical: [], software: [], industry: [], soft: [] };
-    if (selectedSections.skills && enhancements.skills) {
-      Object.entries(formData.skills).forEach(([cat, arr]) => {
-        (arr || []).forEach(s => { existingSkillMap[s.toLowerCase()] = cat; });
-      });
-      // Keep all original skills in their categories
-      Object.entries(formData.skills).forEach(([cat, arr]) => {
-        newCategories[cat] = [...(arr || [])];
-      });
-      // Add new skills from AI that don't exist yet
-      const newSkillsFlat = (enhancements.skills || []).filter(
-        s => !existingSkillMap[s.toLowerCase()]
-      );
-      const categorizedNew = categorizeSkillsHelper(newSkillsFlat);
-      Object.entries(categorizedNew).forEach(([cat, arr]) => {
-        newCategories[cat] = [...newCategories[cat], ...arr];
-      });
-      mergedSkills = newCategories;
-    }
-
-    const enhancedFormData = {
-      ...formData,
-      title: selectedSections.title && enhancements.title ? stripMarkdown(enhancements.title) : formData.title,
-      summary: selectedSections.summary && enhancements.summary ? stripMarkdown(enhancements.summary) : formData.summary,
-      skills: mergedSkills,
-      experience: selectedSections.experience && enhancements.experience
-        ? enhancements.experience.map((e) => ({ ...e, description: stripMarkdown(e?.description) }))
-        : formData.experience,
-      education: selectedSections.education && enhancements.education ? enhancements.education : formData.education,
-      projects: selectedSections.projects && enhancements.projects
-        ? enhancements.projects.map((p) => ({ ...p, description: stripMarkdown(p?.description) }))
-        : formData.projects
-    };
-
-    setFormData(enhancedFormData);
-    setShowEnhancementDialog(false);
-    setEnhancements(null);
-    try { sessionStorage.removeItem('profileai_enhancements'); } catch (_) {}
-
-    if (saveImmediately) {
-      setLoading(true);
-      setError('');
-      try {
-        await profileAPI.createOrUpdateProfile(enhancedFormData);
-        await refreshUser();
-        try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
-        setSuccess('🎉 Profile enhanced and saved successfully!');
-      } catch (err) {
-        setError(extractApiError(err, 'Failed to save enhanced profile'));
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setSuccess('AI enhancements applied! Review the changes and save when ready.');
-    }
+  // Kept changes go into the form, not straight to the server: this page
+  // saves when the candidate presses Save, the same as every other edit here.
+  const applyEnhance = async (keptChanges, { skippedResults = 0 } = {}) => {
+    setFormData((prev) => applyEnhanceChanges(prev, keptChanges));
+    setShowEnhancePrompt(false);
+    const n = keptChanges.length;
+    setSuccess(
+      `Applied ${n} change${n === 1 ? '' : 's'}. Save your profile to keep ${n === 1 ? 'it' : 'them'}.`
+      + (skippedResults ? ` ${skippedResults} result${skippedResults === 1 ? '' : 's'} couldn't be added.` : '')
+    );
   };
 
   // Tailor profile for specific job, Step 0: Check for existing tailored profile
@@ -2255,7 +2158,7 @@ const ProfileForm = () => {
           <Tooltip title="Rewrite your profile with AI">
             <span>
               <AIButton
-                onClick={() => setShowEnhancePrompt(true)}
+                onClick={() => openEnhance()}
                 disabled={enhancing || gettingSuggestions || !formData.title}
                 $mobileHide
               >
@@ -2382,7 +2285,7 @@ const ProfileForm = () => {
             disabled={enhancing || gettingSuggestions || !formData.title}
             onClick={() => {
               closeAiMenu();
-              setShowEnhancePrompt(true);
+              openEnhance();
             }}
           >
             {enhancing ? <CircularProgress size={16} /> : <AIIcon />}
@@ -4115,12 +4018,13 @@ const ProfileForm = () => {
         </Dialog>
 
         {/* Enhance Prompt Modal with section suggestions */}
-        <EnhancePromptModal
+        <EnhanceFlow
           open={showEnhancePrompt}
-          onClose={() => setShowEnhancePrompt(false)}
-          onEnhance={(choices) => handleEnhanceWithAI(choices)}
-          formData={formData}
-          onGoToExperience={scrollToExperience}
+          onClose={() => { enhanceAbortRef.current?.abort(); setShowEnhancePrompt(false); }}
+          profileData={profileData}
+          runEnhance={runEnhance}
+          onApply={applyEnhance}
+          onLimit={setLimitInfo}
         />
 
         {/* First-time welcome onboarding */}
@@ -4132,16 +4036,6 @@ const ProfileForm = () => {
         />
 
         {/* Enhancement Preview Dialog */}
-        <EnhancementPreviewModal
-          open={showEnhancementDialog}
-          onClose={() => { setShowEnhancementDialog(false); setEnhancements(null); }}
-          onApply={applyEnhancements}
-          enhancements={enhancements}
-          originalData={formData}
-          saving={loading}
-          changedSections={enhancementChangedSections}
-        />
-
         {/* 5.3: Per-section enhance Old vs New diff dialog */}
         <Dialog
           open={!!enhancePreview}
@@ -4582,13 +4476,6 @@ const ProfileForm = () => {
       )}
 
       {/* AI Processing Modals */}
-      <AIProcessingModal
-        open={enhancing}
-        onCancel={() => { enhanceAbortRef.current?.abort(); }}
-        title="AI Enhancing Profile"
-        subtitle="AI is analyzing your profile and generating professional insights..."
-        type="enhance"
-      />
       
       <AIProcessingModal 
         open={gettingSuggestions}

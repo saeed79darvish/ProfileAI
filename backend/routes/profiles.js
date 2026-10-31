@@ -15,6 +15,7 @@ const {
 } = require('../middleware/aiRateLimiter');
 const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlForLimit } = require('../middleware/guestRateLimiter');
 const { clientIp } = require('../utils/clientIp');
+const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
 const aiService = require('../services/aiService');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
@@ -1168,7 +1169,11 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance', 
     // Nothing worth applying means nothing charged. Candidates were paying a
     // credit for a preview whose every section matched what they already had.
     const changedSections = Array.isArray(result.changedSections) ? result.changedSections : null;
-    const noChanges = Array.isArray(changedSections) && changedSections.length === 0;
+    // The Analyze flow reviews change by change, so "nothing to keep" is the
+    // test there; older clients still get the section-level one.
+    const noChanges = Array.isArray(result.changes)
+      ? result.changes.length === 0
+      : Array.isArray(changedSections) && changedSections.length === 0;
     if (!noChanges) {
       await recordAIUsage(req.user.id, 'profile_enhance');
     } else {
@@ -1184,6 +1189,7 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance', 
         ? 'Your profile is already in good shape for these choices — nothing worth changing, and no credit was used.'
         : 'Profile enhanced successfully',
       data: result.data,
+      changes: result.changes,
       // Counted findings from the deterministic checker, plus anything only the
       // candidate can settle (a number we removed, a skill nothing evidences).
       // Travels with the response so the product can show what was checked
@@ -1194,6 +1200,66 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance', 
   } catch (error) {
     console.error('Error enhancing profile:', error);
     res.status(500).json({ error: 'Error enhancing profile' });
+  }
+});
+
+// @route   POST /api/profiles/enhance-analysis
+// @desc    Enhance with AI, step one: findings and suggested actions per section
+// @access  Private. Free of Enhance credits: it spends the separate
+//          profile_enhance_assist bucket, and only when the cache misses.
+const ENHANCE_ANALYSIS_KIND = 'enhance_analysis_v1';
+// The cache hash covers title, summary, skills and experience; education is
+// passed through its free-text slot so editing a school also misses the cache.
+const enhanceAnalysisExtra = (profileData) => `education:${JSON.stringify((profileData && profileData.education) || [])}`;
+
+router.post('/enhance-analysis', authMiddleware, async (req, res, next) => {
+  const { profileData } = req.body || {};
+  if (!profileData || typeof profileData !== 'object') {
+    return res.status(400).json({ error: 'Profile data is required' });
+  }
+  const cached = await getCachedAnalysis({
+    kind: ENHANCE_ANALYSIS_KIND,
+    userId: req.user.id,
+    profileData,
+    jobDescription: enhanceAnalysisExtra(profileData),
+  });
+  if (cached) return res.json({ success: true, cached: true, ...cached });
+  return next();
+}, aiRateLimiter('profile_enhance_assist', { freeWhen: 'noProfileYet' }), async (req, res) => {
+  try {
+    const { profileData } = req.body;
+    const result = await resumeParserService.analyzeForEnhancement(profileData);
+    if (result.usedModel) {
+      await recordAIUsage(req.user.id, 'profile_enhance_assist');
+      await setCachedAnalysis({
+        kind: ENHANCE_ANALYSIS_KIND,
+        userId: req.user.id,
+        profileData,
+        jobDescription: enhanceAnalysisExtra(profileData),
+        result,
+        ttlDays: 7,
+      });
+    }
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error analyzing profile for enhancement:', error);
+    res.status(500).json({ error: 'Could not analyze your profile' });
+  }
+});
+
+// @route   POST /api/profiles/enhance-resume/results
+// @desc    Work figures the candidate typed in the Review step into their bullets
+// @access  Private. Uses the profile_enhance_assist bucket, not an Enhance credit.
+router.post('/enhance-resume/results', authMiddleware, aiRateLimiter('profile_enhance_assist', { freeWhen: 'noProfileYet' }), async (req, res) => {
+  try {
+    const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'No results to add' });
+    const results = await resumeParserService.addResultsToBullets(items);
+    if (results.length) await recordAIUsage(req.user.id, 'profile_enhance_assist');
+    res.json({ success: true, items: results });
+  } catch (error) {
+    console.error('Error adding results to bullets:', error);
+    res.status(500).json({ error: 'Could not add your results' });
   }
 });
 
@@ -1294,7 +1360,6 @@ async function analyzeGapsCacheHit(req, res, next) {
       console.log(`[analyze-gaps] forceRefresh for user ${req.user.id} — bypassing cache`);
       return next();
     }
-    const { getCachedAnalysis } = require('../services/aiAnalysisCacheService');
     const cached = await getCachedAnalysis({
       kind: 'analyze_gaps',
       userId: req.user.id,
