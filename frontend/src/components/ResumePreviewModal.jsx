@@ -12,6 +12,7 @@ import {
 } from '@mui/icons-material';
 import { resumeAPI, profileAPI } from '../services/api';
 import PdfCanvasPreview from './PdfCanvasPreview';
+import { buildResumeFilename, RESUME_FILENAME_MAX } from '../utils/resumeFilename';
 
 // === Config ===
 const TEMPLATE_OPTIONS = [
@@ -93,13 +94,9 @@ const ModalContainer = styled.div`
   flex-direction: column;
   overflow: hidden;
 
-  /* On mobile the modal is fullscreen; let the entire modal be one
-     natural scroll container instead of a nested scroll inside
-     TwoColLayout. Without this the preview stayed pinned at the top
-     while only the Save/Format/Template section scrolled. */
+  /* Mobile: header and footer stay put; MobileBody between them scrolls. */
   @media (max-width: 768px) {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    background: #f3f4f8;
   }
 `;
 
@@ -377,12 +374,10 @@ const RightPane = styled.div`
   overflow-y: auto;
   border-left: 1px solid #f3f4f6;
 
+  /* Mobile: sits inside MobileBody, which already pads and scrolls. */
   @media (max-width: 768px) {
-    padding: 16px;
+    padding: 0;
     border-left: none;
-    border-top: 1px solid #f3f4f6;
-    /* Let it grow naturally so its content flows into the modal-level
-       scroll — no local scrollbar. */
     overflow: visible;
   }
 `;
@@ -395,6 +390,176 @@ const LoadingBox = styled.div`
   color: #6b7280;
   font-size: 14px;
   font-weight: 500;
+`;
+
+// === Mobile layout ===
+const MobileHeader = styled.div`
+  flex-shrink: 0;
+  padding: 16px 16px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e8e9f0;
+
+  .top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .titles {
+    flex: 1;
+    min-width: 0;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #13152a;
+    line-height: 1.25;
+  }
+
+  .subtitle {
+    margin-top: 2px;
+    font-size: 14px;
+    color: #6b7280;
+  }
+
+  .close {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 14px;
+    background: #f1f2f6;
+    color: #13152a;
+    cursor: pointer;
+
+    svg { font-size: 22px; }
+  }
+`;
+
+const Segmented = styled.div`
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  border-radius: 16px;
+  background: #eceef4;
+
+  button {
+    flex: 1;
+    height: 42px;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+    color: #6b7280;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  }
+
+  button[aria-selected='true'] {
+    background: #fff;
+    color: #13152a;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+  }
+`;
+
+const MobileBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px;
+
+  ${PreviewCard} {
+    height: 58vh;
+    min-height: 360px;
+    border-radius: 16px;
+  }
+`;
+
+const PageMeta = styled.div`
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 2px 22px;
+  font-size: 14px;
+  color: #6b7280;
+`;
+
+const MobileTemplateGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+`;
+
+const MobileTemplateCard = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1.5px solid ${p => (p.$active ? '#5b5fd6' : '#e5e7eb')};
+  background: ${p => (p.$active ? '#f4f4ff' : '#fff')};
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #13152a;
+  }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: ${p => p.$dot};
+  }
+
+  .desc {
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: #6b7280;
+  }
+`;
+
+const EditHint = styled.p`
+  margin: 0 0 18px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: #6b7280;
+`;
+
+const MobileFooter = styled.div`
+  flex-shrink: 0;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  border-top: 1px solid #e8e9f0;
+
+  .label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+
+  .count {
+    font-size: 13px;
+    color: #9ca3af;
+  }
 `;
 
 // === Right pane field styles ===
@@ -443,6 +608,26 @@ const FileNameWrap = styled.div`
     background: #f9fafb;
     border-left: 1px solid #e5e7eb;
     white-space: nowrap;
+  }
+
+  /* Mobile: 16px text so iOS doesn't zoom in on focus. */
+  @media (max-width: 768px) {
+    border-radius: 14px;
+    background: #fff;
+
+    input {
+      height: 50px;
+      padding: 0 4px 0 16px;
+      font-size: 16px;
+      text-overflow: ellipsis;
+    }
+
+    .ext {
+      padding: 0 16px 0 8px;
+      font-size: 16px;
+      background: none;
+      border-left: none;
+    }
   }
 `;
 
@@ -879,6 +1064,15 @@ const DownloadBtn = styled.button`
   &:disabled { opacity: 0.6; cursor: not-allowed; }
 
   svg { font-size: 18px; }
+
+  @media (max-width: 768px) {
+    width: 100%;
+    height: 54px;
+    margin-top: 12px;
+    justify-content: center;
+    border-radius: 14px;
+    font-size: 17px;
+  }
 `;
 
 const DoneEditingBtn = styled.button`
@@ -939,6 +1133,14 @@ const FieldInput = styled.input`
     border-color: #4f46e5;
     outline: none;
     box-shadow: 0 0 0 3px rgba(79,70,229,0.08);
+  }
+
+  /* Mobile: 16px text so iOS doesn't zoom in on focus. */
+  @media (max-width: 768px) {
+    font-size: 16px;
+    padding: 13px 16px;
+    border-radius: 14px;
+    background: #fff;
   }
 `;
 
@@ -1285,47 +1487,16 @@ export default function ResumePreviewModal({
   initialTab = 'preview',
 }) {
   const buildDefaultName = () => {
-    // Pattern: <FirstLast>-<JobTitle>-<Proficiency> e.g. SaeedDarvish-SeniorFrontEnd-Senior-Polished
-    const sanitize = (s) =>
-      String(s || '')
-        .replace(/[^a-zA-Z0-9 ]/g, '')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join('');
-
     const data = tailoredProfileData || profileData || {};
     const firstName =
       data.firstName || user?.firstName || (data.fullName || data.name || '').split(' ')[0] || '';
     const lastName =
       data.lastName || user?.lastName || (data.fullName || data.name || '').split(' ').slice(1).join(' ') || '';
-    const titleSource = jobTitle || data.title || data.headline || 'Resume';
-
-    // Infer proficiency / seniority from title or top experience.
-    const titleLc = String(titleSource).toLowerCase();
-    let proficiency = '';
-    if (/principal|staff|distinguished/.test(titleLc)) proficiency = 'Principal';
-    else if (/lead|head|director|architect/.test(titleLc)) proficiency = 'Lead';
-    else if (/senior|sr\.?\s/.test(titleLc)) proficiency = 'Senior';
-    else if (/junior|jr\.?\s|intern|entry/.test(titleLc)) proficiency = 'Junior';
-    else if (/mid/.test(titleLc)) proficiency = 'Mid';
-
-    // Pick a polished descriptor that varies per generation so filename is unique.
-    const descriptors = [
-      'Polished', 'Tailored', 'Crafted', 'Refined', 'Optimized',
-      'Sharpened', 'Curated', 'Precise', 'Focused', 'Aligned',
-    ];
-    const descriptor = descriptors[Math.floor(Math.random() * descriptors.length)];
-
-    const namePart = sanitize(`${firstName} ${lastName}`) || 'Candidate';
-    const titlePart = sanitize(titleSource) || 'Resume';
-    const tail = [proficiency, descriptor].filter(Boolean).join('-');
-
-    return tail ? `${namePart}-${titlePart}-${tail}` : `${namePart}-${titlePart}`;
+    return buildResumeFilename(`${firstName} ${lastName}`, jobTitle || data.title || data.headline);
   };
 
-  // Compute once per open so the random descriptor is stable while the modal is open.
+  // Computed once per open, so editing the title doesn't rename the file
+  // under the user.
   const defaultNameRef = useRef('');
   if (!defaultNameRef.current) defaultNameRef.current = buildDefaultName();
   const defaultName = defaultNameRef.current;
@@ -1353,10 +1524,10 @@ export default function ResumePreviewModal({
   const previewDebounceRef = useRef(null);
   const hasBothVersions = !!(tailoredProfileData && profileData);
   const isMobile = useMediaQuery('(max-width:768px)');
+  const [pageInfo, setPageInfo] = useState({ page: 1, total: 0, paper: '' });
 
   useEffect(() => {
     if (open) {
-      // Regenerate on each open so the random descriptor is fresh.
       defaultNameRef.current = buildDefaultName();
       setFilename(defaultNameRef.current);
       setFormat('pdf');
@@ -1374,6 +1545,12 @@ export default function ResumePreviewModal({
         if (!merged.email && user) {
           merged.email = user.email || '';
         }
+        for (const key of ['phone', 'location']) {
+          if (!merged[key] && profileData?.[key]) merged[key] = profileData[key];
+        }
+        if (!merged.title && merged.headline) merged.title = merged.headline;
+        // withContact must not refill what the user cleared in the editor.
+        merged._contactFilled = true;
         // Normalize skills: if object {category: [...]} flatten to array for editing
         if (merged.skills && !Array.isArray(merged.skills) && typeof merged.skills === 'object') {
           merged.skills = Object.values(merged.skills).flat().map(s => typeof s === 'string' ? s : s?.name || '').filter(Boolean);
@@ -1406,6 +1583,10 @@ export default function ResumePreviewModal({
   const withContact = useCallback((data) => {
     if (!data) return data;
     const merged = { ...data };
+    if (merged._contactFilled) {
+      delete merged._contactFilled;
+      return merged;
+    }
     if (!merged.fullName && !merged.name) {
       const fromUser = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
       if (fromUser) merged.fullName = fromUser;
@@ -1543,8 +1724,10 @@ export default function ResumePreviewModal({
     setRegeneratingSection(section);
     setRegenStatus(prev => ({ ...prev, [section]: null }));
     try {
+      // eslint-disable-next-line no-unused-vars
+      const { _contactFilled, ...profileForAI } = base;
       const { data } = await profileAPI.regenerateSections({
-        profileData: base,
+        profileData: profileForAI,
         instructions: { [section]: instruction },
       });
       const updated = data?.data || {};
@@ -1769,15 +1952,14 @@ export default function ResumePreviewModal({
   const getSkillLabel = (s) => typeof s === 'string' ? s : s.name || '';
 
   const isModern = templateId === 'modern';
-  const downloadColor = isModern ? (accentColor || '#667eea') : '#667eea';
+  const downloadColor = isModern ? (accentColor || '#667eea') : (isMobile ? '#5b5fd6' : '#667eea');
 
-  const renderPreview = () => {
+  const renderPreviewCard = () => {
     const showingOriginal = previewMode === 'before' && hasBothVersions;
     const currentUrl = showingOriginal ? originalPreviewUrl : previewUrl;
     const isLoading = showingOriginal ? !originalPreviewUrl : loadingPreview;
 
     return (
-      <LeftPane>
         <PreviewCard>
           {isLoading ? (
             <LoadingBox>
@@ -1791,6 +1973,7 @@ export default function ResumePreviewModal({
               <PdfCanvasPreview
                 url={currentUrl}
                 title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
+                onPageInfo={(info) => setPageInfo((prev) => ({ ...prev, ...info }))}
               />
             ) : (
               <iframe
@@ -1835,6 +2018,12 @@ export default function ResumePreviewModal({
             </LoadingBox>
           )}
         </PreviewCard>
+    );
+  };
+
+  const renderPreview = () => (
+      <LeftPane>
+        {renderPreviewCard()}
         <TemplateRow>
           {TEMPLATE_OPTIONS.map(t => (
             <TemplateChip
@@ -1849,23 +2038,264 @@ export default function ResumePreviewModal({
           ))}
         </TemplateRow>
       </LeftPane>
-    );
-  };
+  );
 
-  const renderRightPaneControls = () => (
-    <RightPane>
-      {/* Save As */}
-      <FieldGroup>
-        <FieldLabel>Save As</FieldLabel>
-        <FileNameWrap>
-          <input
-            value={filename}
-            onChange={e => setFilename(e.target.value)}
-            placeholder="Resume filename"
+  // The editor's fields; desktop shows them beside the preview, phones on
+  // their own under the Edit tab.
+  const renderEditFields = () => (
+    <>
+    <EditSection>
+      <EditSectionLabel>Full Name</EditSectionLabel>
+      <FieldInput
+        value={editData.name || editData.fullName || ''}
+        onChange={e => updateField(editData.name !== undefined ? 'name' : 'fullName', e.target.value)}
+        placeholder="Your full name"
+      />
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Job Title</EditSectionLabel>
+      <FieldInput
+        value={editData.title || ''}
+        onChange={e => updateField('title', e.target.value)}
+        placeholder="e.g. Senior Frontend Engineer"
+      />
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Email</EditSectionLabel>
+      <FieldInput
+        value={editData.email || ''}
+        onChange={e => updateField('email', e.target.value)}
+        type="email"
+        placeholder="your@email.com"
+      />
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Phone</EditSectionLabel>
+      <FieldInput
+        type="tel"
+        value={editData.phone || ''}
+        onChange={e => updateField('phone', e.target.value)}
+        placeholder="Phone number"
+      />
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Location</EditSectionLabel>
+      <FieldInput
+        value={editData.location || ''}
+        onChange={e => updateField('location', e.target.value)}
+        placeholder="City, State"
+      />
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Summary</EditSectionLabel>
+      <AutoTextarea
+        value={editData.summary || ''}
+        onChange={e => updateField('summary', e.target.value)}
+        placeholder="A brief professional summary..."
+      />
+      {renderAIPrompt('summary', 'e.g. Make it punchier and lead with my fintech impact.')}
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Skills</EditSectionLabel>
+      <SkillsWrap>
+        {(editData.skills || []).map((skill, i) => (
+          <SkillChip key={i}>
+            {getSkillLabel(skill)}
+            <span className="remove" onClick={() => removeSkill(i)}>×</span>
+          </SkillChip>
+        ))}
+        <SkillAddInput
+          value={skillInput}
+          onChange={e => setSkillInput(e.target.value)}
+          onKeyDown={handleSkillKeyDown}
+          placeholder="Add skill..."
+        />
+      </SkillsWrap>
+      <SkillHint>Press Enter to add</SkillHint>
+      {renderAIPrompt('skills', 'e.g. Prioritize cloud & backend skills, drop the outdated ones.')}
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Experience</EditSectionLabel>
+      {(editData.experience || []).map((exp, i) => {
+        const bullets = exp.bullets || parseBullets(exp.description);
+        return (
+          <ExpCard key={i}>
+            <FieldInput
+              value={exp.title || ''}
+              onChange={e => updateArrayItem('experience', i, 'title', e.target.value)}
+              placeholder="Job Title"
+              style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
+            />
+            <ExpRow>
+              <FieldInput
+                value={exp.company || ''}
+                onChange={e => updateArrayItem('experience', i, 'company', e.target.value)}
+                placeholder="Company"
+                style={{ fontSize: 13, padding: '6px 10px' }}
+              />
+              <FieldInput
+                value={exp.period || ''}
+                onChange={e => updateArrayItem('experience', i, 'period', e.target.value)}
+                placeholder="Period"
+                style={{ fontSize: 13, padding: '6px 10px', width: 'auto', minWidth: 140 }}
+              />
+            </ExpRow>
+            {bullets.map((bullet, bi) => (
+              <BulletRow key={bi}>
+                <span className="bullet">•</span>
+                <AutoBullet
+                  value={bullet}
+                  onChange={e => updateBullet(i, bi, e.target.value)}
+                  placeholder="Describe what you did..."
+                />
+                <button type="button" className="remove" onClick={() => removeBullet(i, bi)}>
+                  <CloseIcon />
+                </button>
+              </BulletRow>
+            ))}
+            <AddBulletBtn onClick={() => addBullet(i)}>
+              + Add bullet point
+            </AddBulletBtn>
+          </ExpCard>
+        );
+      })}
+      <AddSectionBtn onClick={addExperience}>
+        <AddIcon /> Add Experience
+      </AddSectionBtn>
+      {renderAIPrompt('experience', 'e.g. Quantify every bullet with metrics and use strong action verbs.')}
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Education</EditSectionLabel>
+      {(editData.education || []).map((edu, i) => (
+        <ExpCard key={i}>
+          <FieldInput
+            value={edu.degree || ''}
+            onChange={e => updateEducation(i, 'degree', e.target.value)}
+            placeholder="Degree (e.g. B.S. Computer Science)"
+            style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
           />
-          <span className="ext">.{format === 'pdf' ? 'pdf' : 'docx'}</span>
-        </FileNameWrap>
-      </FieldGroup>
+          <ExpRow>
+            <FieldInput
+              value={edu.school || edu.institution || ''}
+              onChange={e => updateEducation(i, 'school', e.target.value)}
+              placeholder="School"
+              style={{ fontSize: 13, padding: '6px 10px' }}
+            />
+            <FieldInput
+              value={edu.year || edu.graduationYear || ''}
+              onChange={e => updateEducation(i, 'year', e.target.value)}
+              placeholder="Year"
+              style={{ fontSize: 13, padding: '6px 10px', width: 'auto', minWidth: 120 }}
+            />
+          </ExpRow>
+          {edu.field && (
+            <FieldInput
+              value={edu.field || ''}
+              onChange={e => updateEducation(i, 'field', e.target.value)}
+              placeholder="Field of Study"
+              style={{ fontSize: 13, padding: '6px 10px', marginTop: 4 }}
+            />
+          )}
+          <button type="button"
+            className="remove"
+            onClick={() => removeEducation(i)}
+            style={{ position: 'absolute', top: 8, right: 8, background: '#fee2e2', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#dc2626', padding: 4 }}
+          >
+            <DeleteIcon style={{ fontSize: 16 }} />
+          </button>
+        </ExpCard>
+      ))}
+      <AddSectionBtn onClick={addEducation}>
+        <AddIcon /> Add Education
+      </AddSectionBtn>
+      {renderAIPrompt('education', 'e.g. Keep it concise — just degree, school, and year.')}
+    </EditSection>
+
+    <EditSection>
+      <EditSectionLabel>Projects</EditSectionLabel>
+      {(editData.projects || []).map((proj, i) => {
+        const techs = Array.isArray(proj.technologies) ? proj.technologies : [];
+        return (
+          <ExpCard key={i}>
+            <FieldInput
+              value={proj.title || proj.name || ''}
+              onChange={e => updateProject(i, 'title', e.target.value)}
+              placeholder="Project Name"
+              style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
+            />
+            {(proj.link || proj.url) !== undefined && (
+              <FieldInput
+                value={proj.link || proj.url || ''}
+                onChange={e => updateProject(i, 'link', e.target.value)}
+                placeholder="Project link (optional)"
+                style={{ fontSize: 13, padding: '6px 10px', marginTop: 4 }}
+              />
+            )}
+            <AutoTextarea
+              value={proj.description || ''}
+              onChange={e => updateProject(i, 'description', e.target.value)}
+              placeholder="What did you build, what was the impact..."
+              style={{ marginTop: 6 }}
+            />
+            <FieldInput
+              value={techs.join(', ')}
+              onChange={e => updateProject(i, 'technologies', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+              placeholder="Technologies (comma separated)"
+              style={{ fontSize: 13, padding: '6px 10px', marginTop: 6 }}
+            />
+            <button type="button"
+              className="remove"
+              onClick={() => removeProject(i)}
+              style={{ position: 'absolute', top: 8, right: 8, background: '#fee2e2', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#dc2626', padding: 4 }}
+            >
+              <DeleteIcon style={{ fontSize: 16 }} />
+            </button>
+          </ExpCard>
+        );
+      })}
+      <AddSectionBtn onClick={addProject}>
+        <AddIcon /> Add Project
+      </AddSectionBtn>
+      {renderAIPrompt('projects', 'e.g. Emphasize impact and the tech stack for each project.')}
+    </EditSection>
+    </>
+  );
+
+  const renderFilenameField = () => (
+    <FileNameWrap>
+      <input
+        value={filename}
+        onChange={e => setFilename(e.target.value)}
+        maxLength={RESUME_FILENAME_MAX}
+        placeholder="Resume filename"
+        aria-label="File name"
+        title={filename}
+      />
+      <span className="ext">.{format === 'pdf' ? 'pdf' : 'docx'}</span>
+    </FileNameWrap>
+  );
+
+  // Phones keep Save As in the footer and pick templates under the preview,
+  // so they leave those two out here.
+  const renderRightPaneControls = ({ mobile = false } = {}) => (
+    <RightPane>
+      {!mobile && (
+        <FieldGroup>
+          <FieldLabel>Save As</FieldLabel>
+          {renderFilenameField()}
+          <div style={{ marginTop: 6, fontSize: 12, color: '#9ca3af', textAlign: 'right' }}>
+            {filename.length}/{RESUME_FILENAME_MAX} characters
+          </div>
+        </FieldGroup>
+      )}
 
       {/* Format */}
       <FieldGroup>
@@ -1887,6 +2317,7 @@ export default function ResumePreviewModal({
       </FieldGroup>
 
       {/* Template */}
+      {!mobile && (
       <FieldGroup>
         <FieldLabel>Template</FieldLabel>
         <TemplateList>
@@ -1939,6 +2370,7 @@ export default function ResumePreviewModal({
           ))}
         </TemplateList>
       </FieldGroup>
+      )}
 
       {/* Accent Color (Modern only) */}
       {isModern && (
@@ -2049,6 +2481,108 @@ export default function ResumePreviewModal({
     </RightPane>
   );
 
+  const downloadLabel = downloading
+    ? <><CircularProgress size={16} sx={{ color: 'white' }} /> Generating...</>
+    : <>Download {format === 'pdf' ? 'PDF' : 'Word'}</>;
+
+  // Phones: Preview and Edit are separate screens between a fixed header and
+  // a fixed Save As + Download footer.
+  const renderMobile = () => (
+    <ModalContainer>
+      <MobileHeader>
+        <div className="top">
+          <div className="titles">
+            <h3>Download Resume</h3>
+            <div className="subtitle">Pick a template, check details, export</div>
+          </div>
+          <button type="button" className="close" onClick={onClose} aria-label="Close">
+            <CloseIcon />
+          </button>
+        </div>
+        {editData && (
+          <Segmented role="tablist" aria-label="Resume view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'preview'}
+              onClick={() => { if (activeTab !== 'preview') { setActiveTab('preview'); loadPreview(editData, templateId); } }}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'edit'}
+              onClick={() => setActiveTab('edit')}
+            >
+              Edit
+            </button>
+          </Segmented>
+        )}
+      </MobileHeader>
+
+      <MobileBody key={activeTab}>
+        {activeTab === 'edit' && editData ? (
+          <>
+            <EditHint>These details appear at the top of your resume. Switch to Preview to check them.</EditHint>
+            {renderEditFields()}
+          </>
+        ) : (
+          <>
+            {hasBothVersions && (
+              <BeforeAfterToggle style={{ marginBottom: 12 }}>
+                <ToggleBtn $active={previewMode === 'before'} onClick={() => setPreviewMode('before')} style={{ flex: 1 }}>
+                  Before
+                </ToggleBtn>
+                <ToggleBtn $active={previewMode === 'after'} onClick={() => setPreviewMode('after')} style={{ flex: 1 }}>
+                  After ✨
+                </ToggleBtn>
+              </BeforeAfterToggle>
+            )}
+            {renderPreviewCard()}
+            <PageMeta>
+              <span>{pageInfo.total ? `Page ${pageInfo.page} of ${pageInfo.total}` : ''}</span>
+              <span>{[pageInfo.paper, format === 'pdf' ? 'PDF' : 'Word'].filter(Boolean).join(' · ')}</span>
+            </PageMeta>
+
+            <FieldGroup>
+              <FieldLabel>Template</FieldLabel>
+              <MobileTemplateGrid role="radiogroup" aria-label="Template">
+                {TEMPLATE_OPTIONS.map(t => (
+                  <MobileTemplateCard
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={templateId === t.id}
+                    $active={templateId === t.id}
+                    $dot={t.dot}
+                    onClick={() => handleTemplateChange(t.id)}
+                  >
+                    <span className="name"><span className="dot" />{t.label}</span>
+                    <span className="desc">{t.desc}</span>
+                  </MobileTemplateCard>
+                ))}
+              </MobileTemplateGrid>
+            </FieldGroup>
+
+            {renderRightPaneControls({ mobile: true })}
+          </>
+        )}
+      </MobileBody>
+
+      <MobileFooter>
+        <div className="label-row">
+          <FieldLabel as="span" style={{ marginBottom: 0 }}>Save As</FieldLabel>
+          <span className="count">{filename.length}/{RESUME_FILENAME_MAX} characters</span>
+        </div>
+        {renderFilenameField()}
+        <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
+          {downloadLabel}
+        </DownloadBtn>
+      </MobileFooter>
+    </ModalContainer>
+  );
+
   return (
     <Dialog
       open={open}
@@ -2058,6 +2592,7 @@ export default function ResumePreviewModal({
       fullScreen={isMobile}
       PaperProps={{ style: { borderRadius: isMobile ? 0 : 16, overflow: 'hidden', height: isMobile ? '100dvh' : '88vh', maxHeight: isMobile ? '100dvh' : '88vh', maxWidth: isMobile ? '100%' : 980, margin: isMobile ? 0 : undefined } }}
     >
+      {isMobile ? renderMobile() : (
       <ModalContainer>
         <Header>
           <HeaderLeft>
@@ -2106,11 +2641,7 @@ export default function ResumePreviewModal({
             <Footer>
               <CancelBtn onClick={onClose}>Cancel</CancelBtn>
               <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
-                {downloading ? (
-                  <><CircularProgress size={16} sx={{ color: 'white' }} /> Generating...</>
-                ) : (
-                  <>Download {format === 'pdf' ? 'PDF' : 'Word'}</>
-                )}
+                {downloadLabel}
               </DownloadBtn>
             </Footer>
           </>
@@ -2122,199 +2653,7 @@ export default function ResumePreviewModal({
               {renderPreview()}
               <RightPane>
                 <EditScroll>
-                  <EditSection>
-                    <EditSectionLabel>Full Name</EditSectionLabel>
-                    <FieldInput
-                      value={editData.name || editData.fullName || ''}
-                      onChange={e => updateField(editData.name !== undefined ? 'name' : 'fullName', e.target.value)}
-                      placeholder="Your full name"
-                    />
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Email</EditSectionLabel>
-                    <FieldInput
-                      value={editData.email || ''}
-                      onChange={e => updateField('email', e.target.value)}
-                      placeholder="your@email.com"
-                    />
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Summary</EditSectionLabel>
-                    <AutoTextarea
-                      value={editData.summary || ''}
-                      onChange={e => updateField('summary', e.target.value)}
-                      placeholder="A brief professional summary..."
-                    />
-                    {renderAIPrompt('summary', 'e.g. Make it punchier and lead with my fintech impact.')}
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Skills</EditSectionLabel>
-                    <SkillsWrap>
-                      {(editData.skills || []).map((skill, i) => (
-                        <SkillChip key={i}>
-                          {getSkillLabel(skill)}
-                          <span className="remove" onClick={() => removeSkill(i)}>×</span>
-                        </SkillChip>
-                      ))}
-                      <SkillAddInput
-                        value={skillInput}
-                        onChange={e => setSkillInput(e.target.value)}
-                        onKeyDown={handleSkillKeyDown}
-                        placeholder="Add skill..."
-                      />
-                    </SkillsWrap>
-                    <SkillHint>Press Enter to add</SkillHint>
-                    {renderAIPrompt('skills', 'e.g. Prioritize cloud & backend skills, drop the outdated ones.')}
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Experience</EditSectionLabel>
-                    {(editData.experience || []).map((exp, i) => {
-                      const bullets = exp.bullets || parseBullets(exp.description);
-                      return (
-                        <ExpCard key={i}>
-                          <FieldInput
-                            value={exp.title || ''}
-                            onChange={e => updateArrayItem('experience', i, 'title', e.target.value)}
-                            placeholder="Job Title"
-                            style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
-                          />
-                          <ExpRow>
-                            <FieldInput
-                              value={exp.company || ''}
-                              onChange={e => updateArrayItem('experience', i, 'company', e.target.value)}
-                              placeholder="Company"
-                              style={{ fontSize: 13, padding: '6px 10px' }}
-                            />
-                            <FieldInput
-                              value={exp.period || ''}
-                              onChange={e => updateArrayItem('experience', i, 'period', e.target.value)}
-                              placeholder="Period"
-                              style={{ fontSize: 13, padding: '6px 10px', width: 'auto', minWidth: 140 }}
-                            />
-                          </ExpRow>
-                          {bullets.map((bullet, bi) => (
-                            <BulletRow key={bi}>
-                              <span className="bullet">•</span>
-                              <AutoBullet
-                                value={bullet}
-                                onChange={e => updateBullet(i, bi, e.target.value)}
-                                placeholder="Describe what you did..."
-                              />
-                              <button type="button" className="remove" onClick={() => removeBullet(i, bi)}>
-                                <CloseIcon />
-                              </button>
-                            </BulletRow>
-                          ))}
-                          <AddBulletBtn onClick={() => addBullet(i)}>
-                            + Add bullet point
-                          </AddBulletBtn>
-                        </ExpCard>
-                      );
-                    })}
-                    <AddSectionBtn onClick={addExperience}>
-                      <AddIcon /> Add Experience
-                    </AddSectionBtn>
-                    {renderAIPrompt('experience', 'e.g. Quantify every bullet with metrics and use strong action verbs.')}
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Education</EditSectionLabel>
-                    {(editData.education || []).map((edu, i) => (
-                      <ExpCard key={i}>
-                        <FieldInput
-                          value={edu.degree || ''}
-                          onChange={e => updateEducation(i, 'degree', e.target.value)}
-                          placeholder="Degree (e.g. B.S. Computer Science)"
-                          style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
-                        />
-                        <ExpRow>
-                          <FieldInput
-                            value={edu.school || edu.institution || ''}
-                            onChange={e => updateEducation(i, 'school', e.target.value)}
-                            placeholder="School"
-                            style={{ fontSize: 13, padding: '6px 10px' }}
-                          />
-                          <FieldInput
-                            value={edu.year || edu.graduationYear || ''}
-                            onChange={e => updateEducation(i, 'year', e.target.value)}
-                            placeholder="Year"
-                            style={{ fontSize: 13, padding: '6px 10px', width: 'auto', minWidth: 120 }}
-                          />
-                        </ExpRow>
-                        {edu.field && (
-                          <FieldInput
-                            value={edu.field || ''}
-                            onChange={e => updateEducation(i, 'field', e.target.value)}
-                            placeholder="Field of Study"
-                            style={{ fontSize: 13, padding: '6px 10px', marginTop: 4 }}
-                          />
-                        )}
-                        <button type="button"
-                          className="remove"
-                          onClick={() => removeEducation(i)}
-                          style={{ position: 'absolute', top: 8, right: 8, background: '#fee2e2', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#dc2626', padding: 4 }}
-                        >
-                          <DeleteIcon style={{ fontSize: 16 }} />
-                        </button>
-                      </ExpCard>
-                    ))}
-                    <AddSectionBtn onClick={addEducation}>
-                      <AddIcon /> Add Education
-                    </AddSectionBtn>
-                    {renderAIPrompt('education', 'e.g. Keep it concise — just degree, school, and year.')}
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionLabel>Projects</EditSectionLabel>
-                    {(editData.projects || []).map((proj, i) => {
-                      const techs = Array.isArray(proj.technologies) ? proj.technologies : [];
-                      return (
-                        <ExpCard key={i}>
-                          <FieldInput
-                            value={proj.title || proj.name || ''}
-                            onChange={e => updateProject(i, 'title', e.target.value)}
-                            placeholder="Project Name"
-                            style={{ fontWeight: 700, fontSize: 15, border: 'none', padding: '4px 0', color: '#111827' }}
-                          />
-                          {(proj.link || proj.url) !== undefined && (
-                            <FieldInput
-                              value={proj.link || proj.url || ''}
-                              onChange={e => updateProject(i, 'link', e.target.value)}
-                              placeholder="Project link (optional)"
-                              style={{ fontSize: 13, padding: '6px 10px', marginTop: 4 }}
-                            />
-                          )}
-                          <AutoTextarea
-                            value={proj.description || ''}
-                            onChange={e => updateProject(i, 'description', e.target.value)}
-                            placeholder="What did you build, what was the impact..."
-                            style={{ marginTop: 6 }}
-                          />
-                          <FieldInput
-                            value={techs.join(', ')}
-                            onChange={e => updateProject(i, 'technologies', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                            placeholder="Technologies (comma separated)"
-                            style={{ fontSize: 13, padding: '6px 10px', marginTop: 6 }}
-                          />
-                          <button type="button"
-                            className="remove"
-                            onClick={() => removeProject(i)}
-                            style={{ position: 'absolute', top: 8, right: 8, background: '#fee2e2', border: 'none', borderRadius: 6, cursor: 'pointer', color: '#dc2626', padding: 4 }}
-                          >
-                            <DeleteIcon style={{ fontSize: 16 }} />
-                          </button>
-                        </ExpCard>
-                      );
-                    })}
-                    <AddSectionBtn onClick={addProject}>
-                      <AddIcon /> Add Project
-                    </AddSectionBtn>
-                    {renderAIPrompt('projects', 'e.g. Emphasize impact and the tech stack for each project.')}
-                  </EditSection>
+                  {renderEditFields()}
 
                   <DoneEditingBtn onClick={() => { loadPreview(editData, templateId); setActiveTab('preview'); }}>
                     Done Editing, Back to Download
@@ -2325,6 +2664,7 @@ export default function ResumePreviewModal({
           </>
         )}
       </ModalContainer>
+      )}
     </Dialog>
   );
 }

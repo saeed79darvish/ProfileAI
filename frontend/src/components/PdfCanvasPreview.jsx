@@ -57,7 +57,18 @@ const Overlay = styled.div`
   background: #f1f5f9;
 `;
 
-export default function PdfCanvasPreview({ url, title }) {
+// Points per page edge, as pdf.js reports them at scale 1.
+const paperName = (width, height) => {
+  if (Math.abs(width - 612) < 4 && Math.abs(height - 792) < 4) return 'Letter';
+  if (Math.abs(width - 595) < 4 && Math.abs(height - 842) < 4) return 'A4';
+  return '';
+};
+
+/* onPageInfo, when given, hears { page, total, paper } as the pages render and
+   as the reader scrolls through them. */
+export default function PdfCanvasPreview({ url, title, onPageInfo }) {
+  const onPageInfoRef = useRef(onPageInfo);
+  onPageInfoRef.current = onPageInfo;
   const wrapRef = useRef(null);
   const pagesRef = useRef(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
@@ -111,6 +122,10 @@ export default function PdfCanvasPreview({ url, title }) {
         if (!container) return;
         container.innerHTML = '';
 
+        const first = (await pdf.getPage(1)).getViewport({ scale: 1 });
+        const paper = paperName(first.width, first.height);
+        onPageInfoRef.current?.({ page: 1, total: pdf.numPages, paper });
+
         // Render at a crisp scale capped to the container width.
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const usable = Math.max(containerWidth - 20, 240); // minus horizontal padding
@@ -147,6 +162,26 @@ export default function PdfCanvasPreview({ url, title }) {
       try { loadingTask?.destroy?.(); } catch { /* ignore */ }
     };
   }, [url, containerWidth]);
+
+  // The page whose top has passed the middle of the view is the current one.
+  useEffect(() => {
+    const el = pagesRef.current;
+    if (!el || status !== 'ready') return undefined;
+    let shown = 1;
+    const onScroll = () => {
+      const middle = el.scrollTop + el.clientHeight / 2;
+      let page = 1;
+      [...el.querySelectorAll('canvas')].forEach((canvas, i) => {
+        if (canvas.offsetTop <= middle) page = i + 1;
+      });
+      if (page !== shown) {
+        shown = page;
+        onPageInfoRef.current?.({ page });
+      }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [status]);
 
   const openInNewTab = () => {
     if (!url) return;
