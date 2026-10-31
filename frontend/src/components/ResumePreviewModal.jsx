@@ -95,9 +95,16 @@ const ModalContainer = styled.div`
   flex-direction: column;
   overflow: hidden;
 
-  /* Mobile: header and footer stay put; MobileBody between them scrolls. */
+  /* Mobile: header and footer stay put; MobileBody between them scrolls.
+     Every field is at least 16px, or iPhone Safari zooms in on focus and the
+     dialog ends up wider than the screen. !important because the editor sets
+     smaller sizes inline. */
   @media (max-width: 768px) {
     background: #f3f4f8;
+
+    input, textarea {
+      font-size: 16px !important;
+    }
   }
 `;
 
