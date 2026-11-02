@@ -3,7 +3,6 @@ import styled from 'styled-components';
 import { CircularProgress } from '@mui/material';
 import {
   ArrowBackIosNew as BackIcon,
-  IosShare as ShareIcon,
   BookmarkBorder as BookmarkIcon,
   Bookmark as BookmarkedIcon,
   Check as CheckIcon,
@@ -19,7 +18,7 @@ import { hideWhileTyping } from '@/styles/keyboard';
 import JobDescription, { QuickFacts, factsFromJob } from './JobDescription';
 
 /**
- * A job on a phone, full screen over the app: a light header (back, share,
+ * A job on a phone, full screen over the app: a light header (back and
  * save) so the title is the first thing read, the free requirement match up
  * front (requirements read once per posting, your coverage checked in code),
  * the posting in sections (./JobDescription), and a two-button footer: Apply
@@ -242,7 +241,7 @@ const verdictFor = (score) => (score >= 85 ? 'Strong match' : score >= 70 ? 'Goo
 const ringColor = (score) => (score >= 85 ? '#5b5fd6' : score >= 50 ? '#d08a2e' : '#c2410c');
 
 export default function MobileJobDetail({
-  job, isAuthenticated, saved, applied, onBack, onShare, onToggleSave,
+  job, isAuthenticated, saved, applied, onBack, onToggleSave,
   applyHref, onApply, onTailor, onCoverLetter, similarJobs = [], onOpenJob,
   descriptionHtml, renderLogo, sourceLabel, children,
 }) {
@@ -278,7 +277,6 @@ export default function MobileJobDetail({
       <Bar>
         <button type="button" className="back" onClick={onBack}><BackIcon />Jobs</button>
         <span className="grow" />
-        <button type="button" className="icon" aria-label="Share" onClick={onShare}><ShareIcon /></button>
         <button type="button" className="icon" aria-label={saved ? 'Unsave' : 'Save'} aria-pressed={saved} onClick={(e) => onToggleSave(e, job.id)}>
           {saved ? <BookmarkedIcon /> : <BookmarkIcon />}
         </button>

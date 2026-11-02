@@ -511,6 +511,7 @@ export const tailoredProfileAPI = {
   getById: (id) => api.get(`/tailored-profiles/${id}`),
   save: (data) => api.post('/tailored-profiles', data),
   update: (id, data) => api.put(`/tailored-profiles/${id}`, data),
+  setStatus: (id, status) => api.patch(`/tailored-profiles/${id}/status`, { status }),
   delete: (id) => api.delete(`/tailored-profiles/${id}`),
   updateGapStatus: (id, gapIndex, status) => api.patch(`/tailored-profiles/${id}/gaps/${gapIndex}`, { status }),
   getLearningPlan: () => api.get('/tailored-profiles/learning-plan/all'),

@@ -919,7 +919,7 @@ export const MainContent = styled.div`
   }
 `;
 
-export const ContentGrid = styled.div`
+export const ContentGrid = styled.div<{ $wide?: boolean }>`
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 24px;
@@ -940,6 +940,11 @@ export const ContentGrid = styled.div`
     grid-template-columns: 1fr;
     gap: 16px;
   }
+
+  /* Tailored resumes needs the width for its list and detail side by side. */
+  ${props => props.$wide && `
+    && { grid-template-columns: minmax(0, 1fr); }
+  `}
 `;
 
 export const MobileProfileSection = styled.div`
@@ -950,8 +955,8 @@ export const MobileProfileSection = styled.div`
   }
 `;
 
-export const DesktopSidebar = styled.div`
-  display: block;
+export const DesktopSidebar = styled.div<{ $hide?: boolean }>`
+  display: ${props => (props.$hide ? 'none' : 'block')};
   
   @media (min-width: 769px) {
     position: sticky;

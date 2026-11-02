@@ -16,11 +16,13 @@ const pulse = keyframes`
   100% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
 `;
 
+const Input = styled.input``;
+
 const Wrap = styled.div`
   position: relative;
   margin-top: 12px;
 
-  input {
+  input, textarea {
     width: 100%;
     box-sizing: border-box;
     height: 48px;
@@ -34,6 +36,15 @@ const Wrap = styled.div`
     outline: none;
 
     &:focus { border-color: #5b5fd6; border-style: solid; background: #fff; }
+    &::placeholder { color: #9ca3af; }
+  }
+
+  textarea {
+    height: auto;
+    min-height: 96px;
+    padding: 12px 52px 12px 16px;
+    line-height: 1.45;
+    resize: vertical;
     &::placeholder { color: #9ca3af; }
   }
 
@@ -58,13 +69,15 @@ const Wrap = styled.div`
   }
 `;
 
-export default function NoteField({ value, onChange, placeholder, label, hints = '', maxLength = 300 }) {
+export default function NoteField({ value, onChange, placeholder, label, hints = '', maxLength = 300, multiline = false }) {
   const transcribe = useCallback((blob) => profileAPI.coachTranscribe(blob, hints), [hints]);
   const dictation = useDictation({ onText: (text) => onChange(text.slice(0, maxLength)), transcribe });
 
   return (
     <Wrap $listening={dictation.listening}>
-      <input
+      <Input
+        as={multiline ? 'textarea' : 'input'}
+        rows={multiline ? 3 : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={dictation.listening ? 'Listening… tap the mic to stop' : placeholder}

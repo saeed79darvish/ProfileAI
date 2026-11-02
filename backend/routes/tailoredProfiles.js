@@ -147,6 +147,27 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Update a tailored profile
+// Where the application stands: tailored, applied, interview, offer. Kept in
+// tailoredData so the list can track progress without a schema change.
+const TRACK_STATUSES = ['tailored', 'applied', 'interview', 'offer'];
+router.patch('/:id/status', auth, async (req, res) => {
+  try {
+    const status = String(req.body?.status || '');
+    if (!TRACK_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `Status must be one of ${TRACK_STATUSES.join(', ')}` });
+    }
+    const tailoredProfile = await TailoredProfile.findOne({ where: { id: req.params.id, userId: req.user.id } });
+    if (!tailoredProfile) return res.status(404).json({ error: 'Tailored profile not found' });
+    await tailoredProfile.update({
+      tailoredData: { ...(tailoredProfile.tailoredData || {}), trackStatus: status, trackStatusAt: new Date().toISOString() },
+    });
+    res.json({ id: tailoredProfile.id, status });
+  } catch (error) {
+    console.error('Error updating tailored profile status:', error);
+    res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
 router.put('/:id', auth, async (req, res) => {
   try {
     const tailoredProfile = await TailoredProfile.findOne({

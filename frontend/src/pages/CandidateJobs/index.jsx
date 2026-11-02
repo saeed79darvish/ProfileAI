@@ -446,6 +446,21 @@ const CandidateJobs = () => {
   const LEGACY_EXTERNAL_SAVED_KEY = 'profileai.savedExternalJobIds';
 
   const [savedJobs, setSavedJobs] = useState(new Set());
+  // Every posting the user saved, from the server. The Saved tab used to show
+  // only the saved jobs that happened to be in the current Discover results,
+  // so a saved job vanished from Saved when the search or filters changed.
+  const [savedExternalJobs, setSavedExternalJobs] = useState([]);
+  const loadSavedExternalJobs = useCallback(() => {
+    if (!isAuthenticated) return;
+    externalJobAPI.getSaved()
+      .then(({ data }) => {
+        const list = Array.isArray(data?.savedJobs) ? data.savedJobs : [];
+        setSavedExternalJobs(list);
+        setSavedJobs(prev => new Set([...prev, ...list.map(j => j.id)]));
+      })
+      .catch(() => {});
+  }, [isAuthenticated]);
+  useEffect(() => { loadSavedExternalJobs(); }, [loadSavedExternalJobs]);
   // Job ids (internal + external) the user already applied to. External ids
   // come from /external-jobs/check-applied (ApplyPilot submissions +
   // extension-tracked applications); internal ids from my-applications.
@@ -1367,9 +1382,10 @@ const CandidateJobs = () => {
     if (activeTab === 'applied' || activeTab === 'saved') fetchJobs();
   }, [fetchJobs, activeTab]);
 
+  // Opening Saved refreshes the list, so a job saved on another device shows.
   useEffect(() => {
-    if (activeTab === 'saved') fetchExternalJobs();
-  }, [fetchExternalJobs, activeTab]);
+    if (activeTab === 'saved') loadSavedExternalJobs();
+  }, [loadSavedExternalJobs, activeTab]);
 
   // Abort any in-flight job requests when the page unmounts. Prevents
   // late responses from triggering setState on a torn-down tree (which
@@ -1558,8 +1574,9 @@ const CandidateJobs = () => {
           toast?.success?.('Removed from saved jobs');
         } else {
           await externalJobAPI.save(jobId);
-          toast?.success?.('Job saved');
+          toast?.success?.('Job saved. Find it under Saved.');
         }
+        loadSavedExternalJobs();
       } catch (err) {
         // Revert optimistic update.
         setSavedJobs(prev => {
@@ -1584,7 +1601,7 @@ const CandidateJobs = () => {
         toast?.success?.('Removed from saved jobs');
       } else {
         await jobAPI.saveJob(jobId);
-        toast?.success?.('Job saved');
+        toast?.success?.('Job saved. Find it under Saved.');
       }
     } catch (error) {
       // Revert optimistic update on failure.
@@ -1947,7 +1964,7 @@ const CandidateJobs = () => {
     activeTab === 'saved'
       ? [
           ...jobs.map(j => ({ ...j, _isExternal: false })),
-          ...externalJobs.map(j => ({ ...j, _isExternal: true })),
+          ...savedExternalJobs.map(j => ({ ...j, _isExternal: true })),
         ]
       : jobs
   ).filter(job => {
@@ -3704,13 +3721,6 @@ const CandidateJobs = () => {
           saved={savedJobs.has(selectedJob.id)}
           applied={appliedJobs.has(selectedJob.id)}
           onBack={() => setSelectedJob(null)}
-          onShare={async () => {
-            const url = `${window.location.origin}/jobs?externalJobId=${selectedJob.id}`;
-            try {
-              if (navigator.share) await navigator.share({ title: `${selectedJob.title} at ${selectedJob.company}`, url });
-              else await navigator.clipboard.writeText(url);
-            } catch (_) { /* dismissed */ }
-          }}
           onToggleSave={toggleSaveJob}
           applyHref={selectedJob.applyUrl || selectedJob.sourceUrl || selectedJob.url || null}
           onApply={() => {
