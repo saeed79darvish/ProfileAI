@@ -252,7 +252,7 @@ export const ErrorText = styled.p`
  * @param {React.ReactNode} [props.footer]
  */
 export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, headerExtra, busy = false, footer, bodyRef, children }) {
-  const isMobile = useMediaQuery('(max-width:768px)');
+  const isMobile = useMediaQuery('(max-width:768px)', { noSsr: true });
   return (
     <Dialog
       open={open}

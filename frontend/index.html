@@ -16,7 +16,7 @@
       // iOS only: Android reads it as "no zoom at all".
       if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
         document.querySelector('meta[name="viewport"]').setAttribute(
-          'content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0'
+          'content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content'
         );
       }
     </script>

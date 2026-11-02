@@ -429,6 +429,7 @@ module.exports = {
   SCREENABLE_TYPES,
   KNOCKOUT_TYPES,
   // exported for tests
+  candidateYears,
   isKnockout,
   normalizeType,
   candidateYears,

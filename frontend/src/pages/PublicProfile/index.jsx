@@ -631,7 +631,7 @@ const PublicProfile = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   // Phones get their own layout (PublicProfileMobile); desktop is unchanged.
-  const isMobile = useMediaQuery('(max-width:768px)');
+  const isMobile = useMediaQuery('(max-width:768px)', { noSsr: true });
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

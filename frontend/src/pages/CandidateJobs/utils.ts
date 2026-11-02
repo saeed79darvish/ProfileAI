@@ -35,8 +35,8 @@ export const formatTimeAgo = (date: string | Date | null | undefined) => {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  if (diffDays < 30) { const w = Math.floor(diffDays / 7); return `${w} week${w === 1 ? '' : 's'} ago`; }
+  if (diffDays < 365) { const mo = Math.floor(diffDays / 30); return `${mo} month${mo === 1 ? '' : 's'} ago`; }
   // Anything older than a year, show the year so "December last year" doesn't
   // collapse to "13 months ago" etc. Useful for stale postings.
   const years = Math.floor(diffDays / 365);

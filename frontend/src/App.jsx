@@ -227,7 +227,7 @@ function AppContent() {
     new URLSearchParams(location.search).get('overlay') === '1';
   // On a phone the public profile has its own header (logo plus Create yours
   // free / Back to editor); the app nav means nothing to a recruiter there.
-  const isPhone = useMediaQuery('(max-width:768px)');
+  const isPhone = useMediaQuery('(max-width:768px)', { noSsr: true });
   const hideNavbar =
     (isPhone && isPublicProfilePath(location.pathname)) ||
     AUTH_ROUTES.includes(location.pathname) ||

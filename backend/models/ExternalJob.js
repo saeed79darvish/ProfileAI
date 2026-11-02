@@ -77,6 +77,17 @@ const ExternalJob = sequelize.define('ExternalJob', {
     type: DataTypes.DATE,
     allowNull: true
   },
+  // The posting's requirements read once and shared by every user
+  // (services/jobRequirementsService.js); each candidate's coverage is checked
+  // in code. requirementsReadAt stamps the attempt, success or not.
+  requirementsRead: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  requirementsReadAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   // ── Ghost-job signals (services/ghostJobDetector.js) ────────────────────
   // A "ghost job" is a real company's real-looking posting that nobody is
   // actually hiring for: evergreen pipeline ads, roles left up after they were

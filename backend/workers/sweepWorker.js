@@ -58,6 +58,29 @@ function startSweeps() {
     console.log('[EmbedBackfill] disabled');
   }
 
+  // Job REQUIREMENTS read (services/jobRequirementsService.js): each posting's
+  // requirements read once by Haiku and shared by every user, which is what
+  // makes a match on every job card free. ~$0.002 a job; at 20 jobs every 2
+  // minutes the ~72k backlog clears in about five days, newest jobs first, and
+  // REQUIREMENTS_READ_DAILY_CAP bounds the spend per day. One small UPDATE per
+  // job. Disable with ENABLE_REQUIREMENTS_BACKFILL=false.
+  if (process.env.ANTHROPIC_API_KEY && process.env.ENABLE_REQUIREMENTS_BACKFILL !== 'false') {
+    const { backfillMissingJobRequirements } = require('../services/jobRequirementsService');
+    const reqBatch = parseInt(process.env.REQUIREMENTS_BACKFILL_BATCH || '20', 10);
+    const reqIntervalMs = parseInt(process.env.REQUIREMENTS_BACKFILL_INTERVAL_MS || '120000', 10);
+    const reqTick = serialize(() => backfillMissingJobRequirements({ limit: reqBatch })
+      .then((r) => {
+        if (r.attempted) console.log(`[RequirementsRead] read ${r.read}/${r.attempted}`);
+      })
+      .catch((err) => console.warn('[RequirementsRead] error:', err.message)));
+    // Offset from the other sweeps so they don't tick on the same second.
+    setTimeout(reqTick, 105000);
+    setInterval(reqTick, reqIntervalMs);
+    console.log(`[RequirementsRead] ✓ enabled (batch=${reqBatch}, every ${Math.round(reqIntervalMs / 1000)}s)`);
+  } else {
+    console.log('[RequirementsRead] disabled');
+  }
+
   // Self-healing job-SKILL backfill. ExternalJob.skills powers the ?skills=
   // filter, the skill typeahead and the matched-skills badges, but it was
   // only ever populated by a fire-and-forget fan-out during sync whose

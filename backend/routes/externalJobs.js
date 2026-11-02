@@ -16,6 +16,7 @@ const { deriveRoleQuery } = require('../utils/roleQuery');
 const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = require('../services/jobSeniorityFit');
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
+const { attachMatches, matchForJob } = require('../services/jobMatchList');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -407,7 +408,10 @@ router.get('/', optionalAuth, async (req, res) => {
       bumpCounter('listCacheHits');
       // Tag the response so smoke tests / debug tooling can see cache hits.
       res.set('X-Cache', 'HIT');
-      return res.json(cached);
+      // Matches are attached fresh, not cached, so a job read since the
+      // cache was filled shows its match now.
+      return attachMatches(req.user?.id, cached, { sortByMatch: normalizeSortMode(req.query.sort) !== 'recent' })
+        .then((withMatches) => res.json(withMatches));
     }
     res.set('X-Cache', 'MISS');
 
@@ -447,6 +451,13 @@ router.get('/', optionalAuth, async (req, res) => {
           `user=${req.user?.id} stages=[${stages.join(' ')}] ` +
           `q=${JSON.stringify(req.query).slice(0, 200)}`
         );
+      }
+      // The cache holds the list without matches; each response gets them
+      // fresh (services/jobMatchList.js). Free: stored requirements, code.
+      if (payload && Array.isArray(payload.jobs) && req.user?.id) {
+        attachMatches(req.user.id, payload, { sortByMatch: normalizeSortMode(req.query.sort) !== 'recent' })
+          .then((withMatches) => originalJson(withMatches));
+        return res;
       }
       return originalJson(payload);
     };
@@ -2214,6 +2225,23 @@ router.delete('/:id/save', authMiddleware, async (req, res) => {
  * @desc    Get a single external job with full details
  * @access  Public
  */
+// @route   GET /api/external-jobs/:id/match
+// @desc    The signed-in candidate against this job's requirements: score and
+//          each requirement met / partly / missing. Free: the posting is read
+//          once (shared by everyone) and coverage is checked in code. A job
+//          never read before is read now, so the first open waits ~2s.
+// @access  Private
+router.get('/:id/match', authMiddleware, async (req, res) => {
+  try {
+    const match = await matchForJob(req.user.id, req.params.id);
+    if (!match) return res.json({ success: true, match: null });
+    return res.json({ success: true, match });
+  } catch (error) {
+    console.error('[external-jobs/:id/match] failed:', error.message);
+    return res.status(500).json({ error: 'Could not match this job' });
+  }
+});
+
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
     // ExternalJobs.id is a UUID. A non-UUID param (e.g. a typo'd path like

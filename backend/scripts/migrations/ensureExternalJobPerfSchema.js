@@ -199,6 +199,23 @@ async function up() {
     WHERE "isActive" = TRUE AND "skillsExtractedAt" IS NULL;
   `);
 
+  // The posting's requirements, read once per job by Haiku and shared by every
+  // user (services/jobRequirementsService.js). Each candidate's coverage is
+  // then checked in code, which is what makes a match on every job card free.
+  // requirementsReadAt stamps the attempt, like skillsExtractedAt, so the
+  // sweep is finite even for postings with nothing to read.
+  await runStep('requirementsRead columns', `
+    SET lock_timeout = '5s';
+    ALTER TABLE "ExternalJobs"
+    ADD COLUMN IF NOT EXISTS "requirementsRead" JSONB,
+    ADD COLUMN IF NOT EXISTS "requirementsReadAt" TIMESTAMP WITH TIME ZONE;
+  `);
+  await runStep('pending-requirements-read index', `
+    CREATE INDEX IF NOT EXISTS external_jobs_requirements_pending_idx
+    ON "ExternalJobs" (COALESCE("postedAt", "createdAt") DESC)
+    WHERE "isActive" = TRUE AND "requirementsReadAt" IS NULL;
+  `);
+
   // Normalize legacy/polluted employmentType values to the 5 canonical chip
   // values (matches normalizeEmploymentType in externalJobService.js). Older
   // ingests let raw ATS metadata through ("Regular", "Standard", "Remote",

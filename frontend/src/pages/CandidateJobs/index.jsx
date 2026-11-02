@@ -4,7 +4,9 @@ import DOMPurify from 'dompurify';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { jobAPI } from '@/services/api';
-import { Dialog, DialogContent, Skeleton } from '@mui/material';
+import { Dialog, DialogContent, Skeleton, useMediaQuery } from '@mui/material';
+import MobileJobsView from './mobile/MobileJobsView';
+import MobileJobDetail from './mobile/MobileJobDetail';
 import SearchIcon from '@mui/icons-material/Search';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
@@ -429,6 +431,9 @@ const CandidateJobs = () => {
   const toast = useToast();
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
+  // Phones get their own list and detail (./mobile); tablets and desktop keep
+  // the split view.
+  const isPhone = useMediaQuery('(max-width:768px)', { noSsr: true });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('search') || '');
@@ -1029,6 +1034,43 @@ const CandidateJobs = () => {
   // `filters` directly so they highlight instantly.
   // When `append` is true (used by "Load more"), new jobs are concatenated
   // onto the existing list instead of replacing it.
+  // The /external-jobs query for a set of filters. Shared by the list and by
+  // the phone filter sheet's live "Show N jobs" count, so the two can't differ.
+  const buildJobParams = (f, page = 1, limit = 20) => {
+    const params = { page, limit };
+    if (debouncedSearch) params.search = debouncedSearch;
+    // Ranking-only signal, and only when the user hasn't typed a query of
+    // their own — an explicit search must never be diluted by our guess.
+    else if (roleHint) params.roleHint = roleHint;
+    if (f.locationType) params.locationType = f.locationType;
+    if (f.location) params.location = f.location;
+    if (f.datePosted) params.datePosted = f.datePosted;
+    if (f.experienceLevel) params.experienceLevel = f.experienceLevel;
+    if (f.company) params.company = f.company;
+    if (f.department) params.department = f.department;
+    if (f.employmentType) params.employmentType = f.employmentType;
+    if (f.salary) {
+      const sal = SALARY_OPTIONS.find(s => s.value === f.salary);
+      if (sal?.min != null) params.salaryMin = sal.min;
+      if (sal?.max != null) params.salaryMax = sal.max;
+    }
+    if (f.skills) params.skills = f.skills;
+    if (f.startup) params.startup = 'true';
+    if (f.hideStale) params.hideStale = 'true';
+    // The server fills in role + location from the profile unless we opt out.
+    // We opt out once the user has dismissed personalization or cleared a
+    // seeded filter themselves — otherwise the seed would come straight back
+    // on the next fetch. Sending an explicit empty `location` is not enough:
+    // the server distinguishes "not supplied" from "supplied as empty", and
+    // an untouched page supplies nothing.
+    if (autoSeedDismissedRef.current || seedOptOutRef.current) params.seed = '0';
+    // Always send sort to the backend so the user's choice (incl. the new
+    // default 'recent') is honored. Backend defaults to 'recommended' if
+    // the param is missing, so we'd otherwise silently fall back.
+    if (sortMode) params.sort = sortMode;
+    return params;
+  };
+
   const fetchExternalJobs = useCallback(async (page = 1, { append = false } = {}) => {
     // Cancel any prior in-flight external-jobs request. Without this,
     // typing fast or rapidly toggling filters can race the responses
@@ -1043,37 +1085,7 @@ const CandidateJobs = () => {
       // when appending — the existing list shouldn't disappear under the user.
       if (append) setLoadingMoreExternal(true);
       else setExternalJobsLoading(true);
-      const params = { page, limit: 20 };
-      if (debouncedSearch) params.search = debouncedSearch;
-      // Ranking-only signal, and only when the user hasn't typed a query of
-      // their own — an explicit search must never be diluted by our guess.
-      else if (roleHint) params.roleHint = roleHint;
-      if (debouncedFilters.locationType) params.locationType = debouncedFilters.locationType;
-      if (debouncedFilters.location) params.location = debouncedFilters.location;
-      if (debouncedFilters.datePosted) params.datePosted = debouncedFilters.datePosted;
-      if (debouncedFilters.experienceLevel) params.experienceLevel = debouncedFilters.experienceLevel;
-      if (debouncedFilters.company) params.company = debouncedFilters.company;
-      if (debouncedFilters.department) params.department = debouncedFilters.department;
-      if (debouncedFilters.employmentType) params.employmentType = debouncedFilters.employmentType;
-      if (debouncedFilters.salary) {
-        const sal = SALARY_OPTIONS.find(s => s.value === debouncedFilters.salary);
-        if (sal?.min != null) params.salaryMin = sal.min;
-        if (sal?.max != null) params.salaryMax = sal.max;
-      }
-      if (debouncedFilters.skills) params.skills = debouncedFilters.skills;
-      if (debouncedFilters.startup) params.startup = 'true';
-      if (debouncedFilters.hideStale) params.hideStale = 'true';
-      // The server fills in role + location from the profile unless we opt out.
-      // We opt out once the user has dismissed personalization or cleared a
-      // seeded filter themselves — otherwise the seed would come straight back
-      // on the next fetch. Sending an explicit empty `location` is not enough:
-      // the server distinguishes "not supplied" from "supplied as empty", and
-      // an untouched page supplies nothing.
-      if (autoSeedDismissedRef.current || seedOptOutRef.current) params.seed = '0';
-      // Always send sort to the backend so the user's choice (incl. the new
-      // default 'recent') is honored. Backend defaults to 'recommended' if
-      // the param is missing, so we'd otherwise silently fall back.
-      if (sortMode) params.sort = sortMode;
+      const params = buildJobParams(debouncedFilters, page);
       const response = await externalJobAPI.getAll(params, { signal: controller.signal });
       let fetchedExtJobs = response.data.jobs || [];
       // Prepend pinned job from search if applicable (only on first page —
@@ -1663,6 +1675,14 @@ const CandidateJobs = () => {
     setFilters(prev => ({ ...prev, [key]: value }));
     setOpenDropdown(null);
     // The candidate is steering now; the auto-widen explanation is stale.
+    setSeedRelaxNotice(null);
+  };
+
+  // The phone filter sheet applies several filters at once, with the same
+  // seed opt-out as a single change.
+  const applyFilters = (next) => {
+    if ('location' in next || 'locationType' in next) seedOptOutRef.current = true;
+    setFilters(prev => ({ ...prev, ...next }));
     setSeedRelaxNotice(null);
   };
 
@@ -2539,7 +2559,47 @@ const CandidateJobs = () => {
     <PageContainer>
       <SplitContainer>
         {/* ═══════ LEFT PANEL, Job List ═══════ */}
-        <LeftPanel $hideOnMobile={selectedJob !== null}>
+        {/* On a phone the detail opens over the list, so the list stays put
+            (scroll position kept) instead of hiding. */}
+        <LeftPanel $hideOnMobile={!isPhone && selectedJob !== null}>
+          {isPhone ? (
+            <MobileJobsView
+              isAuthenticated={isAuthenticated}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              activeTab={activeTab}
+              onTab={setActiveTab}
+              counts={{ external: externalJobsPagination.total, saved: savedJobs.size, applied: myApplications.length }}
+              filters={filters}
+              onFilter={handleFilterChange}
+              onApplyFilters={applyFilters}
+              onResetFilters={clearFilters}
+              countFor={(f) => externalJobAPI.getAll(buildJobParams(f, 1, 1)).then((r) => r.data?.pagination?.total ?? 0)}
+              sortMode={sortMode}
+              onSort={setSortMode}
+              jobs={externalJobs}
+              loading={externalJobsLoading}
+              loadingMore={loadingMoreExternal}
+              hasMore={externalJobsPagination.page < externalJobsPagination.pages}
+              onLoadMore={() => fetchExternalJobs(externalJobsPagination.page + 1, { append: true })}
+              total={externalJobsPagination.total}
+              savedJobsList={filteredJobs}
+              applications={myApplications}
+              applicationsLoading={applicationsLoading}
+              statusConfig={STATUS_CONFIG}
+              savedIds={savedJobs}
+              appliedIds={appliedJobs}
+              onToggleSave={toggleSaveJob}
+              onOpen={(job) => handleJobClick({ ...job, _isExternal: job._isExternal ?? true })}
+              onTailor={(job) => {
+                handleJobClick({ ...job, _isExternal: job._isExternal ?? true });
+                // InlineJobAITools mounts with the selected job first.
+                setTimeout(() => window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: job.id } })), 500);
+              }}
+              renderLogo={(job, size) => <CompanyLogo company={job.company} logoUrl={job.companyInfo?.logoUrl} size={size} />}
+              sourceLabel={(src) => SOURCE_LABELS[src] || src}
+            />
+          ) : (
           <Container>
             <SearchSection>
               <SearchInputWrapper
@@ -3477,6 +3537,7 @@ const CandidateJobs = () => {
               </JobsGrid>
             )}
           </Container>
+          )}
         </LeftPanel>
 
         {/* ═══════ CENTER PANEL, Job Detail ═══════ */}
@@ -3619,7 +3680,47 @@ const CandidateJobs = () => {
         )}
       </SplitContainer>
 
-      {/* Mobile Selected Job - Full Screen */}
+      {/* Phone: the job, full screen (./mobile/MobileJobDetail). */}
+      {isPhone && selectedJob && (
+        <MobileJobDetail
+          job={selectedJob}
+          isAuthenticated={isAuthenticated}
+          saved={savedJobs.has(selectedJob.id)}
+          applied={appliedJobs.has(selectedJob.id)}
+          onBack={() => setSelectedJob(null)}
+          onShare={async () => {
+            const url = `${window.location.origin}/jobs?externalJobId=${selectedJob.id}`;
+            try {
+              if (navigator.share) await navigator.share({ title: `${selectedJob.title} at ${selectedJob.company}`, url });
+              else await navigator.clipboard.writeText(url);
+            } catch (_) { /* dismissed */ }
+          }}
+          onToggleSave={toggleSaveJob}
+          applyHref={selectedJob.applyUrl || selectedJob.sourceUrl || selectedJob.url || null}
+          onApply={() => {
+            const href = selectedJob.applyUrl || selectedJob.sourceUrl || selectedJob.url;
+            if (href) { if (selectedJob._isExternal) markExternalApplied(selectedJob.id); }
+            else navigate(`/jobs/${selectedJob.id}/apply`);
+          }}
+          onTailor={() => window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: selectedJob.id } }))}
+          onCoverLetter={() => window.dispatchEvent(new CustomEvent('trigger-cover-letter', { detail: { jobId: selectedJob.id } }))}
+          similarJobs={getSimilarJobs}
+          onOpenJob={(j) => handleJobClick({ ...j, _isExternal: true })}
+          descriptionHtml={getDescriptionHtml(selectedJob)}
+          renderLogo={(job, size) => <CompanyLogo company={job.company} logoUrl={job.companyInfo?.logoUrl} size={size} />}
+          sourceLabel={(src) => SOURCE_LABELS[src] || src}
+        >
+          {/* Hidden InlineJobAITools: Tailor and Cover letter run through it. */}
+          {isAuthenticated && selectedJob._isExternal && (
+            <div style={{ display: 'none' }}>
+              <InlineJobAITools job={selectedJob} renderMobileGateUI />
+            </div>
+          )}
+        </MobileJobDetail>
+      )}
+
+      {/* Mobile Selected Job - Full Screen (tablet widths) */}
+      {!isPhone && (
       <MobileSelectedJobCard $show={selectedJob !== null}>
         <MobileJobHeader>
           <BackButton onClick={() => setSelectedJob(null)}>
@@ -3969,6 +4070,7 @@ const CandidateJobs = () => {
           </MobileStickyFooterV2>
         )}
       </MobileSelectedJobCard>
+      )}
 
       {/* Agent Negotiation Modal */}
       <AgentNegotiationModal

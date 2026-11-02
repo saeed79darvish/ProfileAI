@@ -180,6 +180,10 @@ const Profile = sequelize.define('Profile', {
         const { invalidateProfileForJobsCache } = require('../services/jobEmbeddingService');
         invalidateProfileForJobsCache(profile.userId);
       } catch { /* service unavailable during boot — fine */ }
+      // And the requirement-match index, so card matches follow the edit.
+      try {
+        require('../services/jobMatchList').forgetProfile(profile.userId);
+      } catch { /* service unavailable during boot — fine */ }
 
       // ── Voyage embedding (recruiter-side candidate search) ──
       // Skip if VOYAGE_API_KEY is not configured

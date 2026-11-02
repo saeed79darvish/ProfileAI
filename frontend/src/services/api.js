@@ -1486,6 +1486,8 @@ export const externalJobAPI = {
   getAll: (params = {}, { signal } = {}) =>
     api.get('/external-jobs', { params, signal }),
   getById: (id) => api.get(`/external-jobs/${id}`),
+  // Free requirement match: score plus each requirement met / partly / missing.
+  getMatch: (id) => api.get(`/external-jobs/${id}/match`),
   getStats: () => api.get('/external-jobs/stats'),
   getCompanies: () => api.get('/external-jobs/companies'),
   getDepartments: () => api.get('/external-jobs/departments'),

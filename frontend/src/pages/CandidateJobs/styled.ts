@@ -23,8 +23,11 @@ export const SplitContainer = styled.div`
     grid-template-columns: 380px 1fr;
   }
 
+  /* minmax(0, 1fr), not 1fr: a 1fr column never shrinks below its widest
+     child's min-content width, which grew the phone page to 413px on a
+     390px screen and pushed everything past the right edge. */
   @media (max-width: 768px) {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     padding: 0;
     gap: 0;
   }
@@ -34,6 +37,7 @@ export const LeftPanel = styled.div<{ $hideOnMobile?: boolean }>`
   background: white;
   overflow: visible;
   min-height: 0;
+  min-width: 0;
   border-right: 1px solid #EAECF0;
   display: flex;
   flex-direction: column;
