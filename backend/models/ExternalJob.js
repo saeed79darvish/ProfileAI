@@ -88,6 +88,14 @@ const ExternalJob = sequelize.define('ExternalJob', {
     type: DataTypes.DATE,
     allowNull: true
   },
+  // The description split into facts, summary, sections, company and legal
+  // (services/jobDescriptionStructure.js), built on first open and keyed by a
+  // hash of its source. Never written by sync, and kept when compaction nulls
+  // descriptionHtml: it is then the better read of the posting.
+  descriptionStructured: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
   // ── Ghost-job signals (services/ghostJobDetector.js) ────────────────────
   // A "ghost job" is a real company's real-looking posting that nobody is
   // actually hiring for: evergreen pipeline ads, roles left up after they were

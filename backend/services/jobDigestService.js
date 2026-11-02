@@ -171,7 +171,7 @@ async function loadCandidatePool(profile, roleQuery, since) {
     as: 'companyInfo',
     attributes: ['id', 'name', 'slug', 'domain', 'logoUrl'],
   }];
-  const poolAttributes = { exclude: ['descriptionHtml', 'metadata', 'embedding'] };
+  const poolAttributes = { exclude: ['descriptionHtml', 'descriptionStructured', 'metadata', 'embedding'] };
 
   // 1. Semantic, when we have a profile vector.
   if (roleQuery) {

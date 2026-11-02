@@ -17,6 +17,7 @@ const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = requir
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
 const { attachMatches, matchForJob } = require('../services/jobMatchList');
+const { structuredFor } = require('../services/jobDescriptionStructureService');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1074,7 +1075,7 @@ router.get('/', optionalAuth, async (req, res) => {
         raw: true,
         nest: true,
         attributes: {
-          exclude: ['descriptionHtml', 'metadata', 'embedding']
+          exclude: ['descriptionHtml', 'descriptionStructured', 'metadata', 'embedding']
         },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
@@ -1152,7 +1153,7 @@ router.get('/', optionalAuth, async (req, res) => {
         limit: limitNum,
         offset,
         attributes: {
-          exclude: ['descriptionHtml', 'metadata', 'embedding']
+          exclude: ['descriptionHtml', 'descriptionStructured', 'metadata', 'embedding']
         },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       }),
@@ -1772,7 +1773,7 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
         // postedAt — produces a true chronological order across sources.
         order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
         limit: 200,
-        attributes: { exclude: ['descriptionHtml', 'metadata', 'embedding'] },
+        attributes: { exclude: ['descriptionHtml', 'descriptionStructured', 'metadata', 'embedding'] },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
       return rankJobs(pool, profile, { preferences: rail.careerConstraints, target: rail.targetRole }).slice(0, limit);
@@ -2270,7 +2271,14 @@ router.get('/:id', optionalAuth, async (req, res) => {
     // Detail views likewise do not trigger a crawl — see the note on the list
     // handler above. The sync cron owns freshness.
 
-    res.json(job);
+    let descriptionStructured = null;
+    try {
+      descriptionStructured = structuredFor(job.get({ plain: true }));
+    } catch (err) {
+      // The page falls back to the raw description.
+      console.warn('[external-jobs/:id] description structure failed:', err.message);
+    }
+    res.json({ ...job.toJSON(), descriptionStructured });
   } catch (error) {
     console.error('Error fetching external job:', error);
     res.status(500).json({ message: 'Server error' });

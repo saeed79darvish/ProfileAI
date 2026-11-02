@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { CircularProgress } from '@mui/material';
 import {
@@ -16,31 +16,26 @@ import {
 import { externalJobAPI } from '@/services/api';
 import { formatTimeAgo } from '../utils';
 import { hideWhileTyping } from '@/styles/keyboard';
+import JobDescription, { QuickFacts, factsFromJob } from './JobDescription';
 
 /**
  * A job on a phone, full screen over the app: a light header (back, share,
  * save) so the title is the first thing read, the free requirement match up
  * front (requirements read once per posting, your coverage checked in code),
- * the posting, and a two-button footer: Apply and Tailor resume. Cover letter
- * sits under "More options".
+ * the posting in sections (./JobDescription), and a two-button footer: Apply
+ * and Tailor resume. Cover letter sits under "More options".
  */
-
-// Only benefits the posting actually states. The old check matched any
-// "unlimited" as Unlimited PTO and any "options" as Equity.
-const BENEFITS = [
-  [/\b(health|medical|dental|vision)\s+(insurance|coverage|benefits|plans?)\b/i, 'Health insurance'],
-  [/\bunlimited\s+(pto|paid time off|vacation|time off)\b/i, 'Unlimited PTO'],
-  [/\b(paid time off|pto|paid vacation)\b/i, 'Paid time off'],
-  [/\b401\s?\(?k\)?/i, '401(k)'],
-  [/\b(equity|rsus?|stock options|employee stock)\b/i, 'Equity'],
-  [/\b(parental|maternity|paternity)\s+leave\b/i, 'Parental leave'],
-  [/\b(learning|education|professional development)\s+(stipend|budget|allowance)\b/i, 'Learning budget'],
-];
 const WORK_TONE = { onsite: ['#fff1e6', '#c2410c'], remote: ['#e6f6ec', '#1f7a45'], hybrid: ['#e8f0ff', '#2457c5'] };
 
+// 100dvh, not inset: 0: on iOS a fixed box pinned to all four edges can run
+// under the toolbar, which is how the last lines ended up behind the footer.
 const Screen = styled.div`
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100dvh;
   z-index: 1200;
   display: flex;
   flex-direction: column;
@@ -104,14 +99,7 @@ const Body = styled.main`
   .tags { display: flex; flex-wrap: wrap; gap: 8px; }
   .tag { padding: 6px 12px; border-radius: 10px; font-size: 14px; font-weight: 500; background: #f1f2f6; color: #4a4d63; }
 
-  h2 { margin: 26px 0 10px; font-size: 19px; font-weight: 700; }
-  .desc { font-size: 15.5px; line-height: 1.6; color: #3d3f56; overflow-wrap: anywhere; }
-  .desc.clamp { max-height: 210px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
-  .desc img, .desc table { max-width: 100%; }
-  .desc ul { padding-left: 20px; }
-  .more { margin-top: 8px; padding: 6px 0; border: none; background: none; font: inherit; font-size: 15.5px; font-weight: 600; color: #5b5fd6; cursor: pointer; }
-  .benefits { display: flex; flex-wrap: wrap; gap: 8px; }
-  .benefit { padding: 8px 14px; border-radius: 999px; background: #e6f6ec; color: #1f7a45; font-size: 14.5px; font-weight: 500; }
+  .similar { margin: 28px 0 10px; font-size: 17px; font-weight: 700; color: #1c1b33; }
 `;
 
 const MatchCard = styled.section`
@@ -142,6 +130,8 @@ const MatchCard = styled.section`
     background: #f6f5ff;
   }
   .ring span { position: relative; }
+  .top > div:not(.ring) { flex: 1; min-width: 0; }
+  .see { flex-shrink: 0; min-height: 44px; padding: 0 4px; border: none; background: none; font: inherit; font-size: 15px; font-weight: 600; color: #5b4bd6; cursor: pointer; }
   .verdict { font-size: 17px; font-weight: 700; }
   .count { margin-top: 2px; font-size: 14px; color: #6b7280; }
   ul { margin: 14px 0 0; padding: 0; list-style: none; }
@@ -179,11 +169,25 @@ const Similar = styled.div`
   .s { margin-top: 4px; font-size: 13.5px; color: #6b7280; }
 `;
 
+// In the flex column, never over the content; the fade only softens the
+// line the text scrolls out under.
 const Footer = styled.footer`
+  position: relative;
   flex-shrink: 0;
-  padding: 6px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 16px max(12px, env(safe-area-inset-bottom));
   border-top: 1px solid #eceef4;
   background: #fff;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 16px;
+    pointer-events: none;
+    background: linear-gradient(rgba(255, 255, 255, 0), #fff);
+  }
 
   .toggle {
     display: flex;
@@ -243,11 +247,11 @@ export default function MobileJobDetail({
   descriptionHtml, renderLogo, sourceLabel, children,
 }) {
   const [match, setMatch] = useState(undefined); // undefined loading, null none
-  const [expanded, setExpanded] = useState(false);
   const [more, setMore] = useState(false);
+  const bodyRef = useRef(null);
+  const toList = useRef(null);
 
   useEffect(() => {
-    setExpanded(false);
     setMore(false);
     if (!isAuthenticated || !job?._isExternal || !job?.id) { setMatch(null); return undefined; }
     let live = true;
@@ -262,10 +266,12 @@ export default function MobileJobDetail({
   const work = String(job.locationType || '').toLowerCase();
   const [wbg, wfg] = WORK_TONE[work] || [];
   const posted = formatTimeAgo(job.postedAt || job.createdAt);
-  const descText = `${job.description || ''} ${job.requirements || ''}`;
-  const benefits = BENEFITS.filter(([re]) => re.test(descText)).map(([, label]) => label)
-    .filter((l, i, a) => !(l === 'Paid time off' && a.includes('Unlimited PTO')) && a.indexOf(l) === i);
   const city = String(job.location || '').trim();
+  const structured = job.descriptionStructured || null;
+  const facts = structured?.facts || factsFromJob(job);
+  // The requirements section marks each line from the match, so the card
+  // only needs the score and a way there.
+  const listBelow = !!structured?.sections?.some((x) => x.kind === 'requirements' || x.kind === 'niceToHave');
 
   return (
     <Screen role="dialog" aria-label={job.title}>
@@ -278,7 +284,7 @@ export default function MobileJobDetail({
         </button>
       </Bar>
 
-      <Body>
+      <Body ref={bodyRef}>
         <div className="company">
           {renderLogo(job, 56)}
           <div>
@@ -293,6 +299,7 @@ export default function MobileJobDetail({
           {posted && <span className="tag">Posted {posted}</span>}
           {job.source && <span className="tag">via {sourceLabel(job.source)}</span>}
         </div>
+        <QuickFacts facts={facts} showWorkMode={!wbg} />
 
         {isAuthenticated && job._isExternal && match !== null && (
           <MatchCard aria-live="polite">
@@ -311,7 +318,9 @@ export default function MobileJobDetail({
                     <div className="verdict">{verdictFor(match.score)}</div>
                     <div className="count">{match.met} of {match.total} requirements met</div>
                   </div>
+                  {listBelow && <button type="button" className="see" onClick={() => toList.current?.()}>See list</button>}
                 </div>
+                {!listBelow && (
                 <ul>
                   {match.requirements.map((r) => (
                     <li key={r.requirement}>
@@ -322,29 +331,26 @@ export default function MobileJobDetail({
                     </li>
                   ))}
                 </ul>
+                )}
               </>
             )}
           </MatchCard>
         )}
 
-        {descriptionHtml && (
-          <>
-            <h2>About the role</h2>
-            <div className={`desc${expanded ? '' : ' clamp'}`} dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
-            <button type="button" className="more" onClick={() => setExpanded((v) => !v)}>{expanded ? 'Show less' : 'Read more'}</button>
-          </>
-        )}
-
-        {benefits.length > 0 && (
-          <>
-            <h2>Benefits</h2>
-            <div className="benefits">{benefits.map((b) => <span key={b} className="benefit">{b}</span>)}</div>
-          </>
-        )}
+        <JobDescription
+          job={job}
+          structured={structured}
+          descriptionHtml={descriptionHtml}
+          match={match || null}
+          scrollRef={bodyRef}
+          listRef={toList}
+          canTailor={isAuthenticated}
+          onTailor={onTailor}
+        />
 
         {similarJobs.length > 0 && (
           <>
-            <h2>Similar jobs</h2>
+            <h2 id="similar-jobs" className="similar">Similar jobs</h2>
             <Similar>
               {similarJobs.map((s) => (
                 <button key={s.id} type="button" onClick={() => onOpenJob(s)}>

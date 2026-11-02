@@ -1693,6 +1693,9 @@ async function syncBoard(atsBoard) {
       // Derived and DB-maintained by a trigger. Listing it here would make the
       // upsert write the payload's (absent → NULL) value over a correct date.
       'effectivePostedAt',
+      // Built on first open and keyed by its source hash; the payload never
+      // carries it, so updating would wipe the cache on every sync.
+      'descriptionStructured',
     ]);
     const updateOnDuplicate = Object.keys(ExternalJob.rawAttributes)
       .filter((k) => !NEVER_UPDATE.has(k));

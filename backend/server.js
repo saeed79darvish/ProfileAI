@@ -805,6 +805,14 @@ const startServer = async () => {
       await ensureApplyTrackingStates();
     }
 
+    // Also blocking: ExternalJobs."descriptionStructured" is in the model, so
+    // the job detail route (and any query loading every attribute) names it.
+    // A catalog check once it exists.
+    {
+      const { up: ensureDescriptionStructured } = require('./scripts/migrations/ensureDescriptionStructured');
+      await ensureDescriptionStructured();
+    }
+
     // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running on 0.0.0.0:${PORT}`);
