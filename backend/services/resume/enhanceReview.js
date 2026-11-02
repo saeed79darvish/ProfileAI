@@ -9,7 +9,7 @@
  * profile it sent, so nothing the candidate skipped can leak into the save.
  */
 
-const { splitBullets } = require('./enhanceAnalysis');
+const { splitBullets, roleSelections } = require('./enhanceAnalysis');
 const { textChanged } = require('./enhancementDiff');
 
 const HAS_NUMBER = /\d/;
@@ -40,7 +40,8 @@ function educationLine(e = {}) {
  */
 function buildReviewChanges(original = {}, enhanced = {}, { sections = [], actions = {} } = {}) {
   const chosen = new Set(sections);
-  const askForResults = (actions.experience || []).includes('add_results');
+  const picks = roleSelections(actions.experience, Array.isArray(original.experience) ? original.experience.length : 0);
+  const askForResults = (i) => !!(picks.get(i) && picks.get(i).actions.has('add_results'));
   const changes = [];
 
   if (chosen.has('title') && enhanced.title && textChanged(original.title || original.headline, enhanced.title)) {
@@ -83,7 +84,7 @@ function buildReviewChanges(original = {}, enhanced = {}, { sections = [], actio
             after: eb[j],
             // A bullet that still has no result after the rewrite: ask the
             // candidate for the figure rather than let the model make one up.
-            askResult: askForResults && !HAS_NUMBER.test(eb[j]),
+            askResult: askForResults(i) && !HAS_NUMBER.test(eb[j]),
           });
         });
       } else if (String(o.description || '').trim() !== String(e.description || '').trim()) {

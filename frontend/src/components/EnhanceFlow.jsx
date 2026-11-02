@@ -8,6 +8,7 @@ import { parseLimitError } from '../utils/aiLimit';
 import {
   FlowDialog, PrimaryBtn, SecondaryBtn, Label, TextInput, Centered, Hint, ChangeCard, KeepBtn, ErrorText,
 } from './flow/FlowLayout';
+import NoteField from './flow/NoteField';
 
 /**
  * Enhance with AI, in three steps:
@@ -128,13 +129,20 @@ const Chip = styled.button`
   svg { font-size: 17px; }
 `;
 
-const Note = styled(TextInput)`
+// Role cards inside Experience: one per job, each with its own choices.
+const RoleCard = styled.div`
   margin-top: 12px;
-  height: 48px;
-  border-style: dashed;
-  background: #f8f9fc;
-  font-size: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1.5px solid ${p => (p.$on ? '#c9caf5' : '#eceef4')};
+  background: ${p => (p.$on ? '#fafaff' : '#fff')};
+
+  .role-issues { margin: 10px 0 0; padding-left: 20px; font-size: 14.5px; line-height: 1.45; color: #4a3a1a; }
+  .role-issues li::marker { color: #d0822e; }
 `;
+
+// Picking one of these clears the others in the same role.
+const ROLE_EXCLUSIVE = { shorter: ['more_detail', 'trim'], more_detail: ['shorter', 'trim'], trim: ['shorter', 'more_detail'] };
 
 
 // ── Review ────────────────────────────────────────────────────────────────
@@ -161,6 +169,14 @@ const initialChoices = (sections) => Object.fromEntries(
     on: !!s.selected,
     actions: new Set(s.recommended || []),
     note: '',
+    // Experience is chosen per role when the analysis lists roles.
+    ...(Array.isArray(s.roles) ? {
+      roles: Object.fromEntries(s.roles.map((r) => [r.index, {
+        on: !!r.selected,
+        actions: new Set(r.recommended || []),
+        note: '',
+      }])),
+    } : {}),
   }])
 );
 
@@ -192,6 +208,11 @@ export default function EnhanceFlow({
   const bodyRef = useRef(null);
   const openRef = useRef(open);
   openRef.current = open;
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  // The parent can deliver a result after the dialog is hidden, so hiding a
+  // running rewrite is safe there (the profile page; not the edit form).
+  const canHide = !!onLateResult;
 
   const showResult = (data) => {
     setResult(data);
@@ -222,6 +243,8 @@ export default function EnhanceFlow({
       showResult(initialResult);
       return;
     }
+    // Reopened while a hidden rewrite is still running: show it, don't restart.
+    if (stepRef.current === 'rewrite') return;
     setStep('analyze');
     setResult(null);
     setTargetRole('');
@@ -238,6 +261,33 @@ export default function EnhanceFlow({
   );
 
   const update = (key, fn) => setChoices((prev) => ({ ...prev, [key]: fn(prev[key]) }));
+
+  // Experience is on while any role is; switching the section switches them all.
+  const updateRole = (index, fn) => update('experience', (c) => {
+    const roles = { ...c.roles, [index]: fn(c.roles[index]) };
+    return { ...c, roles, on: Object.values(roles).some((r) => r.on) };
+  });
+  const toggleSection = (key) => update(key, (c) => {
+    if (!c.roles) return { ...c, on: !c.on };
+    const on = !c.on;
+    return { ...c, on, roles: Object.fromEntries(Object.entries(c.roles).map(([i, r]) => [i, { ...r, on }])) };
+  });
+  const toggleRoleAction = (index, id) => updateRole(index, (r) => {
+    const actions = new Set(r.actions);
+    if (actions.has(id)) actions.delete(id);
+    else {
+      actions.add(id);
+      for (const other of ROLE_EXCLUSIVE[id] || []) actions.delete(other);
+    }
+    return { ...r, on: true, actions };
+  });
+
+  // Words the transcriber should expect: the candidate's own names and terms.
+  const dictationHints = useMemo(() => [
+    profileData?.title,
+    ...(profileData?.experience || []).flatMap((e) => [e.title || e.position, e.company]),
+    ...(Array.isArray(profileData?.skills) ? profileData.skills : Object.values(profileData?.skills || {}).flat()).slice(0, 25),
+  ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', '), [profileData]);
 
   const toggleAction = (key, action) => {
     if (action.needsTargetRole && !targetRole.trim()) {
@@ -256,7 +306,13 @@ export default function EnhanceFlow({
     const options = {
       targetRole: targetRole.trim() || undefined,
       sections: chosenSections,
-      actions: Object.fromEntries(chosenSections.map((k) => [k, [...choices[k].actions]])),
+      actions: Object.fromEntries(chosenSections.map((k) => [k, choices[k].roles
+        ? {
+          roles: Object.fromEntries(Object.entries(choices[k].roles)
+            .filter(([, r]) => r.on)
+            .map(([i, r]) => [i, { actions: [...r.actions], note: r.note.trim() }])),
+        }
+        : [...choices[k].actions]])),
       notes: Object.fromEntries(chosenSections.map((k) => [k, choices[k].note.trim()]).filter(([, v]) => v)),
     };
     setRewriteError('');
@@ -353,7 +409,7 @@ export default function EnhanceFlow({
                 $on={c.on}
                 $issues={issueCount > 0}
                 aria-pressed={c.on}
-                onClick={() => update(key, (x) => ({ ...x, on: !x.on }))}
+                onClick={() => toggleSection(key)}
               >
                 <span className="box">{c.on && <CheckIcon />}</span>
                 <span className="text">
@@ -362,7 +418,65 @@ export default function EnhanceFlow({
                 </span>
                 <span className="badge">{issueCount ? `${issueCount} issue${issueCount === 1 ? '' : 's'}` : 'Looks good'}</span>
               </SectionHead>
-              {c.on && (
+              {c.on && c.roles && s.roles && (
+                <>
+                  {issueCount > 0 && (
+                    <Issues>
+                      {s.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                    </Issues>
+                  )}
+                  <Ask>Choose what to do for each role</Ask>
+                  {s.roles.map((role) => {
+                    const r = c.roles[role.index];
+                    if (!r) return null;
+                    return (
+                      <RoleCard key={role.index} $on={r.on}>
+                        <SectionHead
+                          type="button"
+                          $on={r.on}
+                          $issues={role.issues.length > 0}
+                          aria-pressed={r.on}
+                          onClick={() => updateRole(role.index, (x) => ({ ...x, on: !x.on }))}
+                        >
+                          <span className="box">{r.on && <CheckIcon />}</span>
+                          <span className="text">
+                            {/* Company first: long job titles wrapped to three lines on a phone. */}
+                            <span className="name" style={{ fontSize: 16 }}>{role.company || role.title}</span>
+                            <span className="meta" style={{ display: 'block' }}>{role.company ? role.title : role.meta}</span>
+                            {role.company && <span className="meta" style={{ display: 'block' }}>{role.meta}</span>}
+                          </span>
+                          <span className="badge">{role.issues.length ? `${role.issues.length} issue${role.issues.length === 1 ? '' : 's'}` : 'Looks good'}</span>
+                        </SectionHead>
+                        {r.on && (
+                          <>
+                            {role.issues.length > 0 && (
+                              <ul className="role-issues">{role.issues.map((i) => <li key={i}>{i}</li>)}</ul>
+                            )}
+                            <Chips style={{ marginTop: 12 }}>
+                              {role.actions.map((a) => {
+                                const on = r.actions.has(a.id);
+                                return (
+                                  <Chip key={a.id} type="button" $on={on} aria-pressed={on} onClick={() => toggleRoleAction(role.index, a.id)}>
+                                    {on && <CheckIcon />}{a.label}
+                                  </Chip>
+                                );
+                              })}
+                            </Chips>
+                            <NoteField
+                              value={r.note}
+                              onChange={(note) => updateRole(role.index, (x) => ({ ...x, note }))}
+                              placeholder="Anything else for this role? e.g. mention the BFF work"
+                              label={`Anything else for ${role.title}`}
+                              hints={dictationHints}
+                            />
+                          </>
+                        )}
+                      </RoleCard>
+                    );
+                  })}
+                </>
+              )}
+              {c.on && !(c.roles && s.roles) && (
                 <>
                   {issueCount > 0 && (
                     <Issues>
@@ -390,12 +504,12 @@ export default function EnhanceFlow({
                       );
                     })}
                   </Chips>
-                  <Note
+                  <NoteField
                     value={c.note}
-                    onChange={(e) => update(key, (x) => ({ ...x, note: e.target.value }))}
+                    onChange={(note) => update(key, (x) => ({ ...x, note }))}
                     placeholder="Anything else? e.g. keep “Architect”"
-                    maxLength={300}
-                    aria-label={`Anything else for ${SECTION_NAMES[key]}`}
+                    label={`Anything else for ${SECTION_NAMES[key]}`}
+                    hints={dictationHints}
                   />
                 </>
               )}
@@ -410,7 +524,10 @@ export default function EnhanceFlow({
     <Centered>
       <CircularProgress size={32} sx={{ color: '#5b5fd6' }} />
       <strong>Rewriting {chosenSections.length} section{chosenSections.length === 1 ? '' : 's'}</strong>
-      <span>{chosenSections.map((k) => SECTION_NAMES[k]).join(', ')}. This takes about a minute; nothing is saved until you review it.</span>
+      <span>
+        {chosenSections.map((k) => SECTION_NAMES[k]).join(', ')}. This takes about a minute; nothing is saved until you review it.
+        {canHide && ' You can keep working; we’ll let you know when it’s ready.'}
+      </span>
     </Centered>
   );
 
@@ -463,6 +580,11 @@ export default function EnhanceFlow({
   };
 
   const renderFooter = () => {
+    if (step === 'rewrite') {
+      return canHide
+        ? <SecondaryBtn type="button" style={{ flex: 1 }} onClick={onClose}>Hide and keep working</SecondaryBtn>
+        : null;
+    }
     if (step === 'analyze') {
       if (!analysis) return null;
       const n = chosenSections.length;
@@ -500,7 +622,7 @@ export default function EnhanceFlow({
       subtitle={subtitle}
       steps={STEPS}
       stepIndex={stepIndex}
-      busy={step === 'rewrite' || applying}
+      busy={(step === 'rewrite' && !canHide) || applying}
       footer={footer}
       bodyRef={bodyRef}
     >

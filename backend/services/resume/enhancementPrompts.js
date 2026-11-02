@@ -694,7 +694,7 @@ function buildCandidateChoices(options = {}, derived = {}) {
   // Per-section actions from the Analyze step. Older clients send a tone and
   // global focus chips instead, which still work.
   if (options.actions && typeof options.actions === 'object') {
-    lines.push(...instructionsFor(Array.isArray(options.sections) ? options.sections : [], options.actions, options.notes, { metrics: derived.metrics || [] }));
+    lines.push(...instructionsFor(Array.isArray(options.sections) ? options.sections : [], options.actions, options.notes, { metrics: derived.metrics || [], experience: derived.experience || [] }));
   }
   if (TONE_INSTRUCTIONS[options.tone]) lines.push(`- Tone: ${TONE_INSTRUCTIONS[options.tone]}`);
   for (const f of Array.isArray(options.focus) ? options.focus : []) {
@@ -718,7 +718,11 @@ function getDepartmentEnhancementPrompt(group, profileData, customPrompt = '', o
   // Structured choices from the current modal; the free-text form is kept for
   // older clients that still send one concatenated string.
   const customInstructions = options
-    ? buildCandidateChoices(options, { ...derived, metrics: experienceMetrics(profileData && profileData.experience) })
+    ? buildCandidateChoices(options, {
+      ...derived,
+      metrics: experienceMetrics(profileData && profileData.experience),
+      experience: (profileData && Array.isArray(profileData.experience)) ? profileData.experience : [],
+    })
     : customPrompt
       ? `\n\nAdditional instructions from the candidate (follow them wherever they do not conflict with the honesty rules):\n"${customPrompt}"`
       : '';

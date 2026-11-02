@@ -150,8 +150,10 @@ const metricsIn = (text) => (String(text || '').match(METRIC_RE) || []).map((m) 
  *   so those roles are left as rewritten.
  * @returns {{ restored: string[] }} human-readable list of what was put back
  */
-function enforceAdditive(enhanced, original, { trimmableRoles = [] } = {}) {
+function enforceAdditive(enhanced, original, { trimmableRoles = [], shortenRoles = [] } = {}) {
   const trimmable = new Set(trimmableRoles);
+  // "Shorter": fewer words is the request, but every bullet and number stays.
+  const shortened = new Set(shortenRoles);
   const restored = [];
   if (!enhanced || !original) return { restored };
 
@@ -189,7 +191,7 @@ function enforceAdditive(enhanced, original, { trimmableRoles = [] } = {}) {
       const ed = describe(e);
       const lostMetric = metricsIn(od).find((m) => !metricsIn(ed).includes(m));
       const lostBullets = bulletsOf(ed) < bulletsOf(od);
-      const shrank = wc(od) > 8 && wc(ed) < wc(od) * 0.85;
+      const shrank = !(key === 'experience' && shortened.has(i)) && wc(od) > 8 && wc(ed) < wc(od) * 0.85;
       if (lostMetric || lostBullets || shrank) {
         out[i] = { ...e, description: od };
         restored.push(

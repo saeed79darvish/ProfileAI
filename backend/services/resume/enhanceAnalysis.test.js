@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  findSectionIssues, mergeAnalysis, instructionsFor, olderRoleIndexes, ACTIONS,
+  findSectionIssues, mergeAnalysis, instructionsFor, olderRoleIndexes, ACTIONS, roleSelections,
 } = require('./enhanceAnalysis');
 const { buildReviewChanges } = require('./enhanceReview');
 const { buildCandidateChoices } = require('./enhancementPrompts');
@@ -133,4 +133,44 @@ test('review: one change per bullet, job title and section; asks for results whe
 test('review: unchosen sections produce no changes', () => {
   const enhanced = { ...PROFILE, title: 'Something else' };
   assert.deepEqual(buildReviewChanges(PROFILE, enhanced, { sections: ['summary'] }), []);
+});
+
+test('experience: each role gets its own findings and actions', () => {
+  const { experience } = findSectionIssues(PROFILE, NOW);
+  const [aws, rh, paypal] = experience.roles;
+  assert.equal(aws.company, 'Amazon AWS');
+  assert.ok(aws.issues.some((i) => /bullets start with “Lead”/.test(i)), aws.issues.join(' | '));
+  assert.deepEqual(rh.recommended.sort(), ['clean_title', 'vary_verbs']);
+  assert.ok(rh.actions.some((a) => a.id === 'clean_title'));
+  assert.ok(!aws.actions.some((a) => a.id === 'clean_title'));
+  assert.ok(paypal.issues.includes('No results in these bullets.'));
+  assert.ok(paypal.actions.some((a) => a.id === 'trim'), 'older role can keep its 2 strongest');
+  assert.ok(!aws.actions.some((a) => a.id === 'trim'));
+});
+
+test('per-role choices become role-scoped instructions; others are named as untouched', () => {
+  const lines = instructionsFor(
+    ['experience'],
+    { experience: { roles: { 1: { actions: ['clean_title', 'shorter', 'more_detail'], note: 'keep GraphQL' }, 9: { actions: ['shorter'] } } } },
+    {},
+    { experience: PROFILE.experience }
+  );
+  const text = lines.join('\n');
+  assert.match(text, /role 2 \(Senior UI Engineer .* at Restoration Hardware\): Take technology lists/);
+  assert.match(text, /role 2 .*: Tighten every bullet/);
+  assert.ok(!/More specific|more specific/.test(text), 'shorter and more detail cannot both apply');
+  assert.match(text, /own instruction: keep GraphQL/);
+  assert.match(text, /Rewrite ONLY role 2/);
+  assert.ok(!/role 10/.test(text), 'an index outside the profile is ignored');
+});
+
+test('roleSelections accepts the older flat list for every role', () => {
+  const picks = roleSelections(['add_results', 'clean_titles'], 2);
+  assert.deepEqual([...picks.get(0).actions].sort(), ['add_results', 'clean_title']);
+  assert.ok(picks.get(1));
+});
+
+test('many roles without results read as a count, not "The 3 roles bullets"', () => {
+  const p = { experience: [1, 2, 3].map((n) => ({ company: `C${n}`, title: 'Engineer', description: 'Built things.\nShipped things.' })) };
+  assert.ok(findSectionIssues(p, NOW).experience.issues.includes('3 roles list tasks but no results.'));
 });

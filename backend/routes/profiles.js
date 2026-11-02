@@ -1207,7 +1207,8 @@ router.post('/enhance-resume', authMiddleware, aiRateLimiter('profile_enhance', 
 // @desc    Enhance with AI, step one: findings and suggested actions per section
 // @access  Private. Free of Enhance credits: it spends the separate
 //          profile_enhance_assist bucket, and only when the cache misses.
-const ENHANCE_ANALYSIS_KIND = 'enhance_analysis_v1';
+// v2: experience is analysed per role.
+const ENHANCE_ANALYSIS_KIND = 'enhance_analysis_v2';
 // The cache hash covers title, summary, skills and experience; education is
 // passed through its free-text slot so editing a school also misses the cache.
 const enhanceAnalysisExtra = (profileData) => `education:${JSON.stringify((profileData && profileData.education) || [])}`;

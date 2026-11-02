@@ -36,7 +36,7 @@ const { applyAcceptedGaps, withoutAcceptedGaps } = require('./resume/acceptedGap
 const { toAIProfile } = require('./resume/candidateProfile');
 const { diffSections, restoreUnselected, enforceAdditive } = require('./resume/enhancementDiff');
 const {
-  findSectionIssues, buildAnalysisPrompt, mergeAnalysis, olderRoleIndexes,
+  findSectionIssues, buildAnalysisPrompt, mergeAnalysis, roleSelections,
 } = require('./resume/enhanceAnalysis');
 const { buildReviewChanges } = require('./resume/enhanceReview');
 const { reviewFacts, buildRecruiterReviewPrompt, normalizeReview } = require('./resume/recruiterReview');
@@ -1545,6 +1545,8 @@ Important guidelines:
       const chosenActions = options && options.actions && typeof options.actions === 'object' ? options.actions : null;
       const allowSummaryMetrics = !!(chosenActions && (chosenActions.summary || []).includes('add_metrics'));
       const checkWeakOpeners = !!(chosenActions && (options.sections || []).includes('experience'));
+      // (Unselected roles are restored after the audit, so a weak opener the
+      // candidate chose to keep costs at most one review round.)
       let auditReport = auditProfile({ profile: enhancedData, sourceText, allowSummaryMetrics, checkWeakOpeners });
       const initialDefects = auditReport.blocking.length;
       let reviewRan = false;
@@ -1647,20 +1649,27 @@ Important guidelines:
       const restoredSections = restoreUnselected(enhancedData, original, options && options.sections);
       // Nothing the candidate wrote may come back weaker. Whatever the model
       // dropped is put back and reported, so the preview is honest about it.
-      // Job titles change only when the candidate asked for it; asking the
-      // model to leave them alone is the thing that has not worked before.
-      if (chosenActions && Array.isArray(enhancedData.experience) && Array.isArray(original.experience)
-        && !(chosenActions.experience || []).includes('clean_titles')) {
+      // Experience is chosen role by role. A role the candidate did not pick
+      // comes back exactly as it was, and a job title changes only where
+      // "Clean up title" was picked: asking the model to leave them alone is
+      // the thing that has not worked before.
+      const picks = chosenActions && (options.sections || []).includes('experience')
+        ? roleSelections(chosenActions.experience, (original.experience || []).length)
+        : new Map();
+      if (chosenActions && Array.isArray(enhancedData.experience) && Array.isArray(original.experience)) {
         enhancedData.experience = enhancedData.experience.map((e, i) => {
           const o = original.experience[i];
           if (!o || !e || typeof e !== 'object') return e;
-          return { ...e, title: o.title || o.position || e.title };
+          const pick = picks.get(i);
+          if (!pick) return { ...e, title: o.title || o.position || e.title, description: o.description };
+          return pick.actions.has('clean_title') ? e : { ...e, title: o.title || o.position || e.title };
         });
       }
-      const trimmableRoles = chosenActions && (chosenActions.experience || []).includes('trim_older')
-        ? olderRoleIndexes(original.experience)
-        : [];
-      const additive = enforceAdditive(enhancedData, original, { trimmableRoles });
+      const rolesWith = (action) => [...picks.entries()].filter(([, p]) => p.actions.has(action)).map(([i]) => i);
+      const additive = enforceAdditive(enhancedData, original, {
+        trimmableRoles: rolesWith('trim'),
+        shortenRoles: rolesWith('shorter'),
+      });
       if (additive.restored.length) {
         console.log('[ProfilleAI] Enhancement dropped content; restored:', additive.restored);
         enhancedData.enhancements = enhancedData.enhancements && typeof enhancedData.enhancements === 'object' ? enhancedData.enhancements : {};

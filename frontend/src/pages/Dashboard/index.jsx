@@ -1071,6 +1071,12 @@ const Dashboard = () => {
     setEnhanceResult(data);
     setShowEnhancePrompt(true);
   };
+  // Finished after "Hide and keep working": say so instead of popping it open.
+  const [enhanceReady, setEnhanceReady] = useState(false);
+  const holdEnhanceResult = (data) => {
+    setEnhanceResult(data);
+    setEnhanceReady(true);
+  };
 
   // A rewrite that finished while the user was on another page: open it at
   // Review the moment they return.
@@ -1366,7 +1372,8 @@ const Dashboard = () => {
       gradient: 'linear-gradient(135deg, #667eea, #764ba2)',
       description: 'Optimize your profile content automatically. · 1 credit',
       usageKey: 'profile_enhance',
-      onClick: () => setShowEnhancePrompt(true), disabled: enhancing,
+      // Also how a hidden rewrite is reopened, so it stays enabled while one runs.
+      onClick: () => { setEnhanceReady(false); setShowEnhancePrompt(true); },
     },
     {
       key: 'tailor', label: 'Tailor', Icon: TailorIcon,
@@ -2999,10 +3006,18 @@ const Dashboard = () => {
         profileData={profileData}
         runEnhance={runEnhance}
         onApply={applyEnhance}
-        onLateResult={openEnhanceResult}
+        onLateResult={holdEnhanceResult}
         initialResult={enhanceResult}
         creditLabel={aiUsage?.usage?.profile_enhance && computeBindingFromPayload(aiUsage.usage.profile_enhance).isUnlimited ? null : '1 credit'}
         onLimit={setLimitInfo}
+      />
+
+      <Snackbar
+        open={enhanceReady}
+        onClose={() => setEnhanceReady(false)}
+        message="Your enhancement is ready to review"
+        action={<Button size="small" onClick={() => { setEnhanceReady(false); setShowEnhancePrompt(true); }}>Open</Button>}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
 
       {/* Recruiter Review */}

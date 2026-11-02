@@ -89,6 +89,39 @@ const ACTIONS = {
   },
 };
 
+/**
+ * Experience is chosen role by role: each role gets its own findings, its own
+ * actions and its own note. Instructions are scoped to that role only.
+ */
+const ROLE_ACTIONS = {
+  vary_verbs: {
+    label: 'Vary action verbs',
+    instruction: 'Open each bullet with the specific verb for what was done. No two bullets in this role open with the same verb, and avoid openers other roles already use.',
+  },
+  add_results: {
+    label: 'Add results',
+    instruction: 'Attach a result to a bullet only where the profile states that result for this work. Never add a number that is not in the profile; a bullet with no stated result is written clearly without one, and the candidate is asked for the figure afterwards.',
+  },
+  clean_title: {
+    label: 'Clean up title',
+    instruction: 'Take technology lists and parentheticals out of this job title (e.g. "Senior UI Engineer (React, Node)" becomes "Senior UI Engineer"). Never change the seniority or the role.',
+  },
+  shorter: {
+    label: 'Shorter',
+    instruction: 'Tighten every bullet to its action and its result; cut filler words. Keep every bullet, every number and every named technology.',
+  },
+  more_detail: {
+    label: 'More detail',
+    instruction: 'Make each bullet more specific using only what the profile states elsewhere (the system, the stack, the scale, who used it). Never add a claim, a number or a technology the profile does not state.',
+  },
+  trim: {
+    label: 'Keep 2 strongest',
+    instruction: 'Keep only the two strongest bullets of this role.',
+  },
+};
+// Picking one clears the other.
+const ROLE_EXCLUSIVE = [['shorter', 'more_detail'], ['shorter', 'trim'], ['more_detail', 'trim']];
+
 /** "drop:<term>" asks for a dated term to be removed from the summary. */
 const DROP_PREFIX = 'drop:';
 
@@ -278,7 +311,9 @@ function analyzeExperience(profile, now = new Date()) {
     .filter(({ e }) => splitBullets(e.description).length && !HAS_NUMBER.test(String(e.description || '')))
     .map(({ e, i }) => roleLabel(e, i));
   if (noResults.length) {
-    issues.push(`The ${listNames(noResults)} bullets list tasks but no results.`); topics.add('no_results');
+    issues.push(noResults.length > 2
+      ? `${noResults.length} roles list tasks but no results.`
+      : `The ${listNames(noResults)} bullets list tasks but no results.`); topics.add('no_results');
     recommended.add('add_results');
   }
 
@@ -299,8 +334,73 @@ function analyzeExperience(profile, now = new Date()) {
   if (olderRoleIndexes(experience, 8, now).length) {
     extraActions.push({ id: 'trim_older', label: ACTIONS.experience.trim_older.label });
   }
-  return { meta, issues, recommended: [...recommended], extraActions, topics: [...topics] };
+  const roles = (Array.isArray(profile.experience) ? profile.experience : [])
+    .map((entry, index) => (entry ? analyzeRole(entry, index, now) : null))
+    .filter(Boolean);
+  return { meta, issues, recommended: [...recommended], extraActions, topics: [...topics], roles };
 }
+
+/** One role's findings and the actions that fit it. `index` is its place in the profile. */
+function analyzeRole(entry, index, now = new Date()) {
+  const bullets = splitBullets(entry.description);
+  const title = roleTitle(entry);
+  const issues = [];
+  const recommended = new Set();
+  const actions = ['vary_verbs', 'add_results'];
+
+  const stems = new Map();
+  for (const b of bullets) {
+    const opener = openingWord(b);
+    if (opener.length < 3) continue;
+    const stem = openerStem(opener);
+    const seen = stems.get(stem) || { count: 0, form: opener.charAt(0).toUpperCase() + opener.slice(1) };
+    seen.count += 1;
+    stems.set(stem, seen);
+  }
+  const top = [...stems.values()].sort((a, b) => b.count - a.count)[0];
+  if (top && top.count >= 2) {
+    issues.push(`${top.count} bullets start with “${top.form}”.`);
+    recommended.add('vary_verbs');
+  }
+  const weak = bullets.find((b) => WEAK_OPENERS.some((re) => re.test(b)));
+  if (weak) {
+    issues.push(`A bullet opens with “${(weak.match(/^\S+(?:\s+(?:for|on|in|with))?/) || [''])[0]}”.`);
+    recommended.add('vary_verbs');
+  }
+  if (bullets.length && !HAS_NUMBER.test(String(entry.description || ''))) {
+    issues.push('No results in these bullets.');
+    recommended.add('add_results');
+  }
+  if (/\(.+\)/.test(title) || title.split(',').length > 2) {
+    issues.push('The job title includes a tech stack.');
+    recommended.add('clean_title');
+    actions.push('clean_title');
+  }
+  if (bullets.length >= 7) {
+    issues.push(`${bullets.length} bullets; 3 to 6 reads better.`);
+    recommended.add('shorter');
+  } else if (bullets.length <= 1 && wordCount(entry.description) < 20) {
+    issues.push('Only one short bullet.');
+    recommended.add('more_detail');
+  }
+  actions.push('shorter', 'more_detail');
+  if (olderRoleIndexes([entry], 8, now).length) actions.push('trim');
+
+  const dates = [entry.startDate, entry.endDate || (entry.current ? 'Present' : '')].filter(Boolean).join(' – ') || entry.period || '';
+  return {
+    index,
+    title: title || 'Untitled role',
+    company: String(entry.company || '').trim(),
+    meta: [`${bullets.length} bullet${bullets.length === 1 ? '' : 's'}`, dates].filter(Boolean).join(' · '),
+    issues: issues.slice(0, MAX_ISSUES_PER_ROLE),
+    actions: actions.map((id) => ({ id, label: ROLE_ACTIONS[id].label })),
+    recommended: [...recommended],
+    // Roles with nothing to fix start unchecked, like sections.
+    selected: issues.length > 0,
+  };
+}
+
+const MAX_ISSUES_PER_ROLE = 3;
 
 function analyzeEducation(profile) {
   const education = Array.isArray(profile.education) ? profile.education.filter(Boolean) : [];
@@ -433,7 +533,10 @@ function mergeAnalysis(codeFindings, modelFindings) {
       actions,
       recommended: [...recommended].filter((id) => actions.some((a) => a.id === id)),
       // Sections with nothing to fix start unchecked.
-      selected: issues.length > 0 && recommended.size > 0,
+      selected: section === 'experience' && code.roles
+        ? code.roles.some((r) => r.selected)
+        : issues.length > 0 && recommended.size > 0,
+      ...(section === 'experience' && code.roles ? { roles: code.roles } : {}),
     };
   }
   return out;
@@ -444,10 +547,49 @@ function mergeAnalysis(codeFindings, modelFindings) {
  * Anything not in the catalog is dropped here, so a client cannot put free
  * text into the binding instructions except through the note field.
  */
-function instructionsFor(sections = [], actions = {}, notes = {}, { metrics = [] } = {}) {
+/**
+ * The experience choices as Map<roleIndex, { actions: Set, note }>.
+ * Accepts the per-role shape ({ roles: { [index]: { actions, note } } }) and
+ * the older flat list, which applied to every role.
+ */
+function roleSelections(experienceActions, roleCount = 0) {
+  const out = new Map();
+  if (Array.isArray(experienceActions)) {
+    const legacy = { clean_titles: 'clean_title', trim_older: 'trim' };
+    const set = new Set(experienceActions.map((a) => legacy[a] || a).filter((a) => ROLE_ACTIONS[a]));
+    for (let i = 0; i < roleCount; i++) out.set(i, { actions: new Set(set), note: '' });
+    return out;
+  }
+  const roles = experienceActions && typeof experienceActions === 'object' ? experienceActions.roles : null;
+  for (const [key, value] of Object.entries(roles || {})) {
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= roleCount || !value) continue;
+    const chosen = new Set((Array.isArray(value.actions) ? value.actions : []).filter((a) => ROLE_ACTIONS[a]));
+    for (const [a, b] of ROLE_EXCLUSIVE) if (chosen.has(a) && chosen.has(b)) chosen.delete(b);
+    out.set(index, { actions: chosen, note: String(value.note || '').trim().slice(0, 300) });
+  }
+  return out;
+}
+
+function instructionsFor(sections = [], actions = {}, notes = {}, { metrics = [], experience = [] } = {}) {
   const lines = [];
   for (const section of ENHANCE_SECTIONS) {
     if (!sections.includes(section)) continue;
+    if (section === 'experience' && actions.experience && !Array.isArray(actions.experience)) {
+      const picks = roleSelections(actions.experience, experience.length);
+      const named = [];
+      for (const [index, { actions: chosenRole, note }] of [...picks.entries()].sort((a, b) => a[0] - b[0])) {
+        const e = experience[index] || {};
+        const label = `role ${index + 1} (${[e.title || e.position, e.company].filter(Boolean).join(' at ') || 'untitled'})`;
+        named.push(label);
+        for (const id of chosenRole) lines.push(`- experience ${label}: ${ROLE_ACTIONS[id].instruction}`);
+        if (note) lines.push(`- experience ${label}, the candidate's own instruction: ${note}`);
+      }
+      if (named.length) {
+        lines.push(`- experience: Rewrite ONLY ${named.join(', ')}. Every other role comes back exactly as given; they are restored in code regardless.`);
+      }
+      continue;
+    }
     const chosen = Array.isArray(actions[section]) ? actions[section] : [];
     for (const id of chosen) {
       if (typeof id !== 'string') continue;
@@ -470,14 +612,17 @@ function instructionsFor(sections = [], actions = {}, notes = {}, { metrics = []
     // Returned as prose, the bullets read as "lost" to the additive check and
     // the whole role came back unchanged; and the Review step compares line
     // by line. So the shape is part of the instruction, not left to the model.
-    const trimming = (actions.experience || []).includes('trim_older');
-    lines.push(`- experience: Return each description as bullets, one per line, separated by "\n" — exactly as many lines as the source description, in the same order, each line a rewrite of the line it replaces. Never join bullets into a paragraph or split one into two.${trimming ? ' The only exception: roles that ended more than 8 years ago keep their two strongest lines.' : ''}`);
+    const picks = roleSelections(actions.experience, experience.length);
+    const trimming = [...picks.values()].some((p) => p.actions.has('trim'));
+    lines.push(`- experience: Return each description as bullets, one per line, separated by "\n" — exactly as many lines as the source description, in the same order, each line a rewrite of the line it replaces. Never join bullets into a paragraph or split one into two.${trimming ? ' The only exception: a role asked to keep its 2 strongest bullets returns those two.' : ''}`);
   }
   return lines;
 }
 
 module.exports = {
   ACTIONS,
+  ROLE_ACTIONS,
+  roleSelections,
   ENHANCE_SECTIONS,
   DROP_PREFIX,
   findSectionIssues,
