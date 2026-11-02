@@ -363,7 +363,7 @@ export default function MobileJobDetail({
 
       <Footer>
         <button type="button" className="toggle" aria-expanded={more} onClick={() => setMore((v) => !v)}>
-          More options {more ? <DownIcon /> : <UpIcon />}
+          {more ? 'Fewer options' : 'More options'} {more ? <DownIcon /> : <UpIcon />}
         </button>
         {more && (
           <div className="extra">
