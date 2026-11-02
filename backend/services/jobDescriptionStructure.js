@@ -24,7 +24,8 @@
 
 const crypto = require('crypto');
 
-const STRUCTURE_VERSION = 1;
+// Bump when the rules change: cached structures from older rules rebuild.
+const STRUCTURE_VERSION = 2;
 
 // ── HTML to blocks ─────────────────────────────────────────────────────────
 
@@ -176,23 +177,25 @@ function toBlocks(source) {
 // a nice-to-have before it is a qualification; "About the role" is the team
 // overview before it is "the role".
 const KIND_RULES = [
-  ['legal', /\b(equal (employment )?opportunit|eeo\b|e-verify|accommodation|data privacy|privacy (notice|policy)|applicant privacy|pay transparency|(base )?(pay|salary|compensation) (range|transparency|information)|^compensation\b|^salary\b|^pay\b|fraud|recruitment scam|legal notice|disclaimer)/i],
-  ['niceToHave', /\b(bonus|would be great|great if|nice[- ]to[- ]haves?|preferred|plus(es)?\b|desired|desirable|extra credit|ideally)/i],
-  ['requirements', /\b(you have|you('ll)? bring|what you bring|requirements?|qualifications?|must[- ]haves?|who you are|about you|what we('re| are) looking for|what we need|looking for|you must bring|good fit|you should have|what it takes|who we('re| are) looking for|skills|experience (we|you)|you might be|we('d)? love|ideal candidate)/i],
-  ['team', /\b(about the (role|team|job|position|opportunity)|the opportunity|(role|job|position) (overview|summary|description)|^overview$|^summary$|^description$|the team|team overview|meet the team|who you('ll)? work with|^the role$|^(about )?(the |our )[\w\s&'-]{0,30}\bteam$)/i],
-  ['responsibilities', /\b(you will|you'll|what you('ll)? do|responsibilit|duties|your impact|in this role|day[- ]to[- ]day|key (job )?responsibilities|the work|what the job involves|your role|your job|day in the life|role and responsibilities|you('ll)? be)/i],
-  ['benefits', /\b(benefits|perks|what we offer|why (join|work)|we offer|total rewards|life at|our offer|reasons to join)/i],
+  ['legal', /\b(equal (employment )?opportunit|eeo\b|e-verify|accommodation|data privacy|privacy (notice|policy)|applicant privacy|pay transparency|(base )?(pay|salary|compensation) (range|transparency|information)|^compensation\b|^salary\b|^pay\b|fraud|recruitment scam|legal notice|disclaimer|important not(ice|es?)|a workplace for all)/i],
+  ['niceToHave', /\b(bonus|would be great|great if|even better|stand out|set you apart|nice[- ]to[- ]haves?|preferred|plus(es)?\b|desired|desirable|extra credit|ideally)/i],
+  ['requirements', /\b(you have|you('ll)? bring|what you bring|requirements?|qualifications?|must[- ]haves?|who you are|about you|what we('re| are) looking for|what we need|looking for|you must bring|good fit|you should have|what it takes|required|who (this|it) is for|who should apply|should apply if|what we look for|you need|to succeed|education (and|&) experience|should demonstrate|who we('re| are) looking for|skills|experience (we|you)|you might be|we('d)? love|ideal candidate)/i],
+  ['team', /\b(about (the|this) (role|team|job|position|opportunity|department|program)|overview of (the|this) role|why this role|^about our [\w\s&'-]{0,30}\bteam$|the opportunity|(role|job|position) (overview|summary|description)|^overview$|^summary$|^description$|the team|team overview|meet the team|who you('ll)? work with|^the role$|^(about )?(the |our )[\w\s&'-]{0,30}\bteam$)/i],
+  ['responsibilities', /\b(you will|you'll|what you('ll)? do|responsibilit|duties|your impact|in this role|day[- ]to[- ]day|key (job )?responsibilities|the work|what the job involves|your role|your job|day in the life|role and responsibilities|you('ll)? be|^the [\w\s-]{2,40} will$)/i],
+  ['benefits', /\b(benefits|perks|what we offer|why (join|work)|we offer|total rewards|life at|our offer|reasons to join|in it for you|how we work)/i],
 ];
 const COMPANY_RE = /\b(about us|who we are|our (mission|story|company|culture)|about the company|company (overview|description)|why us|our (brand |core )?values|who are we)\b/i;
 
 function kindOfHeading(text, company) {
-  const t = String(text || '').replace(/[‘’`]/g, "'").replace(/[:\s]+$/, '').trim();
+  const t = String(text || '').replace(/[‘’`]/g, "'").replace(/^[^\p{L}\p{N}$£€]+/u, '').replace(/[:\s\p{Extended_Pictographic}]+$/u, '').trim();
   const c = String(company || '').trim().toLowerCase();
+  if (/^[$£€]\s?\d/.test(t)) return 'legal'; // a pay range set as a heading
   if (COMPANY_RE.test(t)) return 'company';
   if (c && new RegExp(`^(about|life at|working at|join|why)\\s+${escapeRe(c)}\\b`, 'i').test(t)) return 'company';
   for (const [kind, rx] of KIND_RULES) if (rx.test(t)) return kind;
   // "Thumbtack helps millions of people..." as a heading is company text.
   if (c && c.length >= 3 && t.toLowerCase().includes(c)) return 'company';
+  if (/^(join|forge|be part of)\b/i.test(t)) return 'company';
   // "About Applied Intuition" when the board's company name differs slightly.
   if (/^about\s+(?!the\b|you\b|this\b)/i.test(t)) return 'company';
   return 'other';
@@ -385,14 +388,21 @@ function assemble(blocks, job = {}) {
   const groups = [];
   let current = { kind: 'intro', title: null, blocks: [] };
   let sawRoleHeading = false;
+  // A role heading straight away followed by topic subheadings ("What
+  // You'll Do" then "Data Security", "Audit & Monitoring"): the topics are
+  // its parts, until the next heading of a known kind.
+  let parentKind = null;
 
   for (let i = 0; i < blocks.length; i += 1) {
     const b = blocks[i];
     if (isHeadingBlock(b, blocks[i + 1], job.title)) {
       const title = b.text.replace(/\s*:\s*$/, '').trim();
       if (sameTitle(title, job.title)) continue;
+      let kind = kindOfHeading(title, company);
+      if (kind === 'other' && ROLE_KINDS.has(current.kind) && !current.blocks.length) parentKind = current.kind;
+      else if (kind !== 'other') parentKind = null;
+      if (kind === 'other' && parentKind) kind = parentKind;
       groups.push(current);
-      const kind = kindOfHeading(title, company);
       if (ROLE_KINDS.has(kind) || kind === 'team') sawRoleHeading = true;
       current = { kind, title, blocks: [] };
       continue;
@@ -432,7 +442,10 @@ function assemble(blocks, job = {}) {
   for (const g of groups) {
     for (const b of g.companyBlocks || []) out.company.push(b.text);
     if (!g.blocks.length) continue;
-    if (g.kind === 'company') { for (const b of g.blocks) out.company.push(b.text); continue; }
+    if (g.kind === 'company') {
+      for (const b of g.blocks) { if (LEGAL_TEXT_RE.test(b.text)) pushLegal(b); else out.company.push(b.text); }
+      continue;
+    }
     if (g.kind === 'legal') { for (const b of g.blocks) pushLegal(b); continue; }
     const kind = g.kind === 'intro' ? 'team' : g.kind;
     let sawItem = false;

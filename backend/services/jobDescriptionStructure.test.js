@@ -156,3 +156,23 @@ test('AI split with anchors that are not in the posting is rejected', () => {
   const job = { description: 'Some posting text that is here.' };
   assert.equal(applyAiSplit({ sections: [{ kind: 'requirements', starts: ['invented words that do not appear', 'more invented words here'] }] }, job, plainTextFor(job)), null);
 });
+
+test('topic subheadings straight after a role heading are its parts; a pay range heading is fine print', () => {
+  const s = structureDescription({
+    company: 'Sitecore',
+    descriptionHtml: `<p><strong>What You’ll Do</strong></p><p><strong>Data Security</strong></p><ul><li>Partner with InfoSec on controls.</li></ul>
+<p><strong>Audit &amp; Monitoring</strong></p><ul><li>Run audits across data processes.</li></ul>
+<p><strong>What You Need to Succeed</strong></p><ul><li>8+ years in data governance.</li></ul>
+<p><strong>Additional Skills That Could Set You Apart</strong></p><ul><li>Microsoft Fabric.</li></ul>
+<h3>$207,485—$244,100 USD</h3><p>Final pay depends on location.</p>`,
+  });
+  assert.deepEqual(s.sections.map((x) => [x.kind, (x.items || []).length]), [['responsibilities', 2], ['requirements', 1], ['niceToHave', 1]]);
+  assert.deepEqual(s.legal.paragraphs, ['Final pay depends on location.']);
+  assert.deepEqual(s.facts.salary, { min: 207485, max: 244100, currency: 'USD', period: 'year' });
+});
+
+test('legal text inside a company section still goes to the fine print', () => {
+  const s = structureDescription({ company: 'Acme', descriptionHtml: '<h2>About Us</h2><p>Acme builds rockets.</p><p>Acme is an equal opportunity employer.</p>' });
+  assert.deepEqual(s.company.paragraphs, ['Acme builds rockets.']);
+  assert.deepEqual(s.legal.paragraphs, ['Acme is an equal opportunity employer.']);
+});
