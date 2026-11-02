@@ -10,7 +10,8 @@
  * the same flow work for a signed-out visitor whose draft lives in
  * localStorage (see frontend/src/utils/guestDraft.js).
  */
-const { callAI, safeParseJSON, HAIKU_MODEL } = require('./ai/core');
+const { callAI, callAgent, safeParseJSON, HAIKU_MODEL } = require('./ai/core');
+const { coachTools, createToolRunner } = require('./coachAgent');
 const {
   interpretAnswerPrompt,
   clarifyPrompt,
@@ -500,15 +501,48 @@ const theyAsked = (message) => {
     || /^(what|what's|whats|how|why|which|who|when|where|is|are|can|could|do|does|should|would|explain|tell me)\b/i.test(text);
 };
 
-async function coachTurn({ profile = {}, missing = [], history = [], message, liveVoice = 'none', asked = '', options = [], next = null, followUps = 0 } = {}) {
-  const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
-  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', suggestions: [] };
+/* What the page does with an action, in the two fields pages from before the
+   tools still read. Kept until every open tab has the new page. */
+const legacyFields = (actions) => {
+  const kinds = actions.map((a) => a.type);
+  return {
+    voice: kinds.includes('voice'),
+    show: kinds.includes('import') ? 'import' : kinds.includes('account') ? 'signup' : 'none',
+  };
+};
 
-  const response = await callAI({
+/* The page sends only what it can vouch for. Anything else is dropped here,
+   so a tampered request cannot put words in the prompt. */
+const cleanState = (state = {}) => {
+  const short = (v, n = 120) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const answered = (Array.isArray(state.answered) ? state.answered : [])
+    .filter((a) => a && typeof a.step === 'string' && /^[a-zA-Z]+$/.test(a.step))
+    .slice(0, 12)
+    .map((a) => ({ step: a.step, question: short(a.question), answer: short(a.answer, 80) }));
+  const step = state.step && Number.isInteger(state.step.number) && Number.isInteger(state.step.total)
+    ? { number: Math.max(1, Math.min(state.step.number, 60)), total: Math.max(1, Math.min(state.step.total, 60)) }
+    : null;
+  return {
+    lastCall: ['ended_empty', 'dropped', 'completed'].includes(state.lastCall) ? state.lastCall : 'none',
+    imports: (Array.isArray(state.imports) ? state.imports : []).filter((s) => ['resume', 'linkedin'].includes(s)),
+    step,
+    answered,
+  };
+};
+
+async function coachTurn({ profile = {}, missing = [], history = [], message, asked = '', options = [], next = null, followUps = 0, access = {}, state = {} } = {}) {
+  const trimmed = String(message || '').trim().slice(0, MAX_ANSWER_CHARS);
+  if (!trimmed) return { say: '', learned: {}, awaiting: true, voice: false, show: 'none', actions: [], suggestions: [] };
+
+  const page = cleanState(state);
+  const tools = createToolRunner({ access, state: page });
+  const response = await callAgent({
     model: TURN_MODEL,
     // Room for the suggested answers on top of the reply.
     max_tokens: 900,
     temperature: 0.5,
+    tools: coachTools(page),
+    runTool: tools.run,
     messages: [{
       role: 'user',
       content: coachTurnPrompt({
@@ -520,16 +554,22 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
            crowd out the rest. */
         history: history.slice(-30).map((h) => ({ ...h, text: String(h?.text || '').slice(0, 600) })),
         message: trimmed,
-        liveVoice,
         asked,
         options,
         next,
         followUps,
+        access,
+        state: page,
       }),
     }],
   });
 
-  const parsed = safeParseJSON(response.choices[0].message.content) || {};
+  const parsed = safeParseJSON(response.text) || {};
+  const { actions } = tools;
+  /* Why the account buttons are there is said by the page, in its own fixed
+     words: the model's line for it came back as "the mic works too", which
+     put sign-up buttons under no reason at all. */
+  if (actions[0]?.type === 'account' && actions[0].reason === 'voice') parsed.say = '';
 
   const learned = {};
   for (const [key, value] of Object.entries(parsed.learned || {})) {
@@ -574,10 +614,11 @@ async function coachTurn({ profile = {}, missing = [], history = [], message, li
     suggestions: awaiting ? cleanSuggestions(parsed.suggestions) : [],
     skip: parsed.skip === true && !awaiting,
     answered: parsed.answered === true && !awaiting,
-    // Only ever true when the page said it can open a call right now.
-    voice: liveVoice === 'live' && parsed.voice === true,
-    // A piece of the page to put under the reply. Only names we render.
-    show: ['import', 'signup'].includes(parsed.show) ? parsed.show : 'none',
+    /* What the page does after the reply: open the call, put buttons
+       under it, take back an answer. Only ever what a tool checked and
+       allowed, at most one. */
+    actions,
+    ...legacyFields(actions),
     // Only a button that is actually on their screen.
     choice: options.find((o) => o.toLowerCase() === String(parsed.choice || '').trim().toLowerCase()) || '',
   };

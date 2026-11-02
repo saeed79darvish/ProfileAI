@@ -222,8 +222,57 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
   });
 }
 
+/**
+ * A model call that can use tools, run as a short loop.
+ *
+ * The model asks for tools, `runTool` does them and says what happened, and
+ * the result goes back to the model before it writes its final answer. That
+ * last step is the point: a model told only "you may open a call" said the
+ * call was opening when the person had already used theirs, and with no
+ * result to read it had nothing to go on but a guess.
+ *
+ * Capped at `maxRounds` tool rounds; the round after that is told to answer.
+ * Returns the final text and every call made, in order.
+ */
+async function callAgent({ system, messages, tools, runTool, max_tokens = 1000, temperature, model, maxRounds = 3 }) {
+  const chosen = model || DEFAULT_MODEL;
+  const convo = [...messages];
+  const calls = [];
+  for (let round = 0; ; round += 1) {
+    const request = { model: chosen, max_tokens, messages: convo, tools };
+    if (system) request.system = system;
+    if (round >= maxRounds) request.tool_choice = { type: 'none' };
+    if (temperature != null && supportsTemperature(chosen)) request.temperature = temperature;
+
+    const response = await withRetry(() => createMessage(anthropic, request), {
+      maxRetries: 3,
+      baseDelay: 1000,
+      maxDelay: 10000,
+    });
+    const asked = (response.content || []).filter((b) => b.type === 'tool_use');
+    if (!asked.length || response.stop_reason !== 'tool_use') {
+      return { text: stripAiTellChars(extractText(response)), calls };
+    }
+
+    convo.push({ role: 'assistant', content: response.content });
+    const results = [];
+    for (const call of asked) {
+      let result;
+      try {
+        result = await runTool(call.name, call.input || {});
+      } catch (err) {
+        result = { error: err.message };
+      }
+      calls.push({ name: call.name, input: call.input || {}, result });
+      results.push({ type: 'tool_result', tool_use_id: call.id, content: JSON.stringify(result) });
+    }
+    convo.push({ role: 'user', content: results });
+  }
+}
+
 module.exports = {
   callAI,
+  callAgent,
   safeParseJSON,
   validateAIScores,
   DEFAULT_MODEL,

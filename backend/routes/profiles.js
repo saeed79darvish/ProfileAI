@@ -748,25 +748,41 @@ router.get('/coach/voice/status', (req, res) => {
      offer that ends in "you have used today's call" reads as a sign-up wall,
      which is exactly what guests were meant never to see. */
   optionalAuth(req, res, async () => {
-    const available = coachRealtimeService.isConfigured();
-    if (!available) return res.json({ available: false, canCall: false });
-    try {
-      if (req.userId) {
-        const user = await User.findByPk(req.userId);
-        const allowance = user ? await getVoiceAllowance(user) : { allowed: false };
-        return res.json({ available, canCall: !!allowance.allowed, maxMinutes: allowance.maxSessionMinutes || null });
-      }
-      const ipHash = hashIp(clientIp(req));
-      const canCall = process.env.DISABLE_AI_RATE_LIMIT === 'true'
-        || recentGuestCalls(ipHash).length < GUEST_CALLS_PER_IP_PER_DAY;
-      return res.json({ available, canCall, maxMinutes: GUEST_CALL_MINUTES });
-    } catch (error) {
-      // Metering trouble never blocks a call; same stance as the limiters.
-      console.error('[voice status] allowance check failed:', error.message);
-      return res.json({ available, canCall: true });
-    }
+    const { available, canCall, maxMinutes } = await voiceAccessFor(req);
+    return res.json({ available, canCall, maxMinutes });
   });
 });
+
+/**
+ * Can this visitor start a call right now, and if not, why not. Shared by the
+ * status check and the coach's turn, so what the coach tells someone about
+ * calling is what would actually happen if they tapped the button.
+ * `req.userId` must already be resolved (optionalAuth).
+ */
+async function voiceAccessFor(req) {
+  const available = coachRealtimeService.isConfigured();
+  if (!available) return { available: false, canCall: false, code: 'not_configured' };
+  try {
+    if (req.userId) {
+      const user = await User.findByPk(req.userId);
+      const allowance = user ? await getVoiceAllowance(user) : { allowed: false };
+      return {
+        available,
+        canCall: !!allowance.allowed,
+        maxMinutes: allowance.maxSessionMinutes || null,
+        code: allowance.allowed ? 'can_call' : 'plan_limit',
+      };
+    }
+    const ipHash = hashIp(clientIp(req));
+    const canCall = process.env.DISABLE_AI_RATE_LIMIT === 'true'
+      || recentGuestCalls(ipHash).length < GUEST_CALLS_PER_IP_PER_DAY;
+    return { available, canCall, maxMinutes: GUEST_CALL_MINUTES, code: canCall ? 'can_call' : 'guest_call_used' };
+  } catch (error) {
+    // Metering trouble never blocks a call; same stance as the limiters.
+    console.error('[voice status] allowance check failed:', error.message);
+    return { available, canCall: true, code: 'can_call' };
+  }
+}
 
 /* Guests get one short call a day. A live call is the most persuasive
    thing this product does, and a button that only led to "sign up first"
@@ -859,6 +875,41 @@ router.post('/coach/voice/session', voiceSessionGuard, async (req, res) => {
       detail: error.detail,
     });
   }
+});
+
+// @route   POST /api/profiles/coach/voice/unused
+// @desc    A guest's call ended within a minute with nothing said: give it back
+// @access  Public
+/* A guest who opened the call and closed it again straight away (by mistake,
+   or to look) had spent the day's only call on nothing, and every offer to
+   talk after that was a sign-up wall. The browser says when a call heard
+   nothing; the count is only given back when that call started under a
+   minute ago, and only a few times a day, so it cannot be used to make
+   calls free. Signed-in calls are metered by plan minutes, and stay counted. */
+const UNUSED_CALL_MS = 60 * 1000;
+const UNUSED_REFUNDS_PER_IP_PER_DAY = 3;
+const guestRefundLog = new Map();
+
+router.post('/coach/voice/unused', (req, res) => {
+  optionalAuth(req, res, async () => {
+    if (req.userId) {
+      const { canCall } = await voiceAccessFor(req);
+      return res.json({ refunded: false, canCall });
+    }
+    const ipHash = hashIp(clientIp(req));
+    const now = Date.now();
+    const calls = recentGuestCalls(ipHash, now);
+    const last = calls[calls.length - 1];
+    const refunds = (guestRefundLog.get(ipHash) || []).filter((t) => now - t < GUEST_CALL_WINDOW_MS);
+    const refunded = !!last && now - last < UNUSED_CALL_MS && refunds.length < UNUSED_REFUNDS_PER_IP_PER_DAY;
+    if (refunded) {
+      if (calls.length > 1) guestCallLog.set(ipHash, calls.slice(0, -1));
+      else guestCallLog.delete(ipHash);
+      guestRefundLog.set(ipHash, [...refunds, now]);
+    }
+    const { canCall } = await voiceAccessFor(req);
+    return res.json({ refunded, canCall });
+  });
 });
 
 /* Dictation in the composer: the clip is transcribed by a real speech
@@ -1012,17 +1063,21 @@ router.post('/coach/suggest', suggestGuard, async (req, res) => {
 // @access  Public (guests metered by IP)
 router.post('/coach/turn', coachGuard, async (req, res) => {
   try {
-    const { profile, missing, history, message, liveVoice, asked, options, next, followUps } = req.body || {};
+    const { profile, missing, history, message, asked, options, next, followUps, state } = req.body || {};
     if (!message || !String(message).trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
+    /* What would happen if they tapped Talk it through, checked here rather
+       than taken from the page: the coach is about to tell them. */
+    const voice = await voiceAccessFor(req);
     const turn = await profileCoachService.coachTurn({
+      access: { signedIn: !!req.userId, voice: voice.code },
+      state: state && typeof state === 'object' ? state : {},
       profile: profile && typeof profile === 'object' ? profile : {},
       missing: Array.isArray(missing) ? missing.slice(0, 20) : [],
       history: Array.isArray(history) ? history.slice(-30) : [],
       message,
-      liveVoice: ['live', 'account'].includes(liveVoice) ? liveVoice : 'none',
       asked: typeof asked === 'string' ? asked.slice(0, 300) : '',
       options: Array.isArray(options)
         ? options.filter((o) => typeof o === 'string').map((o) => o.slice(0, 80)).slice(0, 40)

@@ -337,8 +337,12 @@ export const profileAPI = {
   // what it learned, and whether it is waiting on them.
   // asked/options: the question on screen and its buttons; next: the
   // question after it, the only one the coach may move on to.
-  coachTurn: ({ profile, missing, history, message, liveVoice, asked, options, next, followUps }) =>
-    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next, followUps }),
+  // state: what is happening on the page (the last call, imports, answers
+  // that can be changed), so the coach can act on it.
+  coachTurn: ({ profile, missing, history, message, liveVoice, asked, options, next, followUps, state }) =>
+    api.post('/profiles/coach/turn', { profile, missing, history, message, liveVoice, asked, options, next, followUps, state }),
+  // A call that ended with nothing said: a guest gets it back if it was short.
+  coachVoiceUnused: () => api.post('/profiles/coach/voice/unused'),
   // The final read before the profile is built: up to two questions.
   coachGaps: (profile) => api.post('/profiles/coach/gaps', { profile }),
   // The text of a PDF or Word file shared during a call.

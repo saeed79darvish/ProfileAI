@@ -100,6 +100,8 @@ import {
   applyBraindump,
   canRewind,
   draftRewoundTo,
+  coachPageState,
+  historyWithEvents,
   coachCompletion,
   loadConversation,
   saveConversation,
@@ -513,6 +515,13 @@ const ProfileCoach = () => {
   // The talk-or-type offer is made once per conversation, never again.
   const voiceOfferedRef = useRef(false);
   const voiceAvailableRef = useRef(false);
+  /* What happened on the page, told to the coach with every turn. It used
+     to see only the words: after someone closed a call it had no idea a
+     call had happened, and answered "lets talk" with "Sure, let's go." */
+  const lastCallRef = useRef('none');
+  const callStartedAtRef = useRef(0);
+  // [{ afterId, text }]: a page event, placed after the message it followed.
+  const pageEventsRef = useRef([]);
   /* How many asides have been answered by the model in this conversation.
      Each costs a call; a person asks two or three, a script does not stop.
      The cap is high enough that nobody real will meet it. */
@@ -736,6 +745,25 @@ const ProfileCoach = () => {
     trackEvent('coach_answer_changed', { step: step.id });
     later(() => askStep(at, rewound), TIMING.ACK_MS);
   }, [askStep, busy, later]);
+
+  /* The same, asked for in words ("I'm not a new grad"), so the coach did
+     it rather than the person finding the edit button. The conversation
+     stays on screen: they just said why, and cutting it away would lose
+     that. The question is asked again underneath. */
+  const rewindFromChat = useCallback((stepId) => {
+    const at = LADDER.findIndex((s) => s.id === stepId);
+    if (at < 0 || !canRewind(LADDER[at])) return false;
+    const rewound = draftRewoundTo(draftRef.current, stepId);
+    draftRef.current = rewound;
+    setDraft(rewound);
+    setStepIndex(at);
+    setFollowUpFor(null);
+    setProbing(false);
+    setMessages((prev) => prev.map((m) => (m.chips?.length && !m.spent ? { ...m, spent: true } : m)));
+    trackEvent('coach_answer_changed', { step: stepId, via: 'chat' });
+    later(() => askStep(at, rewound), TIMING.ACK_MS);
+    return true;
+  }, [askStep, later]);
 
 
   /* ─── Opening ──────────────────────────────────────────────── */
@@ -1608,9 +1636,26 @@ const ProfileCoach = () => {
     }
   }, [askStep, startLadderFrom]);
 
+  /* Something that happened on the page, for the coach's history. Not a
+     message: nobody said it, and it is never shown. */
+  const notePageEvent = useCallback((text) => {
+    const last = messagesRef.current[messagesRef.current.length - 1];
+    pageEventsRef.current = [...pageEventsRef.current, { afterId: last?.id ?? null, text }].slice(-10);
+  }, []);
+
   const onCallEnded = useCallback(({ dropped = false } = {}) => {
     setLastSpoken(null);
-    refreshVoiceStatus();
+    const seconds = callStartedAtRef.current ? Math.round((Date.now() - callStartedAtRef.current) / 1000) : 0;
+    callStartedAtRef.current = 0;
+    const emptyCall = !heardAnythingRef.current
+      && !messagesRef.current.some((m) => m.spoken && m.role === 'me' && m.text && !m.pending);
+    lastCallRef.current = emptyCall ? (dropped ? 'dropped' : 'ended_empty') : 'completed';
+    notePageEvent(emptyCall
+      ? (dropped ? 'The live call dropped: the connection went before anything was said.'
+        : `The live call ended after ${seconds} seconds. Nothing was said on it.`)
+      : 'The live call ended. What it heard is in the profile.');
+    // An empty call asks for its count back first, then reads the result.
+    if (!(emptyCall && !dropped)) refreshVoiceStatus();
     /* The call kept as a few sentences on their record; the transcript is
        sent to be summarised and is not stored. Signed-in only: guests
        cannot place a call. */
@@ -1651,10 +1696,31 @@ const ProfileCoach = () => {
         });
         return;
       }
-      /* A call that caught nothing cannot finish the profile on its own: the
-         rest is done in the chat. */
-      pushCoach(TEXT.VOICE_NOTHING);
-      later(resumeAfterEmptyCall, TIMING.ACK_MS);
+      /* Closed before anything was said. A guest's call is given back when
+         it was that short (the server decides), so the way back to it is
+         offered here, not left for them to ask for. When it cannot be,
+         the chat carries on. */
+      const ended = (canCall) => {
+        if (!canCall) {
+          pushCoach(TEXT.VOICE_NOTHING);
+          later(resumeAfterEmptyCall, TIMING.ACK_MS);
+          return;
+        }
+        pushCoach(TEXT.VOICE_ENDED_EMPTY, {
+          stepId: VOICE_RETRY,
+          chips: [
+            { id: 'retry', label: TEXT.VOICE_RETRY_CHIP },
+            { id: 'chat', label: TEXT.VOICE_CHAT_CHIP },
+          ],
+          selected: [],
+        });
+      };
+      profileAPI.coachVoiceUnused()
+        .then(({ data }) => {
+          voiceAvailableRef.current = data?.canCall === true;
+          ended(data?.canCall === true);
+        })
+        .catch(() => { refreshVoiceStatus(); ended(false); });
       return;
     }
     heardAnythingRef.current = false;
@@ -1673,7 +1739,7 @@ const ProfileCoach = () => {
       return;
     }
     afterCall(merged);
-  }, [afterCall, isAuthenticated, later, pushCoach, refreshVoiceStatus, resumeAfterEmptyCall, saveCareerContext]);
+  }, [afterCall, isAuthenticated, later, notePageEvent, pushCoach, refreshVoiceStatus, resumeAfterEmptyCall, saveCareerContext]);
 
   const saveCheckEdit = useCallback((kind, text, skills) => {
     const next = applyCheckEdit(draftRef.current, kind, text, { skills });
@@ -1743,7 +1809,7 @@ const ProfileCoach = () => {
      an account, offered with the buttons to make one: the conversation is
      saved in this browser, so signing in and coming back resumes it. */
   const offerAccountForVoice = useCallback((text) => {
-    pushCoach(text || TEXT.VOICE_SIGNED_OUT, {
+    pushCoach(text ?? TEXT.VOICE_SIGNED_OUT, {
       stepId: VOICE_SIGNIN_CHOICE,
       chips: [
         { id: 'register', label: TEXT.VOICE_REGISTER },
@@ -1795,6 +1861,7 @@ const ProfileCoach = () => {
         model: data.model,
         maxMinutes: data.maxSessionMinutes,
       });
+      callStartedAtRef.current = Date.now();
       trackEvent('coach_voice_started', { guest: !isAuthenticated, maxMinutes: data.maxSessionMinutes || null });
       return true;
     } catch (err) {
@@ -2314,14 +2381,11 @@ const ProfileCoach = () => {
         /* Enough of the conversation that the review, the call and the
            questions since are all in view. Ten messages was a few minutes,
            and the coach then asked about things said just before that. */
-        history: messagesRef.current
-          .filter((m) => m.text && !m.pending)
-          .slice(-30)
-          .map((m) => ({ role: m.role, text: m.text })),
+        history: historyWithEvents(messagesRef.current, pageEventsRef.current),
         message: text,
-        /* Live voice is for signed-in users only. A guest who asks to talk is
-           pointed at the mic, never walked into an account wall. */
+        // Read by servers from before the tools; the server checks for itself now.
         liveVoice: voiceAvailableRef.current ? 'live' : 'none',
+        state: coachPageState(draftRef.current, step, lastCallRef.current),
         asked: step ? questionText(step, draftRef.current) : '',
         options: onScreen.map((c) => c.label),
         /* Follow-ups are for the stories (a role, what they did, a
@@ -2372,17 +2436,35 @@ const ProfileCoach = () => {
 
       setTyping(false);
       if (data?.say) pushCoach(data.say);
+      /* What the coach did on the page, through a tool the server checked
+         first: at most one. A server from before the tools sends flags. */
+      const action = Array.isArray(data?.actions) ? data.actions[0]
+        : data?.voice ? { type: 'voice' }
+          : data?.show === 'import' ? { type: 'import' }
+            : data?.show === 'signup' ? { type: 'account', reason: 'save' } : null;
+      /* Their today's call is used: the account buttons, under the coach's
+         own line saying so. */
+      if (action?.type === 'account' && action.reason === 'voice' && !isAuthenticated) {
+        setBusy(false);
+        offerAccountForVoice(data?.say ? '' : undefined);
+        return { ok: true, awaiting: true, shown: true };
+      }
       // They asked to sign up or finish later: the buttons to do it.
-      if ((data?.show === 'signup' || wantsToSaveForLater(text)) && offerSaveForLater()) {
+      if ((action?.type === 'account' || (!action && wantsToSaveForLater(text))) && offerSaveForLater()) {
         setBusy(false);
         return { ok: true, awaiting: true, shown: true };
       }
-      if (data?.voice && voiceAvailableRef.current) {
+      if (action?.type === 'voice') {
         /* They asked to talk out loud: same path as the button. Answering
            "I can only read text" next to a mic and a talk button is the coach
            contradicting the page it lives on. */
         setBusy(false);
         await startTalking();
+        return { ok: true, awaiting: true, shown: true };
+      }
+      // "I'm not a new grad": that answer taken back and asked again.
+      if (action?.type === 'rewind' && rewindFromChat(action.step)) {
+        setBusy(false);
         return { ok: true, awaiting: true, shown: true };
       }
       /* They asked to upload a resume or bring in LinkedIn. Show the real
@@ -2391,7 +2473,7 @@ const ProfileCoach = () => {
          dialog cannot be opened from here (the browser only allows that
          from a tap), so the chips are the step. postCall makes "Not now"
          return to the question they were on, not to the top of the ladder. */
-      if (data?.show === 'import') {
+      if (action?.type === 'import') {
         offerImportAgain(data?.say ? '' : TEXT.IMPORT_ASKED, ASKED_IMPORT_CHOICES, { postCall: true });
         return { ok: true, awaiting: true, shown: true };
       }
@@ -2418,7 +2500,7 @@ const ProfileCoach = () => {
     } finally {
       setBusy(false);
     }
-  }, [isAuthenticated, offerImportAgain, offerSaveForLater, pushCoach, startTalking]);
+  }, [isAuthenticated, offerAccountForVoice, offerImportAgain, offerSaveForLater, pushCoach, rewindFromChat, startTalking]);
 
   /**
    * Put the answer options back without restating the question.

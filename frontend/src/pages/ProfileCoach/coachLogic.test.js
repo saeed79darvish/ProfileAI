@@ -1772,3 +1772,31 @@ test('a conversation is finished once it reached the end cards', () => {
   assert.equal(conversationFinished([{ role: 'coach', convert: true }]), true);
   assert.equal(conversationFinished(), false);
 });
+
+/* ─── What the coach is told about the page ─────────────────── */
+
+test('coachPageState lists the button answers before this question, as labels', async () => {
+  const { coachPageState, LADDER } = await import('./coachLogic.js');
+  const draft = { sector: 'software', careerStage: 'new_grad', roleTypes: ['full_time'], workStyle: 'flexible', sources: ['resume'] };
+  const step = LADDER.find((s) => s.id === 'education');
+  const state = coachPageState(draft, step, 'ended_empty');
+  assert.equal(state.lastCall, 'ended_empty');
+  assert.deepEqual(state.imports, ['resume']);
+  const steps = state.answered.map((a) => a.step);
+  assert.ok(steps.includes('sector') && steps.includes('careerStage'));
+  assert.ok(!steps.includes('education'));
+  assert.ok(state.answered.every((a) => typeof a.answer === 'string' && a.answer));
+  assert.ok(state.step.number >= 1 && state.step.number <= state.step.total);
+});
+
+test('historyWithEvents places what happened on the page after the message it followed', async () => {
+  const { historyWithEvents } = await import('./coachLogic.js');
+  const messages = [
+    { id: 1, role: 'coach', text: 'Talk or type?' },
+    { id: 2, role: 'me', text: 'Talk it through' },
+    { id: 3, role: 'coach', text: 'Hi there', pending: true },
+    { id: 4, role: 'coach', text: 'Where did you study?' },
+  ];
+  const history = historyWithEvents(messages, [{ afterId: 3, text: 'The call ended.' }]);
+  assert.deepEqual(history.map((h) => h.role), ['coach', 'me', 'event', 'coach']);
+});

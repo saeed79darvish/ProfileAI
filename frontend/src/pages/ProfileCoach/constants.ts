@@ -85,6 +85,7 @@ export const TEXT = {
   VOICE_DONE_TALK: 'Thanks for talking it through. I have kept that in mind.',
   VOICE_HANDOVER: 'One last thing, and it is easier here than out loud: if you have a resume or a LinkedIn profile, send it over and I will fill in anything we missed.',
   VOICE_NOTHING: 'We got cut off before I caught anything. We can keep going here instead.',
+  VOICE_ENDED_EMPTY: 'The call ended before I heard anything. Want to try again, or keep going here?',
   VOICE_DROPPED: 'The call dropped on my side. Want to try again, or keep going here?',
   VOICE_RETRY_CHIP: 'Call again',
   VOICE_CHAT_CHIP: 'Keep going in chat',

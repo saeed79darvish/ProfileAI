@@ -1761,6 +1761,46 @@ export const needsAI = (step, text, draft = {}) => {
 
 export const canRewind = (step) => !!(step && step.assign && step.chipSet);
 
+/* What the coach is told about the page with every typed turn (the server's
+   THE PAGE RIGHT NOW). Only answers the page can take back are listed, so
+   the coach's go_back can only name one that can actually be undone. */
+export const coachPageState = (draft = {}, step = null, lastCall = 'none') => {
+  const order = ladderOrder(draft);
+  const at = step ? order.indexOf(LADDER.findIndex((s) => s.id === step.id)) : -1;
+  const answered = [];
+  for (const i of order) {
+    const s = LADDER[i];
+    if (step && s.id === step.id) break;
+    if (!canRewind(s)) continue;
+    const value = draft[s.assign];
+    if (value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
+    const chips = getChips(s, draft);
+    const label = (id) => chips.find((c) => c.id === id)?.label || String(id);
+    answered.push({
+      step: s.id,
+      question: questionText(s, draft),
+      answer: Array.isArray(value) ? value.map(label).join(', ') : label(value),
+    });
+  }
+  return {
+    lastCall,
+    imports: sourcesOf(draft),
+    step: at >= 0 ? { number: at + 1, total: order.length } : null,
+    answered,
+  };
+};
+
+/* The conversation as the coach reads it: the messages, with what happened
+   on the page (a call ending, say) placed after the message it followed. */
+export const historyWithEvents = (messages = [], events = [], limit = 30) => {
+  const out = events.filter((e) => e.afterId == null).map((e) => ({ role: 'event', text: e.text }));
+  for (const m of messages) {
+    if (m.text && !m.pending) out.push({ role: m.role, text: m.text });
+    for (const e of events) if (e.afterId === m.id) out.push({ role: 'event', text: e.text });
+  }
+  return out.slice(-limit);
+};
+
 /**
  * The draft with this step's answer, and everything downstream of it,
  * forgotten. Changing your sector has to forget the job title you picked
