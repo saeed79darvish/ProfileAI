@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Dialog } from '@mui/material';
+import { Dialog, Drawer, useMediaQuery } from '@mui/material';
 import { AutoAwesome, Edit, Close } from '@mui/icons-material';
 
 const Container = styled.div`
@@ -94,7 +94,59 @@ const CancelBtn = styled.button`
   &:hover { color: #667085; }
 `;
 
-export default function AlreadyTailoredModal({ open, onClose, onTailorAgain, onEdit, jobTitle, company }) {
+const Grab = styled.div`
+  width: 40px;
+  height: 5px;
+  margin: -10px auto 18px;
+  border-radius: 3px;
+  background: #d9dbe5;
+`;
+
+const Cost = styled.span`
+  font-weight: 500;
+  opacity: 0.75;
+`;
+
+/**
+ * Tailoring a job that already has a tailored copy. Opening that copy is free;
+ * starting over costs a tailoring credit, and says so. A bottom sheet on
+ * phones, a small dialog on desktop.
+ */
+export default function AlreadyTailoredModal({ open, onClose, onTailorAgain, onEdit, jobTitle, company, costLabel = '1 credit' }) {
+  const isPhone = useMediaQuery('(max-width:768px)', { noSsr: true });
+  const content = (
+    <Container>
+      {isPhone ? <Grab /> : <IconWrap><AutoAwesome /></IconWrap>}
+      <Title>Already tailored</Title>
+      <Description>
+        You already have a resume tailored for{' '}
+        <strong>{jobTitle}{company ? ` at ${company}` : ''}</strong>.
+        Open it for free, or start over.
+      </Description>
+      <Buttons>
+        <PrimaryBtn onClick={onEdit}>
+          <Edit /> Open my tailored resume
+        </PrimaryBtn>
+        <SecondaryBtn onClick={onTailorAgain}>
+          <AutoAwesome /> Start over{costLabel && <Cost>· {costLabel}</Cost>}
+        </SecondaryBtn>
+        <CancelBtn onClick={onClose}>Cancel</CancelBtn>
+      </Buttons>
+    </Container>
+  );
+  if (isPhone) {
+    return (
+      <Drawer
+        anchor="bottom"
+        open={open}
+        sx={{ zIndex: 1400 }}
+        onClose={onClose}
+        PaperProps={{ style: { borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: 'env(safe-area-inset-bottom, 0px)' } }}
+      >
+        {content}
+      </Drawer>
+    );
+  }
   return (
     <Dialog
       open={open}
@@ -103,24 +155,7 @@ export default function AlreadyTailoredModal({ open, onClose, onTailorAgain, onE
       fullWidth
       PaperProps={{ style: { borderRadius: 20, overflow: 'hidden' } }}
     >
-      <Container>
-        <IconWrap><AutoAwesome /></IconWrap>
-        <Title>Already tailored</Title>
-        <Description>
-          You've already tailored your resume for{' '}
-          <strong>{jobTitle}{company ? ` at ${company}` : ''}</strong>.
-          Save your credit, edit the existing version instead, or tailor again from scratch.
-        </Description>
-        <Buttons>
-          <PrimaryBtn onClick={onEdit}>
-            <Edit /> Edit existing resume
-          </PrimaryBtn>
-          <SecondaryBtn onClick={onTailorAgain}>
-            <AutoAwesome /> Tailor again
-          </SecondaryBtn>
-          <CancelBtn onClick={onClose}>Cancel</CancelBtn>
-        </Buttons>
-      </Container>
+      {content}
     </Dialog>
   );
 }

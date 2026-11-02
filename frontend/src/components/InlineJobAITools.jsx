@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
 import {
   AutoAwesome as TailorIcon,
   Description as CoverLetterIcon,
@@ -20,19 +19,15 @@ import {
   ExpandLess as CollapseIcon
 } from '@mui/icons-material';
 import { CircularProgress, Chip, Dialog, DialogContent, IconButton } from '@mui/material';
-import { profileAPI, tailoredProfileAPI, resumeAPI } from '../services/api';
+import { profileAPI, tailoredProfileAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import GapReviewDialog from './GapReviewDialog';
 import LimitReachedModal from './LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
-import TailorSettingsModal from './TailorSettingsModal';
 import CoverLetterModal from './CoverLetterModal';
 import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
 import { matchTier } from '@/utils/jobMatchScore';
-import TailoringProgressModal from './TailoringProgressModal';
-import TailoredResultsModal from './TailoredResultsModal';
-import ResumePreviewModal from './ResumePreviewModal';
+import JobTailorFlow from './JobTailorFlow';
 import AlreadyTailoredModal from './AlreadyTailoredModal';
 import SwitchToDesktopDialog, { isDesktopNudgeDismissed, dismissDesktopNudgeForever } from './SwitchToDesktopDialog';
 import { isMobileDevice } from '../hooks/useIsMobileDevice';
@@ -516,15 +511,11 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const [gapResult, setGapResult] = useState(null);
   const [showMatchModal, setShowMatchModal] = useState(false);
   
-  // Tailor
-  const [tailorLoading, setTailorLoading] = useState(false);
-  const [tailoredProfile, setTailoredProfile] = useState(null);
-  const [showGapReview, setShowGapReview] = useState(false);
-  const [detectedGaps, setDetectedGaps] = useState([]);
-  const [satisfiedAlts, setSatisfiedAlts] = useState([]);
-  const [savingTailored, setSavingTailored] = useState(false);
-  const [tailorSaved, setTailorSaved] = useState(false);
-  const [showTailorSettings, setShowTailorSettings] = useState(false);
+  // Tailor: one full-screen flow (JobTailorFlow). It stays mounted while
+  // closed, so a run hidden mid-way is still there when they come back.
+  const [showTailorFlow, setShowTailorFlow] = useState(false);
+  const [tailorInitialCopy, setTailorInitialCopy] = useState(null);
+  const [tailorPending, setTailorPending] = useState(false);
   
   // Cover Letter
   const [coverLoading, setCoverLoading] = useState(false);
@@ -534,17 +525,6 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const [copied, setCopied] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
 
-  // New modal states
-  const [showTailoringProgress, setShowTailoringProgress] = useState(false);
-  const { startTask } = useBackgroundTasks();
-  const mountedRef = useMountedRef();
-  const [tailoringStartStep, setTailoringStartStep] = useState(0);
-  const [tailoringCompleted, setTailoringCompleted] = useState(false);
-  const [showTailoredResults, setShowTailoredResults] = useState(false);
-  const [showResumePreview, setShowResumePreview] = useState(false);
-  const [currentTailorSettings, setCurrentTailorSettings] = useState(null);
-  const [preloadedPreviewUrl, setPreloadedPreviewUrl] = useState('');
-  
   // Upgrade
   // Full 429 payload from the AI rate limiter; null when not limited.
   const [limitInfo, setLimitInfo] = useState(null);
@@ -571,26 +551,18 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   useEffect(() => {
     setActivePanel(null);
     setGapResult(null);
-    setTailoredProfile(null);
     setCoverLetter('');
-    setTailorSaved(false);
+    setShowTailorFlow(false);
+    setTailorInitialCopy(null);
     setShowDesktopNudge(false);
     setPendingMobileAction(null);
   }, [job?.id]);
 
-  // Listen for external tailor trigger (e.g. from match dialog). On a real
-  // mobile device, the first trigger is intercepted with a one-time "this
-  // works better on desktop" nudge instead of opening the tailor flow.
+  // Listen for external tailor trigger (e.g. from match dialog). The flow is
+  // built for phones, so it opens directly there too.
   useEffect(() => {
     const handler = (e) => {
-      if (job && e.detail?.jobId === job.id) {
-        if (isMobileDevice() && !isDesktopNudgeDismissed()) {
-          setPendingMobileAction('tailor');
-          setShowDesktopNudge(true);
-          return;
-        }
-        handleTailorRef.current();
-      }
+      if (job && e.detail?.jobId === job.id) handleTailorRef.current();
     };
     window.addEventListener('trigger-tailor-resume', handler);
     return () => window.removeEventListener('trigger-tailor-resume', handler);
@@ -617,8 +589,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
     setShowDesktopNudge(false);
     const action = pendingMobileAction;
     setPendingMobileAction(null);
-    if (action === 'tailor') handleTailorRef.current();
-    else if (action === 'coverLetter') handleCoverLetter();
+    if (action === 'coverLetter') handleCoverLetter();
   };
 
   const getJobDescription = useCallback(() => {
@@ -686,7 +657,14 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   };
 
   // === Tailor Resume ===
+  const openTailorFlow = (initialCopy = null) => {
+    setTailorInitialCopy(initialCopy);
+    setShowTailorFlow(true);
+  };
+
   const handleTailor = async () => {
+    // A run in flight or a result waiting at Review: back to it.
+    if (tailorPending) { openTailorFlow(); return; }
     try {
       const res = await tailoredProfileAPI.getAll();
       const existing = res.data?.find(tp =>
@@ -700,7 +678,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
     } catch (err) {
       // If fetch fails, proceed normally
     }
-    setShowTailorSettings(true);
+    openTailorFlow();
   };
 
   // Keep a ref to the latest handleTailor for event listeners
@@ -710,155 +688,15 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const handleTailorAgain = () => {
     setShowAlreadyTailored(false);
     setExistingTailoredId(null);
-    setShowTailorSettings(true);
+    openTailorFlow();
   };
 
+  // The saved copy, free: straight to Apply.
   const handleEditExisting = () => {
     setShowAlreadyTailored(false);
-    // Load the existing tailored profile and open the resume preview
     tailoredProfileAPI.getById(existingTailoredId).then(res => {
-      setTailoredProfile(res.data.tailoredData || res.data);
-      setShowResumePreview(true);
-    }).catch(() => {
-      // Fallback: just open tailor settings
-      setShowTailorSettings(true);
-    });
-  };
-
-  const handleTailorSettingsContinue = async (settings) => {
-    setShowTailorSettings(false);
-    setCurrentTailorSettings(settings);
-    setActivePanel('tailor');
-    setTailorLoading(true);
-    setTailoredProfile(null);
-    setTailorSaved(false);
-    setTailoringStartStep(0);
-    setTailoringCompleted(false);
-    setShowTailoringProgress(true);
-    try {
-      const res = await profileAPI.analyzeGaps({ profileData: getProfileData(), jobDescription: getJobDescription() });
-      if (res.data.success && res.data.gaps?.length > 0) {
-        setShowTailoringProgress(false);
-        setDetectedGaps(res.data.gaps);
-        setSatisfiedAlts(res.data.satisfiedAlternatives || []);
-        setShowGapReview(true);
-      } else {
-        await doTailoring(null, settings);
-        setTailoringCompleted(true);
-      }
-    } catch (err) {
-      if (!handleRateLimit(err)) {
-        try {
-          await doTailoring(null, settings);
-          setTailoringCompleted(true);
-        } catch (err2) {
-          setShowTailoringProgress(false);
-          if (!handleRateLimit(err2)) toast.error(err2.response?.data?.error || 'Error tailoring profile');
-        }
-      }
-    } finally {
-      setTailorLoading(false);
-    }
-  };
-
-  const handleGapReviewContinue = async (selections) => {
-    setShowGapReview(false);
-    setTailorLoading(true);
-    setTailoringStartStep(2);
-    setTailoringCompleted(false);
-    setShowTailoringProgress(true);
-    try {
-      await doTailoring({ acceptedGaps: selections.acceptedGaps, skippedGaps: selections.skippedGaps, acceptedGapObjects: selections.acceptedGapObjects }, currentTailorSettings);
-      setTailoringCompleted(true);
-    } catch (err) {
-      setShowTailoringProgress(false);
-      if (!handleRateLimit(err)) toast.error(err.response?.data?.error || 'Error tailoring profile');
-    } finally {
-      setTailorLoading(false);
-    }
-  };
-
-  const doTailoring = async (gapSelections, tailorSettings) => {
-    // Runs as a background task: tailoring takes a minute or more, the
-    // progress modal can be hidden, and the user may well leave this job
-    // before it finishes. The request and the save both live in the task, so
-    // the resume is stored either way, and the indicator under the navbar says
-    // what is running and offers the result when it is done.
-    const taskId = `tailor:${job?.id || `${job?.title}|${job?.company}`}`;
-    const outcome = await startTask({
-      id: taskId,
-      label: `Tailoring your resume for ${job?.title || 'this job'}`,
-      doneLabel: `Resume tailored for ${job?.title || 'this job'}`,
-      openPath: '/profile?tab=tailored',
-      ownerAlive: () => mountedRef.current,
-      run: async () => {
-        // jobTitle/company are sent explicitly: on most boards the posting's
-        // title is in the page header, not inside the description text.
-        const res = await profileAPI.tailorProfileForJob({
-          jobDescription: getJobDescription(),
-          jobTitle: job?.title,
-          company: job?.company,
-          gapSelections,
-          tailorSettings,
-        });
-        if (!res.data.success) return { ok: false, error: res.data.error };
-        const tailored = res.data.data;
-        if (gapSelections?.acceptedGapObjects) {
-          tailored._skillGaps = gapSelections.acceptedGapObjects;
-          tailored._learningPlan = { acceptedGaps: gapSelections.acceptedGaps || [], skippedGaps: gapSelections.skippedGaps || [], createdAt: new Date().toISOString() };
-        }
-        // Saved inside the task, so it happens even if this page is gone.
-        try {
-          await tailoredProfileAPI.save({
-            jobTitle: job.title,
-            companyName: job.company,
-            tailoredData: tailored,
-            originalProfileSnapshot: getProfileData(),
-            matchScore: tailored.matchAnalysis?.overallScore || null,
-            skillGaps: (tailored._skillGaps || []).map(g => ({ ...g, status: 'pending' })),
-            learningPlan: tailored._learningPlan || null,
-          });
-        } catch (saveErr) {
-          // Non-blocking, continue even if save fails
-        }
-        return { ok: true, tailored };
-      },
-    });
-
-    if (!mountedRef.current) return; // the indicator takes it from here
-    if (!outcome?.ok) {
-      toast.error(outcome?.error || 'Failed to tailor profile');
-      return;
-    }
-    const tailored = outcome.tailored;
-    setTailoredProfile(tailored);
-
-    // Pre-fetch resume preview in background so the download modal opens instantly
-    setPreloadedPreviewUrl('');
-    resumeAPI.preview('professional', null, tailored).then(previewRes => {
-      if (previewRes.data?.preview) setPreloadedPreviewUrl(previewRes.data.preview);
-    }).catch(() => {});
-  };
-
-  const handleSaveTailored = async () => {
-    if (!tailoredProfile) return;
-    setSavingTailored(true);
-    try {
-      await tailoredProfileAPI.save({
-        jobTitle: job.title,
-        companyName: job.company,
-        tailoredData: tailoredProfile,
-        originalProfileSnapshot: getProfileData(),
-        matchScore: tailoredProfile.matchAnalysis?.overallScore || null,
-        skillGaps: (tailoredProfile._skillGaps || []).map(g => ({ ...g, status: 'pending' })),
-        learningPlan: tailoredProfile._learningPlan || null,
-      });
-      setTailorSaved(true);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Error saving tailored profile');
-    } finally {
-      setSavingTailored(false);
-    }
+      openTailorFlow(res.data.tailoredData || res.data);
+    }).catch(() => openTailorFlow());
   };
 
   // === Cover Letter ===
@@ -924,7 +762,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
     );
   }
 
-  const isLoading = gapLoading || tailorLoading || coverLoading;
+  const isLoading = gapLoading || coverLoading;
 
   return (
     <>
@@ -1062,23 +900,17 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         </DialogContent>
       </Dialog>
 
-      {/* Gap Review Dialog for Tailoring */}
-      <GapReviewDialog
-        open={showGapReview}
-        onClose={() => { setShowGapReview(false); setTailorLoading(false); }}
-        gaps={detectedGaps}
-        satisfiedAlternatives={satisfiedAlts}
-        onContinue={handleGapReviewContinue}
-        loading={tailorLoading}
-      />
-
-      {/* Tailor Settings Modal */}
-      <TailorSettingsModal
-        open={showTailorSettings}
-        onClose={() => setShowTailorSettings(false)}
-        jobTitle={job?.title}
-        company={job?.company}
-        onContinue={handleTailorSettingsContinue}
+      <JobTailorFlow
+        key={job?.id}
+        open={showTailorFlow}
+        onClose={() => { setShowTailorFlow(false); setTailorInitialCopy(null); }}
+        job={job}
+        profile={profile}
+        user={user}
+        jobDescription={getJobDescription()}
+        initialCopy={tailorInitialCopy}
+        onLimit={setLimitInfo}
+        onPendingChange={setTailorPending}
       />
 
       {/* Cover Letter Modal */}
@@ -1088,29 +920,6 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         jobTitle={job?.title}
         company={job?.company}
         onGenerate={handleGenerateCoverLetter}
-      />
-
-      {/* Tailoring Progress Modal */}
-      <TailoringProgressModal
-        open={showTailoringProgress}
-        onMinimize={() => setShowTailoringProgress(false)}
-        onViewResult={() => { setShowTailoringProgress(false); setShowResumePreview(true); }}
-        jobTitle={job?.title}
-        company={job?.company}
-        startFromStep={tailoringStartStep}
-        maxStep={tailoringStartStep === 0 ? 2 : 4}
-        completed={tailoringCompleted}
-      />
-
-      {/* Resume Preview / Download Modal */}
-      <ResumePreviewModal
-        open={showResumePreview}
-        onClose={() => setShowResumePreview(false)}
-        profileData={profile}
-        tailoredProfileData={tailoredProfile}
-        jobTitle={job?.title}
-        user={user}
-        preloadedPreviewUrl={preloadedPreviewUrl}
       />
 
       <LimitReachedModal

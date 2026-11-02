@@ -32,6 +32,17 @@ const FAMILIAR_GROUP = 'Familiar with';
 
 const norm = (v) => String(v || '').toLowerCase().trim();
 
+/**
+ * Only a skill name belongs in a skills list. The old gap review sent every
+ * gap it showed, so resumes came out listing "Seniority match (role is 1-3
+ * years)" and "Experimentation and A/B testing experience" as skills.
+ */
+function isSkillShaped(gap) {
+  if (!gap || gap.length > 48) return false;
+  if (gap.split(/\s+/).length > 5) return false;
+  return !/[()]|\byears?\b|\bseniority\b|\bmatch\b|\bexperience\b|\bdegree\b/i.test(gap);
+}
+
 /** Flatten a grouped or flat skills value into a list of strings. */
 function listSkills(skills) {
   if (Array.isArray(skills)) return skills.filter((s) => typeof s === 'string');
@@ -58,7 +69,7 @@ function listSkills(skills) {
 function applyAcceptedGaps(draft, acceptedGaps, { isEvidenced = () => false } = {}) {
   const accepted = (Array.isArray(acceptedGaps) ? acceptedGaps : [])
     .map((g) => (typeof g === 'string' ? g.trim() : ''))
-    .filter(Boolean);
+    .filter(isSkillShaped);
   if (accepted.length === 0) return { added: [], alreadyPresent: [], group: null };
 
   // Everything the resume already says, so nothing is added twice.
@@ -171,4 +182,9 @@ function withoutAcceptedGaps(gaps, acceptedGaps) {
   });
 }
 
-module.exports = { applyAcceptedGaps, withoutAcceptedGaps, FAMILIAR_GROUP };
+module.exports = {
+  isSkillShaped,
+  applyAcceptedGaps,
+  withoutAcceptedGaps,
+  FAMILIAR_GROUP,
+};

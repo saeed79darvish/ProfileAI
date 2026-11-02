@@ -142,3 +142,19 @@ test('a line that only mentions the accepted term in its explanation is kept', (
   const line = 'Database architecture (required): no Postgres or schema design in the resume';
   assert.deepEqual(withoutAcceptedGaps([line], ['Postgres']), [line]);
 });
+
+test('isSkillShaped keeps skill names and drops requirement sentences', () => {
+  const { isSkillShaped } = require('./acceptedGaps');
+  assert.equal(isSkillShaped('GraphQL'), true);
+  assert.equal(isSkillShaped('A/B testing'), true);
+  assert.equal(isSkillShaped('Seniority match (role is 1-3 years)'), false);
+  assert.equal(isSkillShaped('Experimentation and A/B testing experience'), false);
+  assert.equal(isSkillShaped('3+ years of frontend'), false);
+});
+
+test('a requirement sentence is never filed under skills', () => {
+  const d = { skills: ['React'] };
+  const out = applyAcceptedGaps(d, ['Seniority match (role is 1-3 years)', 'Vitest']);
+  assert.deepEqual(out.added, ['Vitest']);
+  assert.ok(!d.skills.includes('Seniority match (role is 1-3 years)'));
+});

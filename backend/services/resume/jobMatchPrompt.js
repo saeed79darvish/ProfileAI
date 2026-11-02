@@ -132,6 +132,11 @@ Rules:
   promise the user that tailoring can close the gap.
 - For a "must" requirement with coverage "none", write "whyBlocking": one plain
   sentence on why a screen would reject on it.
+- For coverage "partial" or "none", write "note": one plain sentence to the
+  candidate ("your", "you"), under 130 characters, on what the posting wants
+  that the profile does not show yet, naming their closest related work when
+  there is some ("Your checkout work is consumer-facing, but it isn't framed
+  with user metrics."). Empty for "strong".
 - Set "knockout": true only on a "must" requirement a recruiter would reject the
   application on BY ITSELF, even with everything else strong: the role's core
   language or platform (Swift for an iOS role, Python for an ML role), or
@@ -182,6 +187,7 @@ Return ONLY valid JSON:
       "evidence": "[1] Staff Engineer at Acme — 6 years on the payments platform",
       "hasRelatedEvidence": false,
       "whyBlocking": "",
+      "note": "",
       "knockout": false
     }
   ],

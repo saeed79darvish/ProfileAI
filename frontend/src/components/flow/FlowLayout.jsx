@@ -26,6 +26,7 @@ export const Header = styled.div`
   border-bottom: 1px solid #e8e9f0;
 
   .top { display: flex; align-items: flex-start; gap: 12px; }
+  .icon { flex-shrink: 0; align-self: center; }
   .titles { flex: 1; min-width: 0; }
   h3 { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.25; }
   .subtitle { margin-top: 2px; font-size: 14px; color: #6b7280; }
@@ -247,11 +248,12 @@ export const ErrorText = styled.p`
  * @param {Object} props
  * @param {string[]} [props.steps] - step names for the bar
  * @param {number} [props.stepIndex] - the current step; earlier ones show done
+ * @param {React.ReactNode} [props.icon] - beside the title, e.g. a company logo
  * @param {React.ReactNode} [props.headerExtra] - in place of the step bar
  * @param {boolean} [props.busy] - blocks closing while work is in flight
  * @param {React.ReactNode} [props.footer]
  */
-export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, headerExtra, busy = false, footer, bodyRef, children }) {
+export function FlowDialog({ open, onClose, title, subtitle, icon, steps, stepIndex, headerExtra, busy = false, footer, bodyRef, children }) {
   const isMobile = useMediaQuery('(max-width:768px)', { noSsr: true });
   return (
     <Dialog
@@ -265,6 +267,7 @@ export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, h
       <Shell>
         <Header>
           <div className="top">
+            {icon && <div className="icon">{icon}</div>}
             <div className="titles">
               <h3>{title}</h3>
               <div className="subtitle">{subtitle}</div>
@@ -274,7 +277,7 @@ export function FlowDialog({ open, onClose, title, subtitle, steps, stepIndex, h
             </button>
           </div>
           {steps ? (
-            <Steps aria-label="Progress">
+            <Steps aria-label="Progress" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
               {steps.map((name, i) => (
                 <li key={name} data-done={i <= stepIndex} aria-current={i === stepIndex ? 'step' : undefined}>{name}</li>
               ))}

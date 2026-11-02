@@ -1653,6 +1653,21 @@ const CandidateJobs = () => {
     setDismissedApplyPrompts(prev => new Set([...prev, jobId]));
   };
 
+  // Tailor for a Job ends in Apply (JobTailorFlow): opening the page records
+  // a start, and "Yes, I applied" confirms it, the same as Apply here.
+  const applyEventsRef = useRef({});
+  applyEventsRef.current = { markExternalApplied, confirmExternalApplied };
+  useEffect(() => {
+    const started = (e) => e.detail?.jobId && applyEventsRef.current.markExternalApplied(e.detail.jobId);
+    const confirmed = (e) => e.detail?.jobId && applyEventsRef.current.confirmExternalApplied(e.detail.jobId);
+    window.addEventListener('job-application-started', started);
+    window.addEventListener('job-application-confirmed', confirmed);
+    return () => {
+      window.removeEventListener('job-application-started', started);
+      window.removeEventListener('job-application-confirmed', confirmed);
+    };
+  }, []);
+
   const handleSendAgent = (e, job) => {
     e.stopPropagation();
     setSelectedJobForAgent(job);
@@ -2301,7 +2316,8 @@ const CandidateJobs = () => {
                   <div className="job-detail-ai-subtitle">Powered by ProfilleAI</div>
                 </div>
               </div>
-              <InlineJobAITools job={selectedJob} />
+              {/* One copy per screen: phones run it from MobileJobDetail. */}
+              {!isPhone && <InlineJobAITools job={selectedJob} />}
             </div>
           )}
 
@@ -4000,12 +4016,8 @@ const CandidateJobs = () => {
             </MobileSection>
           )}
 
-          {/* Hidden InlineJobAITools (needed for tailor/cover letter actions) */}
-          {isAuthenticated && selectedJob?._isExternal && (
-            <div style={{ display: 'none' }}>
-              <InlineJobAITools job={selectedJob} renderMobileGateUI />
-            </div>
-          )}
+          {/* No AI tools here: this card only shows at phone widths, where
+              MobileJobDetail carries them. A second copy opened every flow twice. */}
         </MobileJobContent>
 
         {/* Mobile Sticky Footer V2 */}

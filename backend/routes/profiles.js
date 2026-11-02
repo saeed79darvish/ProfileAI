@@ -2168,7 +2168,7 @@ router.post('/regenerate-sections', authMiddleware, aiRateLimiter('profile_enhan
       return res.status(400).json({ error: 'Section instructions are required' });
     }
 
-    const hasAny = ['summary', 'skills', 'experience', 'education', 'projects']
+    const hasAny = ['title', 'summary', 'skills', 'experience', 'education', 'projects']
       .some((k) => (instructions[k] || '').toString().trim());
     if (!hasAny) {
       return res.status(400).json({ error: 'Add an instruction for at least one section' });

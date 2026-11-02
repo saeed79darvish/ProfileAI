@@ -199,6 +199,26 @@ function serializeProfileAsResumeText(profileData) {
  * @param {Object|null} gapSelections - accepted gaps are exempt from removal
  * @returns {{ removedSkills: string[], bannedReplacements: Array, bannedResidual: string[] }}
  */
+/**
+ * The Plan step of Tailor for a Job as prompt lines: per section, the actions
+ * the candidate left switched on and their note for it.
+ * plan: { title: string[], summary: string[], skills: string[], experience: string[], keepTitle }
+ * sectionNotes: { title, summary, skills, experience }
+ */
+function buildSectionPlanLines(tailorSettings = {}) {
+  const plan = tailorSettings.plan && typeof tailorSettings.plan === 'object' ? tailorSettings.plan : {};
+  const notes = tailorSettings.sectionNotes && typeof tailorSettings.sectionNotes === 'object' ? tailorSettings.sectionNotes : {};
+  const clean = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const lines = [];
+  for (const [key, label] of [['title', 'Title'], ['summary', 'Summary'], ['skills', 'Skills'], ['experience', 'Experience']]) {
+    const actions = (Array.isArray(plan[key]) ? plan[key] : []).map((a) => clean(a, 80)).filter(Boolean).slice(0, 8);
+    const note = clean(notes[key], 300);
+    if (!actions.length && !note) continue;
+    lines.push(`- ${label}: ${[actions.join('; '), note ? `candidate's note: "${note}"` : ''].filter(Boolean).join('. ')}`);
+  }
+  return lines;
+}
+
 function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
   const compounds = harvestCompounds(originalSourceText);
   const bannedReplacements = [];
@@ -2130,9 +2150,19 @@ Return ONLY a valid JSON array, no additional text.`;
       // weaker evidence — the profile may itself contain text an earlier AI
       // pass wrote — and the reviewer should know which one was in play.
       const originalSourceBasis = hasUploadedResume ? 'uploaded_resume' : 'stored_profile_snapshot';
-      const originalSourceText = hasUploadedResume
-        ? originalResumeText
-        : serializeProfileAsResumeText(profileData);
+      // What the candidate confirmed while tailoring ("I have this", and where)
+      // joins the baseline: it is their own statement, so a line built on it is
+      // supported rather than fabricated, and the checks below keep it.
+      const confirmedLines = (Array.isArray(gapSelections?.confirmedEvidence) ? gapSelections.confirmedEvidence : [])
+        .filter((c) => c && String(c.requirement || '').trim() && String(c.evidence || '').trim())
+        .slice(0, 12)
+        .map((c) => ({ requirement: String(c.requirement).trim().slice(0, 120), evidence: String(c.evidence).trim().slice(0, 300) }));
+      const originalSourceText = [
+        hasUploadedResume ? originalResumeText : serializeProfileAsResumeText(profileData),
+        confirmedLines.length
+          ? `CONFIRMED BY THE CANDIDATE WHILE TAILORING:\n${confirmedLines.map((c) => `- ${c.requirement}: ${c.evidence}`).join('\n')}`
+          : '',
+      ].filter((t) => t && t.trim()).join('\n\n');
 
       if (!originalSourceText || !originalSourceText.trim()) {
         return {
@@ -2338,6 +2368,13 @@ ${skipped.length > 0 ? `SKIPPED GAPS (candidate believes they already have these
 ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
 `;
       }
+      if (confirmedLines.length) {
+        gapContext += `
+═══ CONFIRMED BY THE CANDIDATE ═══
+The candidate was asked about each requirement below and said they have it, in their own words. This is real experience, not a gap: surface each one in the summary or in the bullets of the role it belongs to, in the candidate's terms. Do not hedge it ("familiar with") and do not inflate it beyond what they wrote (no new numbers, employers or dates).
+${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evidence}"`).join('\n')}
+`;
+      }
 
       // Build user preferences context if settings provided
       let settingsContext = '';
@@ -2377,6 +2414,17 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         const customNote = (tailorSettings.customInstructions || '').toString().trim();
         if (customNote) {
           parts.push(`CANDIDATE'S CUSTOM INSTRUCTIONS (honor these wherever they don't conflict with the honesty rules — never invent experience the candidate doesn't have): ${customNote.slice(0, 500)}`);
+        }
+        // The Plan step: what to change in each section, as the candidate
+        // left it, plus anything they typed or said for that section.
+        const planLines = buildSectionPlanLines(tailorSettings);
+        if (planLines.length) {
+          parts.push(`SECTION PLAN (the candidate approved these; follow them, within the honesty rules):\n${planLines.join('\n')}`);
+        }
+        if (Number(tailorSettings.pages) === 1) {
+          parts.push('LENGTH: The whole resume must fit on ONE page. Keep the most job-relevant bullets and cut the rest; older roles get one or two lines.');
+        } else if (Number(tailorSettings.pages) === 2) {
+          parts.push('LENGTH: Up to TWO pages. Keep every role; do not pad.');
         }
         settingsContext = `\n═══ USER'S TAILORING PREFERENCES ═══\n${parts.join('\n')}\n`;
       }
@@ -2990,6 +3038,10 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
       if (targetCompany) {
         tailoredData.company = targetCompany;
       }
+      // "Keep current title" on the Plan step outranks mirroring the posting.
+      if (tailorSettings?.plan?.keepTitle && String(profileData.title || '').trim()) {
+        tailoredData.title = String(profileData.title).trim();
+      }
 
       // ── The candidate's accepted gaps, applied rather than requested ─────
       // Asking the model to weave these in did not work: every surrounding rule
@@ -3407,6 +3459,14 @@ ${skipped.map(g => `• ${g}`).join('\n')}` : ''}
         tailoredData.projects = [];
       }
 
+      // The posting's keywords, so the Review step can count how many the
+      // resume carries before and after.
+      tailoredData._jobKeywords = [...new Map(
+        [...(extractedKeywords.required || []), ...(extractedKeywords.preferred || [])]
+          .filter((k) => typeof k === 'string' && k.trim())
+          .map((k) => [k.trim().toLowerCase(), k.trim()])
+      ).values()].slice(0, 24);
+
       return {
         success: true,
         data: tailoredData
@@ -3560,7 +3620,7 @@ Return ONLY valid JSON, no additional text.`;
    */
   async regenerateSections(profileData, instructions = {}) {
     // Only act on sections the user actually left an instruction for.
-    const SECTIONS = ['summary', 'skills', 'experience', 'education', 'projects'];
+    const SECTIONS = ['title', 'summary', 'skills', 'experience', 'education', 'projects'];
     const active = SECTIONS.filter((k) => (instructions[k] || '').toString().trim());
 
     if (active.length === 0) {

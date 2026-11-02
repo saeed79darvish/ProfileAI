@@ -569,10 +569,38 @@ const MobileFooter = styled.div`
     color: #9ca3af;
   }
 
+  .apply-row { display: flex; gap: 10px; margin-top: 12px; }
+  .apply-row > button { margin-top: 0; }
+  .apply-row > button:last-child { flex: 1; width: auto; justify-content: center; }
+
   /* Edit tab: the button stands alone, no gap above it. */
   > button:first-child { margin-top: 0; }
 
   ${hideWhileTyping}
+`;
+
+const ApplyNote = styled.p`
+  margin: 10px 2px 0;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: #6b7280;
+`;
+
+const ApplySecondaryBtn = styled.button`
+  flex: 0 0 36%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #e2e4ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #13152a;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled { opacity: 0.6; cursor: default; }
 `;
 
 // === Right pane field styles ===
@@ -1500,6 +1528,11 @@ export default function ResumePreviewModal({
   // the Edit tab pre-selected so callers like the ApplyPilot Review
   // page can route directly to the inline editor.
   initialTab = 'preview',
+  // Optional: an Apply button beside Download (Tailor for a Job ends here).
+  // Called in the tap itself, so the job page can open in a new tab without
+  // the popup blocker; the PDF downloads right after.
+  onApply,
+  applyNote,
 }) {
   const buildDefaultName = () => {
     const data = tailoredProfileData || profileData || {};
@@ -1726,6 +1759,11 @@ export default function ResumePreviewModal({
     } finally {
       setDownloading(false);
     }
+  };
+
+  const handleApply = () => {
+    onApply();
+    handleDownload();
   };
 
   const setSectionPrompt = (section, value) => {
@@ -2596,9 +2634,21 @@ export default function ResumePreviewModal({
             {renderFilenameField()}
           </>
         )}
-        <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
-          {downloadLabel}
-        </DownloadBtn>
+        {onApply ? (
+          <>
+            {applyNote && activeTab !== 'edit' && <ApplyNote>{applyNote}</ApplyNote>}
+            <div className="apply-row">
+              <ApplySecondaryBtn type="button" onClick={handleDownload} disabled={downloading}>
+                {downloading ? <CircularProgress size={18} /> : 'Download'}
+              </ApplySecondaryBtn>
+              <DownloadBtn $accent={downloadColor} onClick={handleApply} disabled={downloading}>Apply</DownloadBtn>
+            </div>
+          </>
+        ) : (
+          <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
+            {downloadLabel}
+          </DownloadBtn>
+        )}
       </MobileFooter>
     </ModalContainer>
   );
@@ -2660,9 +2710,13 @@ export default function ResumePreviewModal({
 
             <Footer>
               <CancelBtn onClick={onClose}>Cancel</CancelBtn>
-              <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading}>
+              {onApply && applyNote && <ApplyNote style={{ margin: '0 auto 0 12px' }}>{applyNote}</ApplyNote>}
+              <DownloadBtn $accent={downloadColor} onClick={handleDownload} disabled={downloading} style={onApply ? { background: '#fff', color: '#13152a', border: '1.5px solid #e2e4ec' } : undefined}>
                 {downloadLabel}
               </DownloadBtn>
+              {onApply && (
+                <DownloadBtn $accent={downloadColor} onClick={handleApply} disabled={downloading}>Apply</DownloadBtn>
+              )}
             </Footer>
           </>
         )}
