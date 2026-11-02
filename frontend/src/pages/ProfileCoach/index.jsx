@@ -2721,20 +2721,32 @@ const ProfileCoach = () => {
         confirmMulti(liveMulti, { ids, values: typed });
         return;
       }
-      /* Nothing in it matched. Their words still go in the chat with a
-         word back, rather than staying in the box as if Send did nothing;
-         twice, and a question that can go without is left. */
+      /* Nothing in it matched: it is not a pick, it is them saying
+         something. It goes to the coach like anywhere else. Answered here
+         with "I did not quite catch that", "wait, I'm not a new grad" and
+         "can you write my cover letters?" got the same line, and the
+         second one skipped the question. The buttons stay live above. */
       setInput('');
       setError('');
       pushMine(text);
-      const misses = (missesRef.current[step.id] || 0) + 1;
-      missesRef.current[step.id] = misses;
-      if ((misses >= MAX_MISSES || saysUnsure(text)) && canPass(step)) {
-        spendChips(liveMulti.id);
-        passQuestion(step, stepIndex);
-      } else {
-        pushCoach(TEXT.NUDGE_CHIPS);
+      const turn = await runTurn(text, step);
+      if (!turn.ok) {
+        setError(TEXT.ERROR_GENERIC);
+        return;
       }
+      if (turn.shown) return;
+      // "Full time, maybe contract" in a sentence: heard by the coach.
+      if (stepAnswered(step, draftRef.current)) {
+        spendChips(liveMulti.id);
+        advance(stepIndex, draftRef.current);
+        return;
+      }
+      if ((turn.skip || saysUnsure(text)) && canPass(step)) {
+        spendChips(liveMulti.id);
+        passQuestion(step, stepIndex, { quiet: !turn.silent });
+        return;
+      }
+      if (turn.silent) pushCoach(TEXT.NUDGE_CHIPS);
       return;
     }
 
