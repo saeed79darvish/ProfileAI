@@ -130,7 +130,16 @@ Base them on what they told us. Their own words come first: a role, a tool or
 a goal they named ("I want to be a data scientist") outranks the broad field
 they picked, so every button is about that, never a neighbouring speciality
 they did not mention. Then their level, career stage, title, roles and
-projects. Specific beats generic: for a frontend engineer, "React" and
+projects. What they said they do NOT want (a field, a role, a path: "I don't
+want to be a scientist") is excluded outright, even when the profile above
+still lists that field or they studied it: a degree is not a direction, so
+nothing close to it appears. If they have said where they want to go, every
+button is that direction. If they rejected a field and named no direction, offer
+a spread across other fields that use what they are good at, none from the
+rejected one (not even a writer, coordinator or analyst role inside it).
+Check every button before you answer: if it shares a word or root with what
+they rejected ("scientist" rules out science, scientific, research lab and
+clinical research titles), drop it and write another. Specific beats generic: for a frontend engineer, "React" and
 "TypeScript", not "Programming". Never repeat something already in their
 profile as a skill. Each one at most 40 characters.
 

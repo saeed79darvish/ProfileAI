@@ -2202,7 +2202,10 @@ export const isAlreadyAnswered = (step, draft = {}) => {
     case 'projects':
       return Array.isArray(draft.projects) && draft.projects.length > 0;
     case 'education':
-      return Array.isArray(draft.education) && draft.education.length > 0;
+      /* A degree named in passing ("I studied biology") is a row with no
+         school and no year. It was counted as answered, so a new grad, whose
+         education is the whole credential, was never asked where or when. */
+      return Array.isArray(draft.education) && draft.education.some((r) => r && r.institution);
     case 'location':
       return !!draft.location;
     default:

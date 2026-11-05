@@ -781,6 +781,32 @@ async function gapCheck({ profile = {} } = {}) {
  * suggestAnswers — the buttons under a question about titles, the target
  * role or skills, written for this person rather than for their field.
  */
+/**
+ * Word roots of what someone said they do not want: "I don't want to be a
+ * scientist" gives ["scien"]. The model is told never to suggest these and
+ * still did (Science Writer, Science Communicator), so the buttons are
+ * checked here as well. A root is the first five letters of each word of
+ * the rejected thing.
+ */
+const REJECTED_RE = /\b(?:do\s*not|don'?t|dont|never|no\s+longer|not)\s+(?:really\s+)?(?:want|wanna|like|going|interested)\s*(?:in|to)?\s*(?:be|become|working?\s+(?:in|as)|doing|do|go\s+into|being)?\s*(?:an?\s+|the\s+)?([a-z][a-z\s&-]{3,40}?)(?=[.,;!?]|\s+(?:but|and|because|so)\b|$)/gi;
+const STOP = new Set(['want', 'work', 'working', 'that', 'this', 'job', 'jobs', 'role', 'roles', 'anything', 'something']);
+function rejectedRoots(said = []) {
+  const roots = new Set();
+  for (const line of said) {
+    for (const m of String(line || '').matchAll(REJECTED_RE)) {
+      m[1].toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOP.has(w))
+        .forEach((w) => roots.add(w.slice(0, 5)));
+    }
+  }
+  return [...roots];
+}
+const dropRejected = (suggestions, said) => {
+  const roots = rejectedRoots(said);
+  if (!roots.length) return suggestions;
+  const kept = suggestions.filter((t) => !roots.some((r) => t.toLowerCase().includes(r)));
+  return kept.length >= 3 ? kept : suggestions;
+};
+
 async function suggestAnswers({ profile = {}, kind = 'titles', question = '', said = [] } = {}) {
   if (!SUGGEST_KINDS[kind]) return [];
   const response = await callAI({
@@ -789,7 +815,7 @@ async function suggestAnswers({ profile = {}, kind = 'titles', question = '', sa
     messages: [{ role: 'user', content: suggestPrompt({ profile, kind, question, said }) }],
   });
   const parsed = safeParseJSON(response.choices[0].message.content) || {};
-  return cleanLines(parsed.suggestions, { max: 6, maxLength: 40 });
+  return dropRejected(cleanLines(parsed.suggestions, { max: 6, maxLength: 40 }), said);
 }
 
 /**
@@ -820,6 +846,7 @@ Write out what is in it as plain text the coach can talk about: what each projec
 }
 
 module.exports = {
+  rejectedRoots,
   readSharedPdf,
   gapCheck,
   suggestAnswers,

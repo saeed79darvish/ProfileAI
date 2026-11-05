@@ -2956,6 +2956,28 @@ const ProfileCoach = () => {
       setError(TEXT.ERROR_GENERIC);
       return;
     }
+    /* The coach heard the role ("You taught English there for 11 years")
+       but filed no job, or half of one: its `learned` came back without a company
+       or without the title,
+       so the panel and the resume stayed empty until the very end. The
+       answer is read for the role directly, once, only when nothing landed. */
+    if (step.id === 'currentRole' && !(draftRef.current.experience || []).some((r) => r && r.title && r.company)) {
+      try {
+        const { data } = await profileAPI.coachInterpret({
+          stepId: 'currentRole',
+          question: questionText(step, current),
+          answer: text,
+          context: { title: current.title, sector: current.sector },
+        });
+        if (data?.fields && (data.fields.title || data.fields.company)) {
+          const nextDraft = mergeInterpreted(draftRef.current, 'currentRole', data.fields, { intoLatest: true });
+          draftRef.current = nextDraft;
+          setDraft(nextDraft);
+        }
+      } catch {
+        // The end-of-conversation read still has the answer.
+      }
+    }
     // A typed answer retires the row it answered, "Type my own" included —
     // it used to stay lit after the answer was already in.
     if (liveMessage) spendChips(liveMessage.id);

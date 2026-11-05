@@ -553,8 +553,10 @@ for a frontend engineer asked about skills, "React", "TypeScript", "Next.js",
 not a generic list. When the question wants a job title or a role, give
 titles; when it wants skills, give skill names; otherwise short phrases
 ("About 5 people", "Yes, I led it", "Not yet").
-When you ask for an achievement, what they did, shipped, fixed or led, a tap
-is filed as something they did, so never write a specific accomplishment
+When you ask for an achievement or an outcome (what they did, shipped, fixed or
+led, what came of it, what they learned), a tap is filed as something that
+happened ("We got a good grade", "I learned how to present data"), so it must
+never be a specific result they did not state. A tap is filed as something they did, so never write a specific accomplishment
 ("Rebuilt the payment pipeline", "Migrated the database to Postgres"): they
 did not say it. Offer only the kind of story to tell ("Something I built",
 "Something I fixed", "Something I led", "A result with a number"), or [].
@@ -573,7 +575,8 @@ the rest. Never guess. Do not repeat facts already in WHAT YOU ALREADY KNOW:
 an achievement about the job they already named is just "bullets", without the
 company and dates again. Never fill in a month, a job type or a number they
 did not say: "2021" stays "2021".
-  title, seniority, field, company, startDate, endDate, bullets (array),
+  title, seniority, field (the field they work in or want to work in: never one
+    they said they do not want, and never only what they studied), company, startDate, endDate, bullets (array),
   skills (array: tools and abilities they already have, never what they want to
     do or learn next), previousCompany, school, degree, location, roleType,
   workStyle, target (the role they want next), yearsExperience,
