@@ -190,6 +190,8 @@ export const TEXT = {
   UPLOAD_FAILED: 'I could not read that file. Try another one, or we can keep chatting.',
   ACCOUNT_EXISTS: 'I read your resume, and you already have a profile with us under that email. Sign in and it is all there waiting for you.',
   ACCOUNT_EXISTS_SIGNIN: 'Sign in',
+  UPLOAD_LIMIT: "You have used today's free file reads on this network. Create a free account to keep going, or we can carry on in the chat and build it together.",
+  UPLOAD_NETWORK: 'I could not reach the server, so nothing was read. Check your connection and try that file again, or we can keep chatting.',
   UPLOAD_NO_TEXT: 'That PDF looks like a scan with no text I can read. Try another file, or we can keep chatting.',
   UPLOAD_PASSWORD: 'That PDF is password-protected, so I cannot open it. Try another file, or we can keep chatting.',
   UPLOAD_UNREADABLE: 'Could not read this one',

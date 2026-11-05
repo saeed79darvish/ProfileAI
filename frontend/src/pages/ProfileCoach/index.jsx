@@ -1303,7 +1303,12 @@ const ProfileCoach = () => {
         pdf_no_text: TEXT.UPLOAD_NO_TEXT,
         pdf_password: TEXT.UPLOAD_PASSWORD,
       }[err?.code];
-      offerImportAgain(said || TEXT.UPLOAD_FAILED);
+      /* Saying "I could not read that file" about a daily limit, or about a
+         server that never answered (a deploy restart, a dropped connection),
+         is wrong, and a good file gets blamed. Each gets its own sentence. */
+      const status = err?.response?.status;
+      const cause = status === 429 ? TEXT.UPLOAD_LIMIT : !err?.response ? TEXT.UPLOAD_NETWORK : null;
+      offerImportAgain(said || cause || TEXT.UPLOAD_FAILED);
     } finally {
       setBusy(false);
     }
