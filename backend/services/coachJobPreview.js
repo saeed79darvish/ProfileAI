@@ -32,7 +32,7 @@ const { GHOST_THRESHOLD } = require('./ghostJobDetector');
 const { deriveRoleQuery } = require('../utils/roleQuery');
 const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const { rankJobs, computeYearsOfExperience, inferExperienceLevelOrNull } = require('./jobRelevanceService');
-const { resolveCandidateLevel, excludesEarlyCareer, isEarlyCareerTitle } = require('./jobSeniorityFit');
+const { LEVEL, resolveCandidateLevel, excludesEarlyCareer, isEarlyCareerTitle, jobLevel } = require('./jobSeniorityFit');
 const { locationTier, metroTerms } = require('../utils/jobLocationFit');
 
 const PREVIEW_COUNT = 3;
@@ -105,7 +105,18 @@ function candidateLevelOf(profile) {
 /** The best few of a pool, as the card shows them. */
 function pickPreviewJobs(pool, profile) {
   const level = candidateLevelOf(profile);
-  const fitting = excludesEarlyCareer(level) ? pool.filter((j) => !isEarlyCareerTitle(j.title)) : pool;
+  let fitting = excludesEarlyCareer(level) ? pool.filter((j) => !isEarlyCareerTitle(j.title)) : pool;
+  /* Level only nudged the ranking, so a new grad's card could lead with
+     "Director, Customer Success" when the pool was thin. Three postings on a
+     card are a promise: someone at the start of a career is not shown a
+     senior-and-above title, as long as enough others remain to fill it. */
+  if (level !== null && level <= LEVEL.ENTRY) {
+    const entryFriendly = fitting.filter((j) => {
+      const at = jobLevel(j);
+      return at === null || at < LEVEL.SENIOR;
+    });
+    if (entryFriendly.length >= PREVIEW_COUNT * 2) fitting = entryFriendly;
+  }
   const ranked = rankJobs(fitting, profile, {
     sortMode: 'match',
     preferences: profile.constraints,

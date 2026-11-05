@@ -22,6 +22,7 @@ import {
   checkLines,
   applyCheckEdit,
   fieldFromText,
+  wantsToFinishNow,
   FIELD_NOT_LISTED_CHIP,
   dedupeExperience,
   normalizePlace,
@@ -1327,6 +1328,10 @@ test('a typed field is ours if it matches, and kept as said if not', () => {
   assert.equal(fieldFromText('software engineer').sector, 'tech');
   assert.equal(fieldFromText('aviation').sector, 'Aviation');
   assert.equal(fieldFromText("I'm not sure what to put here"), null);
+  // Named to be turned down, or as what they studied: not the field they work in.
+  assert.equal(fieldFromText("i studied biology but i dont want to be a scientist"), null);
+  assert.equal(fieldFromText("I'm not a designer anymore, marketing now"), null);
+  assert.equal(fieldFromText('I majored in chemistry'), null);
   // Talking, not naming a field: goes to the coach instead of the profile.
   assert.equal(fieldFromText("So hey, so let's talk."), null);
   assert.equal(fieldFromText('How can I create my profile?'), null);
@@ -1799,4 +1804,12 @@ test('historyWithEvents places what happened on the page after the message it fo
   ];
   const history = historyWithEvents(messages, [{ afterId: 3, text: 'The call ended.' }]);
   assert.deepEqual(history.map((h) => h.role), ['coach', 'me', 'event', 'coach']);
+});
+
+test('wantsToFinishNow hears a person leaving the questions, not an answer', () => {
+  assert.equal(wantsToFinishNow('just show me the jobs'), true);
+  assert.equal(wantsToFinishNow('just finish this, I do not want to answer more'), true);
+  assert.equal(wantsToFinishNow('stop asking me questions'), true);
+  assert.equal(wantsToFinishNow('i built a tool that shows me jobs matching my resume and also a lot of other things i did last year'), false);
+  assert.equal(wantsToFinishNow('product manager'), false);
 });

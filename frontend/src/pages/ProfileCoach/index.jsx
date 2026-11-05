@@ -124,6 +124,7 @@ import {
   VOICE_SIGNIN_CHOICE,
   SAVE_CHOICE,
   wantsToSaveForLater,
+  wantsToFinishNow,
   conversationFinished,
   ACCOUNT_EXISTS_CHOICE,
   RETRY_IMPORT_CHOICES,
@@ -1759,9 +1760,34 @@ const ProfileCoach = () => {
     afterCall(draftRef.current);
   }, [afterCall, pushMine, spendChips]);
 
+  /* The call never opened (microphone refused, or the connection could not
+     be made). The server counted it when the session was created, so a guest
+     has to be given it back, or one dismissed permission prompt spends the
+     day's only call. The page was left at the talk offer with the mode still
+     "voice", which read as "the call covers the rest", so a typed answer
+     afterwards jumped to the review without asking anything. The way back is
+     the chat, or the call again when it can be placed. */
   const onVoiceError = useCallback((kind) => {
-    pushCoach(kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED);
-  }, [pushCoach]);
+    const message = kind === 'mic-denied' ? TEXT.VOICE_MIC_DENIED : TEXT.VOICE_FAILED;
+    const backToChat = () => {
+      pushCoach(message);
+      later(resumeAfterEmptyCall, TIMING.ACK_MS);
+    };
+    profileAPI.coachVoiceUnused()
+      .then(({ data }) => {
+        voiceAvailableRef.current = data?.canCall === true;
+        if (data?.canCall !== true) { backToChat(); return; }
+        pushCoach(message, {
+          stepId: VOICE_RETRY,
+          chips: [
+            { id: 'retry', label: TEXT.VOICE_RETRY_CHIP },
+            { id: 'chat', label: TEXT.VOICE_CHAT_CHIP },
+          ],
+          selected: [],
+        });
+      })
+      .catch(() => { refreshVoiceStatus(); backToChat(); });
+  }, [later, pushCoach, refreshVoiceStatus, resumeAfterEmptyCall]);
 
   // A file being sent to the call, and a word about it on the call screen.
   const [sharingFile, setSharingFile] = useState(false);
@@ -2495,6 +2521,7 @@ const ProfileCoach = () => {
         suggestions: Array.isArray(data?.suggestions) ? data.suggestions.filter((t) => typeof t === 'string') : [],
         skip: data?.skip === true,
         answered: data?.answered === true,
+        said: !!String(data?.say || '').trim(),
         // Nothing said and nothing taken: the page owes them a word.
         silent: !String(data?.say || '').trim() && !Object.keys(data?.learned || {}).length && !data?.choice,
       };
@@ -2686,6 +2713,36 @@ const ProfileCoach = () => {
     }
     const step = LADDER[stepIndex];
     if (!text || busy) return;
+
+    /* "Call again / Keep going in chat" is on screen and they typed instead
+       of tapping ("ok lets just type then"). The words went to the question
+       the page was standing at, which counted as answered, and the coach
+       moved on to the review having asked nothing else. Typing is an answer
+       to that row: chat unless they said to call again. Anything longer than
+       an acknowledgement is also answered, once the next question is up. */
+    const retryRow = [...messages].reverse().find((m) => m.stepId === VOICE_RETRY && !m.spent && m.chips?.length);
+    if (retryRow) {
+      const again = /\b(again|retry|try)\b/i.test(text) && !/\b(type|typing|chat)\b/i.test(text);
+      setInput('');
+      setError('');
+      answerChip(retryRow, retryRow.chips.find((c) => c.id === (again ? 'retry' : 'chat')) || retryRow.chips[0]);
+      if (!again && text.split(/\s+/).length > 6) later(() => submitTextRef.current(null, text), TIMING.ACK_MS * 3);
+      return;
+    }
+
+    /* "Just show me the jobs": the questions stop, and the review comes. */
+    if (step && wantsToFinishNow(text) && !step.id.startsWith('__')) {
+      setInput('');
+      setError('');
+      pushMine(text);
+      setMessages((prev) => prev.map((m) => (m.chips?.length && !m.spent ? { ...m, spent: true } : m)));
+      pushCoach(TEXT.FINISH_NOW);
+      draftRef.current = { ...draftRef.current, finishNow: true };
+      setDraft(draftRef.current);
+      trackEvent('coach_finish_now', { at: step.id });
+      advance(stepIndex, draftRef.current);
+      return;
+    }
 
     /* A LinkedIn profile URL pasted anywhere is an import, not a sentence:
        it used to be filed as a link and nothing on it was read. Only before
@@ -2992,9 +3049,14 @@ const ProfileCoach = () => {
        stray word). Silence there read as the page having frozen. */
     if (turn.silent) {
       pushCoach(getChips(step, draftRef.current).length ? TEXT.NUDGE_CHIPS : TEXT.NUDGE_TEXT);
+    } else if (!turn.said) {
+      /* It took something from what they said (a stage, a skill) but not the
+         answer to this question, and said nothing. The same buttons came
+         back with no word, which read as the message being ignored. */
+      pushCoach(getChips(step, draftRef.current).length ? TEXT.REASK_CHIPS : TEXT.REASK_TEXT);
     }
     offerChipsAgain(step, null);
-  }, [advance, passQuestion, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
+  }, [advance, answerChip, passQuestion, attached, busy, commit, importLinkedInFromChat, linkedinStatus.urlImportAvailable, dictation, handleFile, offerChipsAgain, runTurn, stepAnswered, followUpFor, handleAside, handleIntroText, input, isAuthenticated, messages, nextProbe, probing, pushCoach, pushMine, spendChips, stepIndex]);
   // Read by a tapped suggestion, whose handler is declared above this one.
   const submitTextRef = useRef(submitText);
   submitTextRef.current = submitText;

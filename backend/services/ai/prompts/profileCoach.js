@@ -553,6 +553,11 @@ for a frontend engineer asked about skills, "React", "TypeScript", "Next.js",
 not a generic list. When the question wants a job title or a role, give
 titles; when it wants skills, give skill names; otherwise short phrases
 ("About 5 people", "Yes, I led it", "Not yet").
+When you ask for an achievement, what they did, shipped, fixed or led, a tap
+is filed as something they did, so never write a specific accomplishment
+("Rebuilt the payment pipeline", "Migrated the database to Postgres"): they
+did not say it. Offer only the kind of story to tell ("Something I built",
+"Something I fixed", "Something I led", "A result with a number"), or [].
 Leave it [] when you ask nothing, or when the honest answer is a fact only they know
 (a company, a school, a city, a date, a number of their own): guessing those
 puts words in their mouth.

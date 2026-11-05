@@ -135,6 +135,9 @@ export const TEXT = {
   STEPS_HIDE: 'Hide your profile steps',
   STEPS_CLOSE: 'Close',
   NUDGE_CHIPS: 'I did not quite catch that. Pick one below, or say it in your own words.',
+  FINISH_NOW: 'Understood. I will put together what we have so far.',
+  REASK_CHIPS: 'Thanks, I have noted that. Which of these is closest right now? A rough pick is fine, you can change it later.',
+  REASK_TEXT: 'Thanks, I have noted that. A line or two on this one, or skip it.',
   NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',
   // A question set aside after two turns that did not answer it.
   PASSED: ['No problem, we can leave that one for now.', 'That is fine, we can skip it.', 'No worries.'],

@@ -383,6 +383,23 @@ export const SAVE_CHOICE = '__save_for_later';
  * coach said "yes, you can come back after you sign up" under a question's
  * buttons, with no way on the page to sign up. Typos included ("sinup").
  */
+/**
+ * "Just finish this", "show me the jobs", "I don't want to answer more": they
+ * are leaving the questions, not answering the current one. The coach used to
+ * reply "I hear you" and ask the next ten, which is what made a person who
+ * had said so three times give up. Short messages only: a long answer that
+ * happens to contain "show me jobs" is still an answer.
+ */
+export const wantsToFinishNow = (text = '') => {
+  const t = String(text).toLowerCase().trim();
+  if (!t || t.split(/\s+/).length > 14) return false;
+  return /\b(just\s+|please\s+)?(finish|wrap)\s*(it|this|things)?\s*(up|off)?\b.{0,12}\b(this|it|up|now|quickly)\b/.test(t)
+    || /\bshow me\s+(the\s+|some\s+|my\s+)?(jobs|openings|roles|results)\b/.test(t)
+    || /\bi\s+(do\s+not|don'?t|dont)\s+want\s+to\s+(answer|do|say)\s+(any\s+)?(more|this|that)\b/.test(t)
+    || /\b(stop|quit)\s+asking\b/.test(t)
+    || /\b(that'?s|thats)\s+(all|enough)\b/.test(t);
+};
+
 export const wantsToSaveForLater = (text = '') => {
   const t = String(text).toLowerCase().trim();
   const account = /\b(sign|sing|sin)\s?-?\s?up\b|\bsignup\b|\bregister\b|\b(create|make|open)\s+(an?\s+|my\s+)?account\b|\b(log|sign)\s?-?\s?in\b/.test(t);
@@ -449,8 +466,17 @@ export const looksLikeFieldName = (text) => {
   return !CHATTY.test(typed);
 };
 
+/* A field named only to be turned down, or as what they studied, is not the
+   field they work in. "I studied biology but I don't want to be a scientist"
+   was filed under Science & Research at technician level, and the role
+   suggestions were lab jobs. Those go to the coach, which reads the whole
+   sentence. */
+const REJECTS_FIELD = /\b(don'?t|do\s+not|doesn'?t|never|not)\s+(really\s+)?(want|wanna|like|interested|going)\b|\bno\s+longer\b|\bnot\s+(a|an)\b|\b(anything|everything)\s+(but|except)\b|\bother\s+than\b|\bhate\b|\bsick\s+of\b/i;
+const NAMES_STUDIES = /\b(studied|graduated|degree\s+in|major(ed)?\s+in|minor(ed)?\s+in|majoring|my\s+degree|my\s+major)\b/i;
+
 export const fieldFromText = (text) => {
   const typed = String(text || '').trim();
+  if (REJECTS_FIELD.test(typed) || NAMES_STUDIES.test(typed)) return null;
   const matched = matchSector(typed);
   if (matched) return { sector: matched.sector, title: matched.title || '' };
   if (!looksLikeFieldName(typed)) return null;
@@ -704,10 +730,14 @@ export const LADDER = [
        for is their headline. */
     question: (draft) => (EARLY_STAGES.has(draft.careerStage)
       ? 'What kind of role are you going for?'
-      : "And what's your job title?"),
+      : draft.careerStage === 'career_change'
+        ? 'What was your most recent job title?'
+        : "And what's your job title?"),
     hint: (draft) => (EARLY_STAGES.has(draft.careerStage)
       ? 'Pick the closest or type your own. It becomes your headline, and it is what recruiters search.'
-      : 'Pick the closest one or type your own. This is what recruiters search.'),
+      : draft.careerStage === 'career_change'
+        ? 'Even if it is in another field. Where you want to go is next, so type the job you actually held.'
+        : 'Pick the closest one or type your own. This is what recruiters search.'),
     kind: 'chips',
     chipSet: 'titles',
     freeText: true,
@@ -813,7 +843,9 @@ export const LADDER = [
     story: true,
     question: 'Tell me about your most recent role. Where was it, and when?',
     // Their own title: a designer was shown "Product manager at Acme".
-    hint: (draft) => `Something like "${draft.title || 'Product manager'} at Acme, 2022 to now" is plenty.`,
+    hint: (draft) => (draft.careerStage === 'career_change'
+      ? 'Something like "Teacher at Lincoln High, 2015 to now" is plenty. Any field counts.'
+      : `Something like "${draft.title || 'Product manager'} at Acme, 2022 to now" is plenty.`),
     kind: 'text',
     chipSet: null,
     freeText: true,
@@ -2008,6 +2040,7 @@ const GOAL = ['target', 'targetWhy', 'targetBlocker'];
    "Startup zero-to-one product building" said here was filed as a skill. */
 export const GOAL_STEPS = new Set(GOAL);
 const CLOSING = ['gapCheck', 'talkOffer', 'fix', 'build', 'tour', 'convert'];
+const FINISH_NOW_STEPS = new Set(['assess', ...CLOSING]);
 const AROUND = ['location', 'links'];
 export const STAGE_ORDERS = {
   experienced: [...OPENING, 'currentRole', 'achievements', 'previousRole', 'projects', 'evidence', 'skills', 'education', ...AROUND, ...GOAL, 'assess', ...CLOSING],
@@ -2063,6 +2096,8 @@ export const nextStepIndex = (fromIndex, draft = {}) => {
   }
   for (let p = at + 1; p < order.length; p += 1) {
     const step = LADDER[order[p]];
+    // They asked to be done: only the closing sequence is left.
+    if (draft.finishNow && !FINISH_NOW_STEPS.has(step.id)) continue;
     if (shouldSkip(step, draft)) continue;
     if (isAlreadyAnswered(step, draft)) continue;
     return order[p];
@@ -2336,11 +2371,11 @@ export const applyBraindump = (draft = {}, rawFields = {}) => {
     if (at >= 0) {
       rows[at] = mergeRole(rows[at], fields, bullets);
       next.experience = rows;
-    } else if (fields.company || next.title || fields.title) {
+    } else if (fields.company || (draft.careerStage !== 'career_change' && next.title) || fields.title) {
       /* The title said for this role, not the headline: "Lead Product
          Designer at Acme" was filed as "Principal Product Designer". */
       next.experience = [mergeRole({
-        title: fields.title || next.title || '', company: '', startDate: '', endDate: '', current: false, description: '',
+        title: fields.title || (draft.careerStage === 'career_change' ? '' : next.title) || '', company: '', startDate: '', endDate: '', current: false, description: '',
       }, fields, bullets), ...rows];
     }
   }
@@ -2441,7 +2476,8 @@ export const mergeInterpreted = (draft, stepId, fields = {}, { intoLatest = fals
         break;
       }
       const row = {
-        title: fields.title || draft.title || '',
+        // A career changer's headline is where they are heading, not a job they held.
+        title: fields.title || (draft.careerStage === 'career_change' ? '' : draft.title) || '',
         company: fields.company || '',
         startDate: fields.startDate || '',
         endDate: fields.endDate || '',
