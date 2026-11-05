@@ -185,9 +185,12 @@ export const FINAL_CTA = {
 
 // ── Footer ──
 export const FOOTER_DESC = 'The AI-powered career platform. Build your profile once, tailor it everywhere, and land your dream job faster.';
-export const FOOTER_SOCIAL = ['LinkedIn', 'Twitter'] as const;
+export const FOOTER_SOCIAL = [
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/company/profilleai' },
+  { label: 'Twitter', href: 'https://twitter.com/profilleai' },
+] as const;
 export const FOOTER_COLUMNS = [
-  { title: 'For Candidates', links: [{ label: 'My Profile', to: '/profile' }, { label: 'Community Feed', to: '/feed' }, { label: 'Network', to: '/network' }, { label: 'Pricing', to: '/pricing' }] },
+  { title: 'For Candidates', links: [{ label: 'Browse Jobs', to: '/jobs' }, { label: 'My Profile', to: '/profile' }, { label: 'Community Feed', to: '/feed' }, { label: 'Pricing', to: '/pricing' }] },
   { title: 'For Recruiters', links: [{ label: 'Coming Soon', to: '/register' }] },
   { title: 'Company', links: [{ label: 'Blog', to: '/blog' }, { label: 'Community Feed', to: '/feed' }, { label: 'Privacy Policy', to: '/privacy' }, { label: 'Terms of Service', to: '/terms' }, { label: 'Contact Us', href: 'mailto:support@profilleai.com' }] },
 ] as const;

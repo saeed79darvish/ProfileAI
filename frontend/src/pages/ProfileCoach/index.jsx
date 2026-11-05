@@ -363,6 +363,8 @@ const resumeIdSequence = (messages = []) => {
 
 const ProfileCoach = () => {
   const navigate = useNavigate();
+  // A job this visitor was sent here from. Read once: it is only for the way back.
+  const [waitingJob] = useState(() => peekCoachReturnMeta());
   const { isAuthenticated, refreshUser } = useAuth();
 
   /* A conversation left in this browser within the last day. Read once, in
@@ -3460,9 +3462,22 @@ const ProfileCoach = () => {
         <Logo onClick={() => navigate(ROUTES.HOME)} aria-label={TEXT.LOGO}>
           <BrandLogo />
         </Logo>
-        {/* No header actions. Voice is offered inside the conversation, where
-            it fits (after an import, or at the first story question), and the
-            conversation is the way through to the profile. */}
+        {/* Voice is offered inside the conversation, where it fits (after an
+            import, or at the first story question), and the conversation is the
+            way through to the profile. The one header action is the way back to
+            a job they were sent here from, so a detour is never a trap. */}
+        {waitingJob && (
+          <button
+            type="button"
+            onClick={() => {
+              const path = takeCoachReturn();
+              navigate((path || '/jobs').replace(/&tailor=1$/, ''));
+            }}
+            style={{ border: 'none', background: 'none', color: '#5b5fd6', fontSize: 14, fontWeight: 600, cursor: 'pointer', padding: '6px 4px' }}
+          >
+            Back to the job
+          </button>
+        )}
       </TopBar>
 
       {/* The steps open over the chat, not above it: pushed down, the

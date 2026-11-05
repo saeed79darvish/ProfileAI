@@ -1049,6 +1049,26 @@ const Navbar = () => {
      every top-level destination is one visible tap away. */
   const renderMobileNavStrip = () => (
     <MobileNavStrip role="tablist" aria-label="Primary">
+      {/* First, so a guest sees them without scrolling the strip. */}
+      {!isAuthenticated && (
+        <>
+          <MobileNavPill type="button" onClick={() => go('/login')}>
+            <PersonIcon aria-hidden="true" /> Sign In
+          </MobileNavPill>
+          <MobileNavPill
+            type="button"
+            onClick={() => go('/onboarding')}
+            style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              border: 'none',
+            }}
+          >
+            Get Started
+          </MobileNavPill>
+        </>
+      )}
       {navItems.map((item) => {
         const active = isActive(item.path);
         const Icon = item.Icon;
@@ -1086,25 +1106,6 @@ const Navbar = () => {
           </Badge>
           Alerts
         </MobileNavPill>
-      )}
-      {!isAuthenticated && (
-        <>
-          <MobileNavPill type="button" onClick={() => go('/login')}>
-            <PersonIcon aria-hidden="true" /> Sign In
-          </MobileNavPill>
-          <MobileNavPill
-            type="button"
-            onClick={() => go('/onboarding')}
-            style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: '#fff',
-              fontWeight: 700,
-              border: 'none',
-            }}
-          >
-            Get Started
-          </MobileNavPill>
-        </>
       )}
     </MobileNavStrip>
   );

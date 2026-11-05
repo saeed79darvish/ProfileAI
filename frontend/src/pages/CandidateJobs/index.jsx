@@ -254,13 +254,30 @@ const markdownToHtml = (text) => {
 const isHtml = (str) => /<\/?[a-z][\s\S]*>/i.test(str);
 
 // Get the rendered description HTML, handles both real HTML and markdown-in-descriptionHtml
+const openLinksInNewTab = (html) =>
+  html.replace(/<a\s+(?![^>]*\btarget=)/gi, '<a target="_blank" rel="noopener noreferrer nofollow" ');
 const getDescriptionHtml = (job) => {
   if (job.descriptionHtml && isHtml(job.descriptionHtml)) {
-    return DOMPurify.sanitize(job.descriptionHtml);
+    return openLinksInNewTab(DOMPurify.sanitize(job.descriptionHtml));
   }
   // descriptionHtml is set but contains markdown, or only plain description exists
-  return markdownToHtml(job.descriptionHtml || job.description || '');
+  return openLinksInNewTab(markdownToHtml(job.descriptionHtml || job.description || ''));
 };
+
+// Where a posting is, short enough for a list card: the first place, and how
+// many more it names. "Chicago; New York; San Francisco" reads "Chicago +2".
+const shortLocation = (location) => {
+  const parts = String(location || '').split(/\s*[;|]\s*/).filter(Boolean);
+  if (parts.length === 0) return '';
+  // Brackets ("Remote (ON, AB or BC only)") and a trailing country are detail
+  // a list card has no room for; the job page has them.
+  const first = parts[0].replace(/\s*\([^)]*\)/g, '').replace(/,\s*(United States|USA|US)$/i, '').trim();
+  return parts.length > 1 ? `${first} +${parts.length - 1}` : first;
+};
+
+// Roles a visitor with no profile can start from, instead of the unfiltered
+// feed of whatever posted last. Each returns real results on the board.
+const SUGGESTED_ROLES = ['Software Engineer', 'Product Manager', 'Data Scientist', 'Designer', 'Marketing', 'Sales', 'Customer Success', 'Nurse'];
 
 const getCompanyLogoUrl = (companyName) => {
   if (!companyName) return null;
@@ -273,6 +290,7 @@ const getCompanyLogoUrl = (companyName) => {
 
 const CompanyLogo = ({ company, logoUrl: directLogoUrl, size = 48 }) => {
   const [imgError, setImgError] = React.useState(false);
+  const [tiny, setTiny] = React.useState(false);
   // Prefer direct logoUrl from companyInfo, fallback to Clearbit
   const logoUrl = directLogoUrl || getCompanyLogoUrl(company);
   const hue = (company || '').charCodeAt(0) * 37 % 360;
@@ -283,10 +301,11 @@ const CompanyLogo = ({ company, logoUrl: directLogoUrl, size = 48 }) => {
         src={logoUrl}
         alt={company}
         onError={() => setImgError(true)}
+        onLoad={(e) => setTiny(e.currentTarget.naturalWidth > 0 && e.currentTarget.naturalWidth < size * 0.75)}
         style={{
           width: size, height: size, borderRadius: 10, objectFit: 'contain',
           border: '1px solid rgba(0,0,0,0.06)', background: 'white', flexShrink: 0,
-          padding: 3
+          padding: tiny ? Math.round(size * 0.26) : 3
         }}
       />
     );
@@ -501,6 +520,9 @@ const CandidateJobs = () => {
   const [scoringTop, setScoringTop] = useState(false);
   const [scoringDialog, setScoringDialog] = useState(false);
   const [externalJobsLoading, setExternalJobsLoading] = useState(false);
+  // True once the Discover list has answered at least once, so the detail pane
+  // can tell "still loading" from "loaded, and nothing to select".
+  const [externalSettled, setExternalSettled] = useState(false);
   // Separate spinner state for "Load more" so the existing list doesn't
   // disappear under the user when fetching the next page.
   const [loadingMoreExternal, setLoadingMoreExternal] = useState(false);
@@ -1268,7 +1290,7 @@ const CandidateJobs = () => {
       // while the newer request is still in flight.
       if (externalJobsAbortRef.current === controller) {
         if (append) setLoadingMoreExternal(false);
-        else setExternalJobsLoading(false);
+        else { setExternalJobsLoading(false); setExternalSettled(true); }
       }
     }
   }, [debouncedSearch, roleHint, debouncedFilters, isAuthenticated, sortMode]);
@@ -1455,7 +1477,7 @@ const CandidateJobs = () => {
 
   // Auto-select first job on desktop
   useEffect(() => {
-    if (!selectedJob && !pinnedJobRef.current && window.innerWidth > 1024) {
+    if (!selectedJob && !pinnedJobRef.current && !isPhone) {
       if (activeTab === 'external' && externalJobs.length > 0) {
         // Render the right-hand detail panel immediately from the list
         // payload — the /external-jobs response already includes title,
@@ -1483,7 +1505,7 @@ const CandidateJobs = () => {
         setSelectedJob(jobs[0]);
       }
     }
-  }, [jobs, externalJobs, selectedJob, activeTab]);
+  }, [jobs, externalJobs, selectedJob, activeTab, isPhone]);
 
   // Clear stale selected job when it's no longer present in the current
   // filtered result set. Without this, narrowing filters down to zero
@@ -2167,11 +2189,19 @@ const CandidateJobs = () => {
                 if (/^https?:\/\//i.test(url)) {
                   window.open(url, '_blank', 'noopener,noreferrer');
                 }
-              }} title="Open original listing">
+              }} title="Open original listing" aria-label="Open original listing">
                 <OpenInNewIcon />
               </button>
             )}
-            <button type="button" onClick={() => navigator.clipboard?.writeText(selectedJob.applyUrl || window.location.href)} title="Share">
+            <button type="button" onClick={async () => {
+              // Our own link to the job, not the employer's application URL.
+              try {
+                await navigator.clipboard?.writeText(`${window.location.origin}/jobs?externalJobId=${selectedJob.id}`);
+                toast?.success?.('Link to this job copied');
+              } catch {
+                toast?.error?.('Could not copy the link');
+              }
+            }} title="Copy link to this job" aria-label="Copy link to this job">
               <ShareIcon />
             </button>
           </div>
@@ -2613,7 +2643,13 @@ const CandidateJobs = () => {
   );
 
   // True while any jobs-list fetch is in progress and nothing is selected yet.
-  const detailPaneLoading = !selectedJob && (loading || externalJobsLoading || applicationsLoading);
+  // `loading` belongs to the Saved and Applied lists and starts true, so on
+  // Discover it never cleared and a search with no results (or a width where
+  // nothing auto-selects) showed this skeleton for good.
+  const detailPaneLoading = !selectedJob && (
+    externalJobsLoading
+    || (activeTab === 'external' ? !externalSettled : (loading || applicationsLoading))
+  );
 
   return (
     <PageContainer>
@@ -2637,6 +2673,7 @@ const CandidateJobs = () => {
               countFor={(f) => externalJobAPI.getAll(buildJobParams(f, 1, 1)).then((r) => r.data?.pagination?.total ?? 0)}
               sortMode={sortMode}
               onSort={setSortMode}
+              suggestedRoles={!isAuthenticated && !searchQuery && !hasActiveFilters ? SUGGESTED_ROLES : null}
               jobs={externalJobs}
               loading={externalJobsLoading}
               loadingMore={loadingMoreExternal}
@@ -2683,8 +2720,8 @@ const CandidateJobs = () => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter jobs by title, skill, or company..."
-                  aria-label="Filter jobs on this page"
+                  placeholder="Search jobs by title, skill, or company..."
+                  aria-label="Search jobs"
                   style={{
                     flex: 1,
                     border: 'none',
@@ -2708,6 +2745,21 @@ const CandidateJobs = () => {
                   </button>
                 )}
               </SearchInputWrapper>
+              {!isAuthenticated && !searchQuery && !hasActiveFilters && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#667085' }}>Start with</span>
+                  {SUGGESTED_ROLES.map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setSearchQuery(role)}
+                      style={{ padding: '4px 10px', borderRadius: 999, border: '1px solid #E4E7EC', background: 'white', color: '#344054', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              )}
               {/* Auto-detected role hint — shown when we seeded the search
                   box from the user's profile. Compact one-line pill so the
                   list above the fold doesn't get pushed down. */}
@@ -3119,7 +3171,12 @@ const CandidateJobs = () => {
                       {[
                         { key: 'recommended', label: isAuthenticated ? 'Best match' : 'Relevance', title: isAuthenticated ? 'Grouped by how well each job fits your profile, newest first within each group' : 'Closest to your search first; newest first when you have not searched. Build a profile to rank by fit.' },
                         { key: 'recent', label: 'Newest', title: 'Ordered strictly by posting date, newest first' },
-                      ].map(opt => (
+                      // Without a profile or a search, "Relevance" and "Newest"
+                      // are the same list, so there is only the one to show.
+                      ].filter(opt => !(!isAuthenticated && !searchQuery.trim() && opt.key === 'recommended')).map(opt => {
+                        const guestNewest = !isAuthenticated && !searchQuery.trim() && opt.key === 'recent';
+                        const on = sortMode === opt.key || guestNewest;
+                        return (
                         <button
                           key={opt.key}
                           type="button"
@@ -3129,15 +3186,16 @@ const CandidateJobs = () => {
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                             padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
                             fontSize: 11, fontWeight: 600,
-                            border: '1px solid ' + (sortMode === opt.key ? '#7C3AED' : '#E4E7EC'),
-                            background: sortMode === opt.key ? '#F4EBFF' : 'white',
-                            color: sortMode === opt.key ? '#5B21B6' : '#667085',
+                            border: '1px solid ' + (on ? '#7C3AED' : '#E4E7EC'),
+                            background: on ? '#F4EBFF' : 'white',
+                            color: on ? '#5B21B6' : '#667085',
                           }}
                         >
                           {opt.key === 'recent' && <AccessTimeIcon style={{ fontSize: 12 }} />}
                           {opt.label}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -3282,7 +3340,7 @@ const CandidateJobs = () => {
                               <JobInfo>
                                 <JobTitle>{job.title}</JobTitle>
                                 {/* Desktop company name */}
-                                <CompanyName>{job.company}</CompanyName>
+                                <CompanyName>{job.company}{shortLocation(job.location) ? ` · ${shortLocation(job.location)}` : ''}</CompanyName>
                                 {/* Desktop tags */}
                                 <JobTags>
                                   {/* ✓ Applied — a CONFIRMED application:
@@ -3614,8 +3672,17 @@ const CandidateJobs = () => {
             ) : (
               <div className="job-detail-empty">
                 <WorkOutlineIcon />
-                <p className="empty-title">Select a job to view details</p>
-                <p className="empty-subtitle">Click on any job from the list</p>
+                {externalJobs.length === 0 && activeTab === 'external' ? (
+                  <>
+                    <p className="empty-title">No job to show</p>
+                    <p className="empty-subtitle">Clear the filters to see jobs again</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="empty-title">Select a job to view details</p>
+                    <p className="empty-subtitle">Click on any job from the list</p>
+                  </>
+                )}
               </div>
             )}
           </ExternalJobDescriptionStyles>

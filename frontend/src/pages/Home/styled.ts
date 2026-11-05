@@ -178,7 +178,7 @@ export const trustItemSx = { display: 'flex', alignItems: 'center', gap: 0.8, co
 // ── Hero Visual (right side) ────────────────────────────────────────
 
 export const heroVisualWrapperSx = { display: 'block' } as const;
-export const heroVisualContainerSx = { position: 'relative', height: { xs: 280, md: 560 } } as const;
+export const heroVisualContainerSx = { position: 'relative', height: { xs: 'auto', md: 560 }, pt: { xs: 1, md: 0 } } as const;
 
 export const heroVisualGridBgSx = {
   position: 'absolute', inset: -40,
@@ -194,6 +194,7 @@ export const heroVisualGridBgSx = {
 } as const;
 
 export const profileCardSx = {
+  display: { xs: 'none', md: 'block' },
   position: 'absolute', top: { xs: 0, md: -10 }, left: { xs: 'auto', md: -20 }, right: { xs: 10, md: 'auto' }, width: { xs: 130, md: 210 }, zIndex: 1,
   bgcolor: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)',
   border: '1px solid rgba(255,255,255,0.08)', borderRadius: { xs: '12px', md: '16px' }, p: { xs: 1.2, md: 2 },
@@ -211,7 +212,10 @@ export const profileSkillsWrapperSx = { display: 'flex', gap: 0.7, flexWrap: 'wr
 export const profileSkillChipSx = { bgcolor: `rgba(102,126,234,0.15)`, color: '#a78bfa', fontSize: { xs: 9, md: 10.5 }, height: { xs: 18, md: 22 } } as const;
 
 export const aiInsightCardSx = {
-  position: 'absolute', top: { xs: 100, md: 10 }, right: { xs: 10, md: -40 }, width: { xs: 130, md: 200 }, zIndex: 1,
+  display: { xs: 'none', md: 'block' },
+  // Hangs past the column only where the page has the margin for it; at a
+  // laptop width it sat 16px outside the window.
+  position: 'absolute', top: { xs: 100, md: 10 }, right: { xs: 10, md: 0, lg: -40 }, width: { xs: 130, md: 200 }, zIndex: 1,
   bgcolor: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)',
   border: '1px solid rgba(255,255,255,0.08)', borderRadius: { xs: '10px', md: '14px' }, p: { xs: 1.2, md: 2 },
   animation: `${floatReverse} 7s ease-in-out infinite`,
@@ -223,7 +227,9 @@ export const aiInsightTextSx = { fontSize: { xs: 9, md: 11 }, color: 'rgba(255,2
 
 // Main ApplyPilot card
 export const mainCardSx = {
-  position: 'absolute', top: { xs: 5, md: 90 }, left: { xs: 5, md: 10 }, right: { xs: 'auto', md: 10 }, width: { xs: '48%', md: 'auto' },
+  // A phone gets this one card at full width, in the flow: the floating cards
+  // around it do not fit, and a fixed-height box clipped it mid-button.
+  position: { xs: 'relative', md: 'absolute' }, top: { xs: 'auto', md: 90 }, left: { xs: 'auto', md: 10 }, right: { xs: 'auto', md: 10 }, width: { xs: '100%', md: 'auto' },
   zIndex: 3,
   bgcolor: 'rgba(18,14,32,0.92)', backdropFilter: 'blur(24px)',
   border: '1px solid rgba(167,139,250,0.2)',

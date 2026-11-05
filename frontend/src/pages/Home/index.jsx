@@ -500,7 +500,8 @@ const Home = () => {
               <Typography variant="body2" sx={S.footerDescSx}>{FOOTER_DESC}</Typography>
               <Box sx={S.footerSocialWrapperSx}>
                 {FOOTER_SOCIAL.map((s) => (
-                  <Box key={s} sx={S.footerSocialBtnSx}>{s}</Box>
+                  <Box key={s.label} component="a" href={s.href} target="_blank" rel="noopener noreferrer"
+                    sx={{ ...S.footerSocialBtnSx, textDecoration: 'none' }}>{s.label}</Box>
                 ))}
               </Box>
             </Grid>

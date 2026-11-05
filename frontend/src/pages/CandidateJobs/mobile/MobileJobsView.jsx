@@ -332,7 +332,9 @@ const Sheet = styled.div`
 `;
 
 const matchTone = (score) => (score >= 85 ? ['#e6f6ec', '#1f7a45'] : ['#fff4e2', '#b45309']);
-const cityOf = (location) => String(location || '').split(',')[0].trim();
+// "Canada - Remote (ON, AB, BC)" is one place: the commas inside the brackets
+// are not separators, and splitting on them left "Canada - Remote (ON".
+const cityOf = (location) => String(location || '').replace(/\([^)]*\)/g, '').split(/[,;]/)[0].trim();
 const sheetCount = (f) => SHEET_KEYS.filter((k) => f[k]).length;
 
 export default function MobileJobsView({
@@ -340,7 +342,7 @@ export default function MobileJobsView({
   searchQuery, onSearchChange,
   activeTab, onTab, counts,
   filters, onFilter, onApplyFilters, onResetFilters, countFor,
-  sortMode, onSort,
+  sortMode, onSort, suggestedRoles,
   jobs, loading, loadingMore, hasMore, onLoadMore, total,
   savedJobsList, applications, applicationsLoading, statusConfig,
   savedIds, appliedIds, onToggleSave, onOpen, onTailor,
@@ -547,11 +549,25 @@ export default function MobileJobsView({
             <Pill type="button" $on={filters.locationType === 'hybrid'} onClick={() => toggleQuick('locationType', 'hybrid')}>Hybrid</Pill>
             <Pill type="button" $on={!!filters.startup} onClick={() => onFilter('startup', !filters.startup)}>Startups</Pill>
           </Quick>
+          {suggestedRoles && (
+            <Quick aria-label="Suggested roles">
+              <span style={{ alignSelf: 'center', flexShrink: 0, fontSize: 13, fontWeight: 600, color: '#667085', whiteSpace: 'nowrap' }}>Start with</span>
+              {suggestedRoles.map((role) => (
+                <Pill key={role} type="button" onClick={() => onSearchChange(role)}>{role}</Pill>
+              ))}
+            </Quick>
+          )}
           <ResultsRow>
             <span><strong>{Number(total || 0).toLocaleString()}</strong> jobs</span>
-            <button type="button" onClick={() => onSort(sortMode === 'recent' ? 'recommended' : 'recent')} aria-label="Change sort">
-              Sort:&nbsp;<b>{sortMode === 'recent' ? 'Newest' : (isAuthenticated ? 'Best match' : 'Relevance')}</b><ChevronIcon fontSize="small" />
-            </button>
+            {/* With no profile and no search, "Relevance" and "Newest" are the
+                same list, so there is nothing to switch. */}
+            {!isAuthenticated && !String(searchQuery || '').trim() ? (
+              <span>Sorted by&nbsp;<b>Newest</b></span>
+            ) : (
+              <button type="button" onClick={() => onSort(sortMode === 'recent' ? 'recommended' : 'recent')} aria-label="Change sort">
+                Sort:&nbsp;<b>{sortMode === 'recent' ? 'Newest' : (isAuthenticated ? 'Best match' : 'Relevance')}</b><ChevronIcon fontSize="small" />
+              </button>
+            )}
           </ResultsRow>
         </>
       )}
