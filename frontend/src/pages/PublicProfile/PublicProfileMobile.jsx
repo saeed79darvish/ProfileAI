@@ -17,6 +17,7 @@ import {
 import { formatDateRange } from '@/utils/dateRange';
 import { publicResumeUrl } from '@/services/api';
 import { hideWhileTyping } from '@/styles/keyboard';
+import { ROLE_COLORS, initialsOf, cleanRoleTitle, splitBullets, strongestFirst, isCurrent } from './profileView';
 
 /**
  * The public profile on a phone, for the two people who open it:
@@ -28,7 +29,6 @@ import { hideWhileTyping } from '@/styles/keyboard';
  * out), and section tabs that follow the scroll.
  */
 
-const ROLE_COLORS = ['#6366f1', '#ea7a1f', '#3b82f6', '#10b981', '#a855f7'];
 const SKILL_TONES = [
   ['#eef0ff', '#4b4fc4'], ['#f5edff', '#8b3fd6'], ['#eaf7ef', '#2f7a45'], ['#fff1e6', '#b45309'],
   ['#e8f3ff', '#2563eb'], ['#f0efff', '#4b4fc4'], ['#f8ecff', '#9333ea'],
@@ -422,14 +422,6 @@ const ContactList = styled.div`
   }
   a svg { color: #5b5fd6; flex-shrink: 0; }
 `;
-
-const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-/** "Senior UI Engineer (React, Node)" reads as "Senior UI Engineer". */
-const cleanRoleTitle = (t) => String(t || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-const splitBullets = (text) => String(text || '').split('\n').map((l) => l.replace(/^\s*[•\-*–]\s*/, '').trim()).filter(Boolean);
-/** Bullets with a figure in them lead; the rest keep their order. */
-const strongestFirst = (bullets) => [...bullets.filter((b) => /\d/.test(b)), ...bullets.filter((b) => !/\d/.test(b))];
-const isCurrent = (e) => e.current === true || !e.endDate || /present|current/i.test(String(e.endDate));
 
 export default function PublicProfileMobile({
   profileId, fullName, headline, location, availability, profileImage, bio,

@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box, useMediaQuery } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -225,11 +225,10 @@ function AppContent() {
   const isOverlayMode =
     location.pathname === '/resume/download' &&
     new URLSearchParams(location.search).get('overlay') === '1';
-  // On a phone the public profile has its own header (logo plus Create yours
-  // free / Back to editor); the app nav means nothing to a recruiter there.
-  const isPhone = useMediaQuery('(max-width:768px)', { noSsr: true });
+  // The public profile has its own header (logo plus Create yours free / Back
+  // to editor); the app nav means nothing to a recruiter there.
   const hideNavbar =
-    (isPhone && isPublicProfilePath(location.pathname)) ||
+    isPublicProfilePath(location.pathname) ||
     AUTH_ROUTES.includes(location.pathname) ||
     FOCUSED_HEADER_ROUTES.includes(location.pathname) ||
     location.pathname.startsWith('/screen/') ||
