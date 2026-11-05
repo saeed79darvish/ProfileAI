@@ -134,14 +134,14 @@ const DEFAULTS: SectorProfile = {
     field: 'portfolioUrl',
     label: 'Portfolio / personal site',
     placeholder: 'https://your-portfolio.com',
-    helper: 'Optional. Public pages only — the agent reads, never posts.',
+    helper: 'Optional. Public pages only, the agent reads, never posts.',
   },
   projects: {
     noun: 'Project',
     nounPlural: 'Projects',
     headline: "Projects you've worked on",
     blurb:
-      'Side projects, school work, freelance — anything that shows what you can do.',
+      'Side projects, school work, freelance, anything that shows what you can do.',
     titlePlaceholder: 'Project title',
     rolePlaceholder: 'Your role (e.g. Lead, Sole contributor)',
     descriptionPlaceholder: 'What is it? What did you do? What was the impact?',
@@ -150,7 +150,7 @@ const DEFAULTS: SectorProfile = {
   experience: {
     headline: 'Tell us about your work experience',
     blurb:
-      'Add the roles that matter most for your target job. Quality beats quantity — one well-described role is enough.',
+      'Add the roles that matter most for your target job. Quality beats quantity, one well-described role is enough.',
     roleNoun: 'role',
     companyLabel: 'Company',
     titlePlaceholder: 'e.g. Senior Manager',
@@ -167,7 +167,7 @@ const DEFAULTS: SectorProfile = {
   },
   education: {
     headline: 'Your education',
-    blurb: 'Degrees, bootcamps, certifications — anything that helps a recruiter understand your background.',
+    blurb: 'Degrees, bootcamps, certifications, anything that helps a recruiter understand your background.',
     institutionPlaceholder: 'University / institution',
   },
 };
@@ -176,20 +176,20 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   tech: {
     agentTitle: 'Let our AI agent scan your GitHub',
     agentBlurb:
-      'Drop your GitHub username — the agent reviews stars, recency, README quality and language match with your target role.',
+      'Drop your GitHub username, the agent reviews stars, recency, README quality and language match with your target role.',
     portfolio: {
       field: 'githubUsername',
       label: 'GitHub username',
       placeholder: 'your-username',
       prefix: 'github.com/',
-      helper: 'Optional. We only read public repos — nothing is changed or committed.',
+      helper: 'Optional. We only read public repos, nothing is changed or committed.',
     },
     projects: {
       noun: 'Project',
       nounPlural: 'Projects',
       headline: "Projects you've shipped",
       blurb:
-        'Side projects, open-source contributions, hackathons — anything that shows what you can build.',
+        'Side projects, open-source contributions, hackathons, anything that shows what you can build.',
       titlePlaceholder: 'Project title',
       rolePlaceholder: 'Your role (e.g. Sole developer, Tech lead)',
       descriptionPlaceholder: 'What did you build? What stack? What was the impact?',
@@ -209,12 +209,12 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     skills: {
       headline: 'What languages, frameworks and tools do you use?',
-      blurb: 'Aim for 8-12 — mix languages, frameworks and infra. Recruiters search by these.',
+      blurb: 'Aim for 8-12, mix languages, frameworks and infra. Recruiters search by these.',
       autoAddCta: 'Add the top engineering skills',
     },
     education: {
       headline: 'Your education & certifications',
-      blurb: 'CS degree, bootcamp, cloud certs (AWS / GCP / Azure) — anything that backs your stack.',
+      blurb: 'CS degree, bootcamp, cloud certs (AWS / GCP / Azure), anything that backs your stack.',
       institutionPlaceholder: 'University / bootcamp',
     },
   },
@@ -222,7 +222,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   data: {
     agentTitle: 'Let our AI agent scan your data work',
     agentBlurb:
-      'GitHub for notebooks, Kaggle, or a portfolio site — the agent will surface the analyses that map best to your target role.',
+      'GitHub for notebooks, Kaggle, or a portfolio site, the agent will surface the analyses that map best to your target role.',
     portfolio: {
       field: 'githubUsername',
       label: 'GitHub or Kaggle handle',
@@ -235,7 +235,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Analyses & Models',
       headline: 'Analyses & models you\'ve built',
       blurb:
-        'Notebooks, dashboards, Kaggle entries, models in production — anything that proves you can turn data into decisions.',
+        'Notebooks, dashboards, Kaggle entries, models in production, anything that proves you can turn data into decisions.',
       titlePlaceholder: 'Analysis / model title',
       rolePlaceholder: 'Your role (e.g. Sole analyst)',
       descriptionPlaceholder: 'What question did it answer? What data + methods? What did the business do with the result?',
@@ -251,14 +251,14 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       field: 'portfolioUrl',
       label: 'Portfolio / case-study site',
       placeholder: 'https://your-portfolio.com  or  Medium URL',
-      helper: 'Optional. Public pages only — case studies, launch retros, Medium posts.',
+      helper: 'Optional. Public pages only, case studies, launch retros, Medium posts.',
     },
     projects: {
       noun: 'Launch',
       nounPlural: 'Launches & Case Studies',
       headline: 'Launches & case studies',
       blurb:
-        'Features you shipped, products you launched, strategy work — anything with a problem, a decision and a measurable outcome.',
+        'Features you shipped, products you launched, strategy work, anything with a problem, a decision and a measurable outcome.',
       titlePlaceholder: 'Launch or initiative title',
       rolePlaceholder: 'Your role (e.g. Lead PM)',
       descriptionPlaceholder: 'Problem → decision → outcome. What metrics moved?',
@@ -269,7 +269,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   design: {
     agentTitle: 'Let our AI agent review your design portfolio',
     agentBlurb:
-      'Behance, Dribbble, Figma community or your personal site — the agent picks the strongest pieces for your target role.',
+      'Behance, Dribbble, Figma community or your personal site, the agent picks the strongest pieces for your target role.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'Portfolio (Behance, Dribbble, personal site)',
@@ -281,7 +281,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Case Studies',
       headline: 'Design case studies',
       blurb:
-        'Real client work, redesigns, design-system contributions, side projects — anything with a brief, a process and a final.',
+        'Real client work, redesigns, design-system contributions, side projects, anything with a brief, a process and a final.',
       titlePlaceholder: 'Case study / project title',
       rolePlaceholder: 'Your role (e.g. Lead designer)',
       descriptionPlaceholder: 'The brief, your process, the final outcome and any measured impact.',
@@ -292,19 +292,19 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   marketing: {
     agentTitle: 'Let our AI agent review your marketing work',
     agentBlurb:
-      'Portfolio, Substack, Medium, a campaign deck on Notion — the agent will highlight your strongest campaigns and metrics.',
+      'Portfolio, Substack, Medium, a campaign deck on Notion, the agent will highlight your strongest campaigns and metrics.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'Portfolio / Substack / campaign deck',
       placeholder: 'https://your-portfolio.com  or  Substack URL',
-      helper: 'Optional. Public pages only — campaigns, write-ups, newsletter.',
+      helper: 'Optional. Public pages only, campaigns, write-ups, newsletter.',
     },
     projects: {
       noun: 'Campaign',
       nounPlural: 'Campaigns',
       headline: 'Campaigns you\'ve run',
       blurb:
-        'Paid campaigns, content launches, SEO wins, brand projects — anything where you owned the brief and the result.',
+        'Paid campaigns, content launches, SEO wins, brand projects, anything where you owned the brief and the result.',
       titlePlaceholder: 'Campaign title',
       rolePlaceholder: 'Your role (e.g. Sole owner, Lead)',
       descriptionPlaceholder: 'Goal, channels, budget if any, and the result with numbers.',
@@ -312,7 +312,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     experience: {
       headline: 'Tell us about your marketing roles',
-      blurb: 'Lead with the brand or product, your channel mix, and the numbers — CAC, ROAS, conversion lift, pipeline.',
+      blurb: 'Lead with the brand or product, your channel mix, and the numbers, CAC, ROAS, conversion lift, pipeline.',
       roleNoun: 'role',
       companyLabel: 'Company / agency / brand',
       titlePlaceholder: 'e.g. Digital Marketing Manager',
@@ -332,7 +332,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   sales: {
     agentTitle: 'Let our AI agent review your sales record',
     agentBlurb:
-      'Drop a LinkedIn URL or portfolio — the agent will help you frame your quota attainment, deals and playbooks.',
+      'Drop a LinkedIn URL or portfolio, the agent will help you frame your quota attainment, deals and playbooks.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / portfolio / case-study URL',
@@ -344,10 +344,10 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Notable Deals & Playbooks',
       headline: 'Notable deals & playbooks',
       blurb:
-        'Big logos closed, expansion deals, playbooks built, new territories opened — anything that shows how you sell.',
+        'Big logos closed, expansion deals, playbooks built, new territories opened, anything that shows how you sell.',
       titlePlaceholder: 'Deal or playbook title',
       rolePlaceholder: 'Your role (e.g. AE, SDR lead)',
-      descriptionPlaceholder: 'The account, the challenge, your motion, the close — and the ACV / impact.',
+      descriptionPlaceholder: 'The account, the challenge, your motion, the close, and the ACV / impact.',
       urlPlaceholder: 'Link (case study, write-up, deck)',
     },
     experience: {
@@ -357,7 +357,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       companyLabel: 'Company',
       titlePlaceholder: 'e.g. Enterprise Account Executive',
       companyPlaceholder: 'Company name',
-      descriptionPlaceholder: 'Quota, segment, ACV, motion, notable logos won — numbers first.',
+      descriptionPlaceholder: 'Quota, segment, ACV, motion, notable logos won, numbers first.',
       descriptionHelper: 'AI rewrites with quota %, deal size and segment up front.',
       aiContextHint:
         'Rewrite as 2-3 sales bullets. Lead each with a number where possible: quota attainment %, ACV, pipeline generated, deals closed, segment (SMB / Mid / Ent), and notable logos.',
@@ -372,19 +372,19 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   finance: {
     agentTitle: 'Let our AI agent review your finance work',
     agentBlurb:
-      'Share a LinkedIn URL, portfolio or published research — the agent will help you frame your models, audits and analyses.',
+      'Share a LinkedIn URL, portfolio or published research, the agent will help you frame your models, audits and analyses.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / portfolio / published research',
       placeholder: 'https://linkedin.com/in/your-handle',
-      helper: 'Optional. Public pages only — write-ups, research, articles.',
+      helper: 'Optional. Public pages only, write-ups, research, articles.',
     },
     projects: {
       noun: 'Engagement',
       nounPlural: 'Engagements & Models',
       headline: 'Engagements & models',
       blurb:
-        'Audits, valuations, M&A deals, models built, controls implemented — anything with scope, your role and a tangible outcome.',
+        'Audits, valuations, M&A deals, models built, controls implemented, anything with scope, your role and a tangible outcome.',
       titlePlaceholder: 'Engagement or model title',
       rolePlaceholder: 'Your role (e.g. Lead analyst, Senior auditor)',
       descriptionPlaceholder: 'Client / company size, scope, your role, methods used and the outcome (savings, valuation, opinion).',
@@ -409,7 +409,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     education: {
       headline: 'Your education & certifications',
-      blurb: 'Degree plus certifications (CPA, CFA, ACCA) — these matter to finance recruiters.',
+      blurb: 'Degree plus certifications (CPA, CFA, ACCA), these matter to finance recruiters.',
       licenseHint: 'Recommended: list any active CPA, CFA, CMA or ACCA designation here.',
       institutionPlaceholder: 'University',
     },
@@ -418,7 +418,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   operations: {
     agentTitle: 'Let our AI agent review your operations work',
     agentBlurb:
-      'LinkedIn, a portfolio, or a Notion case-study page — the agent will help you frame the systems and processes you built.',
+      'LinkedIn, a portfolio, or a Notion case-study page, the agent will help you frame the systems and processes you built.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / portfolio / Notion page',
@@ -430,7 +430,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Initiatives & Process Wins',
       headline: 'Initiatives & process wins',
       blurb:
-        'Process redesigns, vendor rollouts, cross-functional programs — anything where you scoped, ran it and measured the gain.',
+        'Process redesigns, vendor rollouts, cross-functional programs, anything where you scoped, ran it and measured the gain.',
       titlePlaceholder: 'Initiative title',
       rolePlaceholder: 'Your role (e.g. Program lead)',
       descriptionPlaceholder: 'Scope, stakeholders, what you changed and the measured improvement (time, cost, quality).',
@@ -441,7 +441,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   healthcare: {
     agentTitle: 'Add a profile or publication link',
     agentBlurb:
-      'LinkedIn, a Doximity profile, ORCID or any published work — the agent will help you frame your clinical and research history.',
+      'LinkedIn, a Doximity profile, ORCID or any published work, the agent will help you frame your clinical and research history.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / Doximity / ORCID / publication URL',
@@ -453,7 +453,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Research & Clinical Projects',
       headline: 'Research & clinical projects',
       blurb:
-        'Published research, QI projects, clinical rotations of note, fellowships, certifications earned — anything that shows your specialty depth.',
+        'Published research, QI projects, clinical rotations of note, fellowships, certifications earned, anything that shows your specialty depth.',
       titlePlaceholder: 'Project / study / publication title',
       rolePlaceholder: 'Your role (e.g. PI, Co-author)',
       descriptionPlaceholder: 'Setting, your role, methods or scope, and the outcome (publication, certification, patient impact).',
@@ -461,7 +461,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     experience: {
       headline: 'Tell us about your clinical experience',
-      blurb: 'Lead with setting (hospital, clinic, ICU), patient population, scope and outcomes — keep PHI off the page.',
+      blurb: 'Lead with setting (hospital, clinic, ICU), patient population, scope and outcomes, keep PHI off the page.',
       roleNoun: 'role',
       companyLabel: 'Hospital / clinic / employer',
       titlePlaceholder: 'e.g. Registered Nurse, ICU',
@@ -478,7 +478,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     education: {
       headline: 'Your education & licensure',
-      blurb: 'Degree, residency / fellowship, board certifications — licensure is essential for healthcare recruiters.',
+      blurb: 'Degree, residency / fellowship, board certifications, licensure is essential for healthcare recruiters.',
       licenseHint: 'Recommended: list your RN / NP / MD / DO / PharmD license and state(s) of practice.',
       institutionPlaceholder: 'Medical / nursing school',
     },
@@ -487,7 +487,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   education: {
     agentTitle: 'Add a profile, blog or curriculum link',
     agentBlurb:
-      'LinkedIn, a teaching blog, or a curriculum doc — the agent will help you frame your teaching wins and results.',
+      'LinkedIn, a teaching blog, or a curriculum doc, the agent will help you frame your teaching wins and results.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / teaching blog / curriculum site',
@@ -499,7 +499,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       nounPlural: 'Teaching Initiatives',
       headline: 'Teaching initiatives & results',
       blurb:
-        'Curriculum you built, programs you ran, measurable student outcomes, conferences presented — anything that shows your craft.',
+        'Curriculum you built, programs you ran, measurable student outcomes, conferences presented, anything that shows your craft.',
       titlePlaceholder: 'Initiative / curriculum / program title',
       rolePlaceholder: 'Your role (e.g. Lead teacher, Curriculum designer)',
       descriptionPlaceholder: 'Audience, what you designed or taught, and the result (scores, engagement, completion).',
@@ -524,7 +524,7 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
     },
     education: {
       headline: 'Your education & certifications',
-      blurb: 'Degrees plus teaching credentials — state license, subject endorsements, ESL / SPED certifications.',
+      blurb: 'Degrees plus teaching credentials, state license, subject endorsements, ESL / SPED certifications.',
       licenseHint: 'Recommended: list your teaching license, state(s) and any subject or grade endorsements.',
       institutionPlaceholder: 'University',
     },
@@ -533,19 +533,19 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   legal: {
     agentTitle: 'Add your bar profile or publication link',
     agentBlurb:
-      'LinkedIn, state-bar profile, SSRN or a publication URL — the agent will help you frame your matters and publications.',
+      'LinkedIn, state-bar profile, SSRN or a publication URL, the agent will help you frame your matters and publications.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / bar profile / SSRN / publication URL',
       placeholder: 'https://linkedin.com/in/your-handle',
-      helper: 'Optional. Public pages only — no privileged info.',
+      helper: 'Optional. Public pages only, no privileged info.',
     },
     projects: {
       noun: 'Matter',
       nounPlural: 'Matters & Publications',
       headline: 'Matters & publications',
       blurb:
-        'Significant matters, deals closed, opinions written, articles published, pro bono work — anything that shows your practice depth. Never share privileged or confidential details.',
+        'Significant matters, deals closed, opinions written, articles published, pro bono work, anything that shows your practice depth. Never share privileged or confidential details.',
       titlePlaceholder: 'Matter or publication title',
       rolePlaceholder: 'Your role (e.g. Lead associate, Co-counsel)',
       descriptionPlaceholder: 'Practice area, your role, scope and outcome (disposition, deal size, publication venue). Keep it public-record.',
@@ -558,10 +558,10 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
       companyLabel: 'Firm / employer',
       titlePlaceholder: 'e.g. Associate Attorney',
       companyPlaceholder: 'Firm or employer name',
-      descriptionPlaceholder: 'Practice area, scope of matters (deal value, case load), your responsibilities, and outcome — public-record only.',
+      descriptionPlaceholder: 'Practice area, scope of matters (deal value, case load), your responsibilities, and outcome, public-record only.',
       descriptionHelper: 'AI rewrites with practice area, scope and outcome. No privileged info.',
       aiContextHint:
-        'Rewrite as 2-3 legal bullets. Cite practice area, scope (deal value, matter count, jurisdiction), your responsibilities (drafting, negotiation, court appearances) and outcome (disposition, deal closed, opinion published). Use only public-record facts — never identify privileged clients or details.',
+        'Rewrite as 2-3 legal bullets. Cite practice area, scope (deal value, matter count, jurisdiction), your responsibilities (drafting, negotiation, court appearances) and outcome (disposition, deal closed, opinion published). Use only public-record facts, never identify privileged clients or details.',
     },
     skills: {
       headline: 'Pick your practice areas and tools',
@@ -579,19 +579,19 @@ export const SECTOR_PROFILES: Record<string, SectorProfile> = {
   hr: {
     agentTitle: 'Add a LinkedIn or portfolio link',
     agentBlurb:
-      'LinkedIn, a personal site, or a Notion case-study page — the agent will help you frame the programs you built and the people impact.',
+      'LinkedIn, a personal site, or a Notion case-study page, the agent will help you frame the programs you built and the people impact.',
     portfolio: {
       field: 'portfolioUrl',
       label: 'LinkedIn / portfolio / case-study page',
       placeholder: 'https://linkedin.com/in/your-handle',
-      helper: 'Optional. Public pages only — never share employee data.',
+      helper: 'Optional. Public pages only, never share employee data.',
     },
     projects: {
       noun: 'Program',
       nounPlural: 'Programs & Initiatives',
       headline: 'People programs & initiatives',
       blurb:
-        'Hiring programs, L&D launches, compensation overhauls, culture initiatives — anything where you scoped, ran it and measured the impact.',
+        'Hiring programs, L&D launches, compensation overhauls, culture initiatives, anything where you scoped, ran it and measured the impact.',
       titlePlaceholder: 'Program / initiative title',
       rolePlaceholder: 'Your role (e.g. People lead, HRBP)',
       descriptionPlaceholder: 'Scope, who it served, what you launched, and the measured outcome (retention, NPS, time-to-hire).',
@@ -673,7 +673,7 @@ const STAGE_COPY: Record<Exclude<CareerStageId, ''>, StageCopy> = {
   },
   internship: {
     projectsSpotlight:
-      'Internships count — include school projects too. Recruiters love seeing what you ship outside class.',
+      'Internships count, include school projects too. Recruiters love seeing what you ship outside class.',
     experienceEmptyNudge:
       'Add your internship(s). Even a 10-week summer internship counts as real experience.',
     noWorkHistoryCalloutTitle: '',
@@ -683,8 +683,8 @@ const STAGE_COPY: Record<Exclude<CareerStageId, ''>, StageCopy> = {
     projectsSpotlight:
       "This is your spotlight. New grads who lead with 1–2 strong projects out-perform résumés with vague internship-only entries.",
     experienceEmptyNudge:
-      'Skipping ahead — recruiters expect new grads to lead with Education + Projects.',
-    noWorkHistoryCalloutTitle: 'Great — no work history needed.',
+      'Skipping ahead, recruiters expect new grads to lead with Education + Projects.',
+    noWorkHistoryCalloutTitle: 'Great: no work history needed.',
     noWorkHistoryCalloutBody:
       "We'll spotlight your Education and Projects, which is exactly what hiring managers look at for new grads.",
   },
@@ -692,7 +692,7 @@ const STAGE_COPY: Record<Exclude<CareerStageId, ''>, StageCopy> = {
     projectsSpotlight:
       "Projects are your bridge. One pivot project that shows you can do the new craft is worth more than 5 years in the old one.",
     experienceEmptyNudge:
-      'Add your most recent role — even from the field you are leaving. The story matters; we will help you frame the pivot.',
+      'Add your most recent role, even from the field you are leaving. The story matters; we will help you frame the pivot.',
     noWorkHistoryCalloutTitle: '',
     noWorkHistoryCalloutBody: '',
   },
@@ -700,8 +700,8 @@ const STAGE_COPY: Record<Exclude<CareerStageId, ''>, StageCopy> = {
     projectsSpotlight:
       "Self-taught? Projects are your résumé. Recruiters take them seriously when something is shipped and shareable.",
     experienceEmptyNudge:
-      'No formal roles yet? Skip ahead — we will lead with Projects and any bootcamp / courses under Education.',
-    noWorkHistoryCalloutTitle: 'Great — no work history needed.',
+      'No formal roles yet? Skip ahead, we will lead with Projects and any bootcamp / courses under Education.',
+    noWorkHistoryCalloutTitle: 'Great: no work history needed.',
     noWorkHistoryCalloutBody:
       "Recruiters know self-taught engineers, designers and marketers ship great work. We'll spotlight your Projects and learning.",
   },

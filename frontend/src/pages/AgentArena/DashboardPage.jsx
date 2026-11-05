@@ -92,7 +92,7 @@ const interpretScoutFunnel = (lastScoutRun) => {
       };
     case 'all_below_threshold':
       return {
-        title: `Checked ${eligible} jobs — none cleared your ${threshold}% match`,
+        title: `Checked ${eligible} jobs: none cleared your ${threshold}% match`,
         sub: above === 0 && below > 0
           ? `Every job scored below ${threshold}%. Either lower your match threshold or broaden your role titles so the pilot has closer fits to work with.`
           : 'Try lowering your match threshold or refining role titles to better mirror your profile.',

@@ -200,7 +200,7 @@ const Done = styled.div`
    ═══════════════════════════════════════════════ */
 
 const STAGE_COPY = (pct) => {
-  if (pct >= 80) return 'Almost there — finish strong to reach Top 10%.';
+  if (pct >= 80) return 'Almost there, finish strong to reach Top 10%.';
   if (pct >= 50) return 'Looking good! A few more steps to stand out.';
   return 'Complete these to get 5x more recruiter views.';
 };
@@ -235,7 +235,7 @@ const ProfileCompletionCard = ({ completion, onItemClick, defaultOpen = true }) 
           <div className="icon"><CheckIcon /></div>
           <div className="txt">
             <div className="title">Your profile is 100% complete 🎉</div>
-            <div className="sub">You're in the top tier — recruiters can see the full picture.</div>
+            <div className="sub">You're in the top tier, recruiters can see the full picture.</div>
           </div>
         </Done>
       </Card>

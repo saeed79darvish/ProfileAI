@@ -259,7 +259,7 @@ const PaymentMethodSelector = ({ open, onClose, plan, billingCycle, onSuccess })
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>Credit or debit card</Typography>
-            <Typography sx={{ fontSize: 11.5, color: '#64748b' }}>Visa, Mastercard, Amex — secured by Stripe</Typography>
+            <Typography sx={{ fontSize: 11.5, color: '#64748b' }}>Visa, Mastercard, Amex, secured by Stripe</Typography>
           </Box>
           {loading === 'card'
             ? <CircularProgress size={16} sx={{ color: '#7c3aed' }} />

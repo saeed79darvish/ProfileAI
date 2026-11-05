@@ -433,7 +433,7 @@ const HelpCenter = () => {
                   </Button>
                 }
               >
-                <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Thanks — we\u2019ll be in touch.</Typography>
+                <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Thanks, we\u2019ll be in touch.</Typography>
                 <Typography sx={{ fontSize: 13 }}>
                   We got your message. Ticket reference:{' '}
                   <Box component="code" sx={{ background: 'rgba(0,0,0,0.06)', px: 0.75, borderRadius: 0.5 }}>

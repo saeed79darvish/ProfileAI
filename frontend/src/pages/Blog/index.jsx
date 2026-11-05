@@ -10,7 +10,7 @@ const BlogIndex = () => {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', py: { xs: 6, md: 10 } }}>
       <SEO
-        title="Blog — AI Career, Resume & Negotiation Insights"
+        title="Blog: AI Career, Resume & Negotiation Insights"
         description="Guides on AI resume tailoring, auto-applying to jobs, salary negotiation, and how candidates and recruiters win with AI."
         path="/blog"
         keywords="AI resume blog, job search AI, ATS optimization, salary negotiation tips, job application autofill guide"

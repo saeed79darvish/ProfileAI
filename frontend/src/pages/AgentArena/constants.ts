@@ -347,7 +347,7 @@ export const MOCK_CHAT_MESSAGES: {
     id: 'm4',
     role: 'ai',
     content:
-      'Solid. Two quick follow-ups so I can quote this well in future apps —<br/><br/><b>(1)</b> How did you frame the ask to her, data, risk, or gut?<br/><b>(2)</b> Would you describe yourself as someone who pushes back <i>often</i>, or only on big calls?',
+      'Solid. Two quick follow-ups so I can quote this well in future apps -<br/><br/><b>(1)</b> How did you frame the ask to her, data, risk, or gut?<br/><b>(2)</b> Would you describe yourself as someone who pushes back <i>often</i>, or only on big calls?',
   },
 ];
 

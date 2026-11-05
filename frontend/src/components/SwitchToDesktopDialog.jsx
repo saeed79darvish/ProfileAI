@@ -22,7 +22,7 @@ const BENEFITS = [
   { icon: QuestionIcon, lead: 'AI answers custom questions.', rest: "Every screening question on the form gets a tailored answer from your profile. On mobile you'd type each one by hand." },
   { icon: EditIcon, lead: 'More control over drafts.', rest: "Review, edit, and approve each AI response side by side with the job description before it's submitted." },
   { icon: BoltIcon, lead: 'One tap apply.', rest: 'Autofills your résumé, cover letter, and every field on Greenhouse, Lever, Ashby, Workday and other job sites.' },
-  { icon: CreditIcon, lead: 'Same monthly credits.', rest: "Extension actions draw from the same plan as mobile — you're not spending anything extra, just getting a better result." },
+  { icon: CreditIcon, lead: 'Same monthly credits.', rest: "Extension actions draw from the same plan as mobile, you're not spending anything extra, just getting a better result." },
 ];
 
 export function isDesktopNudgeDismissed() {

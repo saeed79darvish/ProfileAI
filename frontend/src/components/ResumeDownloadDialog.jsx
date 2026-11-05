@@ -501,7 +501,7 @@ const ResumeDownloadDialog = ({ open, onClose, tailoredProfileId = null, tailore
                   </Box>
                 ))}
                 <Button startIcon={<AddIcon />} onClick={addEducation} size="small" variant="outlined">Add Education</Button>
-                {renderSectionPrompt('education', 'e.g. Keep it concise — just degree, school, and year.')}
+                {renderSectionPrompt('education', 'e.g. Keep it concise, just degree, school, and year.')}
               </AccordionDetails>
             </Accordion>
 

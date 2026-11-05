@@ -232,7 +232,7 @@ const PublicProfile = () => {
 
   const seo = (
       <SEO
-        title={`${fullName}${headline ? ` — ${headline}` : ''}`}
+        title={`${fullName}${headline ? `: ${headline}` : ''}`}
         description={(bio || `${fullName}'s professional profile on ProfilleAI.`).replace(/<[^>]+>/g, '').slice(0, 200)}
         path={`/profile/${id}`}
         type="profile"

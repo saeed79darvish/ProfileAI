@@ -647,7 +647,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
           )}
 
           {/* Scoped to the credits tab: it's the only CTA that can fail in
-              place — plan errors surface inside the payment picker. */}
+              place, plan errors surface inside the payment picker. */}
           {packError && activeTab === 'credits' && <ErrorLine>{packError}</ErrorLine>}
 
           {activeTab === 'plan' && target ? (
@@ -678,7 +678,7 @@ export default function LimitReachedModal({ limit, onClose, promo = null }) {
     </Dialog>
 
     {/* Stacked over this modal rather than replacing it, so closing the picker
-        drops the user back on the plan they were considering — and on the
+        drops the user back on the plan they were considering, and on the
         credits tab they can still fall back to. */}
     {checkoutPlan && (
       <PaymentMethodSelector

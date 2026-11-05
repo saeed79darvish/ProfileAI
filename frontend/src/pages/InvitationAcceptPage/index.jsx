@@ -313,7 +313,7 @@ const InvitationAcceptPage = () => {
           {invitation.personalMessage && (
             <PersonalMessage>
               <p>"{invitation.personalMessage}"</p>
-              <span className="author">— {recruiter?.name}</span>
+              <span className="author">- {recruiter?.name}</span>
             </PersonalMessage>
           )}
           

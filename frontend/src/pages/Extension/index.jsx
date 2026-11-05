@@ -29,7 +29,7 @@ const HOW_IT_WORKS = [
     icon: DownloadIcon,
     title: 'Add it to Chrome',
     desc: extensionConfig.isPublished
-      ? 'Install the ProfilleAI extension from the Chrome Web Store in one click — no setup required.'
+      ? 'Install the ProfilleAI extension from the Chrome Web Store in one click, no setup required.'
       : 'The extension is coming soon to the Chrome Web Store. Once it is live, installing takes one click with no setup.',
   },
   {
@@ -45,7 +45,7 @@ const HOW_IT_WORKS = [
   {
     icon: RocketIcon,
     title: 'Tailor, fill & apply',
-    desc: 'Quick-fill the basics, draft AI answers to screening questions, and tailor your resume — then submit.',
+    desc: 'Quick-fill the basics, draft AI answers to screening questions, and tailor your resume, then submit.',
   },
 ];
 
@@ -63,7 +63,7 @@ const FEATURES = [
   {
     icon: SparkleIcon,
     title: 'Resume tailored to each job',
-    desc: 'Pull the job description and rewrite your resume to match — highlighting the skills the role actually asks for.',
+    desc: 'Pull the job description and rewrite your resume to match, highlighting the skills the role actually asks for.',
   },
   {
     icon: InsightsIcon,
@@ -73,7 +73,7 @@ const FEATURES = [
   {
     icon: PublicIcon,
     title: 'Works anywhere you apply',
-    desc: 'Not just job boards — it runs on company career sites and any application form across the web.',
+    desc: 'Not just job boards, it runs on company career sites and any application form across the web.',
   },
   {
     icon: ExtensionIcon,
@@ -103,7 +103,7 @@ export default function ExtensionPage() {
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
-    name: 'ProfilleAI — Job Application Assistant',
+    name: 'ProfilleAI, Job Application Assistant',
     applicationCategory: 'BrowserApplication',
     operatingSystem: 'Chrome',
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
@@ -114,7 +114,7 @@ export default function ExtensionPage() {
   return (
     <Box sx={{ background: '#0f0f14', color: '#fff', minHeight: '100vh' }}>
       <SEO
-        title="ProfilleAI Chrome Extension — Apply to Any Job, Anywhere"
+        title="ProfilleAI Chrome Extension: Apply to Any Job, Anywhere"
         description="The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page."
         path="/extension"
         keywords="ProfilleAI chrome extension, job application autofill, AI resume tailoring extension, auto apply jobs"
@@ -151,7 +151,7 @@ export default function ExtensionPage() {
             </Typography>
             <Typography sx={{ fontSize: { xs: 16, md: 20 }, color: 'rgba(255,255,255,0.7)', mb: 4, maxWidth: 560 }}>
               Your ProfilleAI profile travels with you. The Chrome extension autofills
-              applications, drafts answers to screening questions, and tailors your resume —
+              applications, drafts answers to screening questions, and tailors your resume -
               right on the job page, in seconds.
             </Typography>
 
@@ -187,7 +187,7 @@ export default function ExtensionPage() {
                     '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
                   }}
                 >
-                  {isPublished ? 'Add to Chrome — Free' : 'Coming soon to the Chrome Web Store'}
+                  {isPublished ? 'Add to Chrome, Free' : 'Coming soon to the Chrome Web Store'}
                 </Button>
               )}
               {!isAuthenticated && (
@@ -394,7 +394,7 @@ export default function ExtensionPage() {
                 '&.Mui-disabled': { background: 'rgba(124,58,237,0.35)', color: 'rgba(255,255,255,0.6)' },
               }}
             >
-              {isPublished ? 'Add to Chrome — Free' : 'Coming soon'}
+              {isPublished ? 'Add to Chrome, Free' : 'Coming soon'}
             </Button>
           )}
           <Button

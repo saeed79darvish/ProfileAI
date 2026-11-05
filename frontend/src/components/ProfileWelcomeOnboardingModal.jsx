@@ -317,7 +317,7 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
         </Typography>
         <Typography variant="body2" sx={{ opacity: 0.92, fontSize: 13.5 }}>
           {step === 0 && 'ProfileAI helps candidates write stronger profiles, tailor for each job, and apply faster.'}
-          {step === 1 && "Look for the purple Enhance buttons next to each section. AI rewrites your own words — it doesn't invent facts."}
+          {step === 1 && "Look for the purple Enhance buttons next to each section. AI rewrites your own words, it doesn't invent facts."}
           {step === 2 && 'Three ways to go. You can switch any time.'}
         </Typography>
       </Box>
@@ -336,7 +336,7 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 2 }}>
               {[
                 'A complete profile gets 3× more recruiter views.',
-                'AI rewrites your bullets — sharper verbs, real metrics, no fluff.',
+                'AI rewrites your bullets, sharper verbs, real metrics, no fluff.',
                 'Tailor to any job description in one click.',
               ].map((line) => (
                 <Box key={line} sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
@@ -375,7 +375,7 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
               </Box>
               <Typography variant="caption" sx={{ color: '#4338ca', fontSize: 12.5, fontWeight: 500, lineHeight: 1.45 }}>
                 Heads up: every AI feature needs at least one work experience to
-                give you great results — we'll get you there in a few minutes.
+                give you great results, we'll get you there in a few minutes.
               </Typography>
             </Box>
           </Box>
@@ -387,25 +387,25 @@ const ProfileWelcomeOnboardingModal = ({ open, onClose, onResumeParsed, userName
             <FeatureCard
               icon={<AIIcon fontSize="small" />}
               accent="#6366f1"
-              title="Enhance — polish your whole profile"
+              title="Enhance: polish your whole profile"
               blurb="One click rewrites your summary and experience with stronger verbs, metrics and tone."
             />
             <FeatureCard
               icon={<TailorIcon fontSize="small" />}
               accent="#0ea5e9"
-              title="Tailor — match any job description"
+              title="Tailor: match any job description"
               blurb="Paste a JD and AI re-shapes your bullets to mirror what the hiring manager is asking for."
             />
             <FeatureCard
               icon={<TipIcon fontSize="small" />}
               accent="#f59e0b"
-              title="Tips — what's missing in your profile"
+              title="Tips: what's missing in your profile"
               blurb="AI scans your profile and surfaces the top 3-5 improvements ranked by impact."
             />
             <FeatureCard
               icon={<BoltIcon fontSize="small" />}
               accent="#16a34a"
-              title="Per-section Enhance — fix one bullet at a time"
+              title="Per-section Enhance: fix one bullet at a time"
               blurb="Each Summary, Experience and Project field has its own Enhance button for granular rewrites."
             />
           </Box>

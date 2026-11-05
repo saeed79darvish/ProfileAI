@@ -99,7 +99,7 @@ const Home = () => {
   return (
     <Box sx={S.pageContainerSx}>
       <SEO
-        title="ProfilleAI — AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring"
+        title="ProfilleAI | AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring"
         description="Talk to Remi, your AI career coach, and ProfilleAI builds your profile, matches you to jobs that fit, and tailors your resume and cover letter to each one in seconds."
         path="/"
         keywords="AI resume builder, resume tailoring, AI job matching, AI cover letter, AI career coach, ghost job detection, ATS resume optimizer, career copilot"
@@ -107,7 +107,7 @@ const Home = () => {
           {
             '@context': 'https://schema.org',
             '@type': 'WebPage',
-            name: 'ProfilleAI — AI Career Copilot',
+            name: 'ProfilleAI, AI Career Copilot',
             url: 'https://www.profilleai.com/',
             description:
               'AI career coach and platform for building your profile, tailoring your resume to each job, and matching you to real openings.',
@@ -137,7 +137,7 @@ const Home = () => {
                 name: 'Is ProfilleAI free?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Pro+ plans unlock higher tailoring and cover letter limits, more live voice coach time, and watermark-free exports.',
+                  text: 'Yes, ProfilleAI offers a free tier with core resume tailoring. Pro and Pro+ plans unlock higher tailoring and cover letter limits, more live voice coach time, and watermark-free exports.',
                 },
               },
               {
@@ -145,7 +145,7 @@ const Home = () => {
                 name: 'How does ProfilleAI match me to jobs?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'ProfilleAI scores every job in its feed against your profile — skills, seniority, and role history — and flags listings that look like ghost jobs, so the roles you see are the ones you actually fit.',
+                  text: 'ProfilleAI scores every job in its feed against your profile, skills, seniority, and role history, and flags listings that look like ghost jobs, so the roles you see are the ones you actually fit.',
                 },
               },
             ],

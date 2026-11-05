@@ -780,7 +780,7 @@ const SetupPage = () => {
                 $done={isDone}
                 $clickable={!isActive}
                 onClick={handleDotClick}
-                aria-label={isActive ? `Step ${n} — ${label} (current)` : `Go to step ${n} — ${label}`}
+                aria-label={isActive ? `Step ${n}, ${label} (current)` : `Go to step ${n}, ${label}`}
                 aria-current={isActive ? 'step' : undefined}
                 type="button"
               >
@@ -1398,7 +1398,7 @@ const SetupPage = () => {
               <MandatoryReviewBanner>
                 <span aria-hidden>🛡</span>
                 <span>
-                  <b>You always review and approve.</b> Nothing is ever sent without your tap —
+                  <b>You always review and approve.</b> Nothing is ever sent without your tap -
                   ApplyPilot queues, drafts, and pauses, but never auto-submits.
                 </span>
               </MandatoryReviewBanner>
@@ -1811,7 +1811,7 @@ const LiveMatchesCard = ({
   const showCorpusBanner = total === 0 && (corpusStatus === 'empty' || corpusStatus === 'stale');
   const note = total === 0
     ? (corpusStatus === 'empty'
-        ? 'No jobs indexed yet — the job-board sync hasn\u2019t populated the corpus on this environment. Matches will appear once it runs.'
+        ? 'No jobs indexed yet, the job-board sync hasn\u2019t populated the corpus on this environment. Matches will appear once it runs.'
         : corpusStatus === 'stale'
           ? 'No fresh postings in the index. Recent jobs will appear after the next sync (every 15 min).'
           : 'No matching postings yet. Try adding more role titles or relaxing your filters.')
@@ -1825,7 +1825,7 @@ const LiveMatchesCard = ({
           <b>{corpusStatus === 'empty' ? 'Job index is empty' : 'Job index is stale'}</b>
           <span>
             {corpusStatus === 'empty'
-              ? 'Your criteria aren\u2019t the problem — no jobs have been ingested yet. ApplyPilot will start matching as soon as the sync runs.'
+              ? 'Your criteria aren\u2019t the problem, no jobs have been ingested yet. ApplyPilot will start matching as soon as the sync runs.'
               : 'No postings within the freshness window. The next external-jobs sync will repopulate.'}
           </span>
         </CorpusBanner>

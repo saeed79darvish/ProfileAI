@@ -295,7 +295,7 @@ const CheckCard = ({ lines, spent, busy, onSave, onDone }) => {
  */
 
 /* Model-answered asides allowed per conversation. At roughly a tenth of a
-   cent each this is about a penny — the point is not the money, it is that an
+   cent each this is about a penny, the point is not the money, it is that an
    endpoint which returns model output to anonymous callers needs a ceiling
    that is not only per-IP. */
 const ASIDE_LIMIT = 8;
@@ -356,7 +356,7 @@ const resumeIdSequence = (messages = []) => {
 };
 
 /* The welcome intro that used to be the standalone /onboarding page now runs
-   as the first messages of this conversation — see components/
+   as the first messages of this conversation, see components/
    OnboardingIntro. It plays every time rather than once per browser: this is
    what "Get started" promises, a returning visitor is one tap from skipping
    it, and the one-shot version mostly succeeded at hiding itself from the
@@ -369,7 +369,7 @@ const ProfileCoach = () => {
   const { isAuthenticated, refreshUser } = useAuth();
 
   /* A conversation left in this browser within the last day. Read once, in
-     a lazy initialiser, so the first render already has it — restoring in an
+     a lazy initialiser, so the first render already has it, restoring in an
      effect would flash the intro at someone who is mid-conversation. */
   const [restored] = useState(() => {
     const saved = loadConversation();
@@ -378,7 +378,7 @@ const ProfileCoach = () => {
   });
 
   /* The saved conversation is offered, never restored behind their back.
-     Someone who hard-refreshes usually means it — and a silent resume also
+     Someone who hard-refreshes usually means it, and a silent resume also
      spends model calls continuing a conversation they were trying to leave. */
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
@@ -619,8 +619,8 @@ const ProfileCoach = () => {
     if (!step) return;
 
     /* The one moment a call is worth offering.
-       Everything above this step is facts — a title, a company, a list of
-       skills — and a button is faster and more accurate than speech for
+       Everything above this step is facts, a title, a company, a list of
+       skills, and a button is faster and more accurate than speech for
        every one of them. Everything from here down is why: what they want
        next, what is in the way. Those are the questions nobody answers well
        in a text box, and the ones that make a profile sound like a person.
@@ -853,7 +853,7 @@ const ProfileCoach = () => {
      It used to come before the first question, on the theory that the point
      of talking is to skip the typing. That theory was wrong in practice: a
      cold call has nothing to react to, so it opens by reading the form out
-     loud — "what is your job title" — which is the one thing a call is worse
+     loud, "what is your job title", which is the one thing a call is worse
      at than a button. It is now offered at the `target` step, once there is
      a person on the other end to be curious about. */
   const startLadderFrom = useCallback((draft0, { silent = false, from = 'intro', ask = true } = {}) => {
@@ -867,7 +867,7 @@ const ProfileCoach = () => {
        first question opens it. */
     if (ask) askStep(at, draft0);
     /* ask: false leaves the ladder parked on the next gap without asking it,
-       for a caller that has something to put on screen first — after a call,
+       for a caller that has something to put on screen first, after a call,
        that is the upload offer. Whatever answers it picks up from here. */
     trackEvent('coach_started', { intro: from, resumedAt: LADDER[at]?.id });
   }, [askStep, later, offerVoice, pushCoach]);
@@ -909,7 +909,7 @@ const ProfileCoach = () => {
   }, []);
 
   /* Every answer, straight to storage. Cheap — a transcript is a few
-     kilobytes of plain objects — and it is the difference between a dropped
+     kilobytes of plain objects, and it is the difference between a dropped
      connection costing someone a moment and costing them the whole thing. */
   useEffect(() => {
     if (!messages.length) return;
@@ -1516,7 +1516,7 @@ const ProfileCoach = () => {
 
   const [lastSpoken, setLastSpoken] = useState(null);
   /* Whether this deployment can do voice. Asked once, publicly, before the
-     choice is ever offered — an environment with no OpenAI key shows no
+     choice is ever offered, an environment with no OpenAI key shows no
      voice option rather than one that fails on tap, and starts showing it
      the moment the key is set. */
 
@@ -1534,7 +1534,7 @@ const ProfileCoach = () => {
 
   /* What was said goes into the transcript as it happens. The chat is the
      record of the conversation whichever way it was held, and after the call
-     ends it is the only record — so it has to be the same messages, not a
+     ends it is the only record, so it has to be the same messages, not a
      summary of them. */
   const onTranscript = useCallback((line) => {
     if (line.text) setLastSpoken(line);
@@ -1584,7 +1584,7 @@ const ProfileCoach = () => {
 
   /* What the call hears, as it hears it.
      The model calls a tool the moment it learns something, and because the
-     browser holds the call that arrives here directly — the draft fills in
+     browser holds the call that arrives here directly, the draft fills in
      behind the orb while the person is still talking. The old arrangement
      could not do this: the model ran on a server somewhere and the browser
      found out what had been said only after hanging up. */
@@ -2247,7 +2247,7 @@ const ProfileCoach = () => {
       setDraft(draftRef.current);
       trackEvent('coach_import_declined', { noResume: chip.id === 'none' });
       /* The upload offer after a call is a detour, not a rung.
-         `index` is where importOffer sits in the ladder — near the top — so
+         `index` is where importOffer sits in the ladder, near the top, so
          advancing from it walks the whole thing again from there. It skips
          what the draft already answers, but anything it does not recognise
          gets asked a second time, which is how somebody who had already
@@ -2593,13 +2593,13 @@ const ProfileCoach = () => {
     if (wantsToSaveForLater(text) && offerSaveForLater()) return;
 
     /* The coach is waiting, so nothing is asked on top of it: re-asking both
-       contradicts the invitation and buries it. Two ways to know — they asked
+       contradicts the invitation and buries it. Two ways to know, they asked
        permission (deterministic, read off their message), or the reply itself
        ended in a question. The first exists because the second was not enough:
        "Of course, go ahead." is an invitation with no question mark in it, and
        the step question landed underneath it anyway.
        The chips stay live above either way, so tapping an answer is still
-       one tap — holding the floor is not blocking the path. */
+       one tap, holding the floor is not blocking the path. */
     if (intent === 'permission' || /\?\s*$/.test(answer)) return;
 
     /* Answer, then hold the options out — do not ask the question again.
@@ -2683,7 +2683,7 @@ const ProfileCoach = () => {
     /* Pressed while the accurate transcript is still coming back: that is
        still "send this". It used to be ignored (Enter) or impossible (the
        button was disabled), which read as the box not sending. It goes the
-       moment the transcript lands — see the effect on dictation.transcribing. */
+       moment the transcript lands, see the effect on dictation.transcribing. */
     if (said == null && dictation.transcribing) {
       showPendingSend(input.trim());
       sendWhenTranscribedRef.current = true;
@@ -2825,8 +2825,8 @@ const ProfileCoach = () => {
     const current = draftRef.current;
 
     /* One model call decides what they meant.
-       Thirteen regexes used to make that call — answer or question, greeting
-       or correction, skip or hedge — and every phrasing nobody anticipated
+       Thirteen regexes used to make that call, answer or question, greeting
+       or correction, skip or hedge, and every phrasing nobody anticipated
        landed in the wrong branch. The model gets the profile, the gap and the
        transcript, and comes back with what to say and what it learned. The
        chips above are untouched and still free for anyone who would rather
@@ -3049,7 +3049,7 @@ const ProfileCoach = () => {
     }
 
     /* Did that fill in what this step was for? If so the conversation moves
-       on; if not — they asked a question, or said something unrelated — the
+       on; if not, they asked a question, or said something unrelated, the
        options come back without the question being restated at them. */
     if (stepAnswered(step, draftRef.current)) {
       advance(index, draftRef.current);
@@ -3361,14 +3361,14 @@ const ProfileCoach = () => {
         <VerdictRow>
           <Verdict $tone={VERDICT_TONE[assessment.verdict]}>{assessment.verdict}</Verdict>
           {/* A null total means we did not measure it, which is not the same
-              as zero — saying nothing is the only honest option there. */}
+              as zero, saying nothing is the only honest option there. */}
           {typeof market?.total === 'number' && market.total > 0 && (
             <MarketNote>
               {COACH_TEXT.ASSESS_OPENINGS(market.total)}
               {/* A measured zero is shown. For someone who asked for on-site,
                   "none in your area" is the single most useful fact we have,
                   and hiding it would leave them with only the flattering
-                  headline number. A null still shows nothing — that one means
+                  headline number. A null still shows nothing, that one means
                   we did not measure, which is not the same as none. */}
               {typeof market.nearby === 'number'
                 ? `, ${COACH_TEXT.ASSESS_NEARBY(market.nearby, market.nearbyKind)}`
@@ -3614,7 +3614,7 @@ const ProfileCoach = () => {
                         <CoachAvatar><CoachMark /></CoachAvatar>
                       )}
                       {/* Your own tapped answers are live controls: tap one to
-                          take it back. Typed answers are not — a sentence the
+                          take it back. Typed answers are not, a sentence the
                           model turned into experience rows cannot be cleanly
                           un-picked, and those stay editable in the editor. */}
                       {canRewind(LADDER.find((s) => s.id === message.stepId)) && message.role === 'me' ? (

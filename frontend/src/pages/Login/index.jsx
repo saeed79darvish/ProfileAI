@@ -119,7 +119,7 @@ const Login = () => {
 
   /* Signing in lands on the dashboard, profile or no profile.
      This used to send anyone without a profile to /onboarding, which
-     redirects to /profile/create — so the app had no front door for the
+     redirects to /profile/create, so the app had no front door for the
      people who most needed one. Every sign-in dropped them mid-conversation
      with the coach, with no way to see what else was here or that they had a
      half-finished draft waiting. The dashboard greets them and offers to
@@ -140,7 +140,7 @@ const Login = () => {
     if (user && existingToken && fromExtension) {
       // Don't silently sync a pre-existing session to the extension — the user
       // may have intended to sign in as a different account. Show a confirm UI.
-      authDebug('extension existing session — prompting for account confirmation');
+      authDebug('extension existing session, prompting for account confirmation');
       setExtAccountPrompt(true);
       return;
     }

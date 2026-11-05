@@ -147,7 +147,7 @@ const DEFAULT_DATA = {
   // New-in-v2: optional resume sections collected during the wizard so
   // candidates of any stage (new grads, career changers, experienced)
   // arrive at the profile form with a real starting draft.
-  careerStage: '',          // see CAREER_STAGES — gates the Experience step
+  careerStage: '',          // see CAREER_STAGES, gates the Experience step
   experience: [],           // [{ title, company, startDate, endDate, description }]
   education: [],            // [{ degree, fieldOfStudy, institution, startDate, endDate }]
   projects: [],             // [{ title, role, description, url }]
@@ -274,7 +274,7 @@ const JobPreferencesWizard = () => {
     try {
       const raw = localStorage.getItem(LOCALSTORAGE_KEY);
       if (raw) return normalizeData(JSON.parse(raw));
-    } catch { /* corrupt JSON / private mode — fall through */ }
+    } catch { /* corrupt JSON / private mode, fall through */ }
     return DEFAULT_DATA;
   });
 
@@ -318,7 +318,7 @@ const JobPreferencesWizard = () => {
   useEffect(() => {
     try {
       localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(data));
-    } catch { /* quota / private mode — ignore */ }
+    } catch { /* quota / private mode, ignore */ }
   }, [data]);
 
   // Navigation
@@ -545,7 +545,7 @@ const JobPreferencesWizard = () => {
       case 0: return data.title.trim().length > 0;
       case 1: return data.employmentTypes.length > 0 || data.workSetups.length > 0;
       case 2: return true; // skills are optional
-      case 3: return true; // experience optional — branched by careerStage
+      case 3: return true; // experience optional, branched by careerStage
       case 4: return Object.keys(yearErrorsAll).length === 0; // years must validate
       case 5: return Object.keys(urlErrorsAll).length === 0; // portfolio + project URLs must validate
       case 6: return true;
@@ -599,7 +599,7 @@ const JobPreferencesWizard = () => {
     const row = data[field]?.[index];
     const text = (row?.description || '').trim();
     if (!text || text.length < 10) {
-      setAiDraftError('Write at least 10 characters first — even a rough sentence is enough.');
+      setAiDraftError('Write at least 10 characters first, even a rough sentence is enough.');
       return;
     }
     const key = `${field}-${index}`;
@@ -611,7 +611,7 @@ const JobPreferencesWizard = () => {
       if (enhanced && typeof enhanced === 'string') {
         updateRow(field, index, 'description', enhanced);
       } else {
-        setAiDraftError("AI couldn't improve that — try adding more detail.");
+        setAiDraftError("AI couldn't improve that, try adding more detail.");
       }
     } catch (err) {
       const msg = err?.response?.data?.error || err?.response?.data?.message || 'AI draft failed. Please try again.';
@@ -840,7 +840,7 @@ const JobPreferencesWizard = () => {
         Preferred work arrangement
       </Typography>
       <Typography sx={{ fontSize: 12.5, color: '#9aa0b4', mb: 1.5 }}>
-        Pick all that work for you — e.g. Remote + Hybrid.
+        Pick all that work for you, e.g. Remote + Hybrid.
       </Typography>
       <WorkSetupGrid>
         {WORK_SETUPS.map(ws => {
@@ -1312,7 +1312,7 @@ const JobPreferencesWizard = () => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           <Box sx={{ p: 2, borderRadius: 2, background: '#ecfeff', border: '1px solid #a5f3fc' }}>
             <Typography sx={{ fontSize: 13.5, color: '#0e7490', fontWeight: 600, mb: 0.5 }}>
-              {getStageCopy(data.careerStage).noWorkHistoryCalloutTitle || 'Great — no work history needed.'}
+              {getStageCopy(data.careerStage).noWorkHistoryCalloutTitle || 'Great, no work history needed.'}
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: '#0e7490' }}>
               {getStageCopy(data.careerStage).noWorkHistoryCalloutBody || "We'll highlight your Education and Projects instead. Click Continue to move on."}
@@ -1557,7 +1557,7 @@ const JobPreferencesWizard = () => {
     const useNewGradTip = isNewGrad || (!hasWorkHistory && !claimsExperience);
     const projectsTip = useNewGradTip
       ? AI_TIPS[5]
-      : 'Highlight 1–3 projects with measurable impact — it’s how recruiters see what you’ve actually shipped.';
+      : 'Highlight 1–3 projects with measurable impact, it’s how recruiters see what you’ve actually shipped.';
 
     return (
     <StepContent $dir={animDir} key="step-5">
@@ -1910,7 +1910,7 @@ const JobPreferencesWizard = () => {
         onConfirm={() => navigate('/register?role=candidate')}
         variant="info"
         title="Create a free account first"
-        message="AI Draft needs a signed-in account. Your progress here stays right where it is — sign up and pick up where you left off."
+        message="AI Draft needs a signed-in account. Your progress here stays right where it is, sign up and pick up where you left off."
         confirmText="Sign Up"
         cancelText="Maybe later"
       />

@@ -2269,7 +2269,7 @@ export default function ResumePreviewModal({
       <AddSectionBtn onClick={addEducation}>
         <AddIcon /> Add Education
       </AddSectionBtn>
-      {renderAIPrompt('education', 'e.g. Keep it concise — just degree, school, and year.')}
+      {renderAIPrompt('education', 'e.g. Keep it concise, just degree, school, and year.')}
     </EditSection>
 
     <EditSection>

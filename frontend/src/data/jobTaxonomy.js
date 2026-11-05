@@ -15,7 +15,7 @@
    a nurse, an electrician, a warehouse lead and a line cook that this was not
    built for them, so it covers the rest of the labour market now.
 
-   `primary` marks what shows before "More fields" is tapped — a first screen
+   `primary` marks what shows before "More fields" is tapped, a first screen
    that spans white and blue collar rather than one that reads as a software
    company's org chart. `aliases` are what people actually type: nobody
    describes themselves as being in "Skilled Trades & Construction", they say
@@ -390,7 +390,7 @@ export const CAREER_STAGES = [
    Resumes fail on vagueness, not on missing sections: "prototype UI
    experiences and demos as required by the company" is a real line from a
    real CV, and it tells a hiring manager nothing. The coach's resume review
-   already says so to anyone who uploads a file — this asks the same thing of
+   already says so to anyone who uploads a file, this asks the same thing of
    everyone else, once, while they are still thinking about the work.
 
    Each probe is written in its sector's own units, because "quantify your

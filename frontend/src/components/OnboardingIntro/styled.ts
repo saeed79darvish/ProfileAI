@@ -52,7 +52,7 @@ export const IntroCard = styled.div`
 
 /* Holds the slide content. The min-height is what stops the card from
    jolting taller and shorter as slides of different lengths swap through
-   it — the footer controls must not move under a finger mid-tap. */
+   it, the footer controls must not move under a finger mid-tap. */
 export const SlideStage = styled.div`
   min-height: 246px;
   display: flex;

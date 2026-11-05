@@ -232,7 +232,7 @@ const ProfileCreation = () => {
         onConfirm={() => navigate('/register?role=candidate')}
         variant="info"
         title="Create a free account first"
-        message="Importing directly from LinkedIn needs a signed-in account. It only takes a few seconds — or use the “Save to PDF” option above to import for free without signing up."
+        message="Importing directly from LinkedIn needs a signed-in account. It only takes a few seconds, or use the “Save to PDF” option above to import for free without signing up."
         confirmText="Sign Up"
         cancelText="Never mind"
       />

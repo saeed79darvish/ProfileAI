@@ -44,7 +44,7 @@ const PRESETS = {
     tips: [
       'We quantify achievements to make recruiters take notice',
       'Stronger action verbs and clearer impact, automatically',
-      'Your tone and facts stay yours — we just sharpen them',
+      'Your tone and facts stay yours, we just sharpen them',
     ],
   },
 
@@ -87,7 +87,7 @@ const PRESETS = {
       { label: 'Filling in your profile', subtitle: 'Mapping everything onto the form', icon: '✨' },
     ],
     tips: [
-      'Review the parsed fields before saving — you have the final say',
+      'Review the parsed fields before saving, you have the final say',
       'A clean, single-column resume parses most accurately',
       'Dates in "Month Year" format are the easiest to read',
     ],
@@ -136,7 +136,7 @@ const PRESETS = {
     tips: [
       'Posts that open with a specific detail outperform generic ones',
       'Shorter paragraphs are far easier to read in a feed',
-      'Your voice stays yours — we only sharpen the delivery',
+      'Your voice stays yours, we only sharpen the delivery',
     ],
   },
 
@@ -709,7 +709,7 @@ export default function ProgressModal({
         <DismissBtn
           onClick={handleDismiss}
           aria-label={isDone ? 'Close' : 'Hide and keep working'}
-          title={isDone ? 'Close' : 'Hide — this keeps running in the background'}
+          title={isDone ? 'Close' : 'Hide: this keeps running in the background'}
         >
           ×
         </DismissBtn>

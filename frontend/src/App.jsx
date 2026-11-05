@@ -330,7 +330,7 @@ function AppContent() {
               Anonymous visitors can browse and filter the job board (incl.
               deep links like /jobs?startup=true&locationType=onsite). Auth
               is only required for per-user features (Save, Apply, Match %,
-              "Applied" tab) — those are gated inside CandidateJobs via
+              "Applied" tab), those are gated inside CandidateJobs via
               `isAuthenticated` checks that bounce the user to /login on
               click. Previously this route was wrapped in PrivateRoute,
               which redirected anonymous + recruiter visitors away from

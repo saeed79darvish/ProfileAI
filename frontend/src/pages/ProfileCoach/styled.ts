@@ -61,7 +61,7 @@ export const Logo = styled.button`
 
 /* Always there, never buried.
    The talk-or-type choice is a chip in the transcript, which means it is
-   gone the moment it scrolls away or gets answered once — and someone who
+   gone the moment it scrolls away or gets answered once, and someone who
    changes their mind ten questions in has no way back to it. This is the
    standing door into voice, the way every other product keeps it in reach. */
 export const TalkButton = styled.button`
@@ -237,7 +237,7 @@ export const Bubble = styled.div`
 `;
 
 /* On a tapped answer, the bubble is a button. It stays a bubble — the same
-   indigo, the same shape — because dressing a transcript entry as a control
+   indigo, the same shape, because dressing a transcript entry as a control
    is what makes people afraid to touch it. The affordance appears on hover
    and on focus, and it is always announced to a screen reader. */
 export const EditHint = styled.span`
@@ -322,7 +322,7 @@ export const Chip = styled.button`
   }
 
   /* The confirm on a multi-select. It ends the question rather than
-     answering it, so it leads as a filled action — wearing the same
+     answering it, so it leads as a filled action, wearing the same
      selected-answer styling made it read as one more thing to pick. */
   ${({ $primary }) => $primary && css`
     border-color: #6366f1;
@@ -410,10 +410,10 @@ export const ComposerWrap = styled.div`
 
 /* The focus state lives on this box, not on the input inside it.
    index.css draws a 2px blue ring on any focused input for keyboard
-   accessibility, which here landed around just the text field — a second
+   accessibility, which here landed around just the text field, a second
    rectangle inside the composer, skipping the mic and send buttons. MUI
    inputs already have an exception there for the same reason.
-   So: the whole bar reacts instead, the way ChatGPT and Claude do it — the
+   So: the whole bar reacts instead, the way ChatGPT and Claude do it, the
    border simply deepens while you are typing. Keyboard users still get a
    real indicator, in the product's indigo rather than the browser's blue. */
 export const Composer = styled.form`
@@ -1402,7 +1402,7 @@ export const VoiceMark = styled.div`
 `;
 
 /* Voiceprint, status and caption as one block that stays optically centred in
-   whatever height is left between the header and the controls — which on a
+   whatever height is left between the header and the controls, which on a
    phone in landscape, or with a keyboard up, is not much. */
 export const VoiceStage = styled.div`
   display: flex;
@@ -1445,7 +1445,7 @@ export const VoiceCaption = styled.div`
 
 /* The bottom bar, which is the part of the reference worth copying.
    A tappable "keep typing" field where a composer would be, then mute, then
-   the way out — all inside thumb reach at the bottom of a phone. Leaving the
+   the way out, all inside thumb reach at the bottom of a phone. Leaving the
    call is not a punishment: the typed conversation is still there with
    everything the call learned already in it. */
 export const VoiceActions = styled.div`

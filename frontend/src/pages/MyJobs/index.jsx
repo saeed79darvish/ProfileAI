@@ -804,7 +804,7 @@ function AddApplicationDialog({ open, onClose, onSave }) {
               label="Job Type"
               onChange={(e) => setForm({ ...form, jobType: e.target.value })}
             >
-              <MenuItem value="">—</MenuItem>
+              <MenuItem value="">-</MenuItem>
               <MenuItem value="full-time">Full-time</MenuItem>
               <MenuItem value="part-time">Part-time</MenuItem>
               <MenuItem value="contract">Contract</MenuItem>
@@ -819,7 +819,7 @@ function AddApplicationDialog({ open, onClose, onSave }) {
             label="Work Style"
             onChange={(e) => setForm({ ...form, locationType: e.target.value })}
           >
-            <MenuItem value="">—</MenuItem>
+            <MenuItem value="">-</MenuItem>
             <MenuItem value="remote">Remote</MenuItem>
             <MenuItem value="hybrid">Hybrid</MenuItem>
             <MenuItem value="onsite">On-site</MenuItem>
@@ -944,7 +944,7 @@ function EditApplicationDialog({ open, app, onClose, onSave }) {
               label="Job Type"
               onChange={(e) => setForm({ ...form, jobType: e.target.value })}
             >
-              <MenuItem value="">—</MenuItem>
+              <MenuItem value="">-</MenuItem>
               <MenuItem value="full-time">Full-time</MenuItem>
               <MenuItem value="part-time">Part-time</MenuItem>
               <MenuItem value="contract">Contract</MenuItem>
@@ -958,7 +958,7 @@ function EditApplicationDialog({ open, app, onClose, onSave }) {
               label="Work Style"
               onChange={(e) => setForm({ ...form, locationType: e.target.value })}
             >
-              <MenuItem value="">—</MenuItem>
+              <MenuItem value="">-</MenuItem>
               <MenuItem value="remote">Remote</MenuItem>
               <MenuItem value="hybrid">Hybrid</MenuItem>
               <MenuItem value="onsite">On-site</MenuItem>

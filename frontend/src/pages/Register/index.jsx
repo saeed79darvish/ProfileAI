@@ -129,7 +129,7 @@ const Register = () => {
 
   /* Used by the "you are already signed in" effect below, not by a fresh
      registration. Someone who already has an account lands on the dashboard
-     whether or not they have finished a profile — it has a start screen for
+     whether or not they have finished a profile, it has a start screen for
      the empty case, and being force-marched into the coach on every visit is
      what made the app feel like it had no front door. A brand-new signup
      still goes straight to building, further down: that is what they just

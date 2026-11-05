@@ -25,13 +25,13 @@ const CAPABILITIES = [
     icon: '🎤',
     title: 'Run a mock interview off your real prep',
     body:
-      'This is the one worth connecting for. Claude pulls a role you already tailored for — its match score, the interview questions with why each is asked, your STAR examples, and your flagged skill gaps — then drills you on them out loud. Same prep you see in the app, now conversational.',
+      'This is the one worth connecting for. Claude pulls a role you already tailored for, its match score, the interview questions with why each is asked, your STAR examples, and your flagged skill gaps, then drills you on them out loud. Same prep you see in the app, now conversational.',
   },
   {
     icon: '📄',
     title: 'Reach your resumes and portfolio',
     body:
-      'List every tailored resume version with PDF/Word download links, or have Claude show your portfolio card — headline, top skills, projects, and links.',
+      'List every tailored resume version with PDF/Word download links, or have Claude show your portfolio card, headline, top skills, projects, and links.',
   },
   {
     icon: '🤝',
@@ -56,7 +56,7 @@ const PROMPT_GROUPS = [
     icon: '🎤',
     prompts: [
       'List my tailored resumes on ProfilleAI.',
-      'Prep me for my Frontend Engineer interview — run a mock interview and drill my skill gaps.',
+      'Prep me for my Frontend Engineer interview, run a mock interview and drill my skill gaps.',
       'Ask me the behavioral questions from that role one at a time and critique my answers.',
       'What gaps did ProfilleAI flag for that role, and how should I answer if they come up?',
     ],
@@ -128,7 +128,7 @@ export default function IntegrationsClaude() {
           <p style={S.lede}>
             Connect ProfilleAI as a custom connector and Claude can search jobs, prep you for
             interviews using your real skill gaps, show your portfolio, and pull your resume
-            downloads — all from your own account.
+            downloads, all from your own account.
           </p>
         </header>
 
@@ -167,7 +167,7 @@ export default function IntegrationsClaude() {
                   <code style={S.code}>{MCP_URL}</code>
                   <CopyButton text={MCP_URL} label="Copy URL" />
                 </div>
-                <div style={S.stepText}>Leave the OAuth fields blank — Claude registers automatically.</div>
+                <div style={S.stepText}>Leave the OAuth fields blank, Claude registers automatically.</div>
               </div>
             </li>
             <li style={S.step}>
@@ -219,8 +219,8 @@ export default function IntegrationsClaude() {
         </section>
 
         <footer style={S.footer}>
-          Each result links back into ProfilleAI — open a job to tailor your resume, or download a
-          version — so Claude becomes the front door to your job search.
+          Each result links back into ProfilleAI, open a job to tailor your resume, or download a
+          version, so Claude becomes the front door to your job search.
         </footer>
       </div>
     </div>

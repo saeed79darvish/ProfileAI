@@ -64,7 +64,7 @@ const LEAVING_TEXT = 'They just said goodbye. Do not ask anything else and do no
 
 /* How long to let silence run after somebody finishes speaking before
    deciding the model is not going to answer. Long enough that a slow turn is
-   not interrupted, short enough that nobody concludes the call is dead —
+   not interrupted, short enough that nobody concludes the call is dead -
    people start saying "hello? hello?" at about five seconds. */
 const SILENCE_NUDGE_MS = 5000;
 
@@ -120,7 +120,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
   const endedRef = useRef(false);
   /* Whether the person has actually said anything yet. The model asking to
      hang up before it has heard a single word means it is reacting to its
-     own voice or to room noise, not to a finished conversation — and the
+     own voice or to room noise, not to a finished conversation, and the
      person is left holding a call that thanked them for their time. */
   const heardThemRef = useRef(false);
   // Mirrors `speaking` for the hangup poll, which runs outside React's render.
@@ -129,7 +129,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
   /* Watchdog state. The missing response.create after a tool call is fixed at
      the source, but "the call froze and I had no idea why" is bad enough that
      it is worth a second line of defence: anything else that leaves a turn
-     unanswered — a response that errors server-side, a dropped event — looks
+     unanswered, a response that errors server-side, a dropped event, looks
      identical to the person sitting there talking to nobody. */
   const responseInFlightRef = useRef(false);
   const nudgeTimerRef = useRef(null);
@@ -394,7 +394,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
 
     switch (event.type) {
       /* Watchdog bookkeeping. A turn is "answered" from the moment a
-         response is created, not from when audio starts — a model that is
+         response is created, not from when audio starts, a model that is
          thinking has not stalled. */
       case 'response.created':
         responseInFlightRef.current = true;
@@ -520,7 +520,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
            Both halves are required and the second one is easy to miss: the
            API does not resume on its own after a tool result, it waits to be
            asked. Without it Remi said "let me get that down", called the
-           tool, and went silent for the rest of the call — which is exactly
+           tool, and went silent for the rest of the call, which is exactly
            what it did, and it looked like the call had frozen. */
         try {
           channelRef.current?.send(JSON.stringify({
@@ -541,7 +541,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
 
         /* Leaving: wait for the goodbye to actually finish rather than
            counting off a fixed delay. A sentence takes as long as it takes,
-           and the old 1.2 seconds cut it off — which read as the call
+           and the old 1.2 seconds cut it off, which read as the call
            dropping rather than ending. */
         if (hangUp) hangUpWhenQuiet();
         break;
@@ -598,7 +598,7 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
       /* These three are the difference between a call and a feedback loop.
          Without echoCancellation the microphone hears Remi through the
          speakers, the transcriber faithfully writes it down, and the model
-         answers itself — which is exactly what it did: talking to nobody and
+         answers itself, which is exactly what it did: talking to nobody and
          then thanking the person for their time. `audio: true` asks for none
          of this; every one of them has to be named. */
       const mic = await navigator.mediaDevices.getUserMedia({

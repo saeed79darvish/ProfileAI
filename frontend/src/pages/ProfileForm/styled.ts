@@ -218,7 +218,7 @@ export const AIButton = styled.button`
 
   @media (max-width: 768px) {
     /* Default mobile sizing for buttons that keep their label (e.g. Save).
-       Conditional blocks below intentionally override these — order matters:
+       Conditional blocks below intentionally override these, order matters:
        previously $mobileHide set \`font-size: 0\` to hide labels, but a later
        unconditional \`font-size: 13px\` re-enabled them, causing labels to
        overflow the 36px icon-only circles and overlap each other. */

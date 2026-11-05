@@ -25,7 +25,7 @@ export const ROUTES = {
 export const LOCALSTORAGE_KEY = 'profileai_coach_conversation' as const;
 
 /* The ladder, the chip sets and every pure transform live in ./coachLogic.js
-   — plain JS so `node --test` can exercise them. Re-exported here so the page
+  , plain JS so `node --test` can exercise them. Re-exported here so the page
    imports its vocabulary from one place. */
 export {
   LADDER,

@@ -693,12 +693,12 @@ const Dashboard = () => {
        here, before loadProfile had even answered. That is what made the app
        feel like it had no front door: every single visit landed you
        mid-conversation with the coach. The dashboard now has a start screen
-       for exactly this case — see the needsProfile branch in the render —
+       for exactly this case, see the needsProfile branch in the render -
        so there is somewhere to be instead. */
   }, [user, navigate, isValidating]);
 
   /* The same thing by another route: settled, signed in, nothing loaded.
-     It no longer bounces — it shows the start screen, which is what this
+     It no longer bounces, it shows the start screen, which is what this
      state actually means. Kept as an effect rather than deleted because
      `needsProfile` is only set by a confirmed 404, and a profile that comes
      back empty for any other reason would otherwise render nothing at all. */
@@ -754,7 +754,7 @@ const Dashboard = () => {
       });
       if (err.response?.status === 404) {
         /* No profile yet. This used to navigate straight into the coach,
-           which meant the app had no front door — opening it dropped you
+           which meant the app had no front door, opening it dropped you
            mid-conversation every time, with no way to see what else was
            here or that you had a half-finished draft waiting. Show the
            dashboard's own starting screen instead and let them choose. */
@@ -1438,7 +1438,7 @@ const Dashboard = () => {
                 </Box>
                 <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 14.5, lineHeight: 1.55 }}>
                   Autofill applications, draft AI answers to screening questions, and tailor your
-                  resume on LinkedIn, Greenhouse, Workday, and any career page — without leaving the
+                  resume on LinkedIn, Greenhouse, Workday, and any career page, without leaving the
                   job posting.
                 </Typography>
               </Box>
@@ -1492,7 +1492,7 @@ const Dashboard = () => {
             dismissable one-line note instead of the promo. */}
         {isMobile && !extPromoDismissed && (
           <MobileExtensionNote>
-            <p><strong>Chrome extension</strong> — open ProfilleAI on desktop to autofill applications.</p>
+            <p><strong>Chrome extension</strong>, open ProfilleAI on desktop to autofill applications.</p>
             <button type="button" aria-label="Dismiss" onClick={dismissExtPromo}>
               <CloseIcon />
             </button>

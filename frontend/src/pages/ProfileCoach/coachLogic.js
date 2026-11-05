@@ -52,11 +52,11 @@ export const LIMITS = {
    Department" asked them to translate their own career into a software
    company's org chart, and the honest answer was none of the above.
 
-   Ids stay canonical across every sector — only the labels change — so a
+   Ids stay canonical across every sector, only the labels change, so a
    stored draft keeps meaning the same thing, and buildTitle() below can
    reason about rank without knowing the sector. `prefix`/`suffix` are how a
    rung joins the job title: "Senior Nurse", "Master Electrician",
-   "Product Manager (Manager)" — and a rung with neither is one that does not
+   "Product Manager (Manager)", and a rung with neither is one that does not
    belong in a headline. */
 
 const L = (id, label, extra = {}) => ({ id, label, ...extra });
@@ -74,7 +74,7 @@ const DEFAULT_LEVELS = [
 
 /* Tech and its neighbours are the sectors where the senior individual
    contributor track is a real, named ladder rather than a consolation for
-   not managing — Staff and Principal sit above Senior and beside Manager,
+   not managing, Staff and Principal sit above Senior and beside Manager,
    not below it. Offering them matters: a Staff Engineer who has to answer
    "Senior" or "Manager" is misfiled either way. */
 const IC_TRACK_LEVELS = [
@@ -283,8 +283,8 @@ export const WORK_STYLES = [
 /* ─── Questions in the terms of their own trade ─────────────────
 
    "Remote, hybrid, or on-site?" asked of an electrician offers them a job
-   that does not exist. Where the work happens at a place — a site, a
-   kitchen, a factory floor, a ward, a classroom — the real question is how
+   that does not exist. Where the work happens at a place, a site, a
+   kitchen, a factory floor, a ward, a classroom, the real question is how
    far they will go for it, and the options say so.
 
    The ids stay the four the rest of the app understands (coachMarket counts
@@ -491,7 +491,7 @@ export const fieldFromText = (text) => {
    Chips because most people recognise their reason faster than they can
    phrase it, free text because the real answer is often none of these. Both
    are stored verbatim and spent inside the assessment call that already runs
-   — the understanding costs no extra model call, only a better prompt. */
+  , the understanding costs no extra model call, only a better prompt. */
 
 export const TARGET_MOTIVES = [
   { id: 'scope', label: 'Bigger scope or impact' },
@@ -534,7 +534,7 @@ export const SECOND_IMPORT_CHOICES = [
 export const IMPORT_OFFER_LIMIT = 2;
 
 /* The same three, offered again after a file was refused. Same ids, so the
-   answer handling does not care which row a chip came from — only the first
+   answer handling does not care which row a chip came from, only the first
    label changes, because "upload my resume" is odd advice to someone who just
    did exactly that. */
 export const RETRY_IMPORT_CHOICES = [
@@ -545,8 +545,8 @@ export const RETRY_IMPORT_CHOICES = [
 
 /* Where the talk-or-type invitation belongs.
    Everything before this step is facts a button answers faster and more
-   accurately than speech. Everything from here is why — what they want, what
-   is in the way — which is the part nobody writes well in a text box. */
+   accurately than speech. Everything from here is why, what they want, what
+   is in the way, which is the part nobody writes well in a text box. */
 /* Moved up to the recent-role question: describing a job and what you did
    there is the first answer that is easier said than typed. The facts
    speech gets wrong (names, dates) are checked on one card after the call. */
@@ -554,7 +554,7 @@ export const VOICE_OFFER_STEP = 'currentRole';
 
 /* What the call is actually for.
    Not the same list as missingFields. That one is the written checklist and
-   includes things a call should never spend a minute on — a location, a
+   includes things a call should never spend a minute on, a location, a
    school name. This is the subset a conversation is better at, plus whatever
    the typed flow genuinely did not get. Order matters: the model works down
    it, so the two "why" questions come first. */
@@ -635,7 +635,7 @@ export const ASKED_IMPORT_CHOICES = [
 
 /* Offered when a call hands back to the screen. "Try another file" would be
    nonsense to someone who has not touched a file yet, and the third option
-   has to say the conversation continues rather than ends — they just spent
+   has to say the conversation continues rather than ends, they just spent
    five minutes talking and are owed the rest of it. */
 export const POST_CALL_IMPORT_CHOICES = [
   { id: 'resume', label: 'Upload my resume' },
@@ -670,7 +670,7 @@ export const hintText = (step, draft = {}) =>
                'multi'  pick several, then confirm
                'text'   free text only (no chips offered)
                'branch' a chip choice that changes the route, not the draft
-     chipSet   name resolved by getChips() below — dynamic sets (titles,
+     chipSet   name resolved by getChips() below, dynamic sets (titles,
                skills) depend on the sector picked earlier
      freeText  whether typing is accepted here at all
      aiStep    stepId for /coach/interpret; null means free text is taken
@@ -1163,7 +1163,7 @@ export const emptyDraft = () => ({
 /* ─── Surviving a reload ──────────────────────────────────────
 
    Seventeen questions is a long way to walk, and a refresh, a back-swipe on
-   a phone or a dropped connection took all of it — with nothing on the
+   a phone or a dropped connection took all of it, with nothing on the
    server to fall back on for a signed-out visitor, which is most of them.
    The key was declared in constants.ts from the start and never used.
 
@@ -1292,7 +1292,7 @@ const MANAGING_LEVELS = new Set(['lead', 'manager', 'director', 'head', 'owner']
    chat box. "staff data analysis" is the right answer badly dressed, and
    shouting it back as the headline is the profile's first impression.
 
-   Casing only. Fixing the words — "analysis" is not the job, "Analyst" is —
+   Casing only. Fixing the words, "analysis" is not the job, "Analyst" is -
    means guessing at what someone meant about their own career, and being
    wrong about that is worse than being scruffy. Acronyms people actually use
    keep their capitals, because "Qa Engineer" and "Ui Designer" read as
@@ -1316,7 +1316,7 @@ const TITLE_MINOR = new Set(['of', 'at', 'in', 'on', 'and', 'the', 'for', 'to', 
 
 /* Links arrive as whatever someone pastes: three URLs on one line, with or
    without https://, sometimes with a trailing comma. Which field each one
-   belongs in is written on the domain, so this needs no model — and anything
+   belongs in is written on the domain, so this needs no model, and anything
    we cannot place is kept as the portfolio rather than dropped, because a
    link someone bothered to paste is never noise. */
 export const parseLinks = (text) => {
@@ -1392,8 +1392,8 @@ export const titleChips = (sector, level) => {
    Next means one of three real things, in the order people actually weigh
    them: the next rung on the track they are already on, the management
    branch, and only then a lateral move into a neighbouring role. The last of
-   those is a genuine answer — plenty of people do want the same rank in a
-   different specialism — it is just nobody's first thought. */
+   those is a genuine answer, plenty of people do want the same rank in a
+   different specialism, it is just nobody's first thought. */
 
 export const targetChips = (draft = {}) => {
   const { sector, level, title } = draft;
@@ -1534,7 +1534,7 @@ export const getChips = (step, draft = {}) => {
  * @returns {{sector: string, title?: string}|null}
  */
 /* Whole words only.
-   The alias lists contain short, legitimate ones — "pr", "it", "hr", "ae" —
+   The alias lists contain short, legitimate ones, "pr", "it", "hr", "ae" -
    and a plain substring test finds "pr" inside "profileai", which is how
    "how profileai helps me" came back as Media, Writing & PR and started
    building someone a journalism profile. */
@@ -1662,7 +1662,7 @@ export const parseSkillList = (text) => {
 
    So before any step sees the text: is this an answer at all? Greetings and
    questions are cheap and unambiguous to spot, and being wrong is not
-   symmetrical — treating a real answer as chatter costs one extra exchange,
+   symmetrical, treating a real answer as chatter costs one extra exchange,
    while treating chatter as an answer silently corrupts the profile. */
 
 const GREETINGS = /^(hi|hey|hello|yo|hiya|sup|howdy|good (morning|afternoon|evening)|salam|salaam|bonjour|hola)( there| again| all| everyone)?[\s!.,]*$/i;
@@ -1671,14 +1671,14 @@ const GREETINGS = /^(hi|hey|hello|yo|hiya|sup|howdy|good (morning|afternoon|even
 const QUESTION_OPENERS = /^(what|why|how|who|where|when|which|can you|can i|could you|do you|does it|did you|is this|is it|are you|are we|will you|would you|should i|tell me about you|explain)\b/i;
 
 /* The same thing, anywhere in the sentence. People do not open with the
-   question — they open with manners. "Hey I hope you're doing great so I have
+   question, they open with manners. "Hey I hope you're doing great so I have
    a question about the portfolio, what does the portfolio do for me" was read
    as an answer and filed, because every pattern here was anchored to the
    start of the string. Politeness should not cost someone an answer. */
 const QUESTION_ANYWHERE = /\b(i have a question|i've got a question|quick question|can you tell me|tell me more about|what (is|are|does|do|can|happens|kind of)|how (do|does|did|can|long|much|many)|why (do|does|is|are|would)|do i need|do you (have|offer|support)|is there|are there|what if)\b/i;
 
 /* Things people say to a chat box that are about the conversation rather
-   than in it. Every one of these was being stored as the answer — typed at
+   than in it. Every one of these was being stored as the answer, typed at
    the job-title question, "I'm not sure what to put here" became someone's
    headline. A regex will never catch all of it, but it can catch the dozen
    phrases that make up most of it. */
@@ -1693,11 +1693,11 @@ const UNSURE = /\b(not sure|don'?t know|do not know|no idea|dunno|unsure|not cer
 const ABOUT_THE_CHAT = /\b(already told you|you (just )?asked|asked (me )?that|not what i meant|tell me more|what do you mean|repeat that|go back|start over)\b/i;
 
 /* Bare acknowledgements. Not answers to anything, and as a job title they are
-   absurd — "Ok" is nobody's headline. */
+   absurd, "Ok" is nobody's headline. */
 const ACK = /^(ok|okay|k|yes|yeah|yep|yup|no|nope|sure|fine|right|thanks|thank you|cool|got it|alright)\b[\s!.,]*$/i;
 
 /* Asking whether they may ask. The coach answers "Of course, go ahead." and
-   then has to actually wait — which cannot be inferred from the reply, since
+   then has to actually wait, which cannot be inferred from the reply, since
    that sentence has no question mark in it. Read it off the question instead:
    deterministic, and true regardless of how the model phrases the yes. */
 const PERMISSION = /^(can|could|may) i ask\b|\bquick question first\b|\bone question first\b|\bbefore we (start|continue|go on)\b.*\?$/i;
@@ -1721,7 +1721,7 @@ export const readsAsAnswer = (text, step, draft = {}) => {
   if (PERMISSION.test(typed)) return 'permission';
   if (META.test(typed) || UNSURE.test(typed) || ABOUT_THE_CHAT.test(typed) || HELP.test(typed)) return 'question';
   /* "Ok" is not an answer to anything, but it is not worth a model call
-     either — there is nothing in it to respond to. Its own intent, handled
+     either, there is nothing in it to respond to. Its own intent, handled
      locally and free. A greeting is different: someone saying hello to a
      coach deserves a coach saying hello back, and at roughly a tenth of a
      cent that is the cheapest warmth in the product. */
@@ -1782,13 +1782,13 @@ export const needsAI = (step, text, draft = {}) => {
 /* ─── Changing your mind ──────────────────────────────────────
 
    The transcript is append-only, so a mis-tapped sector poisoned every
-   question after it — titles, skills, the target ladder — with no way back
+   question after it, titles, skills, the target ladder, with no way back
    short of abandoning the conversation. Chat interfaces get away with that
    when the stakes are a reply; here the stakes are the profile.
 
    Only chip answers can be rewound. A step that writes prose through the
    model puts it into experience rows and skill lists, and untangling which
-   row came from which sentence is guesswork — those stay editable where
+   row came from which sentence is guesswork, those stay editable where
    they were always editable, in the editor at the end. */
 
 export const canRewind = (step) => !!(step && step.assign && step.chipSet);
@@ -2230,7 +2230,7 @@ export const applyToDraft = (draft, patch = {}) => ({ ...draft, ...patch });
 /* ─── One paragraph, many fields ──────────────────────────────
 
    The counterpart to the `braindump` schema on the server. Everything a
-   person said in one go, spread across the draft — and a flag saying the
+   person said in one go, spread across the draft, and a flag saying the
    conversation should now skip whatever it covered, the same way it skips
    after a resume import.
 
@@ -2297,7 +2297,7 @@ const mergeRole = (row, fields, bullets) => {
 };
 
 /* A place is not a job title. "seattle, wa" cased as a title came out
-   "Seattle, Wa" — the state code is an abbreviation, and so is "uk". */
+   "Seattle, Wa", the state code is an abbreviation, and so is "uk". */
 const PLACE_CODES = new Set(['uk', 'usa', 'us', 'uae', 'nyc', 'eu', 'dc']);
 export const normalizePlace = (text) => String(text || '').trim().replace(/\s+/g, ' ')
   .split(/\s*,\s*/)

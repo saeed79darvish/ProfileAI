@@ -605,7 +605,7 @@ const ProfileForm = () => {
       setInitialLoading(false);
       setInitialFormLoaded(true);
       setHasResumeData(false);
-      setSuccess('Welcome back! We saved the profile you built — review it and click Save to publish.');
+      setSuccess('Welcome back! We saved the profile you built, review it and click Save to publish.');
     } else if (location.state && location.state.resumeData) {
       const data = location.state.resumeData;
       console.log('Loading resume data:', data);
@@ -1356,7 +1356,7 @@ const ProfileForm = () => {
         if (name.startsWith('projects.')) {
           const [, idx, field] = name.split('.');
           const human = PROJECT_URL_LABELS[field] || field;
-          return { name, label: `Project ${parseInt(idx, 10) + 1} — ${human}`, message: msg };
+          return { name, label: `Project ${parseInt(idx, 10) + 1}, ${human}`, message: msg };
         }
         return { name, label: labels[name] || name, message: msg };
       });
@@ -2071,7 +2071,7 @@ const ProfileForm = () => {
         title={guestPromptReason === 'save' ? 'Your profile is ready to save' : 'Create a free account first'}
         message={
           guestPromptReason === 'save'
-            ? "Nice work — that's a solid profile. Create a free account to save it. Until then your draft is kept in this browser, so it stays put unless you clear your browser data or switch devices."
+            ? "Nice work, that's a solid profile. Create a free account to save it. Until then your draft is kept in this browser, so it stays put unless you clear your browser data or switch devices."
             : 'AI tools (enhancement, tailoring, suggestions) need a signed-in account. Your draft is kept in this browser until you sign up, so you can pick up where you left off.'
         }
         confirmText="Sign Up"
@@ -2998,7 +2998,7 @@ const ProfileForm = () => {
                   helperText={
                     (formData.summary?.length || 0) < 10
                       ? 'Write a few words first, then AI will rewrite with sharper verbs and tone.'
-                      : 'Polish tone, verbs and metrics — AI keeps your facts.'
+                      : 'Polish tone, verbs and metrics, AI keeps your facts.'
                   }
                   onClick={() => handleEnhanceField('summary', 'summary', formData.summary, {}, (enhanced) => setFormData(prev => ({ ...prev, summary: enhanced })), 'professional summary')}
                 />
@@ -3242,7 +3242,7 @@ const ProfileForm = () => {
                 <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 420 }}>
                   {isFirstBuild
                     ? 'Experience is what recruiters read first. Add your most recent role, or pull everything in from your resume.'
-                    : 'Experience is the foundation of every AI feature — Enhance, Tailor and Tips all need at least one role to give you great results.'}
+                    : 'Experience is the foundation of every AI feature, Enhance, Tailor and Tips all need at least one role to give you great results.'}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
                   <Button
@@ -3453,7 +3453,7 @@ const ProfileForm = () => {
                       disabled={(exp.description?.length || 0) < 10}
                       helperText={
                         (exp.description?.length || 0) < 10
-                          ? 'Draft a sentence or two — AI will turn it into impact-driven bullets.'
+                          ? 'Draft a sentence or two, AI will turn it into impact-driven bullets.'
                           : 'Rewrite as STAR-style bullets with stronger verbs and metrics.'
                       }
                       onClick={() => handleEnhanceField(`exp-${index}`, 'experience', exp.description, { company: exp.company, title: exp.title, period: formatDateRange(exp.startDate, exp.endDate) || exp.period }, (enhanced) => handleExperienceChange(index, 'description', enhanced), `${exp.title || 'experience'} description`)}
@@ -3695,7 +3695,7 @@ const ProfileForm = () => {
                       disabled={(project.description?.length || 0) < 10}
                       helperText={
                         (project.description?.length || 0) < 10
-                          ? 'Add a quick description — AI will sharpen scope, role and outcomes.'
+                          ? 'Add a quick description, AI will sharpen scope, role and outcomes.'
                           : 'Tighten copy and highlight the technical impact.'
                       }
                       onClick={() => handleEnhanceField(`proj-${index}`, 'project', project.description, { title: project.title, role: project.role, technologies: project.technologies }, (enhanced) => handleProjectChange(index, 'description', enhanced), `${project.title || 'project'} description`)}

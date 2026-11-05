@@ -35,7 +35,7 @@ export const AI_TIPS = [
   'Candidates who specify role type get 40% more relevant matches.',
   'Adding at least 5 skills doubles your profile visibility.',
   'Even one role with metrics beats five vague entries.',
-  'Education matters — even bootcamps and online courses count.',
+  'Education matters, even bootcamps and online courses count.',
   "No work history yet? Side projects are how new grads stand out.",
   'Complete profiles get 5x more recruiter views!',
 ] as const;

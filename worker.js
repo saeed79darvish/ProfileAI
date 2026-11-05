@@ -21,37 +21,37 @@ const BOT_UA_RE = /(googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou
 // Per-route SEO overrides. Add an entry per indexable public route.
 const ROUTE_META = {
   '/': {
-    title: 'ProfilleAI — AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring',
+    title: 'ProfilleAI | AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring',
     description:
       'ProfilleAI is an AI copilot for your whole job search. Talk to an AI career coach to build your profile, get matched to live jobs, steer clear of ghost postings, and tailor your resume and cover letter to each role.',
   },
   '/pricing': {
-    title: 'Pricing — Free, Pro & Pro+ Plans | ProfilleAI',
+    title: 'Pricing: Free, Pro & Pro+ Plans | ProfilleAI',
     description:
       'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, more AI cover letters, and more live voice coach time.',
   },
   '/extension': {
-    title: 'ProfilleAI Chrome Extension — Apply to Any Job, Anywhere',
+    title: 'ProfilleAI Chrome Extension: Apply to Any Job, Anywhere',
     description:
       'The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page.',
   },
   '/jobs': {
-    title: 'Browse Jobs — Curated Roles with AI Matching | ProfilleAI',
+    title: 'Browse Jobs: Curated Roles with AI Matching | ProfilleAI',
     description:
       'Browse jobs curated for your profile. ProfilleAI ranks every role by fit, flags likely ghost jobs, and surfaces AI-suggested resume edits before you apply.',
   },
   '/browse-profiles': {
-    title: 'Browse Candidate Profiles — AI Recruiter Matching | ProfilleAI',
+    title: 'Browse Candidate Profiles: AI Recruiter Matching | ProfilleAI',
     description:
       'Recruiters: discover vetted candidates with AI-ranked matches, resume keyword highlights, and one-click outreach. Candidates: get found by hiring teams.',
   },
   '/feed': {
-    title: 'Career Feed — Community, Polls & Achievements | ProfilleAI',
+    title: 'Career Feed: Community, Polls & Achievements | ProfilleAI',
     description:
       'The ProfilleAI career feed: real wins, polls, and conversations from candidates, recruiters, and founders shaping the future of hiring.',
   },
   '/blog': {
-    title: 'Blog — AI Career, Resume & Negotiation Insights | ProfilleAI',
+    title: 'Blog: AI Career, Resume & Negotiation Insights | ProfilleAI',
     description:
       'Guides on AI resume tailoring, applying to jobs faster, salary negotiation, and how candidates and recruiters win with AI.',
   },

@@ -1054,7 +1054,7 @@ const ReviewPage = () => {
       if (status === 'approved') {
         const autoSubmit = res?.data?.autoSubmit ?? res?.autoSubmit;
         if (autoSubmit) {
-          toast?.success?.('Approved — queued for auto-submit.');
+          toast?.success?.('Approved, queued for auto-submit.');
         } else {
           toast?.success?.('Approved. Click “Apply on company site” to submit when ready.');
         }

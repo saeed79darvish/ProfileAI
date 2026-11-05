@@ -61,7 +61,7 @@ export default function MobileApplyRecommendation({
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(jobUrl);
-      toast.success('Link copied — paste it into a browser on your computer');
+      toast.success('Link copied, paste it into a browser on your computer');
     } catch {
       toast.error('Could not copy the link');
     }
@@ -102,7 +102,7 @@ export default function MobileApplyRecommendation({
           <LaptopIcon sx={{ color: '#fff', fontSize: 18 }} />
         </Box>
         <Typography sx={{ flex: 1, fontSize: 13.5, fontWeight: 500, color: COLORS.TEXT_PRIMARY }}>
-          This application is faster on desktop — ProfileAI's Chrome extension can autofill it for you.
+          This application is faster on desktop, ProfileAI's Chrome extension can autofill it for you.
         </Typography>
         <Button
           size="small"
@@ -148,7 +148,7 @@ export default function MobileApplyRecommendation({
         Apply faster with the ProfileAI extension
       </Typography>
       <Typography sx={{ fontSize: 14.5, color: COLORS.TEXT_SECONDARY, mb: 3.5, maxWidth: 460, mx: 'auto' }}>
-        This application has questions ProfileAI can answer for you automatically —
+        This application has questions ProfileAI can answer for you automatically -
         but that only works in a desktop browser with the extension installed.
       </Typography>
 

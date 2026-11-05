@@ -24,7 +24,7 @@ const LandingPage = () => {
   }, [cfg, canFetchConfig]);
 
   const primaryLabel = !isAuthenticated
-    ? 'Get started — it\u2019s free'
+    ? 'Get started, it\u2019s free'
     : isSetUp
       ? 'Go to Dashboard'
       : 'Set up my pilot';
@@ -51,7 +51,7 @@ const LandingPage = () => {
   return (
     <Page>
       <SEO
-        title="ApplyPilot — AI Job Auto-Apply Chrome Extension"
+        title="ApplyPilot: AI Job Auto-Apply Chrome Extension"
         description="ApplyPilot is the ProfilleAI Chrome extension that auto-applies to 99% of jobs on LinkedIn, Indeed, Greenhouse, Lever and Workday. You just review and approve."
         path="/apply-pilot"
         keywords="job auto apply, ApplyPilot, AI job application bot, auto apply LinkedIn, auto apply Indeed, Greenhouse autofill, Workday autofill, AI cover letter generator"
@@ -267,7 +267,7 @@ const LandingPage = () => {
             <HowTitle>You review &amp; approve</HowTitle>
             <HowDesc>
               Every application waits in your inbox. Approve to submit, tweak the draft,
-              or skip — nothing goes out without your nod.
+              or skip, nothing goes out without your nod.
             </HowDesc>
           </HowCard>
         </HowGrid>

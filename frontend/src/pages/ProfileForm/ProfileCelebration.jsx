@@ -409,16 +409,16 @@ const ProfileCelebration = ({
     const text = `🚀 Join me on ProfilleAI!\n\nAI-powered career growth:\n✨ Profile enhancement\n🎯 Smart job matching\n💼 Interview prep\n\nSign up free: ${inviteLink}`;
     try {
       await navigator.clipboard.writeText(text);
-      notify('Invite copied — paste it anywhere!');
+      notify('Invite copied, paste it anywhere!');
       referralAPI.share('direct').catch(() => {});
     } catch { notify('Could not copy invite', 'error'); }
   };
 
   const openShare = (platform) => {
     const msg = {
-      twitter: `🚀 Just built my AI-powered profile on ProfilleAI — smart job matching, profile enhancement & interview prep. Join free 👇`,
-      linkedin: `I just set up my profile on ProfilleAI — AI-enhanced profiles, smart job matching, and interview prep. Worth a look:`,
-      whatsapp: `Hey! 👋 Check out ProfilleAI — AI builds your profile, matches you with jobs, and preps you for interviews. Join free: ${inviteLink}`,
+      twitter: `🚀 Just built my AI-powered profile on ProfilleAI, smart job matching, profile enhancement & interview prep. Join free 👇`,
+      linkedin: `I just set up my profile on ProfilleAI, AI-enhanced profiles, smart job matching, and interview prep. Worth a look:`,
+      whatsapp: `Hey! 👋 Check out ProfilleAI, AI builds your profile, matches you with jobs, and preps you for interviews. Join free: ${inviteLink}`,
     };
     const urls = {
       twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(msg.twitter)}&url=${encodeURIComponent(inviteLink)}`,

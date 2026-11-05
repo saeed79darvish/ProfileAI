@@ -40,7 +40,7 @@ const useAICredits = (featureType = 'profile_enhance') => {
     used: 0,
     limit: -1,
     isUnlimited: false,
-    period: 'week', // 'week' | 'month' — which cap is binding
+    period: 'week', // 'week' | 'month', which cap is binding
     loading: true,
     error: null,
   });
@@ -104,7 +104,7 @@ const useAICredits = (featureType = 'profile_enhance') => {
         used,
         limit,
         isUnlimited,
-        period: binding, // 'week' | 'month' — which cap is binding
+        period: binding, // 'week' | 'month', which cap is binding
         loading: false,
         error: null,
       });

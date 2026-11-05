@@ -37,7 +37,7 @@ export default function SEO({
 }) {
   const fullTitle = title
     ? title.includes(SITE_NAME) ? title : `${title}${TITLE_SUFFIX}`
-    : 'ProfilleAI — AI Resume Tailoring, Auto-Apply & Negotiation Coach';
+    : 'ProfilleAI, AI Resume Tailoring, Auto-Apply & Negotiation Coach';
 
   const url = absoluteUrl(path || (typeof window !== 'undefined' ? window.location.pathname : '/'));
   const img = image ? absoluteUrl(image) : DEFAULT_IMAGE;

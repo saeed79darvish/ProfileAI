@@ -58,14 +58,14 @@ const PATH_CARDS = [
     icon: SchoolIcon,
     accent: '#f59e0b',
     title: 'Internships & apprenticeships',
-    blurb: 'Often the fastest way to convert into a full role — many companies hire 30–60% of their interns full-time. Even a short internship counts.',
+    blurb: 'Often the fastest way to convert into a full role, many companies hire 30–60% of their interns full-time. Even a short internship counts.',
   },
   {
     id: 'ship',
     icon: PublicIcon,
     accent: '#16a34a',
     title: 'Ship a side project',
-    blurb: 'A side project used by real people beats a perfect résumé. Pick something small, finish it, share it — recruiters always ask about it.',
+    blurb: 'A side project used by real people beats a perfect résumé. Pick something small, finish it, share it, recruiters always ask about it.',
   },
 ];
 
@@ -181,7 +181,7 @@ const NoExperienceBoostModal = ({ open, onClose, careerStage, onOpenProjectIdeas
           </Typography>
         </Box>
         <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.2, mb: 0.5 }}>
-          5 ways to gain real experience — fast
+          5 ways to gain real experience, fast
         </Typography>
         <Typography variant="body2" sx={{ opacity: 0.92, fontSize: 13.5 }}>
           These are the highest-leverage paths we recommend to {audienceLabel}. Each one gives you a real role you can add to your profile and quote in interviews.

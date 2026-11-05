@@ -749,7 +749,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
         <NoProfileTitle>Unlock AI tools for this job</NoProfileTitle>
         <NoProfileSubtitle>
           Add your profile once and ProfilleAI tailors everything to your
-          experience — no copy-pasting your resume each time.
+          experience, no copy-pasting your resume each time.
         </NoProfileSubtitle>
         <NoProfileToolList>
           <NoProfileToolItem>
@@ -844,7 +844,7 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px', marginBottom: 16, background: '#F9FAFB', borderRadius: 12, border: '1px solid #EAECF0' }}>
                 <div style={{ fontSize: 28, fontWeight: 800, color: tier.color, flexShrink: 0 }}>{Math.round(aiMatch.score)}%</div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: tier.color }}>{tier.label} — {tier.advice}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: tier.color }}>{tier.label}, {tier.advice}</div>
                   {aiMatch.verdict && <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5, marginTop: 2 }}>{aiMatch.verdict}</div>}
                 </div>
               </div>

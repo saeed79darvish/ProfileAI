@@ -356,7 +356,7 @@ const Pricing = () => {
   return (
     <PageContainer>
       <SEO
-        title="Pricing — Free, Pro & Pro+ Plans"
+        title="Pricing: Free, Pro & Pro+ Plans"
         description="Simple, transparent pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching."
         path="/pricing"
         keywords="ProfilleAI pricing, AI resume builder cost, AI cover letter pricing, AI career copilot subscription"
@@ -439,7 +439,7 @@ const Pricing = () => {
               </BilledText>
 
               {/* Hide the CTA on the Free card for users who are already on
-                  the free plan — they're already using it. Logged-out
+                  the free plan, they're already using it. Logged-out
                   visitors still see "Get Started Free" as a register CTA. */}
               {!(plan.type === 'free' && user) && (
                 <PlanButton

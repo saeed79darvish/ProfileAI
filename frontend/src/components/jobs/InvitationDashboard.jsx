@@ -439,7 +439,7 @@ const InvitationDashboard = ({ isOpen, onClose, importId, jobTitle }) => {
             <Title>
               <Mail size={24} />
               Invitation Tracking
-              {jobTitle && <span style={{ fontWeight: 400, color: '#64748b' }}>— {jobTitle}</span>}
+              {jobTitle && <span style={{ fontWeight: 400, color: '#64748b' }}>- {jobTitle}</span>}
             </Title>
             <CloseButton onClick={onClose}>
               <X size={20} />

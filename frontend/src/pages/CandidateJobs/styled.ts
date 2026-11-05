@@ -206,7 +206,7 @@ export const FilterButtonsRow = styled.div`
 
   @media (max-width: 768px) {
     /* Tighter chip padding + smaller gap on mobile so 4-5 chips fit per
-       row instead of 2-3 — cuts the filter strip from 3 rows down to
+       row instead of 2-3, cuts the filter strip from 3 rows down to
        2 on most viewports. Dropdown content is portaled outside the row
        so it isn't clipped. */
     gap: 6px;

@@ -184,8 +184,8 @@ const Divider = styled.div.attrs({ 'aria-hidden': 'true' })`
 
 /* Mobile-only quick-action strip on the top row.
    Priorities on mobile (per real-estate order of importance):
-     1. Upgrade pill  — clearest revenue path for free users
-     2. Profile avatar — opens the compact account/help/sign-out menu
+     1. Upgrade pill , clearest revenue path for free users
+     2. Profile avatar, opens the compact account/help/sign-out menu
    The primary nav sits in a scrollable strip on the row below. */
 const MobileQuickActions = styled.div`
   display: none;

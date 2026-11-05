@@ -1206,7 +1206,7 @@ const CandidateJobs = () => {
       // and clearing the chip is enough to make the next fetch unseeded.
       if (isEmptyFirstPage && seeded.location && !seedOptOutRef.current) {
         // eslint-disable-next-line no-console
-        console.debug('[Jobs] Seeded location produced 0 results — widening:', seeded.location);
+        console.debug('[Jobs] Seeded location produced 0 results, widening:', seeded.location);
         seedOptOutRef.current = true;
         locationAutoAppliedRef.current = false;
         setAutoSeeded(prev => ({ ...prev, location: null }));
@@ -1679,7 +1679,7 @@ const CandidateJobs = () => {
     if (appliedJobs.has(jobId) || startedJobs.has(jobId)) return;
     setStartedJobs(prev => new Set([...prev, jobId]));
     externalJobAPI.markApplied(jobId).catch(err => {
-      if (err?.response?.status === 409) return; // already recorded — fine
+      if (err?.response?.status === 409) return; // already recorded, fine
       console.warn('Failed to record external application:', err?.response?.status, err?.message);
       setStartedJobs(prev => {
         const s = new Set(prev);
@@ -2294,7 +2294,7 @@ const CandidateJobs = () => {
             )}
             {/* Completion prompt. The application itself happens on the
                 company's site, so this question is the only way to learn the
-                outcome for candidates without the Chrome extension — and
+                outcome for candidates without the Chrome extension, and
                 asking is far better than the old behaviour of assuming a click
                 meant they applied. Shown only for jobs they actually opened,
                 and only until they answer. */}
@@ -2810,7 +2810,7 @@ const CandidateJobs = () => {
               <TabsContainer>
                 {/* The count next to each tab label is the *total* in that
                     bucket (corpus size for Discover, all saved jobs for
-                    Saved, all applications for Applied) — it does NOT
+                    Saved, all applications for Applied), it does NOT
                     react to the active search/filter chips. Showing the
                     filtered count here would force a second round-trip on
                     every chip toggle and would hide the population the
@@ -2972,7 +2972,7 @@ const CandidateJobs = () => {
                   </div>
 
                   {/* The sort control lives in the results header below, not
-                      in this chip row — it reports on the list rather than
+                      in this chip row, it reports on the list rather than
                       filtering it. "Best match" now genuinely is banded
                       (relevance band, newest first within the band), which this
                       comment claimed long before the SQL did it. */}
@@ -3223,7 +3223,7 @@ const CandidateJobs = () => {
                     <h3>No jobs match your filters</h3>
                     <p>
                       {corpusTotal != null
-                        ? `${corpusTotal.toLocaleString()} jobs available — try broadening your search.`
+                        ? `${corpusTotal.toLocaleString()} jobs available, try broadening your search.`
                         : 'Try removing a filter or broadening your search.'}
                     </p>
                     {(() => {
@@ -4302,7 +4302,7 @@ const CandidateJobs = () => {
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: tier.color, marginBottom: 4 }}>{tier.label} — {tier.advice}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: tier.color, marginBottom: 4 }}>{tier.label}, {tier.advice}</div>
                       {ai.verdict && <div style={{ fontSize: 13, color: '#667085', lineHeight: 1.5 }}>{ai.verdict}</div>}
                     </div>
                   </div>
@@ -4312,7 +4312,7 @@ const CandidateJobs = () => {
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#B42318', marginBottom: 6 }}>Likely to fail screening</div>
                       {lists.knockouts.map((b, i) => (
                         <div key={i} style={{ fontSize: 12.5, color: '#7A271A', lineHeight: 1.5, marginTop: i ? 6 : 0 }}>
-                          <strong>{b.requirement}</strong>{b.why ? ` — ${b.why}` : ''}
+                          <strong>{b.requirement}</strong>{b.why ? `, ${b.why}` : ''}
                         </div>
                       ))}
                     </div>
@@ -4326,7 +4326,7 @@ const CandidateJobs = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <AutoAwesomeIcon style={{ fontSize: 18, color: '#7C3AED' }} />
                       <span style={{ fontSize: 14, fontWeight: 700, color: '#1D2939' }}>
-                        Improve your match{typeof ai.projectedScore === 'number' && ai.projectedScore > pct ? ` — tailoring can reach ~${Math.round(ai.projectedScore)}%` : ''}
+                        Improve your match{typeof ai.projectedScore === 'number' && ai.projectedScore > pct ? `, tailoring can reach ~${Math.round(ai.projectedScore)}%` : ''}
                       </span>
                     </div>
                     <div style={{ fontSize: 12, color: '#475467', lineHeight: 1.6, marginBottom: 12 }}>

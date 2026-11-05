@@ -148,7 +148,7 @@ export const IntroCarousel = ({ index, onNext, onJump, onSkip }) => {
   return (
     <IntroCard>
       {/* Keyed on the slide so React remounts it and the swap animation
-          replays — without the key it is one element whose text changes. */}
+          replays, without the key it is one element whose text changes. */}
       <SlideStage key={slide.id}>
         <TwoColumn>
           <LeftCol>

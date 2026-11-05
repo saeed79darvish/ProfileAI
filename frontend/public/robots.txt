@@ -29,7 +29,7 @@ Allow: /
 User-agent: Slurp
 Allow: /
 
-# AI / answer engines — explicitly allowed so ProfilleAI can be cited.
+# AI / answer engines, explicitly allowed so ProfilleAI can be cited.
 User-agent: GPTBot
 Allow: /
 
