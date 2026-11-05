@@ -21,9 +21,9 @@ const BOT_UA_RE = /(googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou
 // Per-route SEO overrides. Add an entry per indexable public route.
 const ROUTE_META = {
   '/': {
-    title: 'ProfilleAI — AI Resume Tailoring, Job Matching & Career Coach',
+    title: 'ProfilleAI — AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring',
     description:
-      'Talk to Remi, your AI career coach, and ProfilleAI builds your profile, matches you to jobs that fit, and tailors your resume and cover letter to each one in seconds.',
+      'ProfilleAI is an AI copilot for your whole job search. Talk to an AI career coach to build your profile, get matched to live jobs, steer clear of ghost postings, and tailor your resume and cover letter to each role.',
   },
   '/pricing': {
     title: 'Pricing — Free, Pro & Pro+ Plans | ProfilleAI',

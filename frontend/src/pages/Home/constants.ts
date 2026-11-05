@@ -30,9 +30,9 @@ export const TOKENS = {
 } as const;
 
 // ── Hero Section ──
-export const HERO_CHIP_LABEL = 'AI-Powered Career Platform';
-export const HERO_TITLE_PARTS = { prefix: 'A resume that fits every job, ', highlight: 'built from one conversation', suffix: '' } as const;
-export const HERO_SUBTITLE = 'Talk it through with Remi, your AI career coach, and ProfilleAI builds your profile. Then it finds the jobs you actually fit, flags postings nobody is hiring for, and tailors your resume and cover letter to each one.';
+export const HERO_CHIP_LABEL = 'AI Job Search Copilot';
+export const HERO_TITLE_PARTS = { prefix: 'An AI copilot for ', highlight: 'your whole job search', suffix: '' } as const;
+export const HERO_SUBTITLE = 'Talk it through with Remi, your AI career coach, and ProfilleAI builds your profile. Then it searches a live feed of jobs for you, ranks them by fit, flags postings nobody is hiring for, and tailors your resume and cover letter to each one. The Chrome extension works on the job sites you already use, and the Claude connector lets you search jobs from Claude.';
 
 export const HERO_BUTTONS = {
   GET_STARTED: 'Build my profile, free',

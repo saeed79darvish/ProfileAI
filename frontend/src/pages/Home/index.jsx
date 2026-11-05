@@ -99,7 +99,7 @@ const Home = () => {
   return (
     <Box sx={S.pageContainerSx}>
       <SEO
-        title="ProfilleAI — AI Resume Tailoring, Job Matching & Career Coach"
+        title="ProfilleAI — AI Job Search Copilot: Career Coach, Job Matching & Resume Tailoring"
         description="Talk to Remi, your AI career coach, and ProfilleAI builds your profile, matches you to jobs that fit, and tailors your resume and cover letter to each one in seconds."
         path="/"
         keywords="AI resume builder, resume tailoring, AI job matching, AI cover letter, AI career coach, ghost job detection, ATS resume optimizer, career copilot"
