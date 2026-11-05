@@ -1,7 +1,7 @@
 {
   "name": "ProfilleAI — AI Resume Tailoring & Job Application Copilot",
   "short_name": "ProfilleAI",
-  "description": "AI-powered career platform: tailor resumes in seconds, auto-apply to jobs, practice negotiation with AI agents, and get matched with recruiters.",
+  "description": "AI career coach: build your profile by talking, tailor your resume to each job in seconds, and find jobs you actually fit.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

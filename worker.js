@@ -21,14 +21,14 @@ const BOT_UA_RE = /(googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou
 // Per-route SEO overrides. Add an entry per indexable public route.
 const ROUTE_META = {
   '/': {
-    title: 'ProfilleAI — AI Resume Tailoring, Job Matching & Negotiation Coach',
+    title: 'ProfilleAI — AI Resume Tailoring, Job Matching & Career Coach',
     description:
-      'Tailor your resume to any job in seconds, find roles matched to your profile, and practice salary negotiation with AI agents — all from your single ProfilleAI profile.',
+      'Talk to Remi, your AI career coach, and ProfilleAI builds your profile, matches you to jobs that fit, and tailors your resume and cover letter to each one in seconds.',
   },
   '/pricing': {
     title: 'Pricing — Free, Pro & Pro+ Plans | ProfilleAI',
     description:
-      'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, AI cover letters, and AI negotiation coaching.',
+      'Simple pricing for ProfilleAI. Start free with AI resume tailoring; upgrade to Pro for higher tailoring limits, more AI cover letters, and more live voice coach time.',
   },
   '/extension': {
     title: 'ProfilleAI Chrome Extension — Apply to Any Job, Anywhere',
@@ -62,7 +62,7 @@ const ROUTE_META = {
   '/register': {
     title: 'Create your free ProfilleAI account',
     description:
-      'Sign up free to tailor your resume with AI, auto-apply to jobs, and practice salary negotiation with AI agents.',
+      'Sign up free to build your profile with an AI career coach, tailor your resume to each job, and find roles you actually fit.',
   },
   '/privacy': {
     title: 'Privacy Policy | ProfilleAI',

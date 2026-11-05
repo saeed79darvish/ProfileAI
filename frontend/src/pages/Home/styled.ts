@@ -608,3 +608,54 @@ export const footerBottomLinkSx = {
   color: 'rgba(255,255,255,0.3)', fontSize: '0.8rem', textDecoration: 'none',
   '&:hover': { color: COLORS.TEXT_WHITE },
 } as const;
+
+// ── Trust row under the hero buttons ──
+export const heroTrustRowSx = {
+  display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 1, mt: -1.5,
+} as const;
+export const heroTrustItemSx = {
+  display: 'flex', alignItems: 'center', gap: 0.75,
+  color: 'rgba(255,255,255,0.6)', fontSize: 13,
+} as const;
+
+// ── "Example" tag on sample cards ──
+export const exampleChipSx = {
+  bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)',
+  fontSize: 10, height: 20, fontWeight: 700, ml: 'auto',
+} as const;
+
+// ── Coach demo ──
+export const chatRemiBubbleSx = {
+  bgcolor: 'rgba(102,126,234,0.14)', border: '1px solid rgba(102,126,234,0.25)',
+  color: COLORS.TEXT_WHITE, fontSize: 13, lineHeight: 1.5,
+  borderRadius: '14px 14px 14px 4px', p: 1.5, mb: 1.5, maxWidth: '88%',
+} as const;
+export const chatYouBubbleSx = {
+  bgcolor: 'rgba(255,255,255,0.1)', color: COLORS.TEXT_WHITE, fontSize: 13, lineHeight: 1.5,
+  borderRadius: '14px 14px 4px 14px', p: 1.5, mb: 1.5, maxWidth: '80%', ml: 'auto',
+} as const;
+export const chatChipRowSx = { display: 'flex', gap: 1, flexWrap: 'wrap' } as const;
+export const chatChipSx = {
+  border: '1px solid rgba(102,126,234,0.4)', color: '#a5b4fc',
+  borderRadius: '999px', px: 1.5, py: 0.5, fontSize: 12, fontWeight: 600,
+} as const;
+
+// ── Public profile demo ──
+export const profDemoHeadSx = { display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 } as const;
+export const profDemoAvatarSx = {
+  width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
+  background: `linear-gradient(135deg, ${COLORS.PRIMARY}, #a78bfa)`,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: COLORS.TEXT_WHITE, fontWeight: 700, fontSize: 18,
+} as const;
+export const profDemoMetaSx = { color: 'rgba(255,255,255,0.5)', fontSize: 12 } as const;
+export const profDemoOpenSx = { color: '#34d399', fontWeight: 600 } as const;
+export const profDemoBtnRowSx = { display: 'flex', gap: 1, mt: 2 } as const;
+export const profDemoPrimaryBtnSx = {
+  flex: 1, background: PRIMARY_GRADIENT, borderRadius: RADIUS.LARGE,
+  py: 1, textAlign: 'center', color: COLORS.TEXT_WHITE, fontSize: 12.5, fontWeight: 700,
+} as const;
+export const profDemoGhostBtnSx = {
+  flex: 1, border: '1px solid rgba(255,255,255,0.2)', borderRadius: RADIUS.LARGE,
+  py: 1, textAlign: 'center', color: COLORS.TEXT_WHITE, fontSize: 12.5, fontWeight: 700,
+} as const;

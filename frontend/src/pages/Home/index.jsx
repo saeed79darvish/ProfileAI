@@ -6,8 +6,8 @@ import {
 import {
   AutoAwesome as SparkleIcon, Check as CheckIcon,
   Shield as ShieldIcon, Groups as GroupsIcon, Search as SearchIcon,
-  TrendingUp as TrendingIcon, Star as StarIcon, ChevronRight,
-  CloudUpload as UploadIcon, SmartToy as AIIcon,
+  TrendingUp as TrendingIcon, ChevronRight,
+  CloudUpload as UploadIcon, SmartToy as AIIcon, Forum as CoachIcon, Public as ProfileIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { featureFlags } from '../../config/featureFlags';
@@ -15,11 +15,10 @@ import SEO from '../../components/SEO';
 import BrandLogo from '../../components/BrandLogo';
 import * as S from './styled';
 import {
-  STATS, HERO_CHIP_LABEL, HERO_TITLE_PARTS, HERO_SUBTITLE, HERO_BUTTONS,
-  TRUST_INDICATORS, HERO_PROFILE_CARD, HERO_AI_INSIGHT, HERO_JOB_CARD,
-  HERO_STATS_MINI, STATS_LABELS, COMPANY_NAMES, COMPANIES_LABEL,
-  FEATURE_SECTION, FEATURE_TABS_DATA, TAILOR_DEMO, MATCHING_DEMO,
-  ARENA_DEMO, HOW_IT_WORKS, HOW_IT_WORKS_STEPS,
+  HERO_CHIP_LABEL, HERO_TITLE_PARTS, HERO_SUBTITLE, HERO_BUTTONS,
+  TRUST_INDICATORS, HERO_EXAMPLE_TAG, HERO_PROFILE_CARD, HERO_AI_INSIGHT, HERO_JOB_CARD,
+  FEATURE_SECTION, FEATURE_TABS_DATA, COACH_DEMO, TAILOR_DEMO, MATCHING_DEMO, PROFILE_DEMO,
+  HOW_IT_WORKS, HOW_IT_WORKS_STEPS,
   AUDIENCE_SECTION, CANDIDATE, RECRUITER, HERO_MAIN_CARD,
   MORE_FEATURES_SECTION, MORE_FEATURES_DATA,
   FINAL_CTA, FOOTER_DESC, FOOTER_SOCIAL, FOOTER_COLUMNS, FOOTER_BOTTOM_LINKS,
@@ -54,41 +53,12 @@ function RevealSection({ children, sx, ...props }) {
   );
 }
 
-// ── Animated Counter Hook ──
-function useCounter(target, duration = 2000) {
-  const [count, setCount] = useState(0);
-  const ref = useRef(null);
-  const counted = useRef(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !counted.current) {
-          counted.current = true;
-          const start = Date.now();
-          const tick = () => {
-            const elapsed = Date.now() - start;
-            const progress = Math.min(elapsed / duration, 1);
-            const eased = 1 - Math.pow(1 - progress, 3);
-            setCount(Math.floor(eased * target));
-            if (progress < 1) requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
-        }
-      },
-      { threshold: 0.3 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [target, duration]);
-
-  return [count, ref];
-}
-
 // Icon mapping for feature tabs (JSX cannot live in constants.ts)
 const FEATURE_TAB_ICONS = {
+  coach: <CoachIcon />,
   tailor: <SparkleIcon />,
   matching: <SearchIcon />,
+  profile: <ProfileIcon />,
 };
 
 // Icon mapping for "How It Works" steps
@@ -108,13 +78,9 @@ const MORE_FEATURE_ICONS = [
 const Home = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
-  const [activeTab, setActiveTab] = useState('tailor');
+  const [activeTab, setActiveTab] = useState('coach');
 
   const activeFeature = FEATURE_TABS_DATA.find((t) => t.id === activeTab);
-
-  const [statProfiles, statProfilesRef] = useCounter(STATS.PROFILES);
-  const [statMatches, statMatchesRef] = useCounter(STATS.MATCHES);
-  const [statApps, statAppsRef] = useCounter(STATS.APPLICATIONS);
 
   // /jobs is a lazy chunk, and the router keeps this page on screen until it
   // arrives. On a slow connection that read as a dead button: the URL changed
@@ -133,10 +99,10 @@ const Home = () => {
   return (
     <Box sx={S.pageContainerSx}>
       <SEO
-        title="ProfilleAI — AI Resume Tailoring, Auto-Apply & Negotiation Coach"
-        description="Tailor your resume to any job in seconds, find jobs matched to your profile, and practice salary negotiation with AI agents — all from your single ProfilleAI profile."
+        title="ProfilleAI — AI Resume Tailoring, Job Matching & Career Coach"
+        description="Talk to Remi, your AI career coach, and ProfilleAI builds your profile, matches you to jobs that fit, and tailors your resume and cover letter to each one in seconds."
         path="/"
-        keywords="AI resume builder, resume tailoring, AI job matching, AI cover letter, salary negotiation AI, AI recruiter matching, ATS resume optimizer, career copilot"
+        keywords="AI resume builder, resume tailoring, AI job matching, AI cover letter, AI career coach, ghost job detection, ATS resume optimizer, career copilot"
         jsonLd={[
           {
             '@context': 'https://schema.org',
@@ -144,7 +110,7 @@ const Home = () => {
             name: 'ProfilleAI — AI Career Copilot',
             url: 'https://www.profilleai.com/',
             description:
-              'AI-powered career platform for resume tailoring, AI job matching, and salary negotiation training.',
+              'AI career coach and platform for building your profile, tailoring your resume to each job, and matching you to real openings.',
           },
           {
             '@context': 'https://schema.org',
@@ -155,7 +121,7 @@ const Home = () => {
                 name: 'What is ProfilleAI?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'ProfilleAI is an AI career copilot that tailors your resume to any job in seconds, matches you to jobs that fit your profile, and trains you to negotiate offers with AI agents.',
+                  text: 'ProfilleAI is an AI career coach that builds your profile from a conversation, tailors your resume and cover letter to any job in seconds, and matches you to jobs that fit your profile.',
                 },
               },
               {
@@ -163,7 +129,7 @@ const Home = () => {
                 name: 'How does AI resume tailoring work?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'You upload your resume once. ProfilleAI parses it into a single living profile, then uses GPT-4 to rewrite the most relevant experience, skills, and summary for each job description you paste — optimized for ATS keyword matching.',
+                  text: 'You upload your resume once. ProfilleAI parses it into a single living profile, then uses AI to rewrite the most relevant experience, skills, and summary for each job description you paste, optimized for ATS keyword matching.',
                 },
               },
               {
@@ -171,7 +137,7 @@ const Home = () => {
                 name: 'Is ProfilleAI free?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Pro+ plans unlock higher tailoring limits, AI negotiation coaching, and recruiter matching.',
+                  text: 'Yes — ProfilleAI offers a free tier with core resume tailoring. Pro and Pro+ plans unlock higher tailoring and cover letter limits, more live voice coach time, and watermark-free exports.',
                 },
               },
               {
@@ -248,6 +214,16 @@ const Home = () => {
                   </>
                 )}
               </Box>
+              {!isAuthenticated && (
+                <Box sx={S.heroTrustRowSx}>
+                  {TRUST_INDICATORS.map((t) => (
+                    <Box key={t.text} sx={S.heroTrustItemSx}>
+                      <CheckIcon sx={{ fontSize: 16, color: '#34d399' }} />
+                      {t.text}
+                    </Box>
+                  ))}
+                </Box>
+              )}
             </Grid>
 
             {/* Hero visual, floating cards */}
@@ -293,7 +269,7 @@ const Home = () => {
                       </Box>
                       <Typography sx={S.mainCardSubtitleSx}>{HERO_MAIN_CARD.subtitle}</Typography>
                     </Box>
-                    <Typography sx={S.mainCardDotsSx}>•••</Typography>
+                    <Chip label={HERO_EXAMPLE_TAG} size="small" sx={S.exampleChipSx} />
                   </Box>
 
                   <Box sx={S.jobDetectedSx}>
@@ -327,16 +303,6 @@ const Home = () => {
                       </Typography>
                     </Box>
                   </Box>
-                </Box>
-
-                {/* Stats mini card */}
-                <Box sx={S.statsMiniCardSx}>
-                  {HERO_STATS_MINI.map((s) => (
-                    <Box key={s.label} sx={{ textAlign: 'center' }}>
-                      <Typography sx={S.getStatValueSx(s.color)}>{s.n}</Typography>
-                      <Typography sx={S.statMiniLabelSx}>{s.label}</Typography>
-                    </Box>
-                  ))}
                 </Box>
               </Box>
             </Grid>
@@ -385,7 +351,7 @@ const Home = () => {
                     ))}
                   </Box>
                   {!isAuthenticated && (
-                    <Button endIcon={<ChevronRight />} onClick={() => navigate('/register')}
+                    <Button endIcon={<ChevronRight />} onClick={() => navigate('/onboarding')}
                       sx={S.getFeatureTryBtnSx(activeFeature.color)}>
                       {FEATURE_SECTION.tryFree}
                     </Button>
@@ -395,11 +361,28 @@ const Home = () => {
                 <Grid item xs={12} md={6} sx={S.featureVisualPanelSx}>
                   <Box sx={S.getFeatureOrbSx(activeFeature.color)} />
                   <Box sx={S.featureVisualContentSx}>
+                    {activeTab === 'coach' && (
+                      <Box sx={S.demoPanelSx}>
+                        <Box sx={S.demoHeaderSx}>
+                          <CoachIcon sx={S.aiInsightIconSx} />
+                          <Typography sx={S.demoTitleSx}>{COACH_DEMO.label}</Typography>
+                          <Chip label={COACH_DEMO.sample} size="small" sx={S.exampleChipSx} />
+                        </Box>
+                        <Box sx={S.chatRemiBubbleSx}>{COACH_DEMO.remi}</Box>
+                        <Box sx={S.chatYouBubbleSx}>{COACH_DEMO.you}</Box>
+                        <Box sx={S.chatChipRowSx}>
+                          {COACH_DEMO.chips.map((c) => (
+                            <Box key={c} sx={S.chatChipSx}>{c}</Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
                     {activeTab === 'tailor' && (
                       <Box sx={S.demoPanelSx}>
                         <Box sx={S.demoHeaderSx}>
                           <SparkleIcon sx={S.aiInsightIconSx} />
                           <Typography sx={S.demoTitleSx}>{TAILOR_DEMO.label}</Typography>
+                          <Chip label={TAILOR_DEMO.sample} size="small" sx={S.exampleChipSx} />
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5 }}>
                           <Box sx={S.tailorScoreBoxSx}>
@@ -442,6 +425,34 @@ const Home = () => {
                         </Box>
                       </Box>
                     )}
+                    {activeTab === 'profile' && (
+                      <Box sx={S.demoPanelSx}>
+                        <Box sx={S.demoHeaderSx}>
+                          <ProfileIcon sx={S.aiInsightIconSx} />
+                          <Typography sx={S.demoTitleSx}>{PROFILE_DEMO.label}</Typography>
+                          <Chip label={PROFILE_DEMO.sample} size="small" sx={S.exampleChipSx} />
+                        </Box>
+                        <Box sx={S.profDemoHeadSx}>
+                          <Box sx={S.profDemoAvatarSx}>SC</Box>
+                          <Box>
+                            <Typography sx={S.tailorRoleSx}>{PROFILE_DEMO.name}</Typography>
+                            <Typography sx={S.tailorCompanySx}>{PROFILE_DEMO.role}</Typography>
+                            <Typography sx={S.profDemoMetaSx}>
+                              {PROFILE_DEMO.place} · <Box component="span" sx={S.profDemoOpenSx}>{PROFILE_DEMO.status}</Box>
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {PROFILE_DEMO.chips.map((c) => (
+                            <Chip key={c} label={c} size="small" sx={S.profileSkillChipSx} />
+                          ))}
+                        </Box>
+                        <Box sx={S.profDemoBtnRowSx}>
+                          <Box sx={S.profDemoGhostBtnSx}>{PROFILE_DEMO.pdfBtn}</Box>
+                          <Box sx={S.profDemoPrimaryBtnSx}>{PROFILE_DEMO.contactBtn}</Box>
+                        </Box>
+                      </Box>
+                    )}
 
                   </Box>
                 </Grid>
@@ -465,19 +476,13 @@ const Home = () => {
             <Typography sx={S.ctaSubtitleSx}>{FINAL_CTA.subtitle}</Typography>
             <Box sx={S.ctaBtnWrapperSx}>
               <Button variant="contained" size="large"
-                onClick={() => navigate('/register')} sx={S.ctaPrimaryBtnSx}>
+                onClick={() => navigate('/onboarding')} sx={S.ctaPrimaryBtnSx}>
                 {FINAL_CTA.primaryBtn}
               </Button>
               <Button variant="outlined" size="large" onClick={() => navigate('/pricing')} sx={S.ctaOutlinedBtnSx}>
                 {FINAL_CTA.secondaryBtn}
               </Button>
             </Box>
-            <Box sx={S.ctaStarsWrapperSx}>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <StarIcon key={i} sx={S.ctaStarSx} />
-              ))}
-            </Box>
-            <Typography sx={S.ctaRatingSx}>{FINAL_CTA.rating}</Typography>
           </Container>
         </RevealSection>
       )}
