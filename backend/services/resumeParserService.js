@@ -647,33 +647,64 @@ Important guidelines:
   description, company, or any other field.
 - Return ONLY valid JSON, no additional text or explanation`;
 
-      const responseText = await callAI({
-        system: 'You are a professional resume parser that extracts structured data from resumes. You always return valid JSON.',
-        prompt,
-        temperature: 0.3,
-        // A senior resume routinely carries 6-8 roles; the previous 2000 cap
-        // truncated the JSON mid-array, which then failed JSON.parse and threw
-        // the whole parse away.
-        max_tokens: 8000
-      });
+      /* Two calls at once, not one. The wait on an upload is the model
+         writing the answer out, and most of what it writes is the bullets of
+         every role, copied word for word. Roles go to one call and everything
+         else to the other, so each writes about half and the parse takes
+         roughly half as long. The schema is the same one, cut in two. */
+      const schemaStart = prompt.indexOf('Extract and return a JSON object');
+      const guidelines = prompt.slice(prompt.indexOf('Important guidelines:'));
+      const head = prompt.slice(0, schemaStart);
+      const experienceSchema = `Extract and return a JSON object with ONLY this structure (roles only; another reader handles everything else):
+{
+  "experience": [
+    {
+      "company": "Company Name",
+      "title": "Job Title",
+      "startDate": "YYYY-MM-DD format (e.g., 2020-01-01). Use first day of month if only month/year given.",
+      "endDate": "YYYY-MM-DD format or null if current position",
+      "current": true/false (boolean indicating if currently working here),
+      "description": "The role's bullet points exactly as written in the resume, one per line, each starting with '• '. If the role is written as prose, its sentences, one per line."
+    }
+  ]
+}
 
-      // Strip markdown fences and any prose the model wrapped around the JSON,
-      // then fall back to the truncation repairer before giving up.
-      let jsonText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-      const firstBrace = jsonText.indexOf('{');
-      const lastBrace = jsonText.lastIndexOf('}');
-      if (firstBrace > 0 && lastBrace > firstBrace) {
-        jsonText = jsonText.slice(firstBrace, lastBrace + 1);
-      }
+`;
+      const restSchema = prompt.slice(schemaStart, prompt.indexOf('  "experience": [')).replace(
+        'Extract and return a JSON object with the following structure:',
+        'Extract and return a JSON object with the following structure (everything except work experience, which another reader handles):'
+      ) + prompt.slice(prompt.indexOf('  "education": ['), prompt.indexOf('Important guidelines:'));
+      const SYSTEM = 'You are a professional resume parser that extracts structured data from resumes. You always return valid JSON.';
+      const readJson = (responseText) => {
+        // Strip markdown fences and any prose the model wrapped around the JSON,
+        // then fall back to the truncation repairer before giving up.
+        let jsonText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+        const firstBrace = jsonText.indexOf('{');
+        const lastBrace = jsonText.lastIndexOf('}');
+        if (firstBrace > 0 && lastBrace > firstBrace) jsonText = jsonText.slice(firstBrace, lastBrace + 1);
+        try {
+          return JSON.parse(jsonText);
+        } catch (parseErr) {
+          const repaired = repairTruncatedJSON(jsonText);
+          if (!repaired) throw parseErr;
+          console.warn('[Resume] AI returned truncated JSON; recovered via repairTruncatedJSON');
+          return repaired;
+        }
+      };
 
-      let parsedData;
-      try {
-        parsedData = JSON.parse(jsonText);
-      } catch (parseErr) {
-        parsedData = repairTruncatedJSON(jsonText);
-        if (!parsedData) throw parseErr;
-        console.warn('[Resume] AI returned truncated JSON; recovered via repairTruncatedJSON');
-      }
+      const [experienceText, restText] = await Promise.all([
+        callAI({
+          system: SYSTEM,
+          prompt: head + experienceSchema + guidelines,
+          temperature: 0.3,
+          // A senior resume routinely carries 6-8 roles; a small cap truncated
+          // the JSON mid-array and threw the whole parse away.
+          max_tokens: 8000,
+        }),
+        callAI({ system: SYSTEM, prompt: head + restSchema + guidelines, temperature: 0.3, max_tokens: 4000 }),
+      ]);
+      const rest = readJson(restText);
+      const parsedData = { ...rest, experience: readJson(experienceText).experience || [] };
 
       return this.sanitizeParsedResume(parsedData);
     } catch (error) {

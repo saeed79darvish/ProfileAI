@@ -182,7 +182,7 @@ const VERDICT_TONE = {
  */
 const READ_STEPS = ['Reading what you sent', 'Finding your roles', 'Picking out skills and education', 'Building your profile'];
 // When each next step lights up, in ms. The last one waits for the parse to return.
-const READ_STEP_AT = [2500, 6000, 10000];
+const READ_STEP_AT = [1500, 3500, 5500];
 
 const UploadProgress = ({ fileName, done, failed }) => {
   const [at, setAt] = useState(0);
