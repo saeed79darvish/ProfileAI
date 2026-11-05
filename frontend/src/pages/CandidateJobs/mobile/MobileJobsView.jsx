@@ -550,7 +550,7 @@ export default function MobileJobsView({
           <ResultsRow>
             <span><strong>{Number(total || 0).toLocaleString()}</strong> jobs</span>
             <button type="button" onClick={() => onSort(sortMode === 'recent' ? 'recommended' : 'recent')} aria-label="Change sort">
-              Sort:&nbsp;<b>{sortMode === 'recent' ? 'Newest' : 'Best match'}</b><ChevronIcon fontSize="small" />
+              Sort:&nbsp;<b>{sortMode === 'recent' ? 'Newest' : (isAuthenticated ? 'Best match' : 'Relevance')}</b><ChevronIcon fontSize="small" />
             </button>
           </ResultsRow>
         </>

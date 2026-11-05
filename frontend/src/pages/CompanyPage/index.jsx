@@ -18,6 +18,8 @@ import {
   Send as SendIcon,
   MoreHoriz as MoreHorizIcon,
   LinkedIn as LinkedInIcon,
+  CalendarToday as CalendarIcon,
+  Article as ArticleIcon,
 } from '@mui/icons-material';
 import { jobAPI, recruiterProfileAPI, postAPI, resolveImageUrl } from '../../services/api';
 import { ROUTES, JOB_COLORS, LIMITS, FALLBACKS, SIMILAR_COMPANIES, TABS, TEXT } from './constants';

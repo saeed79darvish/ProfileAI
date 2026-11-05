@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, useParams, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
@@ -139,6 +139,18 @@ const VERIFY_EMAIL_ROUTE = /^\/verify-email\//;
 // A SPA keeps the window's scroll position across route changes, so a link
 // clicked halfway down one page landed halfway down the next. New pages start
 // at the top; back/forward (POP) and #anchor links are left alone.
+/* A job link (a shared URL, an old bookmark, a company page) opens that job on
+   the jobs board, where a visitor with or without an account can read it. The
+   board reads externalJobId and, for a signed-in visitor, tailor=1. */
+function JobOnBoardRedirect() {
+  const { id } = useParams();
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  const next = new URLSearchParams({ externalJobId: id });
+  if (params.get('tailor') === '1') next.set('tailor', '1');
+  return <Navigate to={`/jobs?${next.toString()}`} replace />;
+}
+
 function ScrollToTopOnNavigate() {
   const { pathname, hash } = useLocation();
   const navigationType = useNavigationType();
@@ -306,7 +318,7 @@ function AppContent() {
             <Route path="/profile/:id" element={<PublicProfile />} />
             <Route path="/recruiter/:id" element={<RecruiterPublicProfile />} />
             <Route path="/company/:slug" element={<CompanyPage />} />
-            <Route path="/jobs/:id" element={<JobDetail />} />
+            <Route path="/jobs/:id" element={featureFlags.recruiterSurface ? <JobDetail /> : <JobOnBoardRedirect />} />
             <Route path="/jobs/:id/apply" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <JobApplication />

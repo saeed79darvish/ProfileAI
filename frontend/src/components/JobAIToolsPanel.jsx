@@ -28,7 +28,7 @@ import { useAuth } from '../contexts/AuthContext';
 import GapReviewDialog from './GapReviewDialog';
 import LimitReachedModal from './LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
-import { setCoachReturn } from '@/utils/coachReturn';
+import { setCoachReturn, jobReturnPath } from '@/utils/coachReturn';
 import TailorSettingsModal from './TailorSettingsModal';
 import TailoringProgressModal from './TailoringProgressModal';
 import TailoredResultsModal from './TailoredResultsModal';
@@ -903,7 +903,7 @@ export default function JobAIToolsPanel({ job }) {
               onClick={(e) => {
                 e.preventDefault();
                 // Back to this job, now scored, once the profile is published.
-                if (job?.id) setCoachReturn(`/jobs/${job.id}`);
+                if (job?.id) setCoachReturn(jobReturnPath(job.id), { title: job.title, company: job.company });
                 navigate('/profile/create');
               }}
             >

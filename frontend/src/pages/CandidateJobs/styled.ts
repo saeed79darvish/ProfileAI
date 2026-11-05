@@ -1899,6 +1899,14 @@ export const ExternalJobDescriptionStyles = styled.div`
     &:hover { text-decoration: underline; }
   }
 
+  .job-detail-ai-teaser-note {
+    margin-top: 6px;
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: center;
+  }
+
   /* --- Divider --- */
   .job-detail-divider {
     height: 1px;

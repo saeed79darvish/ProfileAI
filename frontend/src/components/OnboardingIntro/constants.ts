@@ -43,6 +43,11 @@ export const INTRO_TEXT = {
   PROGRESS_LABEL: 'Intro progress',
   STEP_LABEL: (n: number, total: number) => `Step ${n} of ${total}`,
 
+  // Said when a visitor came from a job and was sent here to build a profile
+  // first: it names the job so the detour has a reason, and says they go back.
+  JOB_WAITING: (title: string, company: string, tailor: boolean) =>
+    `You were looking at ${title}${company ? ` at ${company}` : ''}. Build your profile and I'll take you straight back to it${tailor ? ', ready to tailor your resume' : ''}.`,
+
   START_BUBBLE: "Let's start with your profile.",
   BUILD_TITLE: 'Build your profile',
   BUILD_SUB: 'A few minutes. You can edit everything later.',

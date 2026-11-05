@@ -23,7 +23,7 @@ import { computeProfileCompletion } from '../../hooks/useProfileCompletion';
 import { saveGuestProfileDraft } from '../../utils/guestDraft';
 import { trackEvent } from '../../utils/analytics';
 import { markReturningUser, hasReturningUser } from '../../utils/returningUser';
-import { takeCoachReturn, setCoachReturn } from '../../utils/coachReturn';
+import { takeCoachReturn, setCoachReturn, peekCoachReturnMeta, jobReturnPath } from '../../utils/coachReturn';
 import { setCoachPicks } from '../../utils/coachPicks';
 import BrandLogo from '../../components/BrandLogo';
 import JobPicks from './JobPicks';
@@ -773,8 +773,10 @@ const ProfileCoach = () => {
      repeated slide one. Conversations saved mid-carousel still render it. */
   const startIntro = useCallback(() => {
     pushCoach(INTRO_TEXT.WELCOME);
+    const waiting = peekCoachReturnMeta();
+    if (waiting) pushCoach(INTRO_TEXT.JOB_WAITING(waiting.title, waiting.company, waiting.tailor));
     pushCoach(INTRO_TEXT.START_BUBBLE, { introBuild: true });
-    trackEvent('coach_intro_started', { carousel: false });
+    trackEvent('coach_intro_started', { carousel: false, fromJob: !!waiting });
   }, [pushCoach]);
 
   /**
@@ -3073,7 +3075,7 @@ const ProfileCoach = () => {
   /* A job on the card is the way in: the account, then that job, scored. */
   const openPreviewJob = useCallback((job) => {
     trackEvent('coach_job_preview_clicked', { jobId: job.id });
-    setCoachReturn(`/jobs/${job.id}`);
+    setCoachReturn(jobReturnPath(job.id), { title: job.title, company: job.company });
     handleConvert(hasReturningUser() ? 'signin' : 'register');
   }, [handleConvert]);
 

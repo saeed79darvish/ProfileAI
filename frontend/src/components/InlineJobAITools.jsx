@@ -504,6 +504,11 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   const [scoreLoading, setScoreLoading] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  // A tailor request that arrives before the profile has loaded (the jobs page
+  // opened straight into tailoring, right after the profile was built) waits.
+  const profileLoadedRef = useRef(false);
+  profileLoadedRef.current = profileLoaded;
+  const tailorWhenReadyRef = useRef(false);
   const [activePanel, setActivePanel] = useState(null); // 'tailor' | 'coverLetter' | 'skillGap' | 'match'
   
   // Skill Gap / Match Analysis
@@ -562,11 +567,21 @@ export default function InlineJobAITools({ job, renderMobileGateUI = false }) {
   // built for phones, so it opens directly there too.
   useEffect(() => {
     const handler = (e) => {
-      if (job && e.detail?.jobId === job.id) handleTailorRef.current();
+      if (job && e.detail?.jobId === job.id) {
+        if (profileLoadedRef.current) handleTailorRef.current();
+        else tailorWhenReadyRef.current = true;
+      }
     };
     window.addEventListener('trigger-tailor-resume', handler);
     return () => window.removeEventListener('trigger-tailor-resume', handler);
   }, [job]);
+
+  useEffect(() => {
+    if (profileLoaded && tailorWhenReadyRef.current) {
+      tailorWhenReadyRef.current = false;
+      handleTailorRef.current();
+    }
+  }, [profileLoaded]);
 
   // Listen for external cover letter trigger — same mobile-nudge gate as tailor.
   useEffect(() => {

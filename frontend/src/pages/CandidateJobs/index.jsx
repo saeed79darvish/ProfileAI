@@ -185,7 +185,7 @@ import { jobFiltersFrom, employmentTypeLabel, locationTypeLabel } from '@/utils/
 import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
 import { matchTier, orderByMatch, matchLists } from '@/utils/jobMatchScore';
 import { hasReturningUser } from '@/utils/returningUser';
-import { setCoachReturn } from '@/utils/coachReturn';
+import { setCoachReturn, jobReturnPath } from '@/utils/coachReturn';
 
 // Company name -> domain mapping for logo resolution
 const COMPANY_DOMAINS = {
@@ -1546,9 +1546,35 @@ const CandidateJobs = () => {
     }
   };
 
+  // A guest who asks for something that needs a profile (Tailor, a cover
+  // letter, saving a job) goes to the coach, which remembers this job and
+  // brings them back to it once the profile exists. Someone who has had an
+  // account signs in instead. Without this the buttons did nothing at all:
+  // the tools they trigger only mount for a signed-in visitor.
+  const sendGuestToAccount = (job, { tailor = false } = {}) => {
+    const path = jobReturnPath(job.id, { tailor });
+    setCoachReturn(path, { title: job.title, company: job.company, tailor });
+    if (hasReturningUser()) navigate(`/login?redirect=${encodeURIComponent(path)}`);
+    else navigate('/profile/create');
+  };
+
+  // Fire a job AI tool for a job, or send a guest to build the profile first.
+  const runJobAI = (eventName, job) => {
+    if (!job) return;
+    if (!isAuthenticated) {
+      sendGuestToAccount(job, { tailor: eventName === 'trigger-tailor-resume' });
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(eventName, { detail: { jobId: job.id } }));
+  };
+
   const toggleSaveJob = async (e, jobId) => {
     e?.stopPropagation();
-    if (!isAuthenticated) { navigate('/login'); return; }
+    if (!isAuthenticated) {
+      const job = externalJobs.find((j) => j.id === jobId) || (selectedJob?.id === jobId ? selectedJob : null);
+      if (job) sendGuestToAccount(job); else navigate('/login');
+      return;
+    }
 
     // Decide whether this id belongs to an external job. We check both the
     // currently-selected job and the externalJobs list since the click can
@@ -2377,14 +2403,14 @@ const CandidateJobs = () => {
                   <button
                     type="button"
                     className="job-detail-ai-teaser-cta"
-                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/jobs/${selectedJob.id}`)}`)}
+                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(jobReturnPath(selectedJob.id))}`)}
                   >
                     Sign in to unlock AI tools
                   </button>
                   <button
                     type="button"
                     className="job-detail-ai-teaser-signin"
-                    onClick={() => { setCoachReturn(`/jobs/${selectedJob.id}`); navigate('/profile/create'); }}
+                    onClick={() => sendGuestToAccount(selectedJob)}
                   >
                     New here? Build your profile
                   </button>
@@ -2394,17 +2420,18 @@ const CandidateJobs = () => {
                   <button
                     type="button"
                     className="job-detail-ai-teaser-cta"
-                    onClick={() => { setCoachReturn(`/jobs/${selectedJob.id}`); navigate('/profile/create'); }}
+                    onClick={() => sendGuestToAccount(selectedJob)}
                   >
                     Build your profile free
                   </button>
                   <button
                     type="button"
                     className="job-detail-ai-teaser-signin"
-                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/jobs/${selectedJob.id}`)}`)}
+                    onClick={() => navigate(`/login?redirect=${encodeURIComponent(jobReturnPath(selectedJob.id))}`)}
                   >
                     Already have an account? Sign in
                   </button>
+                  <div className="job-detail-ai-teaser-note">A few minutes, no account needed to start. You come back to this job when it is done.</div>
                 </>
               )}
             </div>
@@ -2625,6 +2652,7 @@ const CandidateJobs = () => {
               onToggleSave={toggleSaveJob}
               onOpen={(job) => handleJobClick({ ...job, _isExternal: job._isExternal ?? true })}
               onTailor={(job) => {
+                if (!isAuthenticated) { sendGuestToAccount(job, { tailor: true }); return; }
                 handleJobClick({ ...job, _isExternal: job._isExternal ?? true });
                 // InlineJobAITools mounts with the selected job first.
                 setTimeout(() => window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: job.id } })), 500);
@@ -3089,7 +3117,7 @@ const CandidateJobs = () => {
                         date order for anyone who wants only that. */}
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                       {[
-                        { key: 'recommended', label: 'Best match', title: 'Grouped by how well each job fits your profile, newest first within each group' },
+                        { key: 'recommended', label: isAuthenticated ? 'Best match' : 'Relevance', title: isAuthenticated ? 'Grouped by how well each job fits your profile, newest first within each group' : 'Closest to your search first; newest first when you have not searched. Build a profile to rank by fit.' },
                         { key: 'recent', label: 'Newest', title: 'Ordered strictly by posting date, newest first' },
                       ].map(opt => (
                         <button
@@ -3462,6 +3490,7 @@ const CandidateJobs = () => {
                                       $variant="tailor"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        if (!isAuthenticated) { sendGuestToAccount(job, { tailor: true }); return; }
                                         (async () => {
                                           try {
                                             const response = await externalJobAPI.getById(job.id);
@@ -3474,7 +3503,7 @@ const CandidateJobs = () => {
                                             setSelectedJob({ ...job, _isExternal: true });
                                           }
                                           setTimeout(() => {
-                                            window.dispatchEvent(new CustomEvent('trigger-tailor-resume'));
+                                            window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: job.id } }));
                                           }, 300);
                                         })();
                                       }}
@@ -3728,8 +3757,8 @@ const CandidateJobs = () => {
             if (href) { if (selectedJob._isExternal) markExternalApplied(selectedJob.id); }
             else navigate(`/jobs/${selectedJob.id}/apply`);
           }}
-          onTailor={() => window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: selectedJob.id } }))}
-          onCoverLetter={() => window.dispatchEvent(new CustomEvent('trigger-cover-letter', { detail: { jobId: selectedJob.id } }))}
+          onTailor={() => runJobAI('trigger-tailor-resume', selectedJob)}
+          onCoverLetter={() => runJobAI('trigger-cover-letter', selectedJob)}
           similarJobs={getSimilarJobs}
           onOpenJob={(j) => handleJobClick({ ...j, _isExternal: true })}
           descriptionHtml={getDescriptionHtml(selectedJob)}
@@ -4037,9 +4066,7 @@ const CandidateJobs = () => {
               <MobileFooterToolBtn onClick={(e) => handleMatchClick(e, selectedJob)}>
                 <SignalCellularAltIcon /> Analyze match
               </MobileFooterToolBtn>
-              <MobileFooterToolBtn $pro onClick={() => {
-                window.dispatchEvent(new CustomEvent('trigger-cover-letter', { detail: { jobId: selectedJob.id } }));
-              }}>
+              <MobileFooterToolBtn $pro onClick={() => runJobAI('trigger-cover-letter', selectedJob)}>
                 <DescriptionIcon /> Cover letter <span className="pro-badge">Pro</span>
               </MobileFooterToolBtn>
             </MobileFooterToolsRow>
@@ -4083,9 +4110,7 @@ const CandidateJobs = () => {
                   </MobileFooterApply>
                 );
               })()}
-              <MobileFooterTailorV2 onClick={() => {
-                window.dispatchEvent(new CustomEvent('trigger-tailor-resume', { detail: { jobId: selectedJob.id } }));
-              }}>
+              <MobileFooterTailorV2 onClick={() => runJobAI('trigger-tailor-resume', selectedJob)}>
                 <AutoAwesomeIcon /> Tailor Resume
               </MobileFooterTailorV2>
             </MobileFooterActionsRow>
