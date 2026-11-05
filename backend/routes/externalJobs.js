@@ -11,7 +11,7 @@ const { rankJobs } = require('../services/jobRelevanceService');
 const { searchSimilarJobs, generateProfileQueryEmbedding, loadProfileForJobsRanking } = require('../services/jobEmbeddingService');
 const cache = require('../services/simpleCache');
 const { expandLocationAliases, canonicalizeLocation } = require('../utils/locationMatch');
-const { buildJobSearchTsquery, relaxedSearches } = require('../utils/searchQuery');
+const { buildJobSearchTsquery, buildTitleBandQueries, relaxedSearches } = require('../utils/searchQuery');
 const { deriveRoleQuery } = require('../utils/roleQuery');
 const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = require('../services/jobSeniorityFit');
 const { normalizeJobUrl } = require('../utils/jobUrl');
@@ -1125,6 +1125,28 @@ router.get('/', optionalAuth, async (req, res) => {
     // --- Default: most recent ---
     const offset = (pageNum - 1) * limitNum;
 
+    // A typed search without a profile to rank by (a guest, or a candidate who
+    // has none yet) used to come back in pure date order, so "product manager"
+    // led with whatever Product Marketing Manager posted last and "frontend
+    // engineer" with a React Native mobile role. The filter above is meant to be
+    // wide; the ORDER is what tells someone which result is the one they typed.
+    // Bands, then newest first inside each:
+    //   2  the typed words next to each other in the title ("Product Manager")
+    //   1  every typed word in the title ("Software Engineer, Frontend")
+    //   0  the rest of the widened matches (company, department, stack words)
+    // The strict "Newest" sort stays strictly by date.
+    const titleBands = search && sortMode !== 'recent' ? buildTitleBandQueries(search) : null;
+    if (titleBands) {
+      whereReplacements.titlePhraseTsq = titleBands.phrase;
+      whereReplacements.titleAllTsq = titleBands.inTitle;
+    }
+    const listOrder = titleBands
+      ? [
+        literal(`(CASE WHEN "ExternalJob"."searchTsvAB" @@ to_tsquery('english', :titlePhraseTsq) THEN 2 WHEN "ExternalJob"."searchTsvAB" @@ to_tsquery('english', :titleAllTsq) THEN 1 ELSE 0 END) DESC`),
+        literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST'),
+      ]
+      : [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')];
+
     // Pure chronological order. The search predicate above already
     // restricts to jobs whose title/company/dept match the query (not
     // description-only hits), so sorting by pure recency here gives the
@@ -1149,7 +1171,7 @@ router.get('/', optionalAuth, async (req, res) => {
       ExternalJob.findAll({
         where,
         replacements: whereReplacements,
-        order: [literal('"ExternalJob"."effectivePostedAt" DESC NULLS LAST')],
+        order: listOrder,
         limit: limitNum,
         offset,
         attributes: {

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { deriveRoleQuery, splitTitleTokens, normalizeRoleCompounds } = require('../utils/roleQuery');
-const { buildJobSearchTsquery, relaxedSearches } = require('../utils/searchQuery');
+const { buildJobSearchTsquery, buildTitleBandQueries, relaxedSearches } = require('../utils/searchQuery');
 const { titleTerms } = require('./coachMarket');
 const { rankJobs } = require('./jobRelevanceService');
 
@@ -55,4 +55,32 @@ test('a search that finds nothing widens one word at a time', () => {
   // Never down to a bare "engineer", never to nothing.
   assert.deepEqual(relaxedSearches('Frontend Engineer'), []);
   assert.deepEqual(relaxedSearches('nurse'), []);
+});
+
+test('title bands read the typed words from the title only', () => {
+  const bands = buildTitleBandQueries('product manager');
+  assert.equal(bands.phrase, '(product:A <-> manager:A)');
+  assert.equal(bands.inTitle, '(product:A & manager:A)');
+  // The wide filter also accepts "pm"; the ordering must not.
+  assert.doesNotMatch(bands.phrase + bands.inTitle, /\bpm\b/);
+});
+
+test('title bands accept spellings and engineer synonyms but not the stack words the filter widens with', () => {
+  const { phrase, inTitle } = buildTitleBandQueries('frontend engineer');
+  assert.match(phrase, /front:A <-> end:A/);
+  assert.match(inTitle, /developer:A/);
+  // A React Native mobile role is a match for the filter, not a title match.
+  assert.doesNotMatch(phrase + inTitle, /react|angular|vue|\bui\b/);
+  // A plain word the user typed is a prefix match, as in the filter.
+  assert.equal(buildTitleBandQueries('nurse').inTitle, 'nurse:*A');
+});
+
+test('title bands are null when nothing usable was typed', () => {
+  assert.equal(buildTitleBandQueries('a'), null);
+  assert.equal(buildTitleBandQueries(''), null);
+});
+
+test('title bands are safe to pass to to_tsquery', () => {
+  const { phrase, inTitle } = buildTitleBandQueries("o'brien; DROP TABLE x -- engineer");
+  assert.doesNotMatch(phrase + inTitle, /['";-]{2}|[;']/);
 });

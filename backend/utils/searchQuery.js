@@ -273,4 +273,49 @@ function relaxedSearches(search) {
   return out;
 }
 
-module.exports = { buildJobSearchTsquery, relaxedSearches, parseSearchConcepts };
+/**
+ * The words a person actually typed, as title-only tsqueries for ranking.
+ *
+ * The search filter is deliberately wide: "product manager" matches every
+ * title holding both words ("Product Marketing Manager"), and "frontend" also
+ * matches React and UI titles. That is right for finding jobs and wrong for
+ * ordering them, so a guest saw whatever was newest first. These two queries
+ * let the caller order by how closely a TITLE says what was typed:
+ *
+ *   phrase  the typed words next to each other, in order ("Product Manager")
+ *   inTitle every typed word somewhere in the title ("Software Engineer, Frontend")
+ *
+ * Both read the title only (weight A of searchTsvAB), so a company or
+ * department hit never counts. Each typed concept accepts its own spellings
+ * ("frontend", "front end") and, for engineer/developer, its job-title
+ * synonyms, but not the stack words the filter widens with ("react"): a React
+ * Native mobile role is a match, not the answer to "frontend engineer".
+ *
+ * @returns {{ phrase: string, inTitle: string }|null}
+ */
+function buildTitleBandQueries(search) {
+  const concepts = parseSearchConcepts(search);
+  if (concepts.length === 0) return null;
+
+  const weighted = (tokens, joiner) => {
+    const parts = tokens.map((t) => `${t}:A`);
+    return parts.length > 1 ? `(${parts.join(joiner)})` : parts[0];
+  };
+  const render = (concept, joiner) => {
+    if (!concept.group) return `${concept.tokens[0]}:*A`;
+    const typed = concept.tokens.join('');
+    const alternatives = concept.group === ENGINEER_GROUP
+      ? concept.group.expand
+      : concept.group.expand.filter((tokens) => tokens.join('') === typed);
+    const own = alternatives.length > 0 ? alternatives : [concept.tokens];
+    const rendered = own.map((tokens) => weighted(tokens, joiner));
+    return rendered.length > 1 ? `(${rendered.join(' | ')})` : rendered[0];
+  };
+
+  return {
+    phrase: concepts.map((c) => render(c, ' <-> ')).join(' <-> '),
+    inTitle: concepts.map((c) => render(c, ' & ')).join(' & '),
+  };
+}
+
+module.exports = { buildJobSearchTsquery, buildTitleBandQueries, relaxedSearches, parseSearchConcepts };
