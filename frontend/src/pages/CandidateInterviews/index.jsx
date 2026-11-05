@@ -47,6 +47,25 @@ import {
 import { QUICK_TIME_SLOTS, SCORE_THRESHOLDS, TIMINGS, LIMITS } from './constants';
 import { formatPhoneNumber, formatDateTime, getEffectiveStatus, isInterviewTimePassed, getTimeUntilInterview, getTimeSinceScheduled } from './utils';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  AccessTime,
+  Business,
+  CalendarToday,
+  CheckCircle,
+  Close,
+  Delete,
+  Edit,
+  Error as ErrorIcon,
+  EventAvailable,
+  Info,
+  Phone,
+  Schedule,
+  SmartToy,
+  Warning,
+  Work,
+} from '@mui/icons-material';
+import api from '@/services/api';
+import { tailoredProfileAPI } from '@/services/api';
 
 const newCountdowns = {};
 
@@ -377,6 +396,7 @@ const CandidateInterviews = () => {
 
   const updateRescheduleSlot = (interviewId, index, field, value) => {
     setRescheduleSlots(prev => {
+      const slots = [...(prev[interviewId] || [])];
       slots[index] = { ...slots[index], [field]: value };
       return { ...prev, [interviewId]: slots };
     });
@@ -384,6 +404,7 @@ const CandidateInterviews = () => {
 
   const removeRescheduleSlot = (interviewId, index) => {
     setRescheduleSlots(prev => {
+      const slots = [...(prev[interviewId] || [])];
       slots.splice(index, 1);
       return { ...prev, [interviewId]: slots };
     });

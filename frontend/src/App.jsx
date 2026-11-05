@@ -307,8 +307,9 @@ function AppContent() {
               {featureFlags.feed
                 ? <Route path="/feed" element={<FeedPage />} />
                 : <Route path="/feed" element={<Navigate to="/" replace />} />}
-              <Route path="/polls" element={<PollsPage />} />
-              <Route path="/poll/:id" element={<PollDetailPage />} />
+              {/* Polls belong to the feed, so they follow its flag. */}
+              <Route path="/polls" element={featureFlags.feed ? <PollsPage /> : <Navigate to="/" replace />} />
+              <Route path="/poll/:id" element={featureFlags.feed ? <PollDetailPage /> : <Navigate to="/" replace />} />
               
 
               

@@ -32,6 +32,26 @@ import {
 import { ROUTES, STATUS_CONFIG, CATEGORY_CONFIG, LIMITS, TEXT } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Alert, Avatar, AvatarGroup, Box, Button, Chip, Container, FormControl, IconButton, InputAdornment, MenuItem, Paper, Select, Skeleton, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from '@mui/material';
+import {
+  Add as AddIcon,
+  ArrowForward as ArrowForwardIcon,
+  Bolt as BoltIcon,
+  BookmarkBorder as BookmarkOutlineIcon,
+  LocalFireDepartment as FireIcon,
+  GridView as GridViewIcon,
+  Group as GroupIcon,
+  Favorite as HeartIcon,
+  FavoriteBorder as HeartOutlineIcon,
+  Info as InfoIcon,
+  ViewList as ListViewIcon,
+  Search as SearchIcon,
+  Star as StarIcon,
+  AccessTime as TimeIcon,
+  TrendingUp as TrendingIcon,
+  EmojiEvents as TrophyIcon,
+} from '@mui/icons-material';
+import { challengesAPI, resolveImageUrl } from '@/services/api';
 
 export default function ChallengesPage() {
   const { user, isAuthenticated } = useAuth();
@@ -148,6 +168,7 @@ export default function ChallengesPage() {
 
   // Build leaderboard from challenge creators/participants
   const topChallengers = useMemo(() => {
+    const creatorMap = {};
     challenges.forEach(c => {
       if (c.creator) {
         const id = c.creator.id || c.creatorId;

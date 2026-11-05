@@ -32,6 +32,24 @@ import {
 import { ROUTES, TEXT, TOAST_DURATION_MS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import {
+  ArrowBack as BackIcon,
+  Cloud as CloudIcon,
+  Description as CsvIcon,
+  Delete as DeleteIcon,
+  Download as DownloadIcon,
+  Email as EmailIcon,
+  Error as ErrorIcon,
+  FilterList as FilterIcon,
+  LinkedIn as LinkedInIcon,
+  RadioButtonUnchecked as PendingIcon,
+  Refresh as RefreshIcon,
+  Search as SearchIcon,
+  CheckCircle as SuccessIcon,
+  CloudUpload as UploadIcon,
+  Visibility as ViewIcon,
+} from '@mui/icons-material';
+import { candidateAPI } from '@/services/api';
 
 const ImportHistoryPage = () => {
   const navigate = useNavigate();

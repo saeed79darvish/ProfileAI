@@ -15,6 +15,13 @@ import { TEXT, TIME_UNITS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useParams} from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import {
+  ArrowBack as ArrowBackIcon,
+  LocalFireDepartment as LocalFireDepartmentIcon,
+  Share as ShareIcon,
+} from '@mui/icons-material';
+import { pollsAPI, resolveImageUrl } from '@/services/api';
+import PollCard from '@/components/polls/PollCard';
 
 const PollDetailPage = () => {
   const { id } = useParams();

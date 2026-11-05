@@ -31,6 +31,23 @@ import {
 } from './styled';
 import { WEEK_DAYS, TEXT, UPCOMING_INTERVIEWS_LIMIT, DEFAULT_PHONE_SCREENING_DURATION } from './constants';
 import { useNavigate } from 'react-router-dom';
+import {
+  AccessTime,
+  Cancel,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  LocationOn,
+  Person,
+  Phone,
+  Schedule,
+  SmartToy,
+  VideoCall,
+  Work,
+} from '@mui/icons-material';
+import api from '@/services/api';
+import { resolveImageUrl } from '@/services/api';
+import PhoneScreeningResults from '@/components/PhoneScreeningResults';
 
 const RecruiterCalendar = () => {
   const navigate = useNavigate();

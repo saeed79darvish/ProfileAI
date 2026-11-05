@@ -92,6 +92,39 @@ import {
 import { ROUTES, SECTION_PATTERNS, TIMINGS, LIMITS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Tooltip } from '@mui/material';
+import {
+  CheckCircle as ActiveIcon,
+  Add as AddIcon,
+  SmartToy as AgentIcon,
+  AutoAwesome as AIIcon,
+  People as ApplicantsIcon,
+  Business as BusinessIcon,
+  CalendarMonth as CalendarIcon,
+  Cancel as ClosedIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+  Description as DescriptionIcon,
+  Edit as EditIcon,
+  Error as ErrorIcon,
+  LocationOn as LocationIcon,
+  Message as MessageIcon,
+  PauseCircle as PausedIcon,
+  RadioButtonUnchecked as PendingIcon,
+  Person as PersonIcon,
+  Refresh as RefreshIcon,
+  AttachMoney as SalaryIcon,
+  Schedule as ScheduleIcon,
+  Search as SearchIcon,
+  CloudUpload as UploadIcon,
+  Visibility as ViewsIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { jobAPI, recruiterProfileAPI, resolveImageUrl } from '@/services/api';
+import AIProcessingModal from '@/components/AIProcessingModal';
+import AIScreeningConfigModal from '@/components/AIScreeningConfigModal';
+import CandidateSelectionModal from '@/components/CandidateSelectionModal';
+import ImportCandidatesModal from '@/components/jobs/ImportCandidatesModal';
 
 // Helper function to render formatted content - detects clean text structure
 const renderFormattedContent = (text, placeholder) => {

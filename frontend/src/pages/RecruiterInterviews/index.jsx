@@ -39,6 +39,28 @@ import {
 } from './styled';
 import { ROUTES, TEXT, RECOMMENDATION_MAP, STATUS_MAP, THRESHOLDS } from './constants';
 import { useNavigate } from 'react-router-dom';
+import { CircularProgress } from '@mui/material';
+import {
+  Assessment,
+  CalendarToday,
+  Cancel,
+  CheckCircle,
+  ExpandLess,
+  ExpandMore,
+  HelpOutline,
+  Message,
+  Person,
+  Phone,
+  Schedule,
+  Search,
+  ThumbDown,
+  ThumbUp,
+  TrendingDown,
+  TrendingUp,
+  Work,
+} from '@mui/icons-material';
+import api from '@/services/api';
+import { phoneScreeningAPI, resolveImageUrl } from '@/services/api';
 
 const RecruiterInterviews = () => {
   const navigate = useNavigate();

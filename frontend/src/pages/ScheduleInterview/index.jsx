@@ -36,6 +36,25 @@ import {
 } from './styled';
 import { ROUTES, TEXT, INTERVIEW_TYPES, FORMAT_OPTIONS, DURATION_OPTIONS, SCREENING_DURATION_OPTIONS, DEFAULTS } from './constants';
 import { useState, useEffect } from 'react';
+import {
+  AccessTime,
+  Add,
+  CheckCircle,
+  Delete,
+  Event as EventIcon,
+  Home as HomeIcon,
+  Info,
+  LocationOn,
+  NavigateNext as NavigateNextIcon,
+  Person,
+  Phone,
+  Schedule,
+  SmartToy,
+  VideoCall,
+  Work,
+} from '@mui/icons-material';
+import api from '@/services/api';
+import { interviewAPI, resolveImageUrl } from '@/services/api';
 
 const ScheduleInterview = () => {
   const navigate = useNavigate();

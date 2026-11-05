@@ -42,6 +42,22 @@ import {
 import { ROUTES, CUSTOM_LABELS, STATUS_OPTIONS, THRESHOLDS, TEXT } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useParams} from 'react-router-dom';
+import {
+  ArrowBack as BackIcon,
+  Close as CloseIcon,
+  CalendarToday as DateIcon,
+  Download as DownloadIcon,
+  Email as EmailIcon,
+  EventAvailable as InterviewIcon,
+  Message as MessageIcon,
+  Person as PersonIcon,
+  Phone as PhoneIcon,
+  Cancel as RejectIcon,
+  Search as SearchIcon,
+  Star as ShortlistIcon,
+  Visibility as ViewIcon,
+} from '@mui/icons-material';
+import { jobAPI, resolveImageUrl } from '@/services/api';
 
 // Flatten the answers - expand nested objects like customAnswers
     const flattened = {};

@@ -48,6 +48,25 @@ import { featureFlags } from '../../config/featureFlags';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import {
+  SmartToy as AgentIcon,
+  AutoAwesome as AIIcon,
+  Clear as ClearIcon,
+  ExpandLess as CollapseIcon,
+  ExpandMore as ExpandIcon,
+  FilterList as FilterIcon,
+  LocationOn as LocationIcon,
+  Psychology as PsychologyIcon,
+  RocketLaunch as RocketIcon,
+  Search as SearchIcon,
+  Sort as SortIcon,
+  Speed as SpeedIcon,
+  EmojiEvents as TrophyIcon,
+  Visibility as ViewIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { profileAPI, resolveImageUrl } from '@/services/api';
+import AgentNegotiationModal from '@/components/AgentNegotiationModal';
 
 const BrowseProfiles = () => {
   const navigate = useNavigate();
@@ -69,6 +88,7 @@ const BrowseProfiles = () => {
   const [experienceLevel, setExperienceLevel] = useState('');
   const [aiEnhancedOnly, setAiEnhancedOnly] = useState(false);
   const [sortBy, setSortBy] = useState('relevance');
+  const limit = LIMITS.PAGE_SIZE;
 
   // Debounce search input
   useEffect(() => {
@@ -93,7 +113,17 @@ const BrowseProfiles = () => {
   const loadProfiles = async () => {
     setLoading(true);
     try {
-      
+      const params = {
+        search: debouncedSearch || undefined,
+        skills: selectedSkills.length > 0 ? selectedSkills.join(',') : undefined,
+        location: locationFilter || undefined,
+        experienceLevel: experienceLevel || undefined,
+        aiEnhanced: aiEnhancedOnly ? 'true' : undefined,
+        sortBy,
+        limit,
+        offset: (page - 1) * limit,
+      };
+
       // Remove undefined values
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
       
@@ -111,6 +141,7 @@ const BrowseProfiles = () => {
   };
 
   const calculateAIScore = (profile) => {
+    let score = 0;
     if (profile.aiSummary) score += 25;
     if (profile.aiStrengths && profile.aiStrengths.length > 0) score += 25;
     if (profile.aiKeywords && profile.aiKeywords.length > 5) score += 20;
@@ -119,6 +150,7 @@ const BrowseProfiles = () => {
   };
 
   const getProfileCompleteness = (profile) => {
+    let completeness = 0;
     if (profile.summary) completeness += 15;
     if (profile.experience && profile.experience.length > 0) completeness += 25;
     if (profile.education && profile.education.length > 0) completeness += 15;

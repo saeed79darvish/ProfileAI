@@ -35,6 +35,22 @@ import {
 import { ROUTES, TEXT, REDIRECT_DELAY_MS, PASSWORD_MIN_LENGTH } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useParams, useSearchParams} from 'react-router-dom';
+import {
+  CheckCircle as AcceptIcon,
+  AutoAwesome as AIIcon,
+  Business as CompanyIcon,
+  Cancel as DeclineIcon,
+  LocationOn as LocationIcon,
+  Lock as LockIcon,
+  Person as PersonIcon,
+  AttachMoney as SalaryIcon,
+  AccessTime as TimeIcon,
+  Verified as VerifiedIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  Warning as WarningIcon,
+} from '@mui/icons-material';
+import { invitationAPI } from '@/services/api';
 
 const InvitationAcceptPage = () => {
   const { token } = useParams();

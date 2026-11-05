@@ -50,6 +50,28 @@ import {
 import { ROUTES, STATUS_CONFIG, KANBAN_COLUMNS, ARCHIVE_STATUSES, COMPANY_COLORS, TIMINGS, LIMITS, TEXT } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, Menu, MenuItem, Select, Snackbar, TextField, Tooltip } from '@mui/material';
+import {
+  Add as AddIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  CalendarMonth as CalendarIcon,
+  Close as CloseIcon,
+  Business as CompanyIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  FilterList as FilterIcon,
+  ViewKanban as KanbanIcon,
+  FormatListBulleted as ListIcon,
+  LocationOn as LocationIcon,
+  AttachMoney as MoneyIcon,
+  MoreHoriz as MoreIcon,
+  Notes as NoteIcon,
+  OpenInNew as OpenIcon,
+  RocketLaunch as RocketIcon,
+  Search as SearchIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { externalApplicationAPI } from '@/services/api';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -123,6 +145,7 @@ export default function MyJobs() {
     const timer = setTimeout(() => setSearch(searchInput), 400);
     return () => clearTimeout(timer);
   }, [searchInput]);
+  const grouped = {};
   Object.keys(STATUS_CONFIG).forEach(s => { grouped[s] = []; });
   applications.forEach(app => {
     if (grouped[app.status]) grouped[app.status].push(app);

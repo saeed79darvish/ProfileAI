@@ -15,6 +15,18 @@ import { ROUTES, STEPS, CHALLENGE_TYPES, TEXT, LIMITS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import {
+  Add as AddIcon,
+  ArrowBack as BackIcon,
+  Check as CheckIcon,
+  Delete as DeleteIcon,
+  Group as GroupIcon,
+  Lock as LockIcon,
+  NavigateNext as NextIcon,
+  Public as PublicIcon,
+  EmojiEvents as TrophyIcon,
+} from '@mui/icons-material';
+import { challengesAPI } from '@/services/api';
 
 export default function ChallengeCreationWizard() {
   const { user } = useAuth();

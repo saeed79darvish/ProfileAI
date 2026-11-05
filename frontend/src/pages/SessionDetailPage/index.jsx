@@ -50,6 +50,27 @@ import { ROUTES, EXTERNAL_LINKS, LIMITS, TEXT as CONST_TEXT } from './constants'
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useParams} from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  ArrowBack as BackIcon,
+  CalendarMonth as CalendarIcon,
+  Check as CheckIcon,
+  Edit as EditIcon,
+  StopCircle as EndIcon,
+  LocalFireDepartment as FireIcon,
+  Login as JoinIcon,
+  SupervisorAccount as MentorshipIcon,
+  People as PeopleIcon,
+  Share as ShareIcon,
+  Slideshow as ShowcaseIcon,
+  Star as StarIcon,
+  PlayArrow as StartIcon,
+  School as TeachingIcon,
+  AccessTime as TimeIcon,
+  Videocam as VideoIcon,
+  Visibility as ViewIcon,
+} from '@mui/icons-material';
+import { resolveImageUrl, sessionAPI } from '@/services/api';
 
 const formatDateTime = (dateString) => {
   const date = new Date(dateString);

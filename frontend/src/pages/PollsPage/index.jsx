@@ -20,6 +20,15 @@ import { CATEGORIES, TEXT, PAGINATION } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useSearchParams} from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import {
+  AccessTime as AccessTimeIcon,
+  Add as AddIcon,
+  LocalFireDepartment as LocalFireDepartmentIcon,
+  TrendingUp as TrendingUpIcon,
+} from '@mui/icons-material';
+import { pollsAPI } from '@/services/api';
+import CreatePollModal from '@/components/polls/CreatePollModal';
+import PollCard from '@/components/polls/PollCard';
 
 const PollsPage = () => {
   const { user } = useAuth();

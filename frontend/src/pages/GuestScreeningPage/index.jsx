@@ -57,6 +57,23 @@ import {
 } from './styled';
 import { ROUTES, TEXT, ALLOWED_FILE_TYPES, LIMITS } from './constants';
 import { useNavigate, useParams} from 'react-router-dom';
+import {
+  AutoAwesome as AIIcon,
+  ArrowBack as BackIcon,
+  Check as CheckIcon,
+  Delete as DeleteIcon,
+  Info as InfoIcon,
+  LocationOn as LocationIcon,
+  Bolt as QuickIcon,
+  Description as ResumeIcon,
+  AttachMoney as SalaryIcon,
+  Send as SendIcon,
+  PersonAdd as SignUpIcon,
+  TimerOutlined as TimerIcon,
+  CloudUpload as UploadIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { guestScreeningAPI } from '@/services/api';
 
 // ─── Component ──────────────────────────────────
 export default function GuestScreeningPage() {

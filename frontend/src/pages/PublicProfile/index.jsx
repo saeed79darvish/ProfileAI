@@ -241,7 +241,7 @@ const PublicProfile = () => {
           '@context': 'https://schema.org',
           '@type': 'Person',
           name: fullName,
-          jobTitle: headline || title || undefined,
+          jobTitle: headline || undefined,
           description: (bio || '').replace(/<[^>]+>/g, '').slice(0, 500) || undefined,
           image: profileImage || undefined,
           address: location

@@ -34,6 +34,18 @@ import {
 import { ROUTES, SLIDES, TEXT, TIMINGS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Avatar, Box, Typography } from '@mui/material';
+import {
+  AutoAwesome as AIIcon,
+  ArrowForward as ArrowIcon,
+  Bolt as BoltIcon,
+  Business as BusinessIcon,
+  CalendarMonth as CalendarIcon,
+  Check as CheckIcon,
+  People as PeopleIcon,
+  AutoAwesome as SmartMatchIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
 
 /* ═══════════════════════════════════════════════
    PAGINATION DOTS

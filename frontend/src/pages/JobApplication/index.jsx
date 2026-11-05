@@ -53,6 +53,23 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import MobileApplyRecommendation from '@/components/MobileApplyRecommendation';
 import useIsMobileDevice from '@/hooks/useIsMobileDevice';
+import {
+  Add as AddIcon,
+  AttachFile as AttachIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  Business as BusinessIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
+  Delete as DeleteIcon,
+  Home as HomeIcon,
+  NavigateNext as NavigateNextIcon,
+  Description as ResumeIcon,
+  School as SchoolIcon,
+  Send as SendIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { jobAPI, profileAPI } from '@/services/api';
+import ProcessingModal from '@/components/ProcessingModal';
 
 let startDate = '';
 
@@ -236,6 +253,8 @@ const JobApplication = () => {
             };
           }));
         }
+        const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
+        const newAnswers = { ...answers };
         job.applicationQuestions?.forEach((q, index) => {
           const qId = (q.id || '').toLowerCase();
           const qText = (q.question || '').toLowerCase();
@@ -412,6 +431,7 @@ const JobApplication = () => {
       
       // Include custom question answers
       if (job.applicationQuestions && job.applicationQuestions.length > 0) {
+        const formattedAnswers = {};
         job.applicationQuestions.forEach((q, index) => {
           formattedAnswers[q.question] = answers[`question_${index}`];
         });

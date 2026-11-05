@@ -17,6 +17,20 @@ import { ROUTES, MOOD_EMOJIS, GRADIENTS, TEXT, LIMITS } from './constants';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useParams} from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import {
+  Add as AddIcon,
+  ArrowBack as BackIcon,
+  CalendarMonth as CalendarIcon,
+  Check as CheckIcon,
+  ContentCopy as CopyIcon,
+  LocalFireDepartment as FireIcon,
+  ExitToApp as LeaveIcon,
+  Flag as MilestoneIcon,
+  NotificationsActive as NudgeIcon,
+  People as PeopleIcon,
+  Share as ShareIcon,
+} from '@mui/icons-material';
+import { challengesAPI, resolveImageUrl } from '@/services/api';
 
 export default function ChallengeDetailPage() {
   const { id } = useParams();

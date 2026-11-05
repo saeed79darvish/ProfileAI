@@ -35,6 +35,25 @@ import { ROUTES, COMPANY_SIZES, INDUSTRIES, TIMINGS, VALIDATION, AVATAR_SIZE } f
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import {
+  Add as AddIcon,
+  AutoAwesome as AIIcon,
+  CheckCircle as CheckCircleIcon,
+  Business as CompanyIcon,
+  Edit as EditIcon,
+  Email as EmailIcon,
+  Groups as GroupsIcon,
+  LinkedIn as LinkedInIcon,
+  LocationOn as LocationIcon,
+  Person as PersonIcon,
+  Phone as PhoneIcon,
+  PhotoCamera as PhotoIcon,
+  Save as SaveIcon,
+  Language as WebsiteIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { recruiterProfileAPI, resolveImageUrl } from '@/services/api';
+import AIProcessingModal from '@/components/AIProcessingModal';
 
 const RecruiterProfileForm = () => {
   const navigate = useNavigate();

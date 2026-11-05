@@ -75,6 +75,40 @@ import { ROUTES, WORK_TYPES, EMPLOYMENT_TYPES, LEVELS, TIMINGS, TEXT as CONST_TE
 import { renderFormattedContent } from './utils';
 import JobAIToolsPanel from '../../components/JobAIToolsPanel';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  AutoAwesome as AIIcon,
+  People as ApplicantsIcon,
+  BookmarkBorder as BookmarkBorderIcon,
+  Bookmark as BookmarkIcon,
+  Psychology as BrainIcon,
+  Business as BusinessIcon,
+  CalendarMonth as CalendarIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
+  Edit as EditIcon,
+  Error as ErrorIcon,
+  OpenInNew as ExternalIcon,
+  Assignment as FormIcon,
+  Home as HomeIcon,
+  LocationOn as LocationIcon,
+  Message as MessageIcon,
+  NavigateNext as NavigateNextIcon,
+  RadioButtonUnchecked as PendingIcon,
+  Person as PersonIcon,
+  Refresh as RefreshIcon,
+  AttachMoney as SalaryIcon,
+  Schedule as ScheduleIcon,
+  Assessment as ScoreIcon,
+  Send as SendIcon,
+  Share as ShareIcon,
+  Visibility as ViewsIcon,
+  Language as WebsiteIcon,
+  Work as WorkIcon,
+} from '@mui/icons-material';
+import { jobAPI, resolveImageUrl } from '@/services/api';
+import AIScreeningConfigModal from '@/components/AIScreeningConfigModal';
+import AgentNegotiationModal from '@/components/AgentNegotiationModal';
+import LimitReachedModal from '@/components/LimitReachedModal';
 
 const JobDetail = () => {
   const { id } = useParams();
