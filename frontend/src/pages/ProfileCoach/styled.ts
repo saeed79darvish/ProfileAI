@@ -1286,6 +1286,26 @@ export const ConvertNote = styled.div`
 
 /* ─── Resume upload progress ──────────────────────────────────── */
 
+export const ReadingCard = styled(Card)`
+  strong { display: block; font-size: 16px; color: #13152a; }
+  .file { display: block; margin-top: 2px; font-size: 13px; color: #8a8ea8; word-break: break-all; }
+  ol {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    border-radius: 14px;
+    background: #fff;
+    border: 1.5px solid #e8e9f0;
+    overflow: hidden;
+  }
+  li { display: flex; align-items: center; gap: 12px; padding: 13px 14px; font-size: 15px; font-weight: 500; color: #9ca3af; }
+  li + li { border-top: 1px solid #eef0f4; }
+  li[data-state='done'], li[data-state='active'] { color: #13152a; }
+  .dot { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #f1f2f6; }
+  li[data-state='done'] .dot { background: #4caf6e; color: #fff; }
+  .dot svg { font-size: 16px; }
+`;
+
 export const UploadCard = styled(Card)`
   display: flex;
   align-items: center;

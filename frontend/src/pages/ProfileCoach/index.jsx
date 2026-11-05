@@ -14,8 +14,10 @@ import {
   Verified as ReadyIcon,
   DescriptionOutlined as FileIcon,
   CheckCircle as DoneIcon,
+  Check as CheckIcon,
   ErrorOutline as FailedIcon,
 } from '@mui/icons-material';
+import { CircularProgress } from '@mui/material';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { profileAPI, careerContextAPI } from '../../services/api';
@@ -148,7 +150,8 @@ import {
   ResumeSheet, ResumeName, ResumeMeta, ResumeSection, ResumeEntry, ResumeSkills,
   TourHero, TourSection, TourList, TourItem, TourIcon, TourAllowances, TourFootnote,
   ConvertCard, ConvertActions, ConvertPrimary, ConvertSecondary, ConvertNote,
-  UploadCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
+  UploadCard,
+  ReadingCard, UploadIcon, UploadBody, UploadTrack, ChipRemove, MultiDone,
   CheckList, CheckEdit,
 } from './styled';
 
@@ -177,31 +180,55 @@ const VERDICT_TONE = {
  * when the parse actually returns, so it never claims to be finished before
  * it is.
  */
+const READ_STEPS = ['Reading what you sent', 'Finding your roles', 'Picking out skills and education', 'Building your profile'];
+// When each next step lights up, in ms. The last one waits for the parse to return.
+const READ_STEP_AT = [2500, 6000, 10000];
+
 const UploadProgress = ({ fileName, done, failed }) => {
-  const [stepIdx, setStepIdx] = useState(0);
+  const [at, setAt] = useState(0);
 
   useEffect(() => {
     if (done || failed) return undefined;
-    const id = setInterval(
-      () => setStepIdx((i) => Math.min(i + 1, UPLOAD_STEPS.length - 1)),
-      UPLOAD_STEP_MS
-    );
-    return () => clearInterval(id);
+    const timers = READ_STEP_AT.map((ms, i) => setTimeout(() => setAt(i + 1), ms));
+    return () => timers.forEach(clearTimeout);
   }, [done, failed]);
 
-  const pct = failed ? 100 : done ? 100 : Math.min(90, 12 + stepIdx * 20);
+  // A failed read keeps the red card; the chat says what went wrong.
+  if (failed) {
+    return (
+      <UploadCard>
+        <UploadIcon><FailedIcon htmlColor="#dc2626" /></UploadIcon>
+        <UploadBody>
+          <b>{fileName}</b>
+          <span>{TEXT.UPLOAD_UNREADABLE}</span>
+          <UploadTrack $pct={100} $done={false} $failed><i /></UploadTrack>
+        </UploadBody>
+      </UploadCard>
+    );
+  }
 
+  /* The same stepped list the tailoring flow shows: checks for what is done,
+     a spinner on what is happening, empty dots for what is next. It sits in
+     the conversation instead of over it, and stays, finished, as the record
+     of the read. */
   return (
-    <UploadCard>
-      <UploadIcon>
-        {failed ? <FailedIcon htmlColor="#dc2626" /> : done ? <DoneIcon htmlColor="#22c55e" /> : <FileIcon />}
-      </UploadIcon>
-      <UploadBody>
-        <b>{fileName}</b>
-        <span>{failed ? TEXT.UPLOAD_UNREADABLE : done ? 'Read it.' : UPLOAD_STEPS[stepIdx]}</span>
-        <UploadTrack $pct={pct} $done={done} $failed={failed}><i /></UploadTrack>
-      </UploadBody>
-    </UploadCard>
+    <ReadingCard role="status">
+      <strong>{done ? 'Read your resume' : 'Reading your resume\u2026'}</strong>
+      <span className="file">{fileName}</span>
+      <ol>
+        {READ_STEPS.map((name, i) => {
+          const state = done || i < at ? 'done' : i === at ? 'active' : 'pending';
+          return (
+            <li key={name} data-state={state}>
+              <span className="dot">
+                {state === 'done' ? <CheckIcon /> : state === 'active' ? <CircularProgress size={16} sx={{ color: '#5b5fd6' }} /> : null}
+              </span>
+              {name}
+            </li>
+          );
+        })}
+      </ol>
+    </ReadingCard>
   );
 };
 
@@ -336,10 +363,6 @@ const shrinkImage = (file, max = 768) => new Promise((resolve, reject) => {
 const FOLLOW_UP_STEPS = new Set(['currentRole', 'achievements', 'previousRole', 'projects']);
 // A voice message sent before its accurate transcript is back.
 const PENDING_BUBBLE = { opacity: 0.6, transition: 'opacity 200ms ease' };
-// The resume-reading window: closed, and how long "All read" stays up
-// (its remaining steps fast-forward at 700ms each first).
-const CLOSED_READING = { open: false, done: false, fileName: '' };
-const READING_CLOSE_MS = 3200;
 
 let messageSeq = 0;
 const nextId = () => { messageSeq += 1; return `m${messageSeq}`; };
@@ -451,7 +474,6 @@ const ProfileCoach = () => {
   });
 
   const fileInputRef = useRef(null);
-  const [reading, setReading] = useState(CLOSED_READING);
   // Read inside askStep, which is declared before the dictation hook's
   // value is worth depending on.
   const dictationSupportedRef = useRef(dictation.supported);
@@ -1144,7 +1166,10 @@ const ProfileCoach = () => {
     setDraft(withLink);
     setBusy(true);
     setTyping(true);
-    setReading({ open: true, done: false, fileName: url.replace(/^https?:\/\/(www\.)?/, '') });
+    const progressId = nextId();
+    setMessages((prev) => [...prev, {
+      id: progressId, role: 'coach', text: '', uploading: true, fileName: url.replace(/^https?:\/\/(www\.)?/, ''),
+    }]);
     const read = async () => {
       if (canImport) {
         try {
@@ -1161,15 +1186,15 @@ const ProfileCoach = () => {
     const found = await read();
     setTyping(false);
     setBusy(false);
+    setMessages((prev) => prev.map(
+      (m) => (m.id === progressId ? { ...m, uploadDone: !!found, uploadFailed: !found } : m)
+    ));
     if (!found) {
-      setReading(CLOSED_READING);
       trackEvent('coach_linkedin_url', { result: 'unreadable' });
       pushCoach(TEXT.LINKEDIN_URL_PDF);
       return;
     }
     trackEvent('coach_linkedin_url', { result: 'read', roles: (found.experience || []).length });
-    setReading((r) => ({ ...r, done: true }));
-    later(() => setReading(CLOSED_READING), READING_CLOSE_MS);
     applyImport({ ...found, linkedinUrl: found.linkedinUrl || url }, 'linkedin');
   }, [applyImport, later, pushCoach, pushMine]);
 
@@ -1229,21 +1254,12 @@ const ProfileCoach = () => {
     setMessages((prev) => [...prev, {
       id: progressId, role: 'coach', text: '', uploading: true, fileName: file.name,
     }]);
-    /* The stepped progress window the rest of the app uses for long AI
-       work, over the chat while the file is read. On success it runs its
-       remaining steps out and closes itself; on failure it closes at once,
-       and the chat says what went wrong. */
-    setReading({ open: true, done: false, fileName: file.name });
+    // The progress card above runs its remaining steps out on success; on
+    // failure it becomes the red card, and the chat says what went wrong.
     const finishProgress = (ok) => {
       setMessages((prev) => prev.map(
         (m) => (m.id === progressId ? { ...m, uploadDone: ok, uploadFailed: !ok } : m)
       ));
-      if (!ok) {
-        setReading(CLOSED_READING);
-        return;
-      }
-      setReading((r) => ({ ...r, done: true }));
-      later(() => setReading(CLOSED_READING), READING_CLOSE_MS);
     };
 
     try {
@@ -3939,14 +3955,6 @@ const ProfileCoach = () => {
           note={shareNote}
         />
       )}
-
-      <ProgressModal
-        open={reading.open}
-        variant="coachResume"
-        context={reading.fileName}
-        completed={reading.done}
-        onClose={() => setReading(CLOSED_READING)}
-      />
 
       <LinkedInImportModal
         open={linkedinOpen}
