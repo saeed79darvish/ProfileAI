@@ -95,7 +95,7 @@ export const testimonials = [
 ];
 
 export const platforms = [
-  'LinkedIn', 'Greenhouse', 'Lever', 'Workday', 'Ashby',
+  'Greenhouse', 'Lever', 'Workday', 'Ashby',
   'BambooHR', 'iCIMS', 'Taleo', 'SmartRecruiters', 'JazzHR', '+50 more',
 ];
 

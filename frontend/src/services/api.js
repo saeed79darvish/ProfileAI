@@ -502,6 +502,7 @@ export const smartMatchAPI = {
    of voice calls. Theirs to see, edit and delete. */
 export const careerContextAPI = {
   get: () => api.get('/career-context'),
+  answerCatalog: () => api.get('/career-context/answer-catalog'),
   edit: (patch) => api.patch('/career-context', patch),
   merge: (patch, { overwrite = false } = {}) => api.post('/career-context/merge', { ...patch, overwrite }),
   summarizeCall: (transcript) => api.post('/career-context/summarize', { transcript }),

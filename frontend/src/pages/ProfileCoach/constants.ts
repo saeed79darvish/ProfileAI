@@ -142,6 +142,10 @@ export const TEXT = {
   REASK_TEXT: 'Thanks, I have noted that. A line or two on this one, or skip it.',
   NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',
   // A question set aside after two turns that did not answer it.
+  MEMORY_THANKS: 'Thank you. That is saved privately, and you can change or delete any of it under About you on your profile.',
+  MEMORY_LATER: 'No problem. You can answer these any time under About you on your profile.',
+  MEMORY_WHY: 'It is only used to answer the custom questions on your applications the way you would. It stays private, we never share it, and you can skip any question or delete it later.',
+  MEMORY_PICK_ONE: 'Tap the closest one, or skip it.',
   PASSED: ['No problem, we can leave that one for now.', 'That is fine, we can skip it.', 'No worries.'],
   SEND: 'Send',
   // Their voice answer in the chat while its words are being written out.

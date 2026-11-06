@@ -13,6 +13,7 @@ import { careerContextAPI } from '@/services/api';
 import ConfirmModal from '@/components/ConfirmModal';
 import { trackEvent } from '@/utils/analytics';
 import { TEXT, FIELDS, CONSTRAINT_FIELDS } from './constants';
+import AnswersSection from './AnswersSection';
 
 /**
  * What ProfilleAI knows about you.
@@ -136,6 +137,8 @@ const AboutYou = () => {
     || Object.keys(context.constraints || {}).length
     || context.assessment
     || (context.summaries || []).length
+    || Object.keys(context.answerFacts || {}).length
+    || Object.keys(context.answerStories || {}).length
   );
 
   return (
@@ -230,6 +233,8 @@ const AboutYou = () => {
               <Typography sx={{ color: '#a0a0b8', fontStyle: 'italic' }}>{TEXT.NO_CALLS}</Typography>
             )}
           </Paper>
+
+          <AnswersSection context={context} busy={busy} run={run} />
 
           {hasAnything && (
             <Button color="error" variant="outlined" onClick={() => setConfirmClear(true)} disabled={busy}>

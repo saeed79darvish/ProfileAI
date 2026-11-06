@@ -15,7 +15,6 @@ export const extensionConfig = {
   isPublished: STORE_URL.length > 0,
   // Supported job sites the extension works on.
   supportedSites: [
-    'LinkedIn',
     'Indeed',
     'Greenhouse',
     'Lever',

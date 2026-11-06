@@ -75,6 +75,8 @@ import {
   careerStageFrom,
   roleTypeIdsFrom,
   STAGE_ORDERS,
+  nextMemoryItem, memoryItems, memoryChips, memoryReply, applyMemoryAnswer, skipMemoryItem, finishMemory,
+  answerMemoryOf, guestCareerContextOf,
   withStageDefaults,
 } from './coachLogic.js';
 import { computeProfileCompletion } from '../../hooks/useProfileCompletion.js';
@@ -94,7 +96,7 @@ test('every ladder step declares the fields the page dispatches on', () => {
     assert.ok(s.id, 'step needs an id');
     assert.ok(s.question, `${s.id} needs a question`);
     assert.ok(
-      [...ASKING_KINDS, 'run', 'tour', 'convert'].includes(s.kind),
+      [...ASKING_KINDS, 'run', 'tour', 'convert', 'memory'].includes(s.kind),
       `${s.id} has unknown kind ${s.kind}`
     );
     // A 'run' step must say what it runs, or the page has nothing to dispatch.
@@ -1831,4 +1833,101 @@ test('coachCompletion: an empty Looking for row keeps the meter under 100', () =
   const draft = { experience: [{ title: 'Dev' }] };
   assert.ok(coachCompletion({ items }, draft).pct < 100);
   assert.equal(coachCompletion({ items }, { ...draft, workStyle: 'remote' }).pct, 100);
+});
+
+
+/* ─── Answer memory ─── */
+
+test('answer memory sits after the tour and before the sign-up card, on every path', () => {
+  for (const [stage, ids] of Object.entries(STAGE_ORDERS)) {
+    assert.equal(ids.indexOf('answerMemory'), ids.indexOf('tour') + 1, `${stage}: right after the tour`);
+    assert.equal(ids.indexOf('convert'), ids.indexOf('answerMemory') + 1, `${stage}: right before convert`);
+  }
+  const draft = { ...emptyDraft(), sector: 'tech', level: 'senior', title: 'Engineer', careerStage: 'experienced' };
+  const idx = (id) => LADDER.findIndex((s) => s.id === id);
+  assert.equal(LADDER[nextStepIndex(idx('tour'), draft)].id, 'answerMemory');
+  assert.equal(LADDER[nextStepIndex(idx('answerMemory'), draft)].id, 'convert');
+  // The imported path and the original order are otherwise untouched.
+  const imported = { ...draft, importedFrom: 'resume', experience: [{ title: 'Dev' }] };
+  assert.equal(LADDER[nextStepIndex(idx('tour'), imported)].id, 'answerMemory');
+});
+
+test('answer memory asks at most five facts then two stories, in order, no demographics', () => {
+  const items = memoryItems();
+  assert.deepEqual(items.map((i) => i.id), [
+    'workAuthorization', 'openToRelocation', 'officeComfort', 'earliestStart', 'salaryExpectation',
+    'motivation', 'proudestAchievement',
+  ]);
+  assert.equal(items.filter((i) => i.kind === 'fact').length, 5);
+  assert.equal(items.filter((i) => i.kind === 'story').length, 2);
+  const everything = JSON.stringify(items).toLowerCase();
+  for (const word of ['gender', 'race', 'veteran', 'disability', 'religion']) assert.ok(!everything.includes(word));
+  // A server catalog with more in it does not widen what is asked.
+  const wide = { facts: [...items.filter((i) => i.kind === 'fact'), { id: 'gender', ask: 'x', type: 'text' }], stories: [] };
+  assert.ok(memoryItems(wide).every((i) => i.id !== 'gender'));
+});
+
+test('answer memory: choices become chips, Skip and the exit are always there', () => {
+  const [auth, , , start] = memoryItems();
+  const chips = memoryChips(auth);
+  assert.deepEqual(chips.slice(0, 3).map((c) => c.id), ['authorized_no_sponsorship', 'needs_sponsorship_now', 'needs_sponsorship_future']);
+  assert.ok(chips.some((c) => c.id === '__mem_skip'));
+  assert.ok(chips.some((c) => c.id === '__mem_later' && /rather answer these later/.test(c.label)));
+  // A text fact has only the two controls: the answer is typed.
+  assert.deepEqual(memoryChips(start).map((c) => c.id), ['__mem_skip', '__mem_later']);
+});
+
+test('answer memory: answering and skipping walk the items; leaving ends the step', () => {
+  let draft = emptyDraft();
+  const idx = LADDER.findIndex((s) => s.id === 'tour');
+  assert.equal(nextMemoryItem(draft).id, 'workAuthorization');
+  draft = applyMemoryAnswer(draft, nextMemoryItem(draft), 'authorized_no_sponsorship');
+  assert.equal(draft.answerFacts.workAuthorization.value, 'authorized_no_sponsorship');
+  draft = skipMemoryItem(draft, nextMemoryItem(draft));
+  assert.equal(nextMemoryItem(draft).id, 'officeComfort');
+  // Skipped items are not asked again, and the step is not answered until all are handled.
+  assert.equal(nextStepIndex(idx, { ...draft, mode: 'chat' }), LADDER.findIndex((s) => s.id === 'answerMemory'));
+  for (let n = 0; n < 10 && nextMemoryItem(draft); n += 1) draft = skipMemoryItem(draft, nextMemoryItem(draft));
+  assert.equal(nextMemoryItem(draft), null);
+  assert.equal(nextStepIndex(idx, { ...draft, mode: 'chat' }), LADDER.findIndex((s) => s.id === 'convert'));
+  // "I'd rather answer these later" ends it at once.
+  const later = finishMemory(emptyDraft());
+  assert.equal(nextStepIndex(idx, later), LADDER.findIndex((s) => s.id === 'convert'));
+});
+
+test('answer memory: typed replies are read, never guessed', () => {
+  const [auth, reloc, , start] = memoryItems();
+  assert.deepEqual(memoryReply(start, 'two weeks'), { type: 'answer', value: 'two weeks' });
+  assert.deepEqual(memoryReply(start, 'skip'), { type: 'skip' });
+  assert.deepEqual(memoryReply(start, "I'd rather answer these later"), { type: 'later' });
+  assert.deepEqual(memoryReply(reloc, 'yes'), { type: 'answer', value: 'yes' });
+  assert.deepEqual(memoryReply(auth, 'purple monkey'), { type: 'unmatched' });
+  assert.deepEqual(memoryReply(auth, ''), { type: 'none' });
+  assert.deepEqual(memoryReply(start, 'why do you need this?'), { type: 'question' });
+});
+
+test('answer memory is not part of the profile strength', () => {
+  const base = { ...emptyDraft(), title: 'Engineer', summary: 'x' };
+  const items = [{ id: 'a', complete: true }];
+  const withMemory = { ...base, answerFacts: { salaryExpectation: { value: '100k' } }, answerStories: { motivation: { text: 'x' } } };
+  assert.deepEqual(coachCompletion({ items }, base), coachCompletion({ items }, withMemory));
+});
+
+test('a guest carries answer memory in the draft meta and it is split cleanly', () => {
+  let draft = { ...emptyDraft(), target: 'Product Manager' };
+  const [auth, , , start, , story] = memoryItems();
+  draft = applyMemoryAnswer(draft, auth, 'needs_sponsorship_future');
+  draft = applyMemoryAnswer(draft, start, 'two weeks');
+  draft = applyMemoryAnswer(draft, story, 'I like building things people use.');
+  const meta = guestCareerContextOf(draft);
+  assert.equal(meta.target, 'Product Manager');
+  assert.equal(meta.answerFacts.workAuthorization.value, 'needs_sponsorship_future');
+  assert.equal(meta.answerFacts.earliestStart.value, 'two weeks');
+  assert.equal(meta.answerStories.motivation.text, 'I like building things people use.');
+  // The ordinary context does not carry it, so the merge endpoint never sees it.
+  assert.equal(careerContextOf(draft).answerFacts, undefined);
+  assert.deepEqual(answerMemoryOf(emptyDraft()), {});
+  // An account that already holds answers is not asked again.
+  const seeded = seedFromCareerContext(emptyDraft(), { answerFacts: { workAuthorization: { value: 'authorized_no_sponsorship' } } });
+  assert.equal(nextMemoryItem(seeded).id, 'openToRelocation');
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { landCareerContext } from '../../utils/landCareerContext';
 import { useNavigate, useSearchParams, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -25,7 +26,7 @@ import GoogleAuthButton from '@/components/GoogleAuthButton';
 import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import TermsConsentDialog from '@/components/TermsConsentDialog';
 import { useAuth } from '@/contexts/AuthContext';
-import { authAPI, referralAPI, profileAPI, careerContextAPI } from '@/services/api';
+import { authAPI, referralAPI, profileAPI } from '@/services/api';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
 import { isFromExtension, handleExtensionAuthSuccess } from '@/utils/extensionBridge';
 import { trackEvent } from '@/utils/analytics';
@@ -169,9 +170,7 @@ const Register = () => {
     /* What the coach learned before there was an account (target, why,
        obstacles, constraints) goes into their record now. Failing here
        must not cost them the profile, so it is fire-and-forget. */
-    if (meta?.careerContext && Object.keys(meta.careerContext).length) {
-      careerContextAPI.merge(meta.careerContext).catch(() => {});
-    }
+    landCareerContext(meta?.careerContext);
     if (meta?.source === 'coach' && meta?.autoPublish) {
       try {
         await profileAPI.createOrUpdateProfile(draft);

@@ -37,3 +37,27 @@ export const CONSTRAINT_FIELDS = [
   { key: 'salary', label: 'Pay' },
   { key: 'noticePeriod', label: 'When you can start' },
 ] as const;
+
+export const ANSWERS_TEXT = {
+  TITLE: 'Answers I can give for you',
+  PRIVACY: 'This stays private. We never share it, and we only use it to answer the custom questions on your applications.',
+  INTRO: 'The extension and the application helper use these to answer custom questions the way you would. They are never guessed. If something is missing here, you are asked instead.',
+  EMPTY_TITLE: 'Nothing saved yet',
+  EMPTY_BODY: 'Application forms ask the same things again and again: do you need sponsorship, can you relocate, when can you start, what pay do you want. Tell us once and we can answer them for you. Five quick questions cover most of it.',
+  EMPTY_CTA: 'Answer the five key questions',
+  ADD: 'Add an answer',
+  HIDE: 'Hide',
+  NOT_ANSWERED: 'Not answered',
+  FACTS: 'Facts',
+  STORIES: 'In your own words',
+  EDIT: 'Edit',
+  DELETE: 'Delete',
+  SAVE: 'Save',
+  CANCEL: 'Cancel',
+  DELETE_ALL: 'Delete all of it',
+  DELETE_ALL_TITLE: 'Delete all your saved answers?',
+  DELETE_ALL_BODY: 'Every fact and story saved for application questions is removed. Your goals, profile and resume are not affected. This cannot be undone.',
+  DELETE_ALL_CONFIRM: 'Delete all of it',
+  YES: 'Yes',
+  NO: 'No',
+} as const;

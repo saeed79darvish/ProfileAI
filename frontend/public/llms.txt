@@ -1,6 +1,6 @@
 # ProfilleAI
 
-> ProfilleAI is an AI copilot for your whole job search: an AI career coach (Remi) that builds your profile by conversation, an AI profile and resume builder, per-job resume tailoring, AI cover letter generation, a resume scoring/analysis tool, AI-driven job matching with ghost-job scoring, and a Chrome extension that shows match analysis and quick-fills application forms on job sites like LinkedIn, Workday, Greenhouse, and Lever. The free plan requires no credit card and includes a limited monthly/lifetime allowance of tailoring, cover letters, and parsing; higher limits and batch tailoring come with the Pro and Pro+ plans.
+> ProfilleAI is an AI copilot for your whole job search: an AI career coach (Remi) that builds your profile by conversation, an AI profile and resume builder, per-job resume tailoring, AI cover letter generation, a resume scoring/analysis tool, AI-driven job matching with ghost-job scoring, and a Chrome extension that shows match analysis and quick-fills application forms on job sites like Workday, Greenhouse, and Lever. The free plan requires no credit card and includes a limited monthly/lifetime allowance of tailoring, cover letters, and parsing; higher limits and batch tailoring come with the Pro and Pro+ plans.
 
 Core product pages:
 - [Home](https://www.profilleai.com/): overview of the platform.

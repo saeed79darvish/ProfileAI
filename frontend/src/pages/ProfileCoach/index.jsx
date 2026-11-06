@@ -61,6 +61,18 @@ import {
   UPLOAD_STEPS,
   UPLOAD_STEP_MS,
 } from './constants';
+import { ANSWER_MEMORY_INTRO } from './answerCatalog';
+import {
+  nextMemoryItem,
+  memoryChips,
+  memoryHint,
+  memoryReply,
+  applyMemoryAnswer,
+  skipMemoryItem,
+  finishMemory,
+  answerMemoryOf,
+  guestCareerContextOf,
+} from './coachLogic';
 import {
   emptyDraft,
   getChips,
@@ -612,6 +624,17 @@ const ProfileCoach = () => {
       .catch(() => {});
   }, [isAuthenticated, restored]);
 
+  /* The answer-memory catalog: from the server when signed in, so its wording
+     and choices are the single source. Guests, and a failed fetch, use the
+     static copy in ./answerCatalog (nextMemoryItem falls back on its own). */
+  const memoryCatalogRef = useRef(null);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    careerContextAPI.answerCatalog()
+      .then(({ data }) => { memoryCatalogRef.current = data || null; })
+      .catch(() => {});
+  }, [isAuthenticated]);
+
   // Retire the chip row on a message once it has been answered, so the
   // transcript reads as history rather than as still-live controls.
   const spendChips = useCallback((messageId) => {
@@ -658,6 +681,58 @@ const ProfileCoach = () => {
       draftRef.current = next;
       setDraft(next);
       advanceRef.current(index, next);
+      return;
+    }
+
+    /* Answer memory: one optional step that asks a few questions in turn.
+       The page picks each from nextMemoryItem(); nothing here asks the model. */
+    if (step.kind === 'memory') {
+      const item = nextMemoryItem(currentDraft, memoryCatalogRef.current);
+      if (!item || currentDraft.answerMemoryDone) {
+        const told = Object.keys(currentDraft.answerFacts || {}).length + Object.keys(currentDraft.answerStories || {}).length;
+        const done = finishMemory(currentDraft);
+        draftRef.current = done;
+        setDraft(done);
+        if (told && !currentDraft.answerMemoryDone) pushCoach(TEXT.MEMORY_THANKS);
+        advanceRef.current(index, done);
+        return;
+      }
+      const intro = !currentDraft.answerMemoryIntro;
+      if (intro) {
+        const withIntro = { ...currentDraft, answerMemoryIntro: true };
+        draftRef.current = withIntro;
+        setDraft(withIntro);
+      }
+      const seq = askSeqRef.current + 1;
+      askSeqRef.current = seq;
+      const ask = () => {
+        setTyping(true);
+        later(() => {
+          if (askSeqRef.current !== seq) return;
+          setTyping(false);
+          pushCoach(item.ask, {
+            hint: memoryHint(item),
+            stepId: step.id,
+            memoryItem: item.id,
+            chips: [
+              ...(item.kind === 'story' && dictationSupportedRef.current ? [{ ...SAY_IT_CHIP }] : []),
+              ...memoryChips(item),
+            ],
+            selected: [],
+          });
+        }, TIMING.TYPING_MS);
+      };
+      if (intro) {
+        setTyping(true);
+        later(() => {
+          if (askSeqRef.current !== seq) return;
+          setTyping(false);
+          pushCoach(ANSWER_MEMORY_INTRO);
+          ask();
+        }, TIMING.TYPING_MS);
+      } else {
+        ask();
+      }
       return;
     }
 
@@ -1105,7 +1180,7 @@ const ProfileCoach = () => {
     // The draft now lives somewhere better. Leaving the transcript behind
     // would restore a finished conversation over a fresh one.
     clearConversation();
-    if (!isAuthenticated) saveGuestProfileDraft(resumeData, { careerContext: careerContextOf(withSummary) });
+    if (!isAuthenticated) saveGuestProfileDraft(resumeData, { careerContext: guestCareerContextOf(withSummary) });
     else saveCareerContext(withSummary);
     navigate(ROUTES.CREATE_FORM, { state: { source: 'coach', resumeData } });
   }, [isAuthenticated, navigate, saveCareerContext]);
@@ -2066,6 +2141,58 @@ const ProfileCoach = () => {
     },
   };
 
+  /* A reply to an answer-memory question, tapped or typed. Choice facts keep
+     the choice value; text is stored as said. Signed in, it is saved on the
+     spot (PATCH /career-context); a guest's rides along in the draft and is
+     saved when the account exists. Never blocks the conversation. */
+  const handleMemoryReply = useCallback((reply, liveMessageId) => {
+    const index = LADDER.findIndex((s) => s.id === 'answerMemory');
+    const item = nextMemoryItem(draftRef.current, memoryCatalogRef.current);
+    if (!item) return;
+    if (reply.type === 'unmatched') {
+      later(() => pushCoach(TEXT.MEMORY_PICK_ONE), TIMING.ACK_MS);
+      return;
+    }
+    if (liveMessageId) spendChips(liveMessageId);
+    if (reply.type === 'question') {
+      later(() => {
+        pushCoach(TEXT.MEMORY_WHY);
+        askStep(index, draftRef.current);
+      }, TIMING.ACK_MS);
+      return;
+    }
+    if (reply.type === 'later') {
+      const next = finishMemory(draftRef.current);
+      draftRef.current = next;
+      setDraft(next);
+      trackEvent('coach_memory', { action: 'later' });
+      later(() => {
+        pushCoach(TEXT.MEMORY_LATER);
+        advance(index, next);
+      }, TIMING.ACK_MS);
+      return;
+    }
+    if (reply.type === 'skip') {
+      const next = skipMemoryItem(draftRef.current, item);
+      draftRef.current = next;
+      setDraft(next);
+      trackEvent('coach_memory', { action: 'skip', item: item.id });
+      later(() => askStep(index, next), TIMING.ACK_MS);
+      return;
+    }
+    const next = applyMemoryAnswer(draftRef.current, item, reply.value);
+    draftRef.current = next;
+    setDraft(next);
+    trackEvent('coach_memory', { action: 'answer', item: item.id });
+    if (isAuthenticated) {
+      const patch = answerMemoryOf(applyMemoryAnswer(emptyDraft(), item, reply.value));
+      if (Object.keys(patch).length) careerContextAPI.edit(patch).catch(() => {});
+    }
+    later(() => askStep(index, next), TIMING.ACK_MS);
+  }, [advance, askStep, isAuthenticated, later, pushCoach, spendChips]);
+  const handleMemoryReplyRef = useRef(handleMemoryReply);
+  handleMemoryReplyRef.current = handleMemoryReply;
+
   const answerChip = useCallback((message, chip) => {
     // Resuming is a question about the conversation, not one inside it, so it
     // resolves before any ladder lookup.
@@ -2181,6 +2308,16 @@ const ProfileCoach = () => {
     if (chip.id === CUSTOM_ANSWER_CHIP.id) {
       composerRef.current?.focus();
       trackEvent('coach_custom_answer_opened', { step: step.id });
+      return;
+    }
+
+    // Answer memory: a choice, Skip, or leaving. Not run through the model.
+    if (step.id === 'answerMemory' && chip.id !== SAY_IT_CHIP.id) {
+      pushMine(chip.label, { stepId: step.id });
+      const reply = chip.id === '__mem_skip' ? { type: 'skip' }
+        : chip.id === '__mem_later' ? { type: 'later' }
+          : { type: 'answer', value: chip.id };
+      handleMemoryReplyRef.current(reply, message.id);
       return;
     }
 
@@ -2779,6 +2916,19 @@ const ProfileCoach = () => {
       return;
     }
 
+    /* Answer memory: typed or dictated words are the answer to the question
+       on screen (or a skip, or leaving). The model never sees them. */
+    if (step?.kind === 'memory') {
+      const item = nextMemoryItem(draftRef.current, memoryCatalogRef.current);
+      const reply = memoryReply(item, text);
+      setInput('');
+      setError('');
+      pushMine(text, { stepId: step.id });
+      const live = [...messagesRef.current].reverse().find((m) => m.stepId === step.id && m.role === 'coach' && !m.spent && m.chips?.length);
+      handleMemoryReplyRef.current(reply, live?.id);
+      return;
+    }
+
     /* "Just show me the jobs": the questions stop, and the review comes. */
     if (step && wantsToFinishNow(text) && !step.id.startsWith('__')) {
       setInput('');
@@ -3175,7 +3325,7 @@ const ProfileCoach = () => {
         source: 'coach',
         autoPublish: true,
         // Saved to their record once the account exists (Register).
-        careerContext: careerContextOf(finalDraft),
+        careerContext: guestCareerContextOf(finalDraft),
       });
       trackEvent('coach_convert_clicked', { mode, imported: finalDraft.importedFrom || 'none' });
       navigate(mode === 'signin' ? ROUTES.LOGIN : `${ROUTES.REGISTER}?role=candidate`);

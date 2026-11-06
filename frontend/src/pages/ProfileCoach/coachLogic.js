@@ -30,6 +30,9 @@ import { COMPLETION_TIERS } from '../../hooks/useProfileCompletion.js';
 // The same formatter ProfileForm, the dashboard and the public profile use, so
 // a date reads identically wherever the person sees it.
 import { formatDateRange } from '../../utils/dateRange.js';
+import {
+  STATIC_ANSWER_CATALOG, MEMORY_FACT_IDS, MEMORY_STORY_IDS, MAX_FACTS, MAX_STORIES,
+} from './answerCatalog.js';
 
 const norm = (s) => String(s || '').toLowerCase().trim();
 
@@ -1130,6 +1133,21 @@ export const LADDER = [
     assign: null,
     skipIf: 'reviewedAlready',
   },
+  {
+    /* Optional, skippable, after the tour and before the sign-up card: a few
+       facts and stories the person tells us so application questions can be
+       answered the way they would. One ladder step; the questions inside it
+       come from nextMemoryItem(), never from the model. Appended last
+       because saved conversations remember steps by index. */
+    id: 'answerMemory',
+    question: 'A few quick questions so I can answer application questions the way you would.',
+    hint: '',
+    kind: 'memory',
+    chipSet: null,
+    freeText: true,
+    aiStep: null,
+    assign: null,
+  },
 ];
 
 /** A fresh, empty draft. Every key the ladder can write is declared here so
@@ -1172,6 +1190,13 @@ export const emptyDraft = () => ({
   targetBlocker: '',
   assessment: null,
   review: null,
+  // Answer memory (see nextMemoryItem). Kept apart from the profile on
+  // purpose: none of it counts toward profile strength.
+  answerFacts: {},
+  answerStories: {},
+  answerSkipped: [],
+  answerMemoryIntro: false,
+  answerMemoryDone: false,
 });
 
 /* ─── Surviving a reload ──────────────────────────────────────
@@ -2029,7 +2054,7 @@ export const IMPORT_ORDER = [
   'lookingFor', 'workStyle', 'careerStage',
   'skills', 'education', 'location', 'links',
   'talkOffer', 'fix',
-  'build', 'tour', 'convert',
+  'build', 'tour', 'answerMemory', 'convert',
 ];
 
 /* After choosing voice, nothing more is asked in the chat: the call
@@ -2053,8 +2078,9 @@ const GOAL = ['target', 'targetWhy', 'targetBlocker'];
 /* Answers to these are about where they want to go, not what they can do.
    "Startup zero-to-one product building" said here was filed as a skill. */
 export const GOAL_STEPS = new Set(GOAL);
-const CLOSING = ['gapCheck', 'talkOffer', 'fix', 'build', 'tour', 'convert'];
-const FINISH_NOW_STEPS = new Set(['assess', ...CLOSING]);
+const CLOSING = ['gapCheck', 'talkOffer', 'fix', 'build', 'tour', 'answerMemory', 'convert'];
+// Someone who asked to be done is not asked the optional answer memory.
+const FINISH_NOW_STEPS = new Set(['assess', ...CLOSING.filter((id) => id !== 'answerMemory')]);
 const AROUND = ['location', 'links'];
 export const STAGE_ORDERS = {
   experienced: [...OPENING, 'currentRole', 'achievements', 'previousRole', 'projects', 'evidence', 'skills', 'education', ...AROUND, ...GOAL, 'assess', ...CLOSING],
@@ -2191,6 +2217,9 @@ export const isAlreadyAnswered = (step, draft = {}) => {
       return !!draft.assessment;
     case 'fix':
       return !!draft.fixDone;
+    // Optional: done when they left, or when everything it asks is answered or passed on.
+    case 'answerMemory':
+      return !!draft.answerMemoryDone || !nextMemoryItem(draft);
     default:
       break;
   }
@@ -3288,4 +3317,122 @@ export const seedFromCareerContext = (draft = {}, context = {}) => ({
   level: draft.level || context.constraints?.seniority || '',
   // Already assessed once: not re-run (it is the one paid step in here).
   assessment: draft.assessment || context.assessment || null,
+  // What they already told us is not asked again.
+  answerFacts: { ...(context.answerFacts || {}), ...(draft.answerFacts || {}) },
+  answerStories: { ...(context.answerStories || {}), ...(draft.answerStories || {}) },
 });
+
+
+/* ─── Answer memory ───────────────────────────────────────────
+
+   Facts and stories the person chooses to tell us, used later to answer
+   custom application questions. Asked inside the one 'answerMemory' step:
+   the page asks nextMemoryItem(), the AI never picks the question. The
+   answers live in answerFacts / answerStories, never in anything the
+   profile strength meter reads. */
+
+const MEMORY_TEXT_MAX = 400;
+const MEMORY_STORY_MAX = 1500;
+
+/**
+ * The items to ask, in order, from a catalog in the server's shape
+ * ({ facts, stories }); the static copy when none is given. At most five
+ * facts and two stories, and only ids we ask for: a catalog with more in it
+ * does not widen this, and demographic questions are never among them.
+ */
+export const memoryItems = (catalog) => {
+  const source = catalog && Array.isArray(catalog.facts) && Array.isArray(catalog.stories) ? catalog : STATIC_ANSWER_CATALOG;
+  const find = (list, fallback, id) => list.find((x) => x.id === id) || fallback.find((x) => x.id === id);
+  const facts = MEMORY_FACT_IDS
+    .map((id) => find(source.facts, STATIC_ANSWER_CATALOG.facts, id))
+    .filter(Boolean)
+    .slice(0, MAX_FACTS)
+    .map((f) => ({ ...f, kind: 'fact' }));
+  const stories = MEMORY_STORY_IDS
+    .map((id) => find(source.stories, STATIC_ANSWER_CATALOG.stories, id))
+    .filter(Boolean)
+    .slice(0, MAX_STORIES)
+    .map((s) => ({ ...s, kind: 'story', type: 'text' }));
+  return [...facts, ...stories];
+};
+
+const memoryHas = (draft, item) => (item.kind === 'story'
+  ? !!draft.answerStories?.[item.id]
+  : !!draft.answerFacts?.[item.id]);
+
+/** The next unanswered, unskipped item, or null when there is nothing left. */
+export const nextMemoryItem = (draft = {}, catalog) => (
+  memoryItems(catalog).find((item) => !memoryHas(draft, item) && !(draft.answerSkipped || []).includes(item.id)) || null
+);
+
+/** Chips for a choice fact. Skip and the exit are always there; text asks have only those. */
+export const memoryChips = (item) => [
+  ...(item?.kind === 'fact' && Array.isArray(item.choices)
+    ? item.choices.map((c) => ({ id: c.value, label: c.label })) : []),
+  { id: '__mem_skip', label: 'Skip this' },
+  { id: '__mem_later', label: "I'd rather answer these later" },
+];
+
+export const memoryHint = (item) => {
+  if (!item) return '';
+  if (item.kind === 'story') return 'Type it or say it. Skip if you would rather not.';
+  return item.type === 'text' ? 'Type your answer, or skip it.' : 'Tap one, or skip it.';
+};
+
+/** Record an answer. The value is a choice value, or the words they said. */
+export const applyMemoryAnswer = (draft = {}, item, value) => {
+  const text = String(value || '').trim();
+  if (!item || !text) return draft;
+  if (item.kind === 'story') {
+    return { ...draft, answerStories: { ...(draft.answerStories || {}), [item.id]: { text: text.slice(0, MEMORY_STORY_MAX) } } };
+  }
+  return { ...draft, answerFacts: { ...(draft.answerFacts || {}), [item.id]: { value: text.slice(0, MEMORY_TEXT_MAX) } } };
+};
+
+export const skipMemoryItem = (draft = {}, item) => ({
+  ...draft,
+  answerSkipped: Array.from(new Set([...(draft.answerSkipped || []), item.id])),
+});
+
+/** "I'd rather answer these later": the step is over, nothing more is asked. */
+export const finishMemory = (draft = {}) => ({ ...draft, answerMemoryDone: true });
+
+const MEMORY_SKIP = /^(skip|skip this|skip it|next|pass|no|no thanks|not now|prefer not to say|i'?d rather not)\b[\s!.,]*$/i;
+const MEMORY_LATER = /\b(later|stop asking|no more|that'?s enough|enough questions)\b/i;
+
+/**
+ * What a typed reply to a memory question means: leaving, skipping, an answer,
+ * or (for a choice) words that name none of the choices.
+ */
+export const memoryReply = (item, text) => {
+  const typed = String(text || '').trim();
+  if (!typed) return { type: 'none' };
+  if (MEMORY_LATER.test(typed) && typed.split(/\s+/).length <= 8) return { type: 'later' };
+  if (MEMORY_SKIP.test(typed)) return { type: 'skip' };
+  // A question back ("why do you need this?") is not an answer to store.
+  if (/\?\s*$/.test(typed)) return { type: 'question' };
+  if (item?.kind === 'fact' && Array.isArray(item.choices)) {
+    const lower = typed.toLowerCase();
+    const hit = item.choices.find((c) => c.label.toLowerCase() === lower || c.value === lower)
+      || item.choices.find((c) => lower.length > 2 && c.label.toLowerCase().includes(lower));
+    return hit ? { type: 'answer', value: hit.value } : { type: 'unmatched' };
+  }
+  return { type: 'answer', value: typed };
+};
+
+/** What was told, in the shape PATCH /career-context takes. Empty when nothing was. */
+export const answerMemoryOf = (draft = {}) => {
+  const out = {};
+  const facts = Object.entries(draft.answerFacts || {}).filter(([, v]) => v && String(v.value || '').trim());
+  const stories = Object.entries(draft.answerStories || {}).filter(([, v]) => v && String(v.text || '').trim());
+  if (facts.length) out.answerFacts = Object.fromEntries(facts.map(([k, v]) => [k, { value: v.value, ...(v.note ? { note: v.note } : {}) }]));
+  if (stories.length) out.answerStories = Object.fromEntries(stories.map(([k, v]) => [k, { text: v.text }]));
+  return out;
+};
+
+/**
+ * What rides along in a guest's draft meta (meta.careerContext): the usual
+ * coaching facts plus answerFacts / answerStories. Register and Login split
+ * them apart when the account exists (landGuestCareerContext).
+ */
+export const guestCareerContextOf = (draft = {}) => ({ ...careerContextOf(draft), ...answerMemoryOf(draft) });

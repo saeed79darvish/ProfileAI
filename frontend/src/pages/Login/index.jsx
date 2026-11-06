@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { landCareerContext } from '../../utils/landCareerContext';
 import { useNavigate, useSearchParams, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -16,7 +17,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleAuthButton from '@/components/GoogleAuthButton';
 import LinkedInAuthButton from '@/components/LinkedInAuthButton';
 import { useAuth } from '@/contexts/AuthContext';
-import { authAPI, profileAPI, careerContextAPI } from '@/services/api';
+import { authAPI, profileAPI } from '@/services/api';
 import { loadGuestProfileDraft, loadGuestDraftMeta, clearGuestProfileDraft } from '@/utils/guestDraft';
 import { trackEvent } from '@/utils/analytics';
 import AuthLayout, { MobileStickyFooter } from '@/components/AuthLayout';
@@ -78,9 +79,7 @@ const Login = () => {
   const publishCoachDraft = async (authUser) => {
     if (fromExtension || authUser?.role !== ROLES.CANDIDATE || !coachDraftWaiting()) return null;
     const meta = loadGuestDraftMeta() || {};
-    if (meta.careerContext && Object.keys(meta.careerContext).length) {
-      careerContextAPI.merge(meta.careerContext).catch(() => {});
-    }
+    landCareerContext(meta.careerContext);
     if (authUser?.hasProfile) return null;
     const draft = loadGuestProfileDraft();
     try {

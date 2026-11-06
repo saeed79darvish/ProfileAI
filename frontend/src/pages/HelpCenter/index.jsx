@@ -40,7 +40,7 @@ const FAQ = [
   },
   {
     q: 'What does the Chrome extension do?',
-    a: 'The ProfilleAI Chrome extension opens in a side panel next to any job posting on LinkedIn, Greenhouse, Workday and most career sites. It reads the role, shows your match score and skill gaps, quick-fills the standard application fields from your profile, and tailors your resume to that job. Install it from the Extension page and sign in with your ProfilleAI account.',
+    a: 'The ProfilleAI Chrome extension opens in a side panel next to any job posting on Greenhouse, Workday, Lever and most career sites. It reads the role, shows your match score and skill gaps, quick-fills the standard application fields from your profile, and tailors your resume to that job. Install it from the Extension page and sign in with your ProfilleAI account.',
   },
   {
     q: 'How does resume tailoring work?',

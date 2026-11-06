@@ -51,7 +51,7 @@ export const EXTENSION_STEPS_DATA: ExtensionStepData[] = [
   },
   {
     title: 'One-Click Autofill Applications',
-    description: 'LinkedIn, Greenhouse, Lever, Workday and 10+ more, fill any form instantly.',
+    description: 'Greenhouse, Lever, Workday and 10+ more, fill any form instantly.',
     detail: 'Click the floating button on any job page, hit Autofill, review & submit.',
   },
   {

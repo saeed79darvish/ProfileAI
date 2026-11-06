@@ -1438,7 +1438,7 @@ const Dashboard = () => {
                 </Box>
                 <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: 14.5, lineHeight: 1.55 }}>
                   Autofill applications, draft AI answers to screening questions, and tailor your
-                  resume on LinkedIn, Greenhouse, Workday, and any career page, without leaving the
+                  resume on Greenhouse, Workday, and any career page, without leaving the
                   job posting.
                 </Typography>
               </Box>

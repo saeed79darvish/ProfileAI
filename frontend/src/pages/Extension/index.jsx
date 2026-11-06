@@ -40,7 +40,7 @@ const HOW_IT_WORKS = [
   {
     icon: TouchAppIcon,
     title: 'Open any job posting',
-    desc: 'On LinkedIn, Greenhouse, Workday, or any company career page, the side panel detects the role instantly.',
+    desc: 'On Greenhouse, Workday, Lever, or any company career page, the side panel detects the role instantly.',
   },
   {
     icon: RocketIcon,
@@ -115,7 +115,7 @@ export default function ExtensionPage() {
     <Box sx={{ background: '#0f0f14', color: '#fff', minHeight: '100vh' }}>
       <SEO
         title="ProfilleAI Chrome Extension: Apply to Any Job, Anywhere"
-        description="The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page."
+        description="The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on Greenhouse, Workday, Lever, and any career page."
         path="/extension"
         keywords="ProfilleAI chrome extension, job application autofill, AI resume tailoring extension, auto apply jobs"
         jsonLd={jsonLd}
