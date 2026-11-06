@@ -1189,8 +1189,8 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
           <h3>Your resume is ready</h3>
           <p>
             {applyOpened
-              ? `We opened ${company}\u2019s application in a new tab and downloaded your tailored resume. Come back to this tab any time to copy your details.`
-              : `Your tailored resume is downloaded. Your browser blocked the new tab, so tap below to open ${company}\u2019s application.`}
+              ? `We opened ${company}\u2019s application in a new tab. Come back to this tab any time to copy your details or save your resume again.`
+              : `Your browser blocked the new tab, so tap below to open ${company}\u2019s application.`}
           </p>
           {!applyOpened && applyUrl && (
             <div className="open">

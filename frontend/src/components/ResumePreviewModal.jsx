@@ -1555,6 +1555,9 @@ export default function ResumePreviewModal({
   const [previewUrl, setPreviewUrl] = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // Phone: save the resume first, then open the application (two separate taps).
+  const [saveState, setSaveState] = useState({ phase: 'idle', message: '', via: '', fileName: '' });
+  const fileCacheRef = useRef({ key: '', promise: null });
   const [editData, setEditData] = useState(null);
   const [templateId, setTemplateId] = useState('professional');
   const [skillInput, setSkillInput] = useState('');
@@ -1729,37 +1732,93 @@ export default function ResumePreviewModal({
     }
   };
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    try {
-      const cleanName = filename.trim() || defaultName;
-      const response = await resumeAPI.generate(
-        format === 'pdf' ? 'pdf' : 'word',
-        templateId,
-        null,
-        withContact(editData || tailoredProfileData || profileData),
-        accentColor,
-        bulletStyle,
-        sectionOrder
-      );
-
-      const blob = new Blob([response.data], {
+  // The document for the current settings. Kept, so a tap on a phone can hand it to the
+  // share sheet at once: waiting on the network first can lose the "user tapped" permission.
+  const generateFile = () => {
+    const cleanName = filename.trim() || defaultName;
+    const fileName = `${cleanName}.${format === 'pdf' ? 'pdf' : 'docx'}`;
+    const source = withContact(editData || tailoredProfileData || profileData);
+    const key = JSON.stringify([format, templateId, accentColor, bulletStyle, sectionOrder, fileName, source]);
+    if (fileCacheRef.current.key === key && fileCacheRef.current.promise) return fileCacheRef.current.promise;
+    const promise = resumeAPI.generate(
+      format === 'pdf' ? 'pdf' : 'word', templateId, null, source, accentColor, bulletStyle, sectionOrder
+    ).then((response) => ({
+      fileName,
+      blob: new Blob([response.data], {
         type: format === 'pdf'
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${cleanName}.${format === 'pdf' ? 'pdf' : 'docx'}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      }),
+    }));
+    fileCacheRef.current = { key, promise };
+    promise.catch(() => { if (fileCacheRef.current.promise === promise) fileCacheRef.current = { key: '', promise: null }; });
+    return promise;
+  };
+
+  const triggerDownload = (blob, fileName) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Not at once: a phone may still be reading the file.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const { blob, fileName } = await generateFile();
+      triggerDownload(blob, fileName);
+      setSaveState({ phase: 'saved', message: '', via: 'download', fileName });
     } catch (err) {
       console.error('Download error:', err);
+      setSaveState({ phase: 'failed', message: 'We could not prepare your resume. Check your connection and try again.', via: '', fileName: '' });
     } finally {
       setDownloading(false);
     }
   };
+
+  // On a phone, saving goes through the share sheet when there is one (Save to Files, Drive,
+  // Mail), because a plain download can open the PDF in the browser and lose this page.
+  const saveForPhone = async () => {
+    setSaveState({ phase: 'saving', message: '', via: '', fileName: '' });
+    try {
+      const { blob, fileName } = await generateFile();
+      const file = new File([blob], fileName, { type: blob.type });
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: fileName });
+          setSaveState({ phase: 'saved', message: '', via: 'share', fileName });
+          return true;
+        } catch (err) {
+          if (err && err.name === 'AbortError') {
+            setSaveState({ phase: 'idle', message: 'Not saved yet. Tap Save resume and choose where to keep it.', via: '', fileName: '' });
+            return false;
+          }
+          // Sharing was refused (for example the tap expired): fall back to a download.
+        }
+      }
+      triggerDownload(blob, fileName);
+      setSaveState({ phase: 'saved', message: '', via: 'download', fileName });
+      return true;
+    } catch (err) {
+      console.error('Save error:', err);
+      setSaveState({ phase: 'failed', message: 'We could not prepare your resume. Check your connection and try again.', via: '', fileName: '' });
+      return false;
+    }
+  };
+
+  // Phone: have the file ready before the tap.
+  useEffect(() => {
+    if (!open || !onApply || !isMobile || loadingPreview) return undefined;
+    const t = setTimeout(() => { generateFile().catch(() => {}); }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onApply, isMobile, loadingPreview, templateId, accentColor, bulletStyle, sectionOrder, filename, editData, format]);
 
   const handleApply = () => {
     onApply();
@@ -2636,12 +2695,28 @@ export default function ResumePreviewModal({
         )}
         {onApply ? (
           <>
-            {applyNote && activeTab !== 'edit' && <ApplyNote>{applyNote}</ApplyNote>}
+            {activeTab !== 'edit' && (
+              <ApplyNote role="status">
+                {saveState.phase === 'saved'
+                  ? `Saved as ${saveState.fileName}. In the application, tap Attach and choose it from the Files app (iPhone) or Downloads (Android).`
+                  : saveState.message
+                    || 'Step 1: save your resume to your phone. Step 2: open the application and attach it.'}
+              </ApplyNote>
+            )}
             <div className="apply-row">
-              <ApplySecondaryBtn type="button" onClick={handleDownload} disabled={downloading}>
-                {downloading ? <CircularProgress size={18} /> : 'Download'}
-              </ApplySecondaryBtn>
-              <DownloadBtn $accent={downloadColor} onClick={handleApply} disabled={downloading}>Apply</DownloadBtn>
+              {saveState.phase === 'saved' ? (
+                <>
+                  <ApplySecondaryBtn type="button" onClick={saveForPhone}>Save again</ApplySecondaryBtn>
+                  <DownloadBtn $accent={downloadColor} onClick={onApply}>Open application</DownloadBtn>
+                </>
+              ) : (
+                <>
+                  <ApplySecondaryBtn type="button" onClick={onApply} disabled={saveState.phase === 'saving'}>Open application</ApplySecondaryBtn>
+                  <DownloadBtn $accent={downloadColor} onClick={saveForPhone} disabled={saveState.phase === 'saving'}>
+                    {saveState.phase === 'saving' ? <CircularProgress size={18} style={{ color: '#fff' }} /> : 'Save resume'}
+                  </DownloadBtn>
+                </>
+              )}
             </div>
           </>
         ) : (
