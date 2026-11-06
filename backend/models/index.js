@@ -48,6 +48,7 @@ const ExternalJob = require('./ExternalJob');
 const ATSBoard = require('./ATSBoard');
 const Company = require('./Company');
 const BlockedCompany = require('./BlockedCompany');
+const InterviewPrep = require('./InterviewPrep');
 
 // Recruiter ATS Integrations (Greenhouse Harvest)
 const RecruiterATSIntegration = require('./RecruiterATSIntegration');
@@ -1083,6 +1084,7 @@ module.exports = {
   ATSBoard,
   Company,
   BlockedCompany,
+  InterviewPrep,
   // Recruiter ATS Integrations
   RecruiterATSIntegration,
   // ApplyPilot

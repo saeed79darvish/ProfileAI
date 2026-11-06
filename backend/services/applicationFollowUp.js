@@ -45,6 +45,17 @@ function changesForAnswer(application, answer, now = new Date()) {
   return { askedAt: now, dismissedAt: now };
 }
 
+/**
+ * A new start for an application the person had dismissed or snoozed (they said "not
+ * applying" or "not yet", then went and started it again) is a fresh start: the question
+ * may be asked again once it has gone quiet. Null when there is nothing to reopen.
+ */
+function reviveChanges(application) {
+  if (!application || !['clicked', 'in_progress'].includes(application.status)) return null;
+  if (!application.dismissedAt && !application.snoozedUntil) return null;
+  return { dismissedAt: null, snoozedUntil: null, askedAt: null };
+}
+
 const toPending = (a) => ({
   id: a.id,
   jobTitle: a.jobTitle,
@@ -56,4 +67,4 @@ const toPending = (a) => ({
   lastActivityAt: a.updatedAt,
 });
 
-module.exports = { pendingWhere, changesForAnswer, toPending, ANSWERS, QUIET_MINUTES, MAX_AGE_DAYS, SNOOZE_DAYS, MAX_PENDING };
+module.exports = { pendingWhere, changesForAnswer, reviveChanges, toPending, ANSWERS, QUIET_MINUTES, MAX_AGE_DAYS, SNOOZE_DAYS, MAX_PENDING };

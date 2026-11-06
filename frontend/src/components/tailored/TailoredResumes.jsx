@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
+import { useNavigate } from 'react-router-dom';
 import { CircularProgress, Menu, MenuItem, Portal, Snackbar, Button } from '@mui/material';
 import {
   ArrowBackIosNew as BackIcon,
@@ -584,6 +585,7 @@ function ResumeSheet({ tp, data, onOpen }) {
  * @param {string} [props.requestedId] - deep link (?resumeId=)
  */
 export default function TailoredResumes({ items, loading, onItemsChange, isMobile, user, profile, onNew, onOpenResume, requestedId }) {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
   const [versionId, setVersionId] = useState(null);
@@ -682,6 +684,9 @@ export default function TailoredResumes({ items, loading, onItemsChange, isMobil
           <span className="gaps" data-tone={gl.tone}>{gl.text}</span>
           <IconBtn type="button" $tone={C.brand} aria-label="Download PDF" onClick={(e) => { e.stopPropagation(); onOpenResume(t, 'preview'); }}><DownloadIcon /></IconBtn>
           <IconBtn type="button" aria-label="More actions" onClick={(e) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget, tp: t }); }}><MoreIcon /></IconBtn>
+        </div>
+        <div style={{ marginLeft: 62, marginTop: 4 }}>
+          <Secondary type="button" onClick={(e) => { e.stopPropagation(); navigate(`/interview-prep/${t.id}`); }}>Prepare for interview</Secondary>
         </div>
       </Card>
     );
@@ -790,6 +795,7 @@ export default function TailoredResumes({ items, loading, onItemsChange, isMobil
 /* ── one resume ───────────────────────────────────────────────── */
 
 function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenResume, onUpdate, onMenu, onBack }) {
+  const navigate = useNavigate();
   const td = tp.tailoredData || {};
   const company = companyOf(tp) || tp.jobTitle;
   const status = statusOf(tp);
@@ -863,6 +869,7 @@ function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenRes
         {desk ? (
           <div className="actions">
             {tp.jobUrl && <Secondary type="button" onClick={() => window.open(tp.jobUrl, '_blank', 'noopener,noreferrer')}>View job</Secondary>}
+            <Secondary type="button" onClick={() => navigate(`/interview-prep/${tp.id}`)}>Prepare for interview</Secondary>
             <Primary type="button" onClick={() => onOpenResume(tp, 'preview')}>Download PDF</Primary>
             <IconBtn type="button" aria-label="More actions" style={{ border: `1.5px solid ${C.line}` }} onClick={(e) => onMenu(e.currentTarget)}><MoreIcon /></IconBtn>
           </div>
@@ -870,6 +877,11 @@ function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenRes
           <div className="score"><b>{tp.matchScore}%</b><span>match</span></div>
         )}
       </div>
+      {!desk && (
+        <div style={{ marginTop: 12 }}>
+          <Secondary type="button" onClick={() => navigate(`/interview-prep/${tp.id}`)}>Prepare for interview</Secondary>
+        </div>
+      )}
       {group.versions.length > 1 && (
         <div className="versions" role="group" aria-label="Versions">
           {group.versions.map((v, i) => (

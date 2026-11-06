@@ -233,6 +233,12 @@ router.post('/', authMiddleware, async (req, res) => {
       },
     });
 
+    // Starting again after "not applying" or "not yet" reopens the follow-up question.
+    if (!created) {
+      const revive = require('../services/applicationFollowUp').reviveChanges(application);
+      if (revive) await application.update(revive);
+    }
+
     // Preserve the previous contract: callers (including shipped extension
     // builds) treat 409 as "already tracked, stop retrying".
     if (!created) {

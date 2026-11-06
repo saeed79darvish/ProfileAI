@@ -9,6 +9,7 @@ import {
   Send as SendIcon,
 } from '@mui/icons-material';
 import { profileAPI, tailoredProfileAPI, subscriptionAPI, externalApplicationAPI } from '../services/api';
+import { save as saveDeparture, load as loadDeparture } from '../utils/applyDeparture';
 import { extractApiError } from '../utils/apiError';
 import { parseLimitError } from '../utils/aiLimit';
 import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
@@ -870,7 +871,26 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
       if (job?._isExternal && job?.id) body.externalJobId = job.id;
       if (result?.savedId) body.tailoredProfileId = result.savedId;
       if (typeof score === 'number') body.matchScore = score;
-      try { Promise.resolve(externalApplicationAPI.create(body)).catch(() => {}); } catch (_) { /* ignore */ }
+      const departedAt = Date.now();
+      const remember = (applicationId, onlyIfSame) => {
+        if (onlyIfSame && loadDeparture()?.at !== departedAt) return;
+        saveDeparture({
+          applicationId,
+          jobId: job?._isExternal ? job?.id : null,
+          title: job?.title || '',
+          company: job?.company || '',
+          applyUrl,
+          listQuery: typeof window !== 'undefined' ? window.location.search : '',
+          at: departedAt,
+        });
+      };
+      // Saved at once with an unknown id; the id is filled in when the server answers.
+      remember(null);
+      try {
+        Promise.resolve(externalApplicationAPI.create(body))
+          .then((res) => remember(res?.data?.application?.id || res?.data?.id || null, true))
+          .catch((err) => remember(err?.response?.data?.application?.id || null, true));
+      } catch (_) { /* ignore */ }
     }
     // Only postings we hold can be tracked as applications.
     if (!job?._isExternal) return;
@@ -1218,7 +1238,7 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
             </details>
           )}
           <PrimaryBtn type="button" onClick={() => setApplySheet(false)}>Done</PrimaryBtn>
-          <p className="calm">We will ask you about this application next time you are here.</p>
+          <p className="calm">When you come back to this tab, we will ask if you applied and show your next jobs.</p>
           <div className="links">
             {applyUrl && applyOpened && <button type="button" onClick={() => openInNewTab(applyUrl)}>Open {company}&rsquo;s page again</button>}
             {typeof document !== 'undefined' && document.getElementById('similar-jobs') && (

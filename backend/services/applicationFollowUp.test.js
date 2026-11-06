@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { changesForAnswer, pendingWhere, SNOOZE_DAYS } = require('./applicationFollowUp');
+const { changesForAnswer, pendingWhere, reviveChanges, SNOOZE_DAYS } = require('./applicationFollowUp');
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 
@@ -32,4 +32,11 @@ test('only recent, quiet, undismissed, unsnoozed started applications are pendin
   assert.equal(w.userId, 'u1');
   assert.equal(w.dismissedAt, null);
   assert.deepEqual(Object.getOwnPropertySymbols(w.status).length, 1);
+});
+
+test('starting again after not applying or not yet reopens the question', () => {
+  assert.deepEqual(reviveChanges({ status: 'in_progress', dismissedAt: new Date() }), { dismissedAt: null, snoozedUntil: null, askedAt: null });
+  assert.ok(reviveChanges({ status: 'clicked', snoozedUntil: new Date() }));
+  assert.equal(reviveChanges({ status: 'in_progress', dismissedAt: null, snoozedUntil: null }), null);
+  assert.equal(reviveChanges({ status: 'applied', dismissedAt: new Date() }), null);
 });

@@ -271,6 +271,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/tailored-profiles', tailoredProfileRoutes);
 // What the coach has learned about the candidate; theirs to see and delete.
 app.use('/api/career-context', require('./routes/careerContext'));
+app.use('/api/interview-prep', require('./routes/interviewPrep'));
 app.use('/api/resume', resumeDownloadRoutes);
 // Social feed API — gated by ENABLE_FEED (off by default for launch).
 // Covers posts and their nested comments/likes/saved routes.
@@ -562,6 +563,14 @@ const startServer = async () => {
       await addCareerContextsTable();
     } catch (err) {
       console.warn('⚠️  CareerContexts table ensure skipped:', err.message);
+    }
+
+    // Interview prep research cache (shared per company + role).
+    try {
+      const { up: ensureInterviewPrepsTable } = require('./scripts/migrations/ensureInterviewPrepsTable');
+      await ensureInterviewPrepsTable();
+    } catch (err) {
+      console.warn('⚠️  InterviewPreps table ensure skipped:', err.message);
     }
 
     // "Did you apply?" follow-up columns on ExternalApplications.
