@@ -10,7 +10,7 @@
 const { Op } = require('sequelize');
 
 const QUIET_MINUTES = 20;      // long enough to actually fill and submit a form
-const MAX_AGE_DAYS = 30;       // older than this is no longer worth asking about
+const MAX_AGE_DAYS = 5;        // an older start is stale: asking about it now would be noise
 const SNOOZE_DAYS = 2;         // "Not yet" asks again after this
 const MAX_PENDING = 3;
 

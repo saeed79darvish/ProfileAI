@@ -86,7 +86,18 @@ export default function PendingApplicationCard() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [isAuthenticated, userId, user?.role, load]);
 
-  if (!item) return null;
+  // Never ask over something the person is in the middle of (the tailor flow, the download
+  // screen, a menu): wait until nothing else is open, then show it.
+  const [otherOpen, setOtherOpen] = useState(false);
+  useEffect(() => {
+    if (!item) return undefined;
+    const check = () => setOtherOpen(!!document.querySelector('.MuiModal-root:not(.pending-app-card)'));
+    check();
+    const t = setInterval(check, 700);
+    return () => clearInterval(t);
+  }, [item]);
+
+  if (!item || otherOpen) return null;
 
   const answer = async (value) => {
     if (busy) return;
@@ -126,8 +137,9 @@ export default function PendingApplicationCard() {
       <Drawer
         anchor="bottom"
         open
+        className="pending-app-card"
         sx={{ zIndex: 1400 }}
-        onClose={() => { dismissed.current.add(item.id); setItem(null); }}
+        onClose={() => answer('not_yet')}
         PaperProps={{ style: { borderTopLeftRadius: 22, borderTopRightRadius: 22, maxWidth: 560, margin: '0 auto' } }}
       >
         <Sheet><div className="grab" />{content}</Sheet>

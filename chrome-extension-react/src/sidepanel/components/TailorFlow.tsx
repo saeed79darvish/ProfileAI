@@ -511,7 +511,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
         await chrome.tabs.create({ url: `${CONFIG.WEB_BASE}/resume/download?ext=1`, active: true });
       }
       setDownloaded(true);
-      recordStart();
     } catch (err) {
       setError((err as Error).message || 'Could not open the download. Please try again.');
     } finally {
@@ -519,29 +518,9 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     }
   };
 
-  // Downloading a resume is not applying. Record the start quietly; the
-  // server asks about it later, and real submission detection marks it applied.
-  const startedFor = useRef<string | null>(null);
-  const recordStart = useCallback(() => {
-    if (!job || !jobUrl || !finalCopy) return;
-    if (startedFor.current === jobUrl) return;
-    startedFor.current = jobUrl;
-    void send('SAVE_EXTERNAL_APPLICATION', {
-      jobTitle: job.title || '',
-      company: job.company || '',
-      jobUrl,
-      platform: platformOf(jobUrl),
-      location: job.location,
-      matchScore: matchNow ?? undefined,
-      stage: 'in_progress',
-      confirmedBy: 'tailored_resume',
-      tailoredProfileId: result?.savedId || undefined,
-    });
-  }, [job, jobUrl, finalCopy, matchNow, result]);
-
-  useEffect(() => {
-    if (open && step === 'apply' && finalCopy) recordStart();
-  }, [open, step, finalCopy, recordStart]);
+  // Downloading a resume, or opening this step, is neither applying nor going to the
+  // application page, so nothing is recorded here. The page script records the start
+  // when the form is actually filled and marks it applied when it sees it submitted.
 
   const tailorAgain = () => {
     setResult(null);
@@ -850,7 +829,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
       {downloaded && <p className="tf-hint centered">The download window is open on the job page. Pick PDF or Word and save it.</p>}
 
       <p className="tf-hint centered">
-        Saved. We will ask about this application next time you are here, and we mark it applied on our own when we see it submitted.
+        When you fill in the application, we keep track of it. We mark it applied on our own when we see it submitted, and ask you later only if we could not tell.
       </p>
     </>
   );
