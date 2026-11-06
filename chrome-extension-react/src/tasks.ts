@@ -32,9 +32,7 @@ export type BgTaskKind =
   | 'match'
   | 'keywords'
   | 'smartAnswers'
-  | 'singleAnswer'
-  | 'linkedin'
-  | 'linkedinGuest';
+  | 'singleAnswer';
 
 export type BgTaskStatus = 'running' | 'done' | 'error';
 

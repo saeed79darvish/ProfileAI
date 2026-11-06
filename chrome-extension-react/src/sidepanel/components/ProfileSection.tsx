@@ -1,27 +1,12 @@
 import React from 'react';
 import type { FullProfile } from '../../types';
 import { CONFIG } from '../../config';
-import { AnalyzeLinkedInPill } from './AnalyzeLinkedInPill';
 
 interface ProfileSectionProps {
   profile: FullProfile | null;
-  /** Whether the active tab is a linkedin.com/in/* page.
-   *  Controls visibility of the "Analyze LinkedIn" affordance. */
-  isOnLinkedInProfile?: boolean;
-  onAnalyzeLinkedIn?: () => void;
-  isAnalyzingLinkedIn?: boolean;
-  /** ms timestamp of a cached analysis for the current tab's profile URL,
-   *  or null when the profile hasn't been analyzed yet. */
-  linkedInAnalyzedAt?: number | null;
 }
 
-export const ProfileSection: React.FC<ProfileSectionProps> = ({
-  profile,
-  isOnLinkedInProfile,
-  onAnalyzeLinkedIn,
-  isAnalyzingLinkedIn,
-  linkedInAnalyzedAt,
-}) => {
+export const ProfileSection: React.FC<ProfileSectionProps> = ({ profile }) => {
   const getInitials = (firstName?: string, lastName?: string): string => {
     const first = firstName?.[0] || '';
     const last = lastName?.[0] || '';
@@ -31,10 +16,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   const fullName = profile
     ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User'
     : 'User';
-
-  // The analyzer pill now shows on every page (not just LinkedIn profiles).
-  // When off-profile, the click prompts the user to open a profile first.
-  const showLinkedIn = !!onAnalyzeLinkedIn;
 
   return (
     <div className="panel-section profile-compact">
@@ -55,15 +36,6 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
           View Full
         </button>
       </div>
-
-      {showLinkedIn && (
-        <AnalyzeLinkedInPill
-          onClick={onAnalyzeLinkedIn!}
-          loading={isAnalyzingLinkedIn}
-          analyzedAt={linkedInAnalyzedAt}
-          offProfile={!isOnLinkedInProfile}
-        />
-      )}
     </div>
   );
 };

@@ -176,6 +176,12 @@ export type MessageType =
   | 'AUTH_GOOGLE_INTERACTIVE'
   | 'AUTH_LINKEDIN_INTERACTIVE'
   | 'SAVE_TAILORED_PROFILE'
+  | 'JOB_FIT'
+  | 'JOB_FIT_RESCORE'
+  | 'TAILOR_FLOW_RUN'
+  | 'TAILORED_PROFILE_SAVE'
+  | 'REGENERATE_SECTION'
+  | 'TAILOR_USAGE'
   | 'REDEEM_PROMO'
   | 'GENERATE_COVER_LETTER'
   | 'AUTOFILL_SUGGEST'
@@ -184,13 +190,7 @@ export type MessageType =
   | 'GENERATE_SMART_ANSWERS'
   | 'GENERATE_SINGLE_ANSWER'
   | 'INSERT_ANSWER'
-  | 'ANALYZE_MATCH'
-  | 'ANALYZE_LINKEDIN_PROFILE'
-  | 'ANALYZE_LINKEDIN_PROFILE_GUEST'
-  | 'SUBMIT_GUEST_REPORT_EMAIL'
-  | 'ANALYTICS_EVENT'
-  | 'OPEN_LINKEDIN_EDITOR'
-  | 'REWRITE_FIELD';
+  | 'ANALYZE_MATCH';
 
 export interface DetectedQuestion {
   /** Stable ID generated in content script (hash of question + form path) */
@@ -225,76 +225,6 @@ export interface MatchAnalysis {
   gaps: string[];
   talkingPoints: string[];
   summary?: string;
-}
-
-// LinkedIn Profile Analyzer — scraped from the current linkedin.com/in/* tab
-// via the background service worker's scripting API. All fields optional
-// because LinkedIn's DOM changes frequently and sections may be collapsed.
-export interface LinkedInProfileScrape {
-  url?: string;
-  name?: string;
-  headline?: string;
-  location?: string;
-  currentTitle?: string;
-  currentCompany?: string;
-  about?: string;
-  experience?: string;
-  education?: string;
-  skills?: string;
-  featuredCount?: number | null;
-  recommendationsCount?: number | null;
-  followers?: string;
-  connections?: string;
-  /** Fallback: page innerText, truncated. Sent when structured selectors fail. */
-  rawText?: string;
-}
-
-export interface LinkedInSectionAnalysis {
-  name: string;
-  score: number;
-  current?: string;
-  findings: string[];
-  suggestion?: string;
-}
-
-export interface LinkedInProfileAnalysis {
-  overallScore: number;
-  recruiterFitScore: number;
-  searchVisibilityScore: number;
-  verdict: 'shortlist' | 'maybe' | 'pass' | string;
-  summary?: string;
-  sections: LinkedInSectionAnalysis[];
-  recruiterSearch: {
-    targetTitle?: string;
-    presentKeywords: string[];
-    missingKeywords: string[];
-    recommendedKeywords: string[];
-    searchabilityTips: string[];
-  };
-  priorityFixes: string[];
-}
-
-// Guest teaser variant — what the /analyze-linkedin-guest endpoint returns
-// to unauthenticated clients. Explicitly NOT a subset of
-// LinkedInProfileAnalysis: `sections`, `recruiterSearch` and full
-// `priorityFixes` are intentionally absent from the wire because the plan
-// requires teaser gating to be server-side (no CSS-only hide).
-export interface LinkedInQuickWinLocked {
-  index: number;
-  title: string;
-  /** Present only on the unlocked item (index 0). */
-  body?: string;
-  locked: boolean;
-}
-
-export interface LinkedInProfileAnalysisTeaser {
-  mode: 'guest';
-  overallScore: number;
-  recruiterFitScore: number;
-  searchVisibilityScore: number;
-  verdict: 'shortlist' | 'maybe' | 'pass' | string;
-  summary?: string;
-  quickWinsLocked: LinkedInQuickWinLocked[];
 }
 
 export interface Message {

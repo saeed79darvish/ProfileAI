@@ -47,7 +47,7 @@ This produces `chrome-extension-react/profileai-extension-v1.0.0.zip` — the fi
 4. **Graphic assets** (required):
    - Store icon: 128×128 PNG (use `public/icons/icon128.png`).
    - At least 1 screenshot (1280×800 or 640×400). Capture the side panel on a
-     LinkedIn/Greenhouse job page.
+     Greenhouse job page.
    - Optional: small promo tile 440×280.
 
 ## 4. Privacy & permissions justification

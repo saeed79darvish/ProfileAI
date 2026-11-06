@@ -178,7 +178,7 @@ export const SignedOut: React.FC<SignedOutProps> = ({ currentJob, lastProfile, h
         </p>
 
         <ul className="value-list">
-          <li>Import from your resume or LinkedIn, no typing</li>
+          <li>Import from your resume, no typing</li>
           <li>Instant match % against this job's requirements</li>
           <li>Auto-fill email, phone, location in one click</li>
           <li>AI-written cover letter tailored to this role</li>

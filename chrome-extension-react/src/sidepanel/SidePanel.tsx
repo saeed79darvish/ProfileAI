@@ -9,28 +9,19 @@ import { SavedAnswersSection } from './components/SavedAnswersSection';
 import { AnswersModal } from './components/AnswersModal';
 import { JobTrackerLink } from './components/JobTrackerLink';
 import { Footer } from './components/Footer';
-import { TailoredResults } from './components/TailoredResults';
 import { AutofillSettings, getAutofillMode } from './components/AutofillSettings';
 import { PromoCodeRedeem } from './components/PromoCodeRedeem';
 import { Notification, NotificationProps } from './components/Notification';
 import { CoverLetterModal } from './components/CoverLetterModal';
 import { SmartAnswersModal, type SmartAnswersRestore } from './components/SmartAnswersModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
-import { LinkedInAnalyzerModal } from './components/LinkedInAnalyzerModal';
-import { AnalyzeLinkedInPill } from './components/AnalyzeLinkedInPill';
-import { AnalyzerGoalPicker } from './components/AnalyzerGoalPicker';
-import { useWebSignIn } from './components/useWebSignIn';
-import { emitAnalyticsEvent } from './analytics';
-import { TailorSettingsModal, TailorSettings } from './components/TailorSettingsModal';
-import { TailoringProgress } from './components/TailoringProgress';
-import { GapReviewModal } from './components/GapReviewModal';
+import { TailorFlow, type TailorRestore, type TailorStatus } from './components/TailorFlow';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
-import type { FullProfile, JobInfo, AuthState, LinkedInProfileAnalysis, KeywordAnalysis } from '../types';
+import type { FullProfile, JobInfo, AuthState, KeywordAnalysis } from '../types';
 import { BrandIcon, BrandLogo } from '../components/BrandLogo';
 import {
   BG_TASKS_KEY,
   TASK_AUTO_SURFACE_MS,
-  clearBgTask,
   clearTaskBadge,
   isTaskStale,
   jobTaskKey,
@@ -43,135 +34,6 @@ import {
 /** How long the Analyze-button hint stays up. The toast's 3s is tuned for
  *  "saved", not for a sentence the user has to act on. */
 const ANALYZE_HINT_TIMEOUT_MS = 9000;
-
-/** Set when the analyzer hook sends someone to LinkedIn, read by the panel
- *  once a profile is on screen so the goal picker opens by itself. It lives in
- *  storage rather than component state because reopening the side panel for the
- *  new tab can hand us a freshly mounted panel, which would lose the intent. */
-const PENDING_ANALYZER_KEY = 'pendingAnalyzerGoalPicker';
-/** Past this, the click that set the flag is no longer what the user is doing —
- *  a picker opening out of nowhere is worse than no picker at all. */
-const PENDING_ANALYZER_TTL_MS = 2 * 60 * 1000;
-
-/** /in/me resolves to whichever member is signed in on this browser, so the
- *  analyzer hook can send someone to their own profile without knowing the
- *  slug. */
-const LINKEDIN_OWN_PROFILE_URL = 'https://www.linkedin.com/in/me/';
-
-// --- LinkedIn analysis cache helpers (shared by detector + analyzer) --------
-const LI_CACHE_KEY = 'linkedInAnalysisCache';
-const LI_CACHE_MAX_ENTRIES = 20;
-const LI_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-/** Normalized target-title slug used in the cache key. Empty / null becomes
- *  'inferred' so guest + goal-picker "let AI infer" analyses share their
- *  own bucket instead of colliding with a specific-role analysis of the
- *  same profile. Mirrors the backend's normalisation exactly so client and
- *  server caches see the same rows. */
-const normalizeTargetTitleForKey = (t: string | null | undefined): string => {
-  if (t == null) return 'inferred';
-  const s = String(t).trim().toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]+/g, '');
-  return s || 'inferred';
-};
-
-/** Normalized cache key for a LinkedIn profile URL + target title.
- *  Returns null when the URL isn't a /in/ profile page.
- *
- *  Old shape was `${origin}${pathname}` (URL only). That collided across
- *  targets: if you first analysed profile X as "Senior Frontend Engineer"
- *  then re-analysed for "VP of ML", the second click hit the URL-only cache
- *  and returned the Frontend analysis. Including target in the key gives
- *  each (profile, target) tuple its own row. */
-const linkedInCacheKey = (
-  url: string | undefined | null,
-  targetTitle?: string | null,
-): string | null => {
-  if (!url || !/linkedin\.com\/in\//i.test(url)) return null;
-  try {
-    const u = new URL(url);
-    return `${u.origin}${u.pathname.replace(/\/+$/, '')}::${normalizeTargetTitleForKey(targetTitle)}`;
-  } catch {
-    return null;
-  }
-};
-
-/** URL-only prefix used by readAnyLinkedInCacheForUrl below. Every
- *  target-specific key starts with this. */
-const linkedInUrlPrefix = (url: string | undefined | null): string | null => {
-  if (!url || !/linkedin\.com\/in\//i.test(url)) return null;
-  try {
-    const u = new URL(url);
-    return `${u.origin}${u.pathname.replace(/\/+$/, '')}::`;
-  } catch {
-    return null;
-  }
-};
-
-/** Returns the cached entry for a (profile URL, target) pair, or null. */
-const readLinkedInCache = async (
-  cacheKeyUrl: string,
-): Promise<{ analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null> => {
-  try {
-    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
-    const hit = cache?.[cacheKeyUrl];
-    if (hit?.analysis && hit?.cachedAt && Date.now() - hit.cachedAt < LI_CACHE_TTL_MS) {
-      return hit;
-    }
-  } catch {
-    /* treat as no cache */
-  }
-  return null;
-};
-
-/** Writes an analysis into the client cache, evicting the oldest entries past
- *  the cap. Shared by the live analyze path and the background-task restore
- *  path so both leave the "analyzed X ago" pill in the same state. */
-const writeLinkedInCache = async (
-  cacheKeyUrl: string,
-  analysis: LinkedInProfileAnalysis,
-  targetTitle: string | undefined,
-  cachedAt: number,
-): Promise<void> => {
-  try {
-    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
-    const next: Record<string, any> = { ...cache };
-    next[cacheKeyUrl] = { analysis, targetTitle, cachedAt };
-    const entries = Object.entries(next) as Array<[string, { cachedAt: number }]>;
-    if (entries.length > LI_CACHE_MAX_ENTRIES) {
-      entries.sort((a, b) => (b[1]?.cachedAt || 0) - (a[1]?.cachedAt || 0));
-      const trimmed: Record<string, any> = {};
-      entries.slice(0, LI_CACHE_MAX_ENTRIES).forEach(([k, v]) => (trimmed[k] = v));
-      await chrome.storage.local.set({ [LI_CACHE_KEY]: trimmed });
-    } else {
-      await chrome.storage.local.set({ [LI_CACHE_KEY]: next });
-    }
-  } catch {
-    /* non-fatal — the result is still shown, just not cached */
-  }
-};
-
-/** Returns the MOST RECENT cached entry for a profile URL, regardless of
- *  target. Used by the pill indicator ("analyzed X ago") which shouldn't
- *  care which target was used — any prior analysis of this profile counts. */
-const readAnyLinkedInCacheForUrl = async (
-  urlPrefix: string,
-): Promise<{ analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null> => {
-  try {
-    const { [LI_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(LI_CACHE_KEY);
-    if (!cache || typeof cache !== 'object') return null;
-    let best: { analysis: LinkedInProfileAnalysis; targetTitle?: string; cachedAt: number } | null = null;
-    for (const [key, value] of Object.entries(cache)) {
-      if (!key.startsWith(urlPrefix)) continue;
-      const hit = value as any;
-      if (!hit?.analysis || !hit?.cachedAt) continue;
-      if (Date.now() - hit.cachedAt >= LI_CACHE_TTL_MS) continue;
-      if (!best || hit.cachedAt > best.cachedAt) best = hit;
-    }
-    return best;
-  } catch {
-    return null;
-  }
-};
 
 export const SidePanel: React.FC = () => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -213,34 +75,17 @@ export const SidePanel: React.FC = () => {
    */
   const verifiedJobRef = useRef<{ job: JobInfo; url: string } | null>(null);
   /**
-   * Set when the user chose "Tailor Again" on a posting they had already
-   * tailored.
-   *
-   * Gap analysis is cached server-side so that re-OPENING a job does not
-   * re-spend a credit on an answer that cannot have changed. A deliberate
-   * re-run is a different intent, and serving it from cache is what made
-   * re-tailoring look like it did nothing: identical gaps, and a stale
-   * tailored card still on screen underneath.
+   * The posting the tailor flow is committed to, with the tab URL it was read
+   * from. Kept while the flow is hidden so a run in progress still has its job.
    */
-  const forceFreshRef = useRef(false);
-  const [tailoredProfile, setTailoredProfile] = useState<any | null>(null);
-  const [isTailoring, setIsTailoring] = useState(false);
-  const [isAnalyzingGaps, setIsAnalyzingGaps] = useState(false);
-  /**
-   * When the current tailor run began, in epoch ms. Kept separate from the
-   * progress component's own lifetime so reopening the panel mid-run resumes
-   * the steps instead of replaying them from the first one. Gap analysis and
-   * tailoring are one run to the user, so this holds the earlier of the two.
-   */
-  const [tailoringStartedAt, setTailoringStartedAt] = useState<number | null>(null);
-  const markTailorStart = useCallback((at: number) => {
-    setTailoringStartedAt((prev) => (prev !== null && prev < at ? prev : at));
-  }, []);
-  const [retailorConfirm, setRetailorConfirm] = useState<{ jobUrl: string; jobTitle: string; company: string } | null>(null);
+  const [flowJob, setFlowJob] = useState<{ job: JobInfo; url: string } | null>(null);
+  const [showTailorFlow, setShowTailorFlow] = useState(false);
+  /** A copy tailored earlier for this posting: the flow opens at Apply. */
+  const [flowCopy, setFlowCopy] = useState<any | null>(null);
+  /** A tailor task that did not start in this panel instance. */
+  const [tailorRestore, setTailorRestore] = useState<TailorRestore | null>(null);
+  const [tailorStatus, setTailorStatus] = useState<TailorStatus>('idle');
   const [keywordAnalysis, setKeywordAnalysis] = useState<KeywordAnalysis | null>(null);
-  // Snapshot of the keyword analysis captured when tailoring starts, so the
-  // tailored result can show an honest before → after comparison.
-  const [preTailorSnapshot, setPreTailorSnapshot] = useState<{ score: number; missing: string[]; total: number } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // Cover-letter generation that belongs to a background task rather than to
@@ -249,76 +94,12 @@ export const SidePanel: React.FC = () => {
   const [coverLetterGenerating, setCoverLetterGenerating] = useState(false);
   const [coverLetterInjected, setCoverLetterInjected] = useState<{ text: string; ts: number } | null>(null);
   const [smartAnswersRestore, setSmartAnswersRestore] = useState<SmartAnswersRestore | null>(null);
-  const [showTailorSettings, setShowTailorSettings] = useState(false);
-  const [tailorSettings, setTailorSettings] = useState<TailorSettings | null>(null);
   const [showSmartAnswers, setShowSmartAnswers] = useState(false);
   const [isDetectingQuestions, setIsDetectingQuestions] = useState(false);
   const [detectedCount, setDetectedCount] = useState(0);
   const [showMatchAnalysis, setShowMatchAnalysis] = useState(false);
   const [matchAnalysis, setMatchAnalysis] = useState<import('../types').MatchAnalysis | null>(null);
   const [matchLoading, setMatchLoading] = useState(false);
-  // LinkedIn Profile Analyzer state
-  const [isOnLinkedInProfile, setIsOnLinkedInProfile] = useState(false);
-  const [showLinkedInAnalyzer, setShowLinkedInAnalyzer] = useState(false);
-  const [linkedInAnalysis, setLinkedInAnalysis] = useState<LinkedInProfileAnalysis | null>(null);
-  const [linkedInLoading, setLinkedInLoading] = useState(false);
-  const [linkedInError, setLinkedInError] = useState<string | null>(null);
-  const [linkedInErrorCode, setLinkedInErrorCode] = useState<string | null>(null);
-  const [linkedInTargetTitle, setLinkedInTargetTitle] = useState<string | undefined>(undefined);
-  const [linkedInCachedAt, setLinkedInCachedAt] = useState<number | null>(null);
-  const [linkedInAnalysisId, setLinkedInAnalysisId] = useState<string | null>(null);
-  // Goal-picker state — the modal that asks "why are you analyzing this?"
-  // BEFORE we call the AI, so the target is specific instead of blindly
-  // inferred. `pendingAnalyzeFlow` records whether the click that triggered
-  // the picker came from the guest CTA or the authed pill, so we can route
-  // to the right handler on submit.
-  const [showGoalPicker, setShowGoalPicker] = useState(false);
-  const [pendingAnalyzeFlow, setPendingAnalyzeFlow] = useState<'authed' | 'guest' | null>(null);
-  const [goalPickerContext, setGoalPickerContext] = useState<'own-profile' | 'other-profile' | undefined>(undefined);
-  // Guest-mode state — separate from `linkedInAnalysis` because the guest
-  // endpoint returns a teaser shape, not the full LinkedInProfileAnalysis.
-  const [linkedInMode, setLinkedInMode] = useState<'guest' | 'authed'>('authed');
-  const [linkedInTeaser, setLinkedInTeaser] = useState<import('../types').LinkedInProfileAnalysisTeaser | null>(null);
-  // Cached-analysis timestamp for the CURRENT tab's profile URL. Drives the
-  // "View LinkedIn analysis · analyzed X ago" state on the profile-card pill
-  // so users know a click won't spend another credit.
-  const [linkedInTabAnalyzedAt, setLinkedInTabAnalyzedAt] = useState<number | null>(null);
-
-  // DEV-ONLY: forces the guest analyzer UX to render even when the user is
-  // signed in. Not surfaced anywhere in the UI — flip it from DevTools:
-  //   await chrome.storage.local.set({ debugForceGuestAnalyzer: true })
-  //   // …reload the sidepanel to take effect
-  // Reset with `false` (or `chrome.storage.local.remove`) when done.
-  const [debugForceGuestAnalyzer, setDebugForceGuestAnalyzer] = useState(false);
-  useEffect(() => {
-    let active = true;
-    chrome.storage.local.get('debugForceGuestAnalyzer').then((r) => {
-      if (active) setDebugForceGuestAnalyzer(!!r.debugForceGuestAnalyzer);
-    });
-    const onChange = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      area: string
-    ) => {
-      if (area === 'local' && 'debugForceGuestAnalyzer' in changes) {
-        setDebugForceGuestAnalyzer(!!changes.debugForceGuestAnalyzer.newValue);
-      }
-    };
-    chrome.storage.onChanged.addListener(onChange);
-    return () => {
-      active = false;
-      chrome.storage.onChanged.removeListener(onChange);
-    };
-  }, []);
-
-  // Web sign-in flow for the signed-out LinkedIn-analyzer teaser. Arrow wrapper
-  // defers the loadAuthAndProfile reference (declared below) past the TDZ.
-  const { signInOnWeb: liTeaserSignIn } = useWebSignIn(() =>
-    loadAuthAndProfile(),
-  );
-  const [gapReview, setGapReview] = useState<{
-    gaps: any[];
-    settings: TailorSettings | null;
-  } | null>(null);
 
   // --- background-task plumbing --------------------------------------------
   // Long operations run in the service worker as durable tasks (see src/tasks.ts)
@@ -361,22 +142,6 @@ export const SidePanel: React.FC = () => {
     loadAuthAndProfile();
     loadJobInfo();
     loadAnswersCount();
-    detectLinkedInProfileTab();
-
-    // One-time client-cache wipe. Bumped to v3 because the earlier v2 wipe
-    // still left users with wrong-target cache entries when the server's
-    // URL-cap soft-fallback returned a mismatched-target row — that path
-    // then wrote through to the CLIENT cache under whatever target the
-    // user asked for. Nuking the cache once more clears any residue.
-    chrome.storage.local.get(['linkedInAnalysisCacheVersion']).then(({ linkedInAnalysisCacheVersion }) => {
-      if (linkedInAnalysisCacheVersion !== 3) {
-        chrome.storage.local.set({
-          linkedInAnalysisCache: {},
-          linkedInAnalysisCacheVersion: 3,
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-
     // Restore the returning-user summary so the reconnect screen can show
     // before/without a fresh login. `hasSignedInBefore` (set on every sign-in,
     // never cleared on sign-out) and `extSignedOut` tell the signed-out screen
@@ -400,16 +165,12 @@ export const SidePanel: React.FC = () => {
         // Small delay to let SPA content render, then poll
         setTimeout(() => loadJobInfoWithRetry(), 600);
       }
-      // Also refresh the LinkedIn-profile flag whenever a URL changes.
-      if (changeInfo.url) detectLinkedInProfileTab();
       // The hint describes the page that was open when Analyze was clicked, so
       // a navigation retires it — right or wrong, it is about somewhere else.
       if (changeInfo.url) setAnalyzeHint(null);
     };
     const onTabActivated = () => {
       setTimeout(() => loadJobInfoWithRetry(), 300);
-      // Re-check whether we're on a LinkedIn profile page.
-      detectLinkedInProfileTab();
       setAnalyzeHint(null);
     };
     chrome.tabs.onUpdated.addListener(onTabUpdated);
@@ -518,7 +279,6 @@ export const SidePanel: React.FC = () => {
 
   const loadJobInfo = async () => {
     let job: JobInfo | null = null;
-    let jobUrl = '';
 
     // Method 1 (most reliable): Ask the background script to relay from content script + storage
     try {
@@ -537,7 +297,6 @@ export const SidePanel: React.FC = () => {
         const stored = await chrome.storage.local.get(['currentJobInfo', 'currentJobUrl']);
         if (stored.currentJobInfo && (stored.currentJobInfo.title || stored.currentJobInfo.company)) {
           job = stored.currentJobInfo;
-          jobUrl = stored.currentJobUrl || '';
           console.log('[ProfileAI SidePanel] Got job from storage:', job!.title);
         }
       } catch (e) {
@@ -549,7 +308,6 @@ export const SidePanel: React.FC = () => {
     if (!job) {
       try {
         const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-        jobUrl = tab?.url || '';
         if (tab?.id) {
           const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_JOB_INFO' });
           if (response?.title || response?.company) {
@@ -564,22 +322,6 @@ export const SidePanel: React.FC = () => {
 
     if (job) {
       setCurrentJob(job);
-      // Get the URL for cache lookup
-      if (!jobUrl) {
-        try {
-          const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          jobUrl = tab?.url || '';
-        } catch (_) {}
-      }
-      if (jobUrl) {
-        try {
-          const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-          const cached = tailoredCache[jobUrl];
-          if (cached) {
-            setTailoredProfile(cached);
-          }
-        } catch (_) {}
-      }
     } else {
       console.log('[ProfileAI SidePanel] No job found after all methods');
       setCurrentJob(null);
@@ -609,31 +351,6 @@ export const SidePanel: React.FC = () => {
     const { savedAnswers } = await chrome.storage.local.get('savedAnswers');
     setAnswersCount(Object.keys(savedAnswers || {}).length);
   };
-
-  // Detect whether the active tab is a LinkedIn profile page — controls the
-  // "Analyze LinkedIn Profile" pill on the profile card. Also checks whether
-  // this specific profile URL already has a cached analysis, so the pill can
-  // flip to "View LinkedIn analysis · analyzed X ago".
-  const detectLinkedInProfileTab = useCallback(async () => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const isProfile = !!tab?.url && /linkedin\.com\/in\//i.test(tab.url);
-      setIsOnLinkedInProfile(isProfile);
-      if (isProfile) {
-        // Any prior analysis of this profile (whatever target) satisfies the
-        // "analyzed X ago" indicator — use the URL-prefix variant so target
-        // choice doesn't affect the pill's badge state.
-        const prefix = linkedInUrlPrefix(tab?.url);
-        const hit = prefix ? await readAnyLinkedInCacheForUrl(prefix) : null;
-        setLinkedInTabAnalyzedAt(hit?.cachedAt ?? null);
-      } else {
-        setLinkedInTabAnalyzedAt(null);
-      }
-    } catch {
-      setIsOnLinkedInProfile(false);
-      setLinkedInTabAnalyzedAt(null);
-    }
-  }, []);
 
   const handleRefresh = useCallback(async () => {
     await loadAuthAndProfile();
@@ -685,331 +402,6 @@ export const SidePanel: React.FC = () => {
       setIsDetectingQuestions(false);
     }
   }, [currentJob]);
-
-  const handleAnalyzeLinkedIn = useCallback(async (
-    opts?: { force?: boolean; targetTitleOverride?: string }
-  ) => {
-    const force = opts?.force === true;
-    // When the goal-picker submits, it passes an explicit `targetTitleOverride`
-    // (may be an empty string, which means "let AI infer"). We use that as
-    // the exact value, no auto-fill fallback. When called with no opts (e.g.
-    // Re-analyze inside the modal) we keep the previous behaviour: use the
-    // user's saved title ONLY when analysing their own profile.
-    setShowLinkedInAnalyzer(true);
-    setLinkedInError(null);
-    setLinkedInErrorCode(null);
-    setLinkedInMode('authed');
-    setLinkedInTeaser(null);
-
-    // Grab the tab URL upfront — we need it both to resolve the target
-    // (own vs foreign profile) AND to build the cache key. Split from cache
-    // logic below so the target resolves BEFORE we hit the cache.
-    let tabUrl: string | undefined;
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      tabUrl = tab?.url || undefined;
-    } catch {
-      /* fallthrough with undefined */
-    }
-
-    // Resolve the target FIRST. Priority:
-    //   1) explicit override from the goal-picker (may be '' meaning infer)
-    //   2) user's saved title, ONLY when analysing their own /in/<slug>
-    //   3) undefined -> backend / AI infers from the profile itself
-    let targetTitle: string | undefined;
-    if (opts && typeof opts.targetTitleOverride === 'string') {
-      const v = opts.targetTitleOverride.trim();
-      targetTitle = v || undefined;
-    } else {
-      const tabSlug = (tabUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-      const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-      if (tabSlug && ownSlug && tabSlug === ownSlug) {
-        targetTitle = (profile?.title || profile?.headline || '').trim() || undefined;
-      }
-    }
-
-    // Cache key includes the resolved target so switching targets never
-    // returns the previous target's analysis from cache.
-    const cacheKeyUrl = linkedInCacheKey(tabUrl, targetTitle);
-
-    // Cache HIT path — instant load, no AI call.
-    if (!force && cacheKeyUrl) {
-      const hit = await readLinkedInCache(cacheKeyUrl);
-      if (hit) {
-        setLinkedInAnalysis(hit.analysis);
-        setLinkedInTargetTitle(hit.targetTitle);
-        setLinkedInCachedAt(hit.cachedAt);
-        setLinkedInTabAnalyzedAt(hit.cachedAt);
-        setLinkedInLoading(false);
-        return;
-      }
-    }
-
-    // Cache MISS or forced refresh — call the AI.
-    setLinkedInLoading(true);
-    setLinkedInCachedAt(null);
-    beginOp('linkedin');
-    try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'ANALYZE_LINKEDIN_PROFILE',
-        data: { targetTitle },
-      });
-      if (resp?.success && resp.analysis) {
-        const analysis = resp.analysis as LinkedInProfileAnalysis;
-        const resolvedTitle = resp.targetTitle || targetTitle;
-        const cachedAt = Date.now();
-        setLinkedInAnalysis(analysis);
-        setLinkedInTargetTitle(resolvedTitle);
-        setLinkedInCachedAt(cachedAt);
-        setLinkedInTabAnalyzedAt(cachedAt);
-        setLinkedInAnalysisId(resp.analysisId || null);
-
-        // Persist to cache (eviction: keep newest MAX_ENTRIES by cachedAt).
-        if (cacheKeyUrl) {
-          await writeLinkedInCache(cacheKeyUrl, analysis, resolvedTitle, cachedAt);
-        }
-      } else {
-        setLinkedInAnalysis(null);
-        setLinkedInError(resp?.error || 'Could not analyze this profile');
-      }
-    } catch (e) {
-      setLinkedInAnalysis(null);
-      setLinkedInError((e as Error).message || 'Analysis failed');
-    } finally {
-      endOp('linkedin');
-      setLinkedInLoading(false);
-    }
-  }, [profile]);
-
-  /**
-   * Guest / signed-out LinkedIn Profile Analyzer flow. Runs the same scrape
-   * against the active LinkedIn tab, hits the unauthenticated backend
-   * endpoint, and shows the teaser variant of the modal. Fires analytics
-   * events at each funnel stage (start, complete, teaser viewed).
-   *
-   * Does NOT share cache with the authed flow — a guest cache key would
-   * leak the teaser vs full distinction and confuse eviction. The backend
-   * caches everything server-side anyway, so the client cache is optional.
-   */
-  const handleGuestAnalyze = useCallback(async (
-    opts?: { targetTitleOverride?: string }
-  ) => {
-    setShowLinkedInAnalyzer(true);
-    setLinkedInMode('guest');
-    setLinkedInAnalysis(null);
-    setLinkedInTeaser(null);
-    setLinkedInError(null);
-    setLinkedInErrorCode(null);
-    setLinkedInCachedAt(null);
-    setLinkedInAnalysisId(null);
-    setLinkedInLoading(true);
-    const overrideTitle = (opts?.targetTitleOverride || '').trim();
-    void emitAnalyticsEvent('guest_analysis_started', overrideTitle ? { targetTitle: overrideTitle } : {});
-    beginOp('linkedinGuest');
-    try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'ANALYZE_LINKEDIN_PROFILE_GUEST',
-        data: overrideTitle ? { targetTitle: overrideTitle } : {},
-      });
-      if (resp?.success && resp.teaser) {
-        setLinkedInTeaser(resp.teaser as import('../types').LinkedInProfileAnalysisTeaser);
-        setLinkedInTargetTitle(resp.targetTitle || undefined);
-        setLinkedInAnalysisId(resp.analysisId || null);
-        setLinkedInTabAnalyzedAt(Date.now());
-        void emitAnalyticsEvent('guest_analysis_completed', {
-          analysisId: resp.analysisId || null,
-          overallScore: resp.teaser?.overallScore ?? null,
-        });
-        void emitAnalyticsEvent('teaser_viewed', { analysisId: resp.analysisId || null });
-      } else {
-        setLinkedInTeaser(null);
-        setLinkedInError(resp?.error || 'Could not analyze this profile');
-        setLinkedInErrorCode(resp?.errorCode || null);
-      }
-    } catch (e) {
-      setLinkedInTeaser(null);
-      setLinkedInError((e as Error).message || 'Analysis failed');
-    } finally {
-      endOp('linkedinGuest');
-      setLinkedInLoading(false);
-    }
-  }, []);
-
-  /**
-   * Opens the goal picker instead of firing the analyzer immediately.
-   * `flow` tells us which handler to call once the user submits their goal.
-   * Also derives whether this is the user's OWN LinkedIn profile so the
-   * picker can prefill their saved title when it makes sense (and skip it
-   * when it doesn't).
-   */
-  const openAnalyzeGoalPicker = useCallback(async (flow: 'authed' | 'guest') => {
-    // The analyzer pill is always visible now. If the active tab isn't a
-    // LinkedIn profile, there's nothing to grade — guide the user there
-    // instead of opening the goal picker on an irrelevant page.
-    if (!isOnLinkedInProfile) {
-      showNotification('Open a LinkedIn profile (linkedin.com/in/…) in your browser tab, then tap Analyze.', 'info');
-      return;
-    }
-    setPendingAnalyzeFlow(flow);
-    // Best-effort own-profile detection. Same slug match the analyzer itself
-    // uses. Fails safe to 'other-profile' so we don't misleadingly prefill.
-    let ctx: 'own-profile' | 'other-profile' | undefined = undefined;
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const tabSlug = (tab?.url || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-      const ownSlug = (profile?.linkedinUrl || '').match(/linkedin\.com\/in\/([^/?#]+)/i)?.[1]?.toLowerCase();
-      if (tabSlug) ctx = ownSlug && tabSlug === ownSlug ? 'own-profile' : 'other-profile';
-    } catch { /* leave ctx undefined */ }
-    setGoalPickerContext(ctx);
-    setShowGoalPicker(true);
-  }, [profile, isOnLinkedInProfile]);
-
-  /**
-   * The analyzer hook is pinned to the top of the signed-out surface on every
-   * page, so its click has two jobs: analyze the LinkedIn profile in the active
-   * tab, or — when there isn't one — open LinkedIn so the user can. /in/me
-   * resolves to the signed-in member's own profile; the tab listener flips the
-   * card back to "Analyze my profile" as soon as it lands.
-   */
-  const handleAnalyzerHookClick = useCallback(async () => {
-    if (isOnLinkedInProfile) {
-      void openAnalyzeGoalPicker('guest');
-      return;
-    }
-    // The tab has to be created HERE rather than through the background
-    // worker, because the panel has to be reopened for it in the same breath
-    // and chrome.sidePanel.open() only runs under a live user gesture — the
-    // worker has none of its own. Handing the URL to OPEN_TAB landed the user
-    // on LinkedIn with the panel shut, one step past the only thing we asked
-    // them to do, and nothing on the page to tell them to reopen it.
-    // Landing on LinkedIn is a step on the way to the analysis, not the thing
-    // asked for, so the panel picks the flow back up on arrival instead of
-    // leaving a second Analyze tap between the user and what they clicked.
-    try {
-      await chrome.storage.local.set({ [PENDING_ANALYZER_KEY]: { at: Date.now() } });
-    } catch (_) { /* the manual tap still works */ }
-
-    let opened: chrome.tabs.Tab | null = null;
-    try {
-      opened = await chrome.tabs.create({ url: LINKEDIN_OWN_PROFILE_URL });
-    } catch (_) {
-      opened = null;
-    }
-    if (!opened) {
-      // tabs.create refused (no window, permission edge) — the worker can still
-      // put the user on LinkedIn, which is the part they actually asked for.
-      chrome.runtime.sendMessage({
-        type: 'OPEN_TAB',
-        data: { url: LINKEDIN_OWN_PROFILE_URL },
-      });
-      showNotification('Opening your LinkedIn profile…', 'info');
-      return;
-    }
-    try {
-      // windowId keeps the panel window-scoped, the way the action click opens
-      // it; tabId is the fallback for the rare create() result without one.
-      if (opened.windowId != null) await chrome.sidePanel.open({ windowId: opened.windowId });
-      else if (opened.id != null) await chrome.sidePanel.open({ tabId: opened.id });
-      showNotification('Opening your LinkedIn profile…', 'info');
-    } catch (_) {
-      // Reopen refused (gesture expired, panel disabled for this window). The
-      // tab is already there, so say what is left to do instead of silence.
-      showNotification('Opened LinkedIn. Reopen ProfileAI there to continue.', 'info');
-    }
-  }, [isOnLinkedInProfile, openAnalyzeGoalPicker]);
-
-  /**
-   * Picks the analyzer flow back up once the LinkedIn tab we opened has a
-   * profile on it. The flag is consumed on read, so a stale one can never open
-   * the picker twice, and the flow is chosen from the CURRENT auth state rather
-   * than from whatever it was at click time — the trip through LinkedIn is long
-   * enough for a sign-in to have happened in between.
-   */
-  useEffect(() => {
-    if (!isOnLinkedInProfile) return;
-    let cancelled = false;
-    (async () => {
-      let pending: { at?: number } | undefined;
-      try {
-        const stored = await chrome.storage.local.get(PENDING_ANALYZER_KEY);
-        pending = stored?.[PENDING_ANALYZER_KEY];
-      } catch (_) {
-        return;
-      }
-      if (!pending || cancelled) return;
-      try {
-        await chrome.storage.local.remove(PENDING_ANALYZER_KEY);
-      } catch (_) { /* worst case it expires on its own */ }
-      if (cancelled || Date.now() - (pending.at || 0) > PENDING_ANALYZER_TTL_MS) return;
-      // Same rule the pills use, debug flag included — otherwise the one flow
-      // that opens itself is also the one flow that ignores the switch a
-      // tester flipped to see the guest teaser.
-      const guest = debugForceGuestAnalyzer || !authState.isAuthenticated;
-      void openAnalyzeGoalPicker(guest ? 'guest' : 'authed');
-    })();
-    return () => { cancelled = true; };
-  }, [isOnLinkedInProfile, authState.isAuthenticated, debugForceGuestAnalyzer, openAnalyzeGoalPicker]);
-
-  const closeGoalPicker = useCallback(() => {
-    setShowGoalPicker(false);
-    setPendingAnalyzeFlow(null);
-  }, []);
-
-  const handleGoalPickerSubmit = useCallback((targetTitle: string) => {
-    const flow = pendingAnalyzeFlow;
-    setShowGoalPicker(false);
-    setPendingAnalyzeFlow(null);
-    if (flow === 'guest') {
-      void handleGuestAnalyze({ targetTitleOverride: targetTitle });
-    } else if (flow === 'authed') {
-      void handleAnalyzeLinkedIn({ targetTitleOverride: targetTitle });
-    }
-  }, [pendingAnalyzeFlow, handleGuestAnalyze, handleAnalyzeLinkedIn]);
-
-  /**
-   * Submits a captured email to the guest-report backend and returns the
-   * server response so the modal can render the correct success/error UI.
-   * Fires the `email_submitted` analytics event only on success.
-   */
-  const handleGuestSubmitEmail = useCallback(async (email: string) => {
-    const analysisId = linkedInAnalysisId;
-    if (!analysisId) {
-      return { ok: false, error: 'Missing analysis id, please re-analyze.', errorCode: 'missing_analysis' as const };
-    }
-    try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'SUBMIT_GUEST_REPORT_EMAIL',
-        data: { email, analysisId },
-      });
-      if (resp?.ok) {
-        void emitAnalyticsEvent('email_submitted', {
-          analysisId,
-          duplicate: !!resp.duplicate,
-        });
-      }
-      return resp as {
-        ok: boolean;
-        duplicate?: boolean;
-        message?: string;
-        error?: string;
-        errorCode?: string;
-      };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message || 'Network error' };
-    }
-  }, [linkedInAnalysisId]);
-
-  /**
-   * Called from the guest modal's "Sign in free" links. Fires the
-   * signin_clicked_from_teaser analytics event and kicks off the same web
-   * sign-in flow used by the SignedOut screens.
-   */
-  const handleGuestSignIn = useCallback(() => {
-    void emitAnalyticsEvent('signin_clicked_from_teaser', {
-      analysisId: linkedInAnalysisId,
-    });
-    void liTeaserSignIn();
-  }, [linkedInAnalysisId, liTeaserSignIn]);
 
   /**
    * Read the posting in front of the user right now and pin it for this run.
@@ -1097,197 +489,32 @@ export const SidePanel: React.FC = () => {
       return;
     }
 
-    const freshJob = pinned.job;
+    // A run hidden earlier, or a finished one waiting at Review, for this same
+    // posting: reopen it rather than starting over.
+    if (tailorStatus !== 'idle' && flowJob && flowJob.url === pinned.url) {
+      setShowTailorFlow(true);
+      return;
+    }
 
-    if (!(freshJob.description || '').trim()) {
+    if (!(pinned.job.description || '').trim()) {
       showNotification('Could not read the job description on this page. Scroll the posting into view and try again.', 'warning');
       return;
     }
 
-    // Check if already tailored for this job — keyed by the URL the posting was
-    // read from, not by whichever tab is focused by now.
+    // A copy tailored before for this posting (keyed by the URL the posting was
+    // read from) opens at Apply, like the web flow's saved copy.
+    let cached: any = null;
     try {
       if (pinned.url) {
         const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-        if (tailoredCache[pinned.url]) {
-          setRetailorConfirm({ jobUrl: pinned.url, jobTitle: freshJob.title || '', company: freshJob.company || '' });
-          return;
-        }
+        cached = tailoredCache[pinned.url] || null;
       }
     } catch (_) {}
 
-    // Show settings modal before proceeding
-    setShowTailorSettings(true);
-  }, [readJobForRun]);
-
-  const handleTailorSettingsContinue = useCallback(async (settings: TailorSettings) => {
-    setTailorSettings(settings);
-    setShowTailorSettings(false);
-    await proceedWithTailor(settings);
-  }, [currentJob]);
-
-  const proceedWithTailor = useCallback(async (settings?: TailorSettings | null) => {
-    // The posting this run is committed to, read and pinned by handleTailor.
-    // Deliberately NOT `currentJob`: that is a live mirror of storage and can
-    // change under a run (the user clicks another card while the gap review is
-    // open), which would analyse one posting and tailor to another.
-    const pinnedJob = verifiedJobRef.current?.job || currentJob;
-    if (!pinnedJob) return;
-    setRetailorConfirm(null);
-    const activeSettings = settings || tailorSettings;
-    
-    // Step 1: Analyze gaps first
-    setIsAnalyzingGaps(true);
-    markTailorStart(Date.now());
-    showNotification('Analyzing skill gaps...', 'info');
-
-    // The gap analysis runs in the worker, so the panel may be gone by the
-    // time it returns. Park the settings the user just picked where a
-    // reopened panel can find them and carry on into tailoring.
-    try {
-      await chrome.storage.local.set({ pendingTailorSettings: activeSettings || null });
-    } catch (_) {}
-
-    beginOp('gaps');
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'ANALYZE_GAPS',
-        data: {
-          jobDescription: pinnedJob.description || '',
-          jobTitle: pinnedJob.title,
-          company: pinnedJob.company,
-          forceRefresh: forceFreshRef.current,
-        },
-      });
-
-      if (response?.cached) {
-        // Say so rather than letting an identical report read as a no-op.
-        showNotification('Showing your saved gap analysis for this job, nothing changed since last time.', 'info');
-      }
-
-      if (response?.success && response?.gaps?.length > 0) {
-        // Show in-page modal (rendered below) instead of opening a popup window.
-        // The run is now waiting on the user, who may sit on the gap review
-        // for a while. Drop the progress anchor so the tailoring step that
-        // follows times itself from when it actually starts.
-        setTailoringStartedAt(null);
-        setGapReview({ gaps: response.gaps, settings: activeSettings || null });
-      } else {
-        // Two very different outcomes used to land here identically: "your
-        // resume already covers this posting" and "the gap step failed".
-        // Treating them the same is how a gap analysis that failed on EVERY
-        // call went unnoticed — the run carried on into tailoring with no gap
-        // selections and looked, to the user, like it had simply skipped a step
-        // and produced the same resume as last time.
-        if (!response?.success) {
-          console.warn('[ProfileAI] Gap analysis failed:', response?.error);
-          showNotification(
-            'Could not analyze your skill gaps for this job, tailoring without the gap review.',
-            'warning'
-          );
-        }
-        await doTailor(null, undefined, activeSettings);
-      }
-    } catch (error) {
-      console.warn('[ProfileAI] Gap analysis threw, proceeding to tailor:', error);
-      showNotification(
-        'Could not analyze your skill gaps for this job, tailoring without the gap review.',
-        'warning'
-      );
-      await doTailor(null, undefined, activeSettings);
-    } finally {
-      endOp('gaps');
-      setIsAnalyzingGaps(false);
-      // One run, one bypass. Left set, the next ordinary tailor of a different
-      // job would also skip the cache and spend a credit it did not need to.
-      forceFreshRef.current = false;
-    }
-  }, [currentJob]);
-
-  // Core tailor logic
-  const doTailor = useCallback(async (
-    gapSelections: { acceptedGaps: string[]; skippedGaps: string[] } | null,
-    acceptedGapObjects?: any[],
-    settings?: TailorSettings | null
-  ) => {
-    // Same pinned posting the gap analysis ran against — see proceedWithTailor.
-    const pinnedJob = verifiedJobRef.current?.job || currentJob;
-    if (!pinnedJob) return;
-
-    // The URL the posting was READ FROM, not the tab that happens to be focused
-    // now. This is the key the background persists progress under, the key the
-    // retailor cache uses, and the `jobUrl` saved on the record — all three
-    // previously pointed at the active tab, so a tab switch during the gap
-    // review filed the result against the wrong page.
-    const jobUrl = verifiedJobRef.current?.url || '';
-
-    // Drop the stored result for this posting BEFORE the run. It is about to
-    // be replaced, and leaving it in place meant that any path which reads the
-    // cache while the run is in flight — reopening the panel, a tab switch and
-    // back — put the OLD tailored card back on screen, which is
-    // indistinguishable from the new run having produced nothing.
-    if (jobUrl) {
-      try {
-        const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-        if (tailoredCache[jobUrl]) {
-          delete tailoredCache[jobUrl];
-          await chrome.storage.local.set({ tailoredCache });
-        }
-      } catch (_) {}
-    }
-    setTailoredProfile(null);
-
-    setIsTailoring(true);
-    markTailorStart(Date.now());
-    showNotification('Tailoring your profile...', 'info');
-
-    // Remember the pre-tailor match so we can show the before/after.
-    // Skipped while the analysis is provisional: that number is the on-device
-    // keyword ratio, and comparing it against a real post-tailor score would
-    // manufacture a jump that never happened.
-    if (keywordAnalysis && !keywordAnalysis.provisional) {
-      setPreTailorSnapshot({
-        score: keywordAnalysis.matchScore,
-        missing: keywordAnalysis.missing,
-        total: keywordAnalysis.totalKeywords,
-      });
-    }
-
-    beginOp('tailor');
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'TAILOR_PROFILE',
-        data: {
-          jobDescription: pinnedJob.description || '',
-          jobTitle: pinnedJob.title,
-          company: pinnedJob.company,
-          jobUrl,
-          gapSelections: gapSelections ? {
-            ...gapSelections,
-            acceptedGapObjects: acceptedGapObjects || [],
-          } : null,
-          tailorSettings: settings || undefined,
-        },
-      });
-
-      if (response?.success && response?.tailoredProfile) {
-        // The background already stamped the job context onto the profile,
-        // persisted tailoredCache and saved to the backend — nothing to
-        // duplicate here.
-        setTailoredProfile(response.tailoredProfile);
-        showNotification('Profile tailored! Download your resume below.', 'success');
-      } else {
-        throw new Error(response?.error || 'Tailoring failed');
-      }
-    } catch (error) {
-      showNotification((error as Error).message || 'Please refresh the page and try again', 'error');
-    } finally {
-      endOp('tailor');
-      setIsTailoring(false);
-      setTailoringStartedAt(null);
-      chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
-    }
-  }, [currentJob, keywordAnalysis]);
+    setFlowCopy(cached);
+    setFlowJob(pinned);
+    setShowTailorFlow(true);
+  }, [readJobForRun, tailorStatus, flowJob]);
 
   const handleAnalyzeKeywords = useCallback(async () => {
     setIsAnalyzing(true);
@@ -1420,43 +647,27 @@ export const SidePanel: React.FC = () => {
 
     switch (rec.kind) {
       case 'tailor': {
-        setIsTailoring(running);
-        if (running) {
-          markTailorStart(rec.startedAt);
-          return;
-        }
-        setIsAnalyzingGaps(false);
-        setTailoringStartedAt(null);
-        chrome.storage.local.remove('pendingTailorSettings').catch(() => {});
-        if (failure) {
-          showNotification(failure, 'error');
-          return;
-        }
-        if (res?.tailoredProfile) {
-          setTailoredProfile(res.tailoredProfile);
-          showNotification('Your tailored resume is ready.', 'success');
-        }
-        return;
-      }
-
-      case 'gaps': {
-        setIsAnalyzingGaps(running);
-        if (running) {
-          markTailorStart(rec.startedAt);
-          return;
-        }
-        if (failure) return;
-        const gaps = res?.gaps;
-        if (!gaps?.length) return;
-        // Settings were parked when the run started, so a reopened panel can
-        // carry them into the tailor step the gap review leads to.
-        let parked: TailorSettings | null = null;
-        try {
-          const { pendingTailorSettings } = await chrome.storage.local.get('pendingTailorSettings');
-          parked = (pendingTailorSettings as TailorSettings) || null;
-        } catch (_) {}
-        setTailoringStartedAt(null);
-        setGapReview({ gaps, settings: parked });
+        // Only runs started by the tailor flow; a record from an older build has
+        // another shape and nothing to restore.
+        if (!rec.meta?.flow) return;
+        const url = String(rec.meta?.jobUrl || '');
+        setFlowJob((prev) => prev && prev.url === url ? prev : {
+          url,
+          job: currentJobRef.current || {
+            title: String(rec.meta?.jobTitle || ''),
+            company: String(rec.meta?.company || ''),
+            description: '',
+          },
+        });
+        setFlowCopy(null);
+        setTailorRestore({
+          status: running ? 'running' : failure ? 'error' : 'done',
+          startedAt: rec.startedAt,
+          result: res,
+          error: failure || undefined,
+          stamp: rec.updatedAt,
+        });
+        setShowTailorFlow(true);
         return;
       }
 
@@ -1512,45 +723,12 @@ export const SidePanel: React.FC = () => {
         return;
       }
 
-      case 'linkedin':
-      case 'linkedinGuest': {
-        const guest = rec.kind === 'linkedinGuest';
-        setLinkedInMode(guest ? 'guest' : 'authed');
-        setShowLinkedInAnalyzer(true);
-        setLinkedInLoading(running);
-        if (running) return;
-        if (failure) {
-          setLinkedInError(failure);
-          setLinkedInErrorCode(res?.errorCode || null);
-          return;
-        }
-        setLinkedInError(null);
-        setLinkedInErrorCode(null);
-        const resolvedTitle: string | undefined =
-          res?.targetTitle || (rec.meta?.targetTitle as string) || undefined;
-        setLinkedInTargetTitle(resolvedTitle);
-        setLinkedInAnalysisId(res?.analysisId || null);
-        setLinkedInTabAnalyzedAt(rec.updatedAt);
-        if (guest) {
-          setLinkedInTeaser(res?.teaser || null);
-          return;
-        }
-        if (!res?.analysis) return;
-        setLinkedInAnalysis(res.analysis);
-        setLinkedInCachedAt(rec.updatedAt);
-        const cacheKeyUrl = linkedInCacheKey(rec.meta?.profileUrl as string, resolvedTitle);
-        if (cacheKeyUrl) {
-          await writeLinkedInCache(cacheKeyUrl, res.analysis, resolvedTitle, rec.updatedAt);
-        }
-        return;
-      }
-
       default:
         // 'singleAnswer' and anything newer than this panel build: no UI to
         // restore, the task still runs to completion in the worker.
         return;
     }
-  }, [markTailorStart]);
+  }, []);
 
   /**
    * Whether a record belongs to the page the user is looking at right now.
@@ -1559,10 +737,6 @@ export const SidePanel: React.FC = () => {
    */
   const taskMatchesTab = useCallback((rec: BgTaskRecord, tabKey: string): boolean => {
     if (!tabKey || !rec.key || rec.key === 'default') return true;
-    if (rec.kind === 'linkedin' || rec.kind === 'linkedinGuest') {
-      // These keys are `<pageKey>::<target>`.
-      return rec.key.startsWith(`${tabKey}::`);
-    }
     return rec.key === tabKey;
   }, []);
 
@@ -1674,21 +848,6 @@ export const SidePanel: React.FC = () => {
       
       {!authState.isAuthenticated ? (
         <>
-          {/* Signed-out surface: the LinkedIn Profile Analyzer is our
-              acquisition hook, so it must run WITHOUT sign-in OR a profile, and
-              it stays pinned to the top on EVERY page, not just
-              linkedin.com/in/* tabs, so a first-time user always has one free
-              thing to try. Off a profile tab the pill opens LinkedIn instead of
-              analyzing nothing. Same pill the signed-in surfaces use, so the
-              hook looks identical before and after sign-in. */}
-          <div className="panel-section li-preprofile-section">
-            <AnalyzeLinkedInPill
-              onClick={handleAnalyzerHookClick}
-              loading={linkedInLoading && linkedInMode === 'guest'}
-              guest
-              offProfile={!isOnLinkedInProfile}
-            />
-          </div>
           <SignedOut
             currentJob={currentJob}
             lastProfile={lastProfile}
@@ -1698,30 +857,6 @@ export const SidePanel: React.FC = () => {
         </>
       ) : !profileProgress.hasMinimumProfile ? (
         <>
-          {/* DEV: force the guest analyzer surface for signed-in testing.
-              Renders above the normal authed pill so the tester can trigger
-              both flows from the same panel. */}
-          {debugForceGuestAnalyzer && isOnLinkedInProfile && (
-            <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-              <AnalyzeLinkedInPill
-                onClick={() => void openAnalyzeGoalPicker('guest')}
-                loading={linkedInLoading && linkedInMode === 'guest'}
-                guest
-              />
-            </div>
-          )}
-          {/* LinkedIn Analyzer works WITHOUT a completed ProfileAI profile —
-              it grades the LinkedIn page itself. Surfacing it before profile
-              setup gives new users instant value (hook), then the setup guide
-              below converts them to the full product. */}
-          <div className="panel-section li-preprofile-section">
-            <AnalyzeLinkedInPill
-              onClick={() => void openAnalyzeGoalPicker('authed')}
-              loading={linkedInLoading && linkedInMode === 'authed'}
-              analyzedAt={linkedInTabAnalyzedAt}
-              offProfile={!isOnLinkedInProfile}
-            />
-          </div>
           <ProfileSetupGuide
             profile={profile}
             currentJob={currentJob}
@@ -1731,23 +866,8 @@ export const SidePanel: React.FC = () => {
         </>
       ) : (
         <>
-          {debugForceGuestAnalyzer && isOnLinkedInProfile && (
-            <div className="panel-section li-preprofile-section" style={{ outline: '1px dashed rgba(245,158,11,0.5)' }}>
-              <AnalyzeLinkedInPill
-                onClick={() => void openAnalyzeGoalPicker('guest')}
-                loading={linkedInLoading && linkedInMode === 'guest'}
-                guest
-              />
-            </div>
-          )}
           <div className="main-content">
-            <ProfileSection
-              profile={profile}
-              isOnLinkedInProfile={isOnLinkedInProfile}
-              onAnalyzeLinkedIn={() => void openAnalyzeGoalPicker('authed')}
-              isAnalyzingLinkedIn={linkedInLoading}
-              linkedInAnalyzedAt={linkedInTabAnalyzedAt}
-            />
+            <ProfileSection profile={profile} />
             
             <JobMatchSection 
               currentJob={currentJob} 
@@ -1757,8 +877,7 @@ export const SidePanel: React.FC = () => {
               keywordAnalysis={keywordAnalysis}
               isAnalyzing={isAnalyzing}
               onTailor={handleTailor}
-              isTailoring={isTailoring || isAnalyzingGaps}
-              hasTailored={!!tailoredProfile}
+              tailorStatus={tailorStatus}
             />
             
             <QuickActions 
@@ -1767,104 +886,13 @@ export const SidePanel: React.FC = () => {
               onTailor={handleTailor}
               onCoverLetter={handleCoverLetter}
               hasJob={!!currentJob}
-              isTailoring={isTailoring || isAnalyzingGaps}
+              tailorStatus={tailorStatus}
               isDetecting={isDetectingQuestions}
               detectedCount={detectedCount}
             />
 
-            {(isTailoring || isAnalyzingGaps) && (
-              <TailoringProgress
-                jobTitle={currentJob?.title}
-                company={currentJob?.company}
-                startedAt={tailoringStartedAt}
-                onCancel={async () => {
-                  // Drops the progress UI. The run itself can't be aborted
-                  // mid-flight, so if it does land later the result still
-                  // shows up rather than being thrown away.
-                  try {
-                    const tasks = await readBgTasks();
-                    await Promise.all(
-                      Object.values(tasks)
-                        .filter((t) => t.kind === 'tailor' || t.kind === 'gaps')
-                        .map((t) => clearBgTask(t.id)),
-                    );
-                  } catch (_) {}
-                  setIsTailoring(false);
-                  setIsAnalyzingGaps(false);
-                  setTailoringStartedAt(null);
-                  showNotification('Tailoring canceled. You can try again.', 'info');
-                }}
-              />
-            )}
-
             <AutofillSettings />
 
-            {/* Skill Gap Review modal (in-page, not a separate window) */}
-            {gapReview && (
-              <GapReviewModal
-                gaps={gapReview.gaps}
-                onCancel={() => {
-                  setGapReview(null);
-                  showNotification('Gap review cancelled', 'info');
-                }}
-                onContinue={async ({ acceptedGaps, skippedGaps, acceptedGapObjects }) => {
-                  const settings = gapReview.settings;
-                  setGapReview(null);
-                  await doTailor(
-                    { acceptedGaps, skippedGaps },
-                    acceptedGapObjects,
-                    settings
-                  );
-                }}
-              />
-            )}
-
-            {/* Re-tailor confirmation modal */}
-            {retailorConfirm && (
-              <div className="retailor-overlay" onClick={() => setRetailorConfirm(null)}>
-                <div className="retailor-modal" onClick={(e) => e.stopPropagation()}>
-                  <div className="retailor-icon">📋</div>
-                  <p className="retailor-text">
-                    You already tailored your resume for <strong>{retailorConfirm.jobTitle}</strong>
-                    {retailorConfirm.company ? ` at ${retailorConfirm.company}` : ''}.
-                    Save your tailoring limit for another job, or tailor again.
-                  </p>
-                  <div className="retailor-actions">
-                    <button className="retailor-btn keep" onClick={() => setRetailorConfirm(null)}>
-                      Keep Existing
-                    </button>
-                    <button className="retailor-btn retailor" onClick={() => { setRetailorConfirm(null); forceFreshRef.current = true; setShowTailorSettings(true); }}>
-                      Tailor Again
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {tailoredProfile && (
-              <TailoredResults
-                tailoredProfile={tailoredProfile}
-                profile={profile}
-                beforeScore={preTailorSnapshot?.score ?? keywordAnalysis?.matchScore ?? null}
-                addedKeywords={preTailorSnapshot?.missing}
-                totalKeywords={preTailorSnapshot?.total ?? keywordAnalysis?.totalKeywords ?? null}
-                onNotification={showNotification}
-                onDismiss={async () => {
-                  setTailoredProfile(null);
-                  // Remove from cache
-                  try {
-                    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-                    const jobUrl = tab?.url || '';
-                    if (jobUrl) {
-                      const { tailoredCache = {} } = await chrome.storage.local.get('tailoredCache');
-                      delete tailoredCache[jobUrl];
-                      await chrome.storage.local.set({ tailoredCache });
-                    }
-                  } catch (_) {}
-                }}
-              />
-            )}
-            
             <SavedAnswersSection 
               count={answersCount}
               onManage={() => setShowAnswersModal(true)}
@@ -1892,14 +920,19 @@ export const SidePanel: React.FC = () => {
         />
       )}
 
-      {showTailorSettings && currentJob && (
-        <TailorSettingsModal
-          jobTitle={currentJob.title || ''}
-          company={currentJob.company || ''}
-          onContinue={handleTailorSettingsContinue}
-          onCancel={() => setShowTailorSettings(false)}
-        />
-      )}
+      <TailorFlow
+        open={showTailorFlow && !!flowJob}
+        onClose={() => setShowTailorFlow(false)}
+        job={flowJob?.job || null}
+        jobUrl={flowJob?.url || ''}
+        profile={profile}
+        initialCopy={flowCopy}
+        restore={tailorRestore}
+        onStatus={setTailorStatus}
+        onNotify={showNotification}
+        onOpStart={() => beginOp('tailor')}
+        onOpEnd={() => endOp('tailor')}
+      />
 
       {showCoverLetterModal && (
         <CoverLetterModal
@@ -1945,38 +978,6 @@ export const SidePanel: React.FC = () => {
         onRefresh={handleAnalyzeMatch}
       />
 
-      <LinkedInAnalyzerModal
-        open={showLinkedInAnalyzer}
-        onClose={() => setShowLinkedInAnalyzer(false)}
-        loading={linkedInLoading}
-        analysis={linkedInAnalysis}
-        error={linkedInError}
-        errorCode={linkedInErrorCode}
-        targetTitle={linkedInTargetTitle}
-        cachedAt={linkedInCachedAt}
-        onRefresh={() => (linkedInMode === 'guest'
-          ? handleGuestAnalyze({ targetTitleOverride: linkedInTargetTitle })
-          : handleAnalyzeLinkedIn({ force: true, targetTitleOverride: linkedInTargetTitle }))}
-        onNotification={showNotification}
-        mode={linkedInMode}
-        analysisId={linkedInAnalysisId}
-        teaser={linkedInTeaser}
-        onSubmitEmail={handleGuestSubmitEmail}
-        onSignIn={handleGuestSignIn}
-      />
-
-      {/* Goal picker — appears BEFORE the analyzer so the user commits to
-          a specific target instead of the AI guessing blindly. Prefills the
-          signed-in user's saved title only when the current tab is their own
-          /in/<slug>. On submit, dispatches to the correct handler (guest or
-          authed) with the resolved target. */}
-      <AnalyzerGoalPicker
-        open={showGoalPicker}
-        onClose={closeGoalPicker}
-        onAnalyze={handleGoalPickerSubmit}
-        defaultTitle={(profile?.title || profile?.headline || '').trim() || undefined}
-        contextHint={goalPickerContext}
-      />
       
       {notification && (
         <Notification 

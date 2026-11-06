@@ -13,9 +13,8 @@ interface JobMatchSectionProps {
   keywordAnalysis?: KeywordAnalysis | null;
   isAnalyzing?: boolean;
   onTailor?: () => void;
-  isTailoring?: boolean;
-  /** When a tailored result is showing, collapse to just the job row. */
-  hasTailored?: boolean;
+  /** Where the tailor flow stands: a run in progress or a result waiting to be reviewed. */
+  tailorStatus?: 'idle' | 'running' | 'ready';
   /** Why the last Analyze click produced nothing, anchored to the button that
    *  produced it. Only the empty state carries it: once a job is detected the
    *  card itself is the place errors belong. */
@@ -113,8 +112,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
   keywordAnalysis,
   isAnalyzing,
   onTailor,
-  isTailoring,
-  hasTailored,
+  tailorStatus = 'idle',
   analyzeHint,
   onDismissAnalyzeHint,
 }) => {
@@ -192,12 +190,12 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
 
   const analyzed = !!keywordAnalysis;
 
-  // When a tailored result is showing OR before any analysis, render the compact job row.
-  if (hasTailored || !keywordAnalysis) {
+  // Before any analysis, render the compact job row.
+  if (!keywordAnalysis) {
     return (
       <div className="panel-section job-match-section">
         <JobRow job={currentJob} onAnalyze={onAnalyze} isAnalyzing={busy} analyzed={analyzed} />
-        {!hasTailored && !analyzed && !busy && (
+        {!analyzed && !busy && (
           <button
             className="btn primary small full-width-btn"
             onClick={onAnalyze}
@@ -207,7 +205,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
           </button>
         )}
         {/* Nothing has come back yet, so the skeleton is the whole card. */}
-        {!hasTailored && !analyzed && busy && <ScoringSkeleton />}
+        {!analyzed && busy && <ScoringSkeleton />}
       </div>
     );
   }
@@ -421,11 +419,18 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
       {/* Primary CTA */}
       {onTailor && (
         <>
-          <button className="jm-tailor-cta" onClick={onTailor} disabled={isTailoring}>
-            {isTailoring ? (
+          <button className="jm-tailor-cta" onClick={onTailor}>
+            {tailorStatus === 'running' ? (
               <>
                 <span className="jm-cta-spinner" />
-                Tailoring…
+                Tailoring... View progress
+              </>
+            ) : tailorStatus === 'ready' ? (
+              <>
+                <svg viewBox="0 0 24 24" fill="currentColor" className="jm-cta-spark">
+                  <path d="M12 0c.5 6 5.5 11 12 12-6.5 1-11.5 6-12 12-.5-6-5.5-11-12-12C6.5 11 11.5 6 12 0z" />
+                </svg>
+                Review Tailored Resume
               </>
             ) : (
               <>
@@ -436,7 +441,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
               </>
             )}
           </button>
-          <p className="jm-tailor-note">AI rewrites your profile to match, safe, additive edits only</p>
+          <p className="jm-tailor-note">You confirm what is true, review every change, then download</p>
         </>
       )}
     </div>

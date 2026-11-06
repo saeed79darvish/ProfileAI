@@ -6,7 +6,7 @@ interface QuickActionsProps {
   onTailor: () => void;
   onCoverLetter: () => void;
   hasJob: boolean;
-  isTailoring?: boolean;
+  tailorStatus?: 'idle' | 'running' | 'ready';
   isDetecting?: boolean;
   detectedCount?: number;
 }
@@ -16,7 +16,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
   onQuickFillBasics,
   onTailor,
   onCoverLetter,
-  isTailoring,
+  tailorStatus = 'idle',
   isDetecting,
   detectedCount,
 }) => {
@@ -25,9 +25,6 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       <div className="section-header">
         <h4 className="section-title">Quick Actions</h4>
       </div>
-
-      {/* LinkedIn Profile Analyzer lives in the ProfileSection now — it's a
-          self-audit action tied to the user's identity, not a job flow. */}
 
       {/* Headline action — Smart Answers (replaces autofill as primary) */}
       <button
@@ -83,12 +80,15 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
         </button>
 
         <button
-          className={`action-btn secondary ${isTailoring ? 'tailoring-active' : ''}`}
+          className={`action-btn secondary ${tailorStatus === 'running' ? 'tailoring-active' : ''}`}
           onClick={onTailor}
-          disabled={isTailoring}
-          title={isTailoring ? 'Tailoring in progress...' : 'Tailor your profile for this job'}
+          title={
+            tailorStatus === 'running' ? 'Tailoring in progress, open it to see where it is'
+              : tailorStatus === 'ready' ? 'Your tailored resume is ready to review'
+                : 'Tailor your profile for this job'
+          }
         >
-          {isTailoring ? (
+          {tailorStatus === 'running' ? (
             <>
               <div className="tailor-spinner">
                 <svg viewBox="0 0 36 36">
@@ -105,7 +105,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
                 <path d="M12 20h9" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>Tailor Profile</span>
+              <span>{tailorStatus === 'ready' ? 'Review Tailored' : 'Tailor Profile'}</span>
             </>
           )}
         </button>

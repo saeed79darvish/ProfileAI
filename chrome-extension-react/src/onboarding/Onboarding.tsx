@@ -102,7 +102,7 @@ const STEPS: Step[] = [
   {
     id: 'click-autofill', mode: 'tooltip', panelState: 'autofill-ready', pos: 'near-panel',
     headline: '__JSX_AUTOFILL__',
-    body: 'Your profile data is pulled from ProfilleAI. The extension detects form fields on Greenhouse, Lever, Workday, LinkedIn and more, then fills them instantly. This feature is free for all users!',
+    body: 'Your profile data is pulled from ProfilleAI. The extension detects form fields on Greenhouse, Lever, Workday and more, then fills them instantly. This feature is free for all users!',
     btnText: '',
     interactive: 'autofill',
     scrollTo: 'top',
@@ -316,7 +316,7 @@ export const Onboarding: React.FC = () => {
       case '__JSX_KEYWORDS__': return <>See your <span className="accent">keyword match</span> score for every job.</>;
       case '__JSX_TAILOR__': return <><span className="pro-badge">PRO</span> <span className="accent">Tailor</span> your resume for every job, with full control.</>;
       case '__JSX_COVER__': return <><span className="pro-badge">PRO</span> Generate a <span className="accent">tailored cover letter</span> in one click.</>;
-      case '__JSX_PLATFORMS__': return <>Works with <span className="accent">LinkedIn</span>, <span className="accent">Greenhouse</span>, <span className="accent">Lever</span>, <span className="accent">Workday</span>, and more.</>;
+      case '__JSX_PLATFORMS__': return <>Works with <span className="accent">Greenhouse</span>, <span className="accent">Lever</span>, <span className="accent">Workday</span>, and more.</>;
       case '__JSX_SUBMIT__': return <>Click <span className="accent">Submit</span> to finish this job application.</>;
       default: return text;
     }

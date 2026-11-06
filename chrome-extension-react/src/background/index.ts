@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import type { User, FullProfile, Message } from '../types';
 import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
 import { scrapeJobFromDocument, mergeScrapes } from '../jobScrape';
+import { parseLimit, type LimitInfo } from '../sidepanel/tailorLogic';
 
 // Any task that was still running when a previous worker generation was torn
 // down has no fetch behind it any more. Flag those immediately on boot so a
@@ -615,6 +616,61 @@ async function handleMessage(
         break;
       }
 
+      // --- Tailor for this job: the same four-step flow as the web app ------
+      // (frontend/src/components/JobTailorFlow.jsx). Each handler calls the
+      // endpoint the web flow calls, and answers with { success, ...} or
+      // { success: false, error, limit? } so the panel can show the usage-limit
+      // screen when the allowance is spent.
+      case 'JOB_FIT': {
+        const d = message.data as { jobDescription: string; jobTitle?: string };
+        sendResponse(await jobFit(d));
+        break;
+      }
+
+      case 'JOB_FIT_RESCORE': {
+        const d = message.data as { requirements: any[]; components: any; confirmed: string[] };
+        sendResponse(await jobFitRescore(d));
+        break;
+      }
+
+      case 'TAILOR_FLOW_RUN': {
+        const d = message.data as TailorFlowRequest;
+        // A durable task: the run, the save and the rescore all happen inside
+        // it, so hiding the flow or closing the panel loses nothing.
+        const flowResult = await runBackgroundTask(
+          'tailor',
+          d.jobUrl ? jobTaskKey({ jobUrl: d.jobUrl }) : await activeTabJobKey(),
+          { jobUrl: d.jobUrl || '', jobTitle: d.jobTitle || '', company: d.company || '', flow: true },
+          () => runTailorFlow(d),
+        );
+        sendResponse(flowResult);
+        break;
+      }
+
+      case 'TAILORED_PROFILE_SAVE': {
+        const d = message.data as {
+          id?: string | null;
+          jobTitle?: string;
+          companyName?: string;
+          jobUrl?: string;
+          tailoredData: any;
+          matchScore?: number | null;
+        };
+        sendResponse(await saveTailoredFlowCopy(d));
+        break;
+      }
+
+      case 'REGENERATE_SECTION': {
+        const d = message.data as { profileData: any; instructions: Record<string, string> };
+        sendResponse(await regenerateSection(d));
+        break;
+      }
+
+      case 'TAILOR_USAGE': {
+        sendResponse(await tailorUsage());
+        break;
+      }
+
       case 'REDEEM_PROMO': {
         const promoData = message.data as { code: string };
         const promoResult = await redeemPromoCode(promoData.code);
@@ -727,74 +783,8 @@ async function handleMessage(
         break;
       }
 
-      case 'ANALYZE_LINKEDIN_PROFILE': {
-        const data = (message.data || {}) as { targetTitle?: string };
-        const result = await runBackgroundTask(
-          'linkedin',
-          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
-          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
-          () => analyzeLinkedInProfile(data.targetTitle),
-        );
-        sendResponse(result);
-        break;
-      }
-
-      case 'ANALYZE_LINKEDIN_PROFILE_GUEST': {
-        const data = (message.data || {}) as { targetTitle?: string };
-        const result = await runBackgroundTask(
-          'linkedinGuest',
-          `${await activeTabJobKey()}::${(data.targetTitle || '').trim().toLowerCase() || 'inferred'}`,
-          { targetTitle: data.targetTitle || '', profileUrl: await activeTabUrl() },
-          () => analyzeLinkedInProfileGuest(data.targetTitle),
-        );
-        sendResponse(result);
-        break;
-      }
-
-      case 'SUBMIT_GUEST_REPORT_EMAIL': {
-        const data = (message.data || {}) as { email: string; analysisId: string };
-        const result = await submitGuestReportEmail(data);
-        sendResponse(result);
-        break;
-      }
-
-      case 'ANALYTICS_EVENT': {
-        // Fire-and-forget from callers' perspective, but we await so any 4xx
-        // is at least surfaced in the background console during dev.
-        const data = (message.data || {}) as {
-          name: string;
-          sessionId?: string;
-          properties?: Record<string, any>;
-        };
-        const result = await recordAnalyticsEvent(data);
-        sendResponse(result);
-        break;
-      }
-
-      case 'OPEN_LINKEDIN_EDITOR': {
-        const data = (message.data || {}) as {
-          section: 'headline' | 'about' | 'skills' | 'featured' | 'experience';
-        };
-        const result = await openLinkedInEditor(data.section);
-        sendResponse(result);
-        break;
-      }
-
-      case 'REWRITE_FIELD': {
-        const data = (message.data || {}) as {
-          text: string;
-          action?: string;
-          customPrompt?: string;
-          fieldKind?: string;
-          targetTitle?: string;
-        };
-        const result = await rewriteField(data);
-        sendResponse(result);
-        break;
-      }
-
       default:
-        sendResponse({ error: 'Unknown message type' });
+        sendResponse({ error: 'The extension was just updated. Reload this page and try again.' });
     }
   } catch (error) {
     console.error('[ProfileAI] Error handling message:', error);
@@ -1395,6 +1385,176 @@ async function saveTailoredProfile(data: {
     console.error('[ProfileAI] Error saving tailored profile:', error);
     return { success: false, error: (error as Error).message };
   }
+}
+
+// --- Tailor flow API ---------------------------------------------------------
+// One small authenticated-JSON helper for the endpoints the tailor flow calls.
+// It adopts a fresher web-app token and retries once on a 401, like the profile
+// fetch does. Transient 502/503/504 retries are opt-in: the AI endpoints spend
+// an allowance, and re-sending a request the server may already have started
+// could spend it twice.
+interface ApiResult {
+  ok: boolean;
+  status: number;
+  body: any;
+  limit: LimitInfo | null;
+  error: string;
+}
+
+async function authedApi(
+  method: 'GET' | 'POST' | 'PUT',
+  path: string,
+  payload?: unknown,
+  opts: { retryTransient?: boolean } = {},
+): Promise<ApiResult> {
+  if (!authToken) {
+    return { ok: false, status: 401, body: null, limit: null, error: 'Sign in to ProfileAI to continue.' };
+  }
+  const send = () => {
+    const init: RequestInit = {
+      method,
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        ...(payload !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: payload !== undefined ? JSON.stringify(payload) : undefined,
+    };
+    const url = `${CONFIG.API_BASE}${path}`;
+    return opts.retryTransient ? fetchWithTransientRetry(url, init) : fetch(url, init);
+  };
+  try {
+    let response = await send();
+    if (response.status === 401 && (await adoptFresherTokenFromWebApp(authToken))) {
+      response = await send();
+    }
+    const body = await readJsonOrNull(response);
+    const limit = parseLimit(response.status, body);
+    const error = response.ok
+      ? ''
+      : (limit?.message || limit?.error || apiErrorMessage(response, body, 'Something went wrong. Please try again.'));
+    return { ok: response.ok, status: response.status, body, limit, error };
+  } catch (err) {
+    console.error(`[ProfileAI] ${method} ${path} failed`, err);
+    return {
+      ok: false,
+      status: 0,
+      body: null,
+      limit: null,
+      error: 'Could not reach ProfileAI. Check your connection and try again.',
+    };
+  }
+}
+
+const apiFailure = (r: ApiResult, fallback: string) => ({
+  success: false as const,
+  error: r.error || fallback,
+  ...(r.limit ? { limit: r.limit } : {}),
+});
+
+/** The match, as the web flow reads it: every requirement and its coverage.
+ *  Free when the server has it cached. */
+async function jobFit(d: { jobDescription: string; jobTitle?: string }) {
+  if (!d?.jobDescription || d.jobDescription.trim().length < 30) {
+    return { success: false, error: 'Could not read this job. Scroll the posting into view and try again.' };
+  }
+  const r = await authedApi('POST', '/profiles/job-match', { jobDescription: d.jobDescription, jobTitle: d.jobTitle });
+  if (!r.ok || !r.body?.success || !r.body?.data) return apiFailure(r, 'Could not score this job');
+  return { success: true, data: r.body.data };
+}
+
+/** The score again with confirmed requirements counted as covered. No AI. */
+async function jobFitRescore(d: { requirements: any[]; components: any; confirmed: string[] }) {
+  const r = await authedApi('POST', '/profiles/job-match/rescore', d, { retryTransient: true });
+  if (!r.ok || !r.body?.success) return apiFailure(r, 'Could not update the score');
+  return { success: true, score: r.body.score as number };
+}
+
+interface TailorFlowRequest {
+  jobDescription: string;
+  jobTitle?: string;
+  company?: string;
+  jobUrl?: string;
+  gapSelections?: unknown;
+  tailorSettings?: unknown;
+  /** Saved on the record: the match score the candidate saw going in. */
+  matchScore?: number | null;
+  skillGaps?: unknown[];
+  /** What the post-tailoring score is computed from (free arithmetic). */
+  rescore?: { requirements: any[]; components: any; confirmed: string[] } | null;
+  /** The score before tailoring, handed back so a restored review can say "was". */
+  beforeScore?: number | null;
+}
+
+/** Tailor, save to the user's tailored resumes, and rescore, as one task. */
+async function runTailorFlow(d: TailorFlowRequest) {
+  const t = await authedApi('POST', '/profiles/tailor-for-job', {
+    jobDescription: d.jobDescription,
+    jobTitle: d.jobTitle,
+    company: d.company,
+    gapSelections: d.gapSelections,
+    tailorSettings: d.tailorSettings,
+  });
+  if (!t.ok || !t.body?.success || !t.body?.data) {
+    return apiFailure(t, 'Tailoring failed. No credit was used. Please try again.');
+  }
+  const tailored = t.body.data;
+
+  let savedId: string | null = null;
+  const saved = await authedApi('POST', '/tailored-profiles', {
+    jobTitle: d.jobTitle || tailored.jobTitle || 'Untitled position',
+    companyName: d.company || '',
+    jobUrl: d.jobUrl || undefined,
+    tailoredData: tailored,
+    matchScore: d.matchScore ?? undefined,
+    skillGaps: d.skillGaps || [],
+  });
+  if (saved.ok) savedId = saved.body?.id || null; // otherwise saved again from Review
+
+  let afterScore: number | null = null;
+  if (d.rescore?.requirements?.length) {
+    const rs = await jobFitRescore(d.rescore);
+    if (rs.success) afterScore = (rs as { score: number }).score;
+  }
+
+  return { success: true, tailored, savedId, afterScore, beforeScore: d.beforeScore ?? null };
+}
+
+/** Review's save: updates the copy made by the run, or creates it if that save failed. */
+async function saveTailoredFlowCopy(d: {
+  id?: string | null;
+  jobTitle?: string;
+  companyName?: string;
+  jobUrl?: string;
+  tailoredData: any;
+  matchScore?: number | null;
+}) {
+  const record: Record<string, unknown> = { tailoredData: d.tailoredData, matchScore: d.matchScore ?? undefined };
+  const r = d.id
+    ? await authedApi('PUT', `/tailored-profiles/${encodeURIComponent(d.id)}`, record, { retryTransient: true })
+    : await authedApi('POST', '/tailored-profiles', {
+        ...record,
+        jobTitle: d.jobTitle || 'Untitled position',
+        companyName: d.companyName || '',
+        jobUrl: d.jobUrl || undefined,
+      });
+  if (!r.ok) return apiFailure(r, 'Could not save your tailored resume. Please try again.');
+  return { success: true, id: (r.body?.id as string | undefined) || d.id || null };
+}
+
+/** Ask AI on one section of the tailored copy. */
+async function regenerateSection(d: { profileData: any; instructions: Record<string, string> }) {
+  const r = await authedApi('POST', '/profiles/regenerate-sections', d);
+  if (!r.ok) return apiFailure(r, 'Could not rewrite this section. Please try again.');
+  return { success: true, data: r.body?.data || {} };
+}
+
+/** Whether tailoring is unlimited on this plan, so the button can say "1 credit" or not. */
+async function tailorUsage() {
+  const r = await authedApi('GET', '/subscriptions/usage', undefined, { retryTransient: true });
+  if (!r.ok) return { success: false, unlimited: false };
+  const t = r.body?.usage?.tailor_profile;
+  const unlimited = !!t && [t.weeklyLimit, t.monthlyLimit, t.dailyLimit ?? -1, t.lifetimeLimit ?? -1].every((v: number) => v === -1);
+  return { success: true, unlimited };
 }
 
 // Redeem a promo code via backend
@@ -2238,32 +2398,18 @@ function generateLocalAnswers(questions: string[], profile: any, seedAnswers: Re
   // Extract skills
   const skills = flattenSkills(profile.skills);
 
-  // Estimate years of experience
-  let yearsOfExperience = '5+';
-  if (profile.experience && Array.isArray(profile.experience)) {
-    const years = profile.experience.length * 2;
-    yearsOfExperience = years > 10 ? '10+' : years.toString();
-  }
-
   // Helper to get seed answer content
   const getSeedContext = (key: string) => seedAnswers[key] || '';
 
   questions.forEach((q) => {
     const question = q.toLowerCase();
 
-    if (question.includes('authorized') && question.includes('work') && question.includes('united states')) {
-      answers[q] = 'Yes';
-    } else if (question.includes('visa') && question.includes('sponsorship')) {
-      answers[q] = 'No';
-    } else if (question.includes('years') && (question.includes('experience') || question.includes('professional'))) {
-      answers[q] = yearsOfExperience + ' years';
-    } else if (question.includes('tech stack') || question.includes('technologies') || question.includes('proficient')) {
-      answers[q] = skills.slice(0, 10).join(', ') || 'JavaScript, TypeScript, React, Node.js, Python, SQL, AWS';
-    } else if (question.includes('generative ai') || question.includes('ai tools') || question.includes('ai framework')) {
-      answers[q] = 'GitHub Copilot, ChatGPT/GPT-4 API, Claude, OpenAI API for code generation and review, LangChain for AI application development';
-    } else if (question.includes('developer') && (question.includes('products') || question.includes('tools') || question.includes('sdk') || question.includes('api'))) {
-      const projects = profile.projects ? profile.projects.slice(0, 2).map((p: any) => p.title || p.name).join(', ') : '';
-      answers[q] = projects || 'Yes, I have experience building developer tools, REST APIs, and internal SDKs.';
+    // Personal facts (work authorization, visa sponsorship, years of experience, start date,
+    // salary, how they heard of the job) and claims about tools or products are never guessed
+    // here: a wrong answer on an application is worse than a blank one. Those fields stay
+    // empty for the person to fill in.
+    if (question.includes('tech stack') || question.includes('technologies') || question.includes('proficient')) {
+      if (skills.length) answers[q] = skills.slice(0, 10).join(', ');
     } else if (
       (question.includes('interested') || question.includes('excited') || question.includes('attract') || question.includes('appeal')) &&
       (question.includes('role') || question.includes('position') || question.includes('opportunity') || question.includes('company') || question.includes('job'))
@@ -2305,12 +2451,6 @@ function generateLocalAnswers(questions: string[], profile: any, seedAnswers: Re
       if (workStyle || idealRole) {
         answers[q] = `${workStyle} ${idealRole}`.trim().slice(0, 400);
       }
-    } else if (question.includes('salary') || question.includes('compensation')) {
-      answers[q] = 'Open to discussion based on the full compensation package.';
-    } else if (question.includes('start') && question.includes('date')) {
-      answers[q] = 'Two weeks notice - flexible';
-    } else if (question.includes('hear about') || question.includes('how did you find')) {
-      answers[q] = 'Online job board';
     }
   });
 
@@ -2827,606 +2967,6 @@ async function analyzeMatch(payload: {
   } catch (err) {
     console.error('[ProfileAI] analyzeMatch error', err);
     return { success: false, error: (err as Error).message || 'Match analysis failed' };
-  }
-}
-
-// =============================================================================
-// LINKEDIN PROFILE ANALYZER — scrape the current linkedin.com/in/* tab and
-// send it to the backend for a recruiter-POV analysis.
-// =============================================================================
-
-/**
- * Scrapes the LinkedIn profile page in the active tab (via scripting API so we
- * work even if the content script hasn't attached to that frame) and posts it
- * to the backend for AI analysis. Returns the parsed analysis for the panel.
- */
-// Shared scraper — extracted so both the authed analyzer AND the guest
-// analyzer can pass it to chrome.scripting.executeScript without duplicating
-// ~200 lines. Runs in the page's world; must not close over the extension
-// scope or use chrome.*.
-const SCRAPER_FN = () => {
-        const clean = (s: string | null | undefined) =>
-          (s || '').replace(/\s+/g, ' ').trim();
-        const firstText = (selectors: string[]): string => {
-          for (const sel of selectors) {
-            try {
-              const el = document.querySelector(sel) as HTMLElement | null;
-              const txt = clean(el?.innerText || el?.textContent);
-              if (txt) return txt;
-            } catch {
-              /* invalid selector for the current DOM — skip */
-            }
-          }
-          return '';
-        };
-        const longestText = (selectors: string[], min = 40): string => {
-          let best = '';
-          for (const sel of selectors) {
-            try {
-              document.querySelectorAll(sel).forEach((el) => {
-                const txt = clean((el as HTMLElement).innerText || el.textContent);
-                if (txt.length > best.length) best = txt;
-              });
-            } catch {
-              /* skip */
-            }
-          }
-          return best.length >= min ? best : best;
-        };
-
-        // Section-scoped extractor. LinkedIn's OLDER profile pages used
-        // `<section>` wrappers with an anchor `<div id="about">`, `id="experience">`,
-        // etc. — the newer `sdui` profile pages have dropped those IDs entirely
-        // and use hashed CSS-module classnames instead. So we now try, in order:
-        //   1) The legacy `document.getElementById(anchorId)` path.
-        //   2) An `<h2>` heading whose text matches the section label — take
-        //      its ancestor `<section>` (or nearest large ancestor) and pull
-        //      the visible text minus that heading itself.
-        //   3) A regex slice of the whole document.body.innerText between the
-        //      section's heading and the next known section heading.
-        // The section labels below cover every LinkedIn section we care about.
-        const SECTION_HEADINGS = ['About', 'Experience', 'Education', 'Skills', 'Featured', 'Projects', 'Certifications', 'Recommendations', 'Languages', 'Volunteering'];
-        // Cache the full-page text once — several fallbacks reuse it.
-        const bodyText = clean(document.body.innerText);
-        const sectionText = (anchorId: string, minLen = 30): string => {
-          try {
-            // 1) Legacy anchor-id path.
-            const anchor = document.getElementById(anchorId);
-            if (anchor) {
-              const section = anchor.closest('section');
-              if (section) {
-                const clone = section.cloneNode(true) as HTMLElement;
-                clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
-                clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
-                const txt = clean(clone.innerText || clone.textContent);
-                if (txt.length >= minLen) return txt;
-              }
-            }
-            // 2) Heading-based path. Look for an <h2>/<h3> whose text is the
-            //    section label (or starts with it — "About", "Featured", etc.).
-            const label = anchorId.charAt(0).toUpperCase() + anchorId.slice(1); // "about" → "About"
-            const headings = Array.from(document.querySelectorAll('h1, h2, h3'));
-            const heading = headings.find((h) => {
-              const t = clean((h as HTMLElement).innerText || h.textContent);
-              return t === label || new RegExp(`^${label}\\b`, 'i').test(t);
-            }) as HTMLElement | undefined;
-            if (heading) {
-              // Prefer nearest <section>; else walk up until we find a
-              // container that's at least 3x taller than the heading itself.
-              let container: HTMLElement | null = heading.closest('section');
-              if (!container) {
-                let node: HTMLElement | null = heading.parentElement;
-                const hh = heading.getBoundingClientRect().height || 24;
-                let hops = 0;
-                while (node && hops < 8) {
-                  if (node.getBoundingClientRect().height > hh * 3) { container = node; break; }
-                  node = node.parentElement;
-                  hops++;
-                }
-              }
-              if (container) {
-                const clone = container.cloneNode(true) as HTMLElement;
-                // Remove the heading itself so we don't include "About\nAbout"
-                clone.querySelectorAll('h1, h2, h3').forEach((h) => {
-                  const t = clean((h as HTMLElement).innerText || h.textContent);
-                  if (t === label || new RegExp(`^${label}\\b`, 'i').test(t)) h.remove();
-                });
-                clone.querySelectorAll('a[href*="/details/"]').forEach((a) => a.remove());
-                clone.querySelectorAll('.visually-hidden, .a11y-text').forEach((a) => a.remove());
-                const txt = clean(clone.innerText || clone.textContent);
-                if (txt.length >= minLen) return txt;
-              }
-            }
-            // 3) Regex slice fallback on the full body text — cut between
-            //    THIS heading and the NEXT known section heading.
-            const otherHeadings = SECTION_HEADINGS.filter((h) => h.toLowerCase() !== anchorId.toLowerCase());
-            const startRe = new RegExp(`(^|\\n)${label}\\s*(\\n|$)`, 'i');
-            const startMatch = bodyText.match(startRe);
-            if (startMatch && typeof startMatch.index === 'number') {
-              const after = bodyText.slice(startMatch.index + startMatch[0].length);
-              const endRe = new RegExp(`(^|\\n)(${otherHeadings.join('|')})\\s*(\\n|$)`, 'i');
-              const endMatch = after.match(endRe);
-              const slice = endMatch && typeof endMatch.index === 'number'
-                ? after.slice(0, endMatch.index)
-                : after.slice(0, 3000);
-              const txt = clean(slice);
-              if (txt.length >= minLen) return txt;
-            }
-            return '';
-          } catch {
-            return '';
-          }
-        };
-
-        const name = firstText([
-          'h1.text-heading-xlarge',
-          'h1.top-card-layout__title',
-          // Newer sdui profile pages: the name is the first <h1> inside
-          // <main>, but the class is a hashed CSS-module name so we can't
-          // target it directly. `main h1` still catches it.
-          'main h1',
-          '[data-sdui-screen*="profile"] h1',
-          'h1',
-        ]);
-
-        const headline = firstText([
-          'div.text-body-medium.break-words',
-          '.top-card-layout__headline',
-          '.pv-text-details__left-panel .text-body-medium',
-          // Newer sdui: the headline sits right under the <h1> in the top card,
-          // often the FIRST <p> after the name. Best generic fallback is the
-          // first paragraph inside <main> that isn't a link and is 20-260 chars.
-        ]) || (() => {
-          try {
-            const main = document.querySelector('main') || document.body;
-            const h1 = main.querySelector('h1');
-            if (!h1) return '';
-            let node: Element | null = h1.nextElementSibling;
-            let hops = 0;
-            while (node && hops < 30) {
-              const txt = clean((node as HTMLElement).innerText || node.textContent);
-              if (txt && txt.length >= 20 && txt.length <= 260 && !/(\bconnect\b|\bmessage\b|\bfollow\b)/i.test(txt.split('\n')[0] || '')) {
-                return txt.split('\n')[0] || txt;
-              }
-              node = node.nextElementSibling;
-              hops++;
-            }
-          } catch { /* ignore */ }
-          return '';
-        })();
-
-        const location = firstText([
-          'span.text-body-small.inline.t-black--light.break-words',
-          '.top-card__subline-item',
-          '.pv-text-details__left-panel .text-body-small',
-        ]);
-
-        // Current role / company — sometimes appears in the "experience" pill
-        // near the top card; fall back to the first item in the experience section.
-        const currentTop = firstText([
-          'button[aria-label*="Current company"]',
-          '.pv-text-details__right-panel button[aria-label*="Current"]',
-        ]);
-        let currentCompany = currentTop || '';
-        let currentTitle = '';
-
-        const about = sectionText('about', 20);
-        const experience = sectionText('experience', 40);
-        const education = sectionText('education', 20);
-        const skills = sectionText('skills', 5);
-
-        // If we still don't have current role, grab the first non-empty line of
-        // the experience section — that's almost always the current role's title.
-        if (!currentTitle && experience) {
-          const firstLine = experience.split('\n').map((l) => clean(l)).find(Boolean) || '';
-          if (firstLine) {
-            const parts = firstLine.split('·').map((p) => clean(p));
-            currentTitle = parts[0] || firstLine;
-            if (!currentCompany && parts[1]) currentCompany = parts[1];
-          }
-        }
-
-        // Featured / recommendations counts — best-effort.
-        const countFromHeader = (labelRegex: RegExp): number | null => {
-          const headers = Array.from(document.querySelectorAll('h2, h3'));
-          for (const h of headers) {
-            const txt = clean((h as HTMLElement).innerText);
-            const m = txt.match(labelRegex);
-            if (m) {
-              const numMatch = txt.match(/(\d+)/);
-              if (numMatch) return Number(numMatch[1]);
-              // If label exists but no count in the header, at least confirm the
-              // section is present by counting its list items.
-              const sect = h.closest('section');
-              if (sect) {
-                return sect.querySelectorAll('li').length || 0;
-              }
-            }
-          }
-          return null;
-        };
-        const featuredCount = countFromHeader(/^Featured\b/i);
-        const recommendationsCount = countFromHeader(/^Recommendations\b/i);
-
-        // Followers / connections — best-effort.
-        const followers = firstText([
-          '.pv-top-card--list-bullet li',
-          'ul.pv-top-card--list-bullet li',
-        ]);
-        const connections = firstText([
-          'span.t-bold',
-          '.pv-top-card--list-bullet li',
-        ]);
-
-        // Full page innerText fallback (capped) — lets the AI still grade the
-        // profile if section anchors moved / A/B test changed the DOM.
-        const rawText = bodyText.slice(0, 12000);
-
-        return {
-          name,
-          headline,
-          location,
-          currentTitle,
-          currentCompany,
-          about,
-          experience,
-          education,
-          skills,
-          featuredCount,
-          recommendationsCount,
-          followers,
-          connections,
-          rawText,
-        };
-};
-
-async function analyzeLinkedInProfile(
-  targetTitle?: string
-): Promise<{ success: boolean; analysis?: any; error?: string; targetTitle?: string; analysisId?: string | null }> {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab?.id || !tab?.url) {
-      return { success: false, error: 'Could not find the active tab' };
-    }
-    if (!/linkedin\.com\/in\//i.test(tab.url)) {
-      return {
-        success: false,
-        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
-      };
-    }
-
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: SCRAPER_FN,
-    });
-
-    const scraped: any = results?.[0]?.result || {};
-    scraped.url = tab.url;
-
-    // Quick client-side guard so we don't burn an API call on an empty page.
-    const hasSignal =
-      (typeof scraped.headline === 'string' && scraped.headline.length > 5) ||
-      (typeof scraped.about === 'string' && scraped.about.length > 20) ||
-      (typeof scraped.experience === 'string' && scraped.experience.length > 40) ||
-      (typeof scraped.rawText === 'string' && scraped.rawText.length > 200);
-    if (!hasSignal) {
-      return {
-        success: false,
-        error:
-          'Could not read the profile. Scroll down so the headline, About, and Experience sections are visible, then try again.',
-      };
-    }
-
-    // Fall back to the user's saved title if the panel didn't send one.
-    let effectiveTitle = (targetTitle || '').trim();
-    if (!effectiveTitle && cachedProfile) {
-      effectiveTitle = (cachedProfile.title || cachedProfile.headline || '').trim();
-    }
-
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/analyze-linkedin`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ scraped, targetTitle: effectiveTitle }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({} as any));
-      return { success: false, error: err.error || `Server returned ${response.status}` };
-    }
-
-    const data = await response.json();
-    return {
-      success: true,
-      analysis: data.analysis,
-      targetTitle: data.targetTitle,
-      analysisId: data.analysisId,
-    };
-  } catch (err) {
-    console.error('[ProfileAI] analyzeLinkedInProfile error', err);
-    return { success: false, error: (err as Error).message || 'Analysis failed' };
-  }
-}
-
-/**
- * Guest / signed-out variant of the LinkedIn Profile Analyzer.
- * - Runs the SAME scraper against the active linkedin.com/in/* tab.
- * - Posts to /api/profiles/analyze-linkedin-guest without an Authorization
- *   header (rate-limited server-side by IP + URL).
- * - Returns the TEASER response shape (scores + verdict + summary + 5
- *   quick-win rows where 4 are locked). Never receives full sections,
- *   keyword chips, or the paste-ready priority fixes — those live in the
- *   server cache and only ship via email or after sign-in.
- */
-async function analyzeLinkedInProfileGuest(
-  targetTitle?: string
-): Promise<{
-  success: boolean;
-  teaser?: any;
-  analysisId?: string | null;
-  targetTitle?: string;
-  error?: string;
-  errorCode?: string;
-}> {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab?.id || !tab?.url) {
-      return { success: false, error: 'Could not find the active tab' };
-    }
-    if (!/linkedin\.com\/in\//i.test(tab.url)) {
-      return {
-        success: false,
-        error: 'Open a LinkedIn profile (linkedin.com/in/…) first, then try again.',
-      };
-    }
-
-    // Reuse the exact scraper by calling analyzeLinkedInProfile's scripting
-    // extraction — refactor into a shared helper if we ever add a 3rd caller.
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: SCRAPER_FN,
-    });
-    const scraped: any = results?.[0]?.result || {};
-    scraped.url = tab.url;
-
-    const hasSignal =
-      (typeof scraped.headline === 'string' && scraped.headline.length > 5) ||
-      (typeof scraped.about === 'string' && scraped.about.length > 20) ||
-      (typeof scraped.experience === 'string' && scraped.experience.length > 40) ||
-      (typeof scraped.rawText === 'string' && scraped.rawText.length > 200);
-    if (!hasSignal) {
-      return {
-        success: false,
-        error:
-          'Could not read the profile. Scroll down so the headline, About, and Experience sections are visible, then try again.',
-      };
-    }
-
-    const effectiveTitle = (targetTitle || '').trim();
-
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/analyze-linkedin-guest`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scraped, targetTitle: effectiveTitle }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({} as any));
-      return {
-        success: false,
-        error: err.message || err.error || `Server returned ${response.status}`,
-        errorCode: err.error || undefined,
-      };
-    }
-
-    const data = await response.json();
-    return {
-      success: true,
-      teaser: data.teaser,
-      analysisId: data.analysisId,
-      targetTitle: data.targetTitle,
-    };
-  } catch (err) {
-    console.error('[ProfileAI] analyzeLinkedInProfileGuest error', err);
-    return { success: false, error: (err as Error).message || 'Analysis failed' };
-  }
-}
-
-/** Thin proxy so the sidepanel can POST the guest email form without
- *  hitting fetch() directly (keeps CORS + error shape consistent). */
-async function submitGuestReportEmail(
-  data: { email: string; analysisId: string }
-): Promise<{ ok: boolean; duplicate?: boolean; message?: string; error?: string; errorCode?: string }> {
-  try {
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/guest-report-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const json = await response.json().catch(() => ({} as any));
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: json.message || json.error || `Server returned ${response.status}`,
-        errorCode: json.error || undefined,
-      };
-    }
-    return { ok: true, ...json };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Network error' };
-  }
-}
-
-/** Fire-and-forget analytics event. Errors are swallowed — analytics should
- *  never break a user-facing flow. */
-async function recordAnalyticsEvent(
-  data: { name: string; sessionId?: string; properties?: Record<string, any> }
-): Promise<{ ok: boolean }> {
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    await fetch(`${CONFIG.API_BASE}/profiles/analytics-event`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(data),
-    });
-  } catch (err) {
-    // swallow — analytics failures must not surface
-    console.debug('[ProfileAI] analytics event drop:', (err as Error).message);
-  }
-  return { ok: true };
-}
-
-/**
- * Best-effort click of LinkedIn's own "Edit" pencil button for a given section
- * so the user lands inside LinkedIn's native editor with focus. We stop short
- * of pasting the text ourselves — LinkedIn uses React-controlled contenteditables
- * that ignore programmatic `input.value` writes, and synthetic paste events get
- * blocked. The modal shows a toast telling the user to press Cmd/Ctrl+V, which
- * works because the text is already on the system clipboard.
- *
- * Falls back to scrolling to the section anchor if no edit button matches.
- */
-async function openLinkedInEditor(
-  section: 'headline' | 'about' | 'skills' | 'featured' | 'experience'
-): Promise<{ success: boolean; clicked?: boolean; scrolled?: boolean; error?: string }> {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab?.id || !tab?.url) {
-      return { success: false, error: 'Could not find the active tab' };
-    }
-    if (!/linkedin\.com\/in\//i.test(tab.url)) {
-      return { success: false, error: 'Open a LinkedIn profile first (linkedin.com/in/…).' };
-    }
-    // Focus the tab so the user can immediately paste.
-    try {
-      await chrome.tabs.update(tab.id, { active: true });
-      if (typeof tab.windowId === 'number') {
-        await chrome.windows.update(tab.windowId, { focused: true });
-      }
-    } catch {
-      /* best-effort */
-    }
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      args: [section],
-      func: (sec: string) => {
-        // aria-label patterns LinkedIn uses across their profile-edit UI.
-        // Multiple hints per section so a small label rename doesn't break us.
-        const patterns: Record<string, string[]> = {
-          headline: ['edit intro', 'edit headline'],
-          about: ['edit about'],
-          skills: ['edit skills', 'add skill'],
-          featured: ['edit featured', 'add featured'],
-          experience: ['edit position', 'edit experience', 'add position'],
-        };
-        const anchorIds: Record<string, string> = {
-          about: 'about',
-          skills: 'skills',
-          featured: 'featured',
-          experience: 'experience',
-          headline: '',
-        };
-        const hints = patterns[sec] || [];
-        // Prefer the FIRST match — for Experience that's the top-most edit
-        // button, which is almost always the current role.
-        for (const hint of hints) {
-          const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-          const btn = buttons.find((b) => {
-            const label = (b.getAttribute('aria-label') || '').toLowerCase();
-            return label.includes(hint);
-          });
-          if (btn) {
-            btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            // Small delay so the smooth-scroll doesn't fight the click.
-            setTimeout(() => btn.click(), 250);
-            return { clicked: true, matched: hint };
-          }
-        }
-        // Fallback: scroll to the anchor. Better than nothing.
-        const anchorId = anchorIds[sec];
-        if (anchorId) {
-          const el = document.getElementById(anchorId);
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            return { clicked: false, scrolled: true };
-          }
-        }
-        // Headline lives in the top card — jump to top of page.
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return { clicked: false, scrolled: true };
-      },
-    });
-    const r = results?.[0]?.result || {};
-    return { success: true, clicked: !!r.clicked, scrolled: !!r.scrolled };
-  } catch (err) {
-    console.error('[ProfileAI] openLinkedInEditor error', err);
-    return { success: false, error: (err as Error).message || 'Could not open editor' };
-  }
-}
-
-/**
- * Rewrite a single field's text via POST /api/profiles/rewrite-inline. Called
- * from the content-script inline AI popover injected into LinkedIn's edit
- * modals. We proxy through the background so the auth token stays in the
- * service worker and doesn't have to be readable from every content-script
- * frame.
- *
- * Returns the AI-rewritten text (or a friendly error) so the popover can
- * render it with Insert / Copy / Regenerate actions.
- */
-async function rewriteField(payload: {
-  text: string;
-  action?: string;
-  customPrompt?: string;
-  fieldKind?: string;
-  targetTitle?: string;
-}): Promise<{ success: boolean; text?: string; action?: string; error?: string }> {
-  if (!authToken) return { success: false, error: 'Please sign in to ProfileAI first.' };
-  try {
-    // Fallback: if the caller didn't send a targetTitle, use the user's saved
-    // profile title/headline so "keywords" mode has something to weight against.
-    let targetTitle = (payload.targetTitle || '').trim();
-    if (!targetTitle) {
-      if (!cachedProfile) {
-        try { await fetchProfile(); } catch { /* fallthrough */ }
-      }
-      if (cachedProfile) {
-        targetTitle = (cachedProfile.title || cachedProfile.headline || '').trim();
-      }
-    }
-
-    const response = await fetch(`${CONFIG.API_BASE}/profiles/rewrite-inline`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: payload.text || '',
-        action: payload.action,
-        customPrompt: payload.customPrompt,
-        fieldKind: payload.fieldKind,
-        targetTitle,
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({} as any));
-      return { success: false, error: err.error || `Server returned ${response.status}` };
-    }
-
-    const data = await response.json();
-    if (!data?.text) {
-      return { success: false, error: 'AI returned an empty response.' };
-    }
-    return { success: true, text: data.text, action: data.action };
-  } catch (err) {
-    console.error('[ProfileAI] rewriteField error', err);
-    return { success: false, error: (err as Error).message || 'Rewrite failed' };
   }
 }
 
