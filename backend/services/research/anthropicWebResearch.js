@@ -19,6 +19,9 @@ const MODEL = process.env.INTERVIEW_PREP_MODEL || 'claude-sonnet-5-5';
 const MAX_TOKENS = 16000;
 const MAX_USES = 8;
 const MAX_CONTINUATIONS = 3;
+const TARGETED_MAX_USES = 5;
+// reddit.com is not listed: Anthropic's crawler cannot read it (a 400 'not accessible'). Tavily or Exa cover Reddit.
+const TARGET_DOMAINS = ['leetcode.com', 'substack.com', 'teamblind.com', 'glassdoor.com', 'levels.fyi'];
 const TOOL_TYPES = ['web_search_20260209', 'web_search_20250305'];
 
 const SYSTEM = `You research what job candidates recently reported about interviewing for a specific role at a specific company, using web search. Strict rules:
@@ -85,10 +88,10 @@ function collectSources(blocks, now) {
 /**
  * @returns {Promise<object>} the same payload as researchInterview
  */
-async function researchViaAnthropicWebSearch({ company, jobTitle, level, client = defaultClient(), model = MODEL, now = new Date(), log = console.log }) {
+async function runPass({ company, role, level, client, model, now, log, domains: wantedDomains = null, maxUses = MAX_USES }) {
+  let domains = wantedDomains ? [...wantedDomains] : null;
   const { createMessage } = require('../ai/core');
-  const role = clean(jobTitle, 160);
-  const userPrompt = `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 24 months of what candidates report about interviewing for this role at this company, then answer with the JSON.`;
+  const userPrompt = `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 24 months of what candidates report about interviewing for this role at this company, then answer with the JSON.${domains ? ` Search only these sites: ${domains.join(', ')}.` : ''}`;
   const messages = [{ role: 'user', content: userPrompt }];
   let toolIdx = 0;
   const allBlocks = [];
@@ -100,9 +103,17 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
     for (;;) {
       const request = {
         model, max_tokens: MAX_TOKENS, system: SYSTEM, messages,
-        tools: [{ type: TOOL_TYPES[toolIdx], name: 'web_search', max_uses: MAX_USES }],
+        tools: [{ type: TOOL_TYPES[toolIdx], name: 'web_search', max_uses: maxUses, ...(domains ? { allowed_domains: domains } : {}) }],
       };
       try { response = await createMessage(client, request); break; } catch (err) {
+        // A site the crawler cannot read fails the whole call: drop it and try again.
+        const blocked = domains && err && err.status === 400 && /not accessible to our user agent: \[(.*?)\]/.exec(String(err.message || ''));
+        if (blocked) {
+          const bad = blocked[1].split(',').map((d) => d.replace(/['"\s]/g, '').toLowerCase());
+          domains = domains.filter((d) => !bad.includes(d.toLowerCase()));
+          if (!domains.length) return { sourceMap: new Map(), parsed: {} };
+          continue;
+        }
         if (toolIdx < TOOL_TYPES.length - 1 && isToolTypeComplaint(err)) { toolIdx += 1; continue; }
         throw err;
       }
@@ -120,11 +131,10 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
     final = { content };
     break;
   }
-  log(`[interviewPrep] claude web search usage: input=${usage.input} output=${usage.output} searches=${usage.searches}`);
+  log(`[interviewPrep] claude web search${domains ? ' (targeted)' : ''} usage: input=${usage.input} output=${usage.output} searches=${usage.searches}`);
 
   const sourceMap = collectSources(allBlocks, now);
-  const base = { company, role, now };
-  if (!final || final.refusal) return assemblePayload({ ...base, sources: new Map(), questions: [] });
+  if (!final || final.refusal) return { sourceMap: new Map(), parsed: {} };
 
   const text = (final.content || []).filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('');
   const parsed = parseModelJson(text);
@@ -146,6 +156,39 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
     }
     if (!s.excerpt && typeof m.note === 'string') s.excerpt = excerptOf(m.note);
   }
+
+  return { sourceMap, parsed };
+}
+
+/**
+ * Two passes at once: a broad search, and one aimed at the sites candidates write on.
+ * Their sources and findings are merged, then the honesty gate runs over the union.
+ */
+async function researchViaAnthropicWebSearch({ company, jobTitle, level, client = defaultClient(), model = MODEL, now = new Date(), log = console.log, targeted: runTargeted = true }) {
+  const role = clean(jobTitle, 160);
+  const base = { company, role, now };
+  const common = { company, role, level, client, model, now, log };
+  const [broad, targeted] = await Promise.allSettled([
+    runPass(common),
+    runTargeted ? runPass({ ...common, domains: TARGET_DOMAINS, maxUses: TARGETED_MAX_USES }) : Promise.reject(new Error('targeted pass off')),
+  ]);
+  if (broad.status === 'rejected' && targeted.status === 'rejected') throw broad.reason;
+  if (runTargeted && targeted.status === 'rejected') log(`[interviewPrep] targeted pass failed: ${targeted.reason && targeted.reason.message}`);
+  const passes = [broad, targeted].filter((r) => r.status === 'fulfilled').map((r) => r.value);
+
+  const sourceMap = new Map();
+  for (const ps of passes) for (const [k, v] of ps.sourceMap) {
+    const cur = sourceMap.get(k);
+    if (!cur) sourceMap.set(k, { ...v });
+    else { if (!cur.date && v.date) cur.date = v.date; if (!cur.excerpt && v.excerpt) cur.excerpt = v.excerpt; if (!cur.title && v.title) cur.title = v.title; }
+  }
+  const cat = (key) => passes.flatMap((ps) => (Array.isArray(ps.parsed[key]) ? ps.parsed[key] : []));
+  const parsed = {
+    summary: (passes.find((ps) => typeof ps.parsed.summary === 'string' && ps.parsed.summary) || { parsed: {} }).parsed.summary || '',
+    timeline: (passes.find((ps) => ps.parsed.timeline && ps.parsed.timeline.text) || { parsed: {} }).parsed.timeline || null,
+    rounds: cat('rounds'), tips: cat('tips'), questions: cat('questions'), topics: cat('topics'),
+  };
+  if (!sourceMap.size && !parsed.questions.length) return assemblePayload({ ...base, sources: new Map(), questions: [] });
 
   // Honesty gate: every cited url must resolve to a known, in-window source.
   const resolve = (urls) => {

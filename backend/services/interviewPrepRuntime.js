@@ -21,10 +21,10 @@ function getResearch(env = process.env) {
   const provider = resolveProviderName(env);
   if (provider === 'anthropic') {
     const { researchViaAnthropicWebSearch } = require('./research/anthropicWebResearch');
-    return (input) => researchViaAnthropicWebSearch(input);
+    return async (input) => ({ ...(await researchViaAnthropicWebSearch(input)), provider });
   }
   const search = getSearch(env);
-  return (input) => researchInterview({ ...input, search, runModel });
+  return async (input) => ({ ...(await researchInterview({ ...input, search, runModel })), provider });
 }
 
 module.exports = { runModel, getResearch };

@@ -225,7 +225,7 @@ function fallbackSummary(questions, sources) {
 
 /* ---------- search + model pipeline ---------- */
 
-const GENERIC_DOMAINS_A = ['reddit.com', 'leetcode.com/discuss', 'teamblind.com'];
+const GENERIC_DOMAINS_A = ['reddit.com', 'leetcode.com/discuss', 'teamblind.com', 'substack.com'];
 const GENERIC_DOMAINS_B = ['glassdoor.com', 'levels.fyi', 'interviewing.io'];
 
 function buildQueries(company, role) {

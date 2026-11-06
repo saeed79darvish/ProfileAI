@@ -91,7 +91,7 @@ test('pause_turn continues with the assistant content, at most 3 times', async (
   const pause = (n) => ({ stop_reason: 'pause_turn', usage: {}, content: [searchBlock([`https://reddit.com/r/${n}`])] });
   const final = { stop_reason: 'end_turn', usage: {}, content: [textBlock(answer({ summary: 's', questions: [{ text: 'Explain how indexes work', category: 'coding', sourceUrls: ['https://reddit.com/r/1'] }] }))] };
   const client = fakeClient([pause(1), pause(2), final], seen);
-  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet, targeted: false });
   assert.equal(seen.length, 3);
   assert.equal(seen[1].messages[1].role, 'assistant');
   assert.equal(p.questions.length, 1);
@@ -99,7 +99,7 @@ test('pause_turn continues with the assistant content, at most 3 times', async (
   // never more than 4 calls total
   const seen2 = [];
   const endless = fakeClient([pause(1), pause(2), pause(3), pause(4), pause(5)], seen2);
-  await assert.rejects(researchViaAnthropicWebSearch({ company: 'A', jobTitle: 'B', client: endless, now: NOW, log: quiet }), { code: 'model_failed' });
+  await assert.rejects(researchViaAnthropicWebSearch({ company: 'A', jobTitle: 'B', client: endless, now: NOW, log: quiet, targeted: false }), { code: 'model_failed' });
   assert.equal(seen2.length, 4);
 });
 
@@ -113,7 +113,7 @@ test('falls back once to the older tool type on a 400 about the tool', async () 
   const seen = [];
   const err = Object.assign(new Error('tools.0: web_search_20260209 is not supported for this model'), { status: 400 });
   const client = fakeClient([err, { stop_reason: 'end_turn', usage: {}, content: [searchBlock([U1]), textBlock(answer({ summary: 's', questions: [] }))] }], seen);
-  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet, targeted: false });
   assert.equal(seen[1].tools[0].type, 'web_search_20250305');
   assert.equal(p.coverage, 'none');
 });
@@ -172,4 +172,45 @@ test('page_age in relative words becomes a date, so the 24 month window holds', 
   }]);
   const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
   assert.deepEqual(p.questions, []);
+});
+
+test('a targeted pass on Reddit and friends is merged in, with allowed_domains set', async () => {
+  const R = 'https://www.reddit.com/r/ExperiencedDevs/comments/x';
+  const seen = [];
+  const client = { messages: { create: async (req) => {
+    seen.push(req.tools[0]);
+    const targeted = !!req.tools[0].allowed_domains;
+    return { stop_reason: 'end_turn', usage: {}, content: targeted
+      ? [searchBlock([R]), textBlock(answer({ summary: '', questions: [{ text: 'Walk me through a time you shipped under pressure', category: 'behavioral', sourceUrls: [R] }] }))]
+      : [searchBlock([U1]), textBlock(answer({ summary: 'broad', questions: [{ text: 'Design a rate limiter', category: 'system_design', sourceUrls: [U1] }] }))] };
+  } } };
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  assert.equal(seen.length, 2);
+  assert.ok(seen.some((t) => Array.isArray(t.allowed_domains) && t.allowed_domains.includes('leetcode.com')));
+  assert.deepEqual(p.questions.map((q) => q.text).sort(), ['Design a rate limiter', 'Walk me through a time you shipped under pressure']);
+  assert.equal(p.summary.includes('broad'), true);
+});
+
+test('if the targeted pass fails, the broad answer still stands', async () => {
+  const client = { messages: { create: async (req) => {
+    if (req.tools[0].allowed_domains) throw new Error('boom');
+    return { stop_reason: 'end_turn', usage: {}, content: [searchBlock([U1]), textBlock(answer({ summary: 's', questions: [{ text: 'Design a rate limiter', category: 'system_design', sourceUrls: [U1] }] }))] };
+  } } };
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  assert.equal(p.questions.length, 1);
+});
+
+test('a site the crawler cannot read is dropped and the targeted pass retries without it', async () => {
+  const calls = [];
+  const client = { messages: { create: async (req) => {
+    const d = req.tools[0].allowed_domains;
+    calls.push(d);
+    if (d && d.includes('leetcode.com')) throw Object.assign(new Error("400 The following domains are not accessible to our user agent: ['leetcode.com']."), { status: 400 });
+    return { stop_reason: 'end_turn', usage: {}, content: [searchBlock([U1]), textBlock(answer({ summary: 's', questions: [{ text: 'Design a rate limiter', category: 'system_design', sourceUrls: [U1] }] }))] };
+  } } };
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  assert.equal(p.questions.length, 1);
+  const targetedCalls = calls.filter(Boolean);
+  assert.equal(targetedCalls.length, 2);
+  assert.ok(!targetedCalls[1].includes('leetcode.com'));
 });
