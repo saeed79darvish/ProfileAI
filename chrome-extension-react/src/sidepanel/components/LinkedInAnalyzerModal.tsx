@@ -50,7 +50,7 @@ const verdictMeta = (v?: string) => {
     return { text: 'Shortlist', tone: 'good' as const, icon: 'check' as const };
   if (v === 'maybe') return { text: 'Maybe', tone: 'medium' as const, icon: 'warn' as const };
   if (v === 'pass') return { text: 'Pass', tone: 'low' as const, icon: 'x' as const };
-  return { text: v || '—', tone: 'medium' as const, icon: 'warn' as const };
+  return { text: v || 'None', tone: 'medium' as const, icon: 'warn' as const };
 };
 
 // Map the AI-returned section name to a LinkedIn-editor section key. Only

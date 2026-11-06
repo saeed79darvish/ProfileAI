@@ -153,7 +153,7 @@ export const AuthRequired: React.FC<AuthRequiredProps> = ({ onAuthSync, initialT
           <h2 className="auth-title">Build Your Profile</h2>
           <p className="signed-out-sub">
             Your profile is what powers auto-fill, tailoring, and cover letters.
-            Build it on ProfilleAI — no account needed to start — then come back
+            Build it on ProfilleAI, no account needed to start, then come back
             and sign in here.
           </p>
           <button type="button" className="btn primary auth-submit" onClick={openProfileBuilderOnWeb}>

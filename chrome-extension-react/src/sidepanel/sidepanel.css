@@ -5378,9 +5378,11 @@ html, body, #root {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 .jm-job-company {
   font-size: 12px;

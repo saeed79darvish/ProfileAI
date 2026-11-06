@@ -13,9 +13,9 @@ export const Footer: React.FC<FooterProps> = ({ onLogout }) => {
     <footer className="footer">
       {/* Read from the manifest, never hardcoded. A pinned "v1.0.0" sat here
           while the manifest said 1.0.8, so the panel could not tell anyone
-          which build they were actually running — which is the first question
+          which build they were actually running, which is the first question
           asked whenever a fix "isn't working". */}
-      <span>ProfilleAI v{chrome.runtime?.getManifest?.()?.version ?? '—'}</span>
+      <span>ProfilleAI v{chrome.runtime?.getManifest?.()?.version ?? 'unknown'}</span>
       <button onClick={openPersonalization} className="footer-link" title="Edit your AI personalization settings">
         AI Settings
       </button>

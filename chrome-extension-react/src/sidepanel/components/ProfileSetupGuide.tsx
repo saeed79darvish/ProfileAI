@@ -73,7 +73,7 @@ export const ProfileSetupGuide: React.FC<ProfileSetupGuideProps> = ({ profile, c
           3 minutes to unlock everything
         </h3>
         <p>
-          Add your skills and title — ProfilleAI will instantly score your fit for <strong>{roleLabel}</strong>.
+          Add your skills and title, ProfilleAI will instantly score your fit for <strong>{roleLabel}</strong>.
         </p>
         <button className="btn light full-width-btn" onClick={openProfile}>
           Complete my profile

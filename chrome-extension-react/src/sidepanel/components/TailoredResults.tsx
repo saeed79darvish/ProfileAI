@@ -84,7 +84,7 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
   const gapObjects = tailoredProfile._skillGaps || [];
 
   /* What is still missing has to be measured against the finished resume.
-     `_skillGaps` is `acceptedGapObjects` — the gaps the candidate asked
+     `_skillGaps` is `acceptedGapObjects`, the gaps the candidate asked
      tailoring to ADD. Accept is the default in the gap review, so clicking
      through it accepts everything, and this panel then reported the
      candidate's own requests back as failures. Nothing in that path looked at
@@ -107,7 +107,7 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
   ]);
 
   /* Covered only when every content word appears, so a word shared with the
-     rest of the resume — "framework", "design" — cannot on its own mark
+     rest of the resume, "framework", "design", cannot on its own mark
      "NestJS framework" as handled. Erring towards leaving a gap listed is the
      right way to be wrong here. */
   const coveredByDraft = (gap: string) => {
@@ -284,7 +284,7 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            Still missing — long-term gaps
+            Still missing, long-term gaps
           </h5>
           <div className="tr-chips">
             {longTermGaps.slice(0, 6).map((g, i) => (
@@ -299,7 +299,7 @@ export const TailoredResults: React.FC<TailoredResultsProps> = ({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20 6L9 17l-5-5" />
         </svg>
-        <span>No existing content was removed — all changes are additive only.</span>
+        <span>No existing content was removed, all changes are additive only.</span>
       </div>
 
       {/* Actions */}

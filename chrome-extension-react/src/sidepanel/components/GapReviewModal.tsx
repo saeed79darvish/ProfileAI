@@ -102,7 +102,7 @@ export const GapReviewModal: React.FC<GapReviewModalProps> = ({
 
         <p className="gap-review-subtitle">
           These are the job's requirements your resume doesn't currently show.
-          <strong> Accept</strong> to put one on this tailored resume — unevidenced ones appear under
+          <strong> Accept</strong> to put one on this tailored resume, unevidenced ones appear under
           "Familiar with", so it stays honest. <strong>Skip</strong> if it doesn't apply or you'd rather leave it off.
         </p>
 

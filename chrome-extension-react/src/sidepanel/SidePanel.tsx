@@ -660,7 +660,7 @@ export const SidePanel: React.FC = () => {
           // checkboxes, radios — which are unreliable on React-rendered ATSes.
           basicsOnly: true,
         });
-        showNotification('Filled the basics — review the rest before submitting', 'success');
+        showNotification('Filled the basics, review the rest before submitting', 'success');
       }
     } catch (error) {
       showNotification('Please refresh the page and try again', 'warning');
@@ -974,7 +974,7 @@ export const SidePanel: React.FC = () => {
   const handleGuestSubmitEmail = useCallback(async (email: string) => {
     const analysisId = linkedInAnalysisId;
     if (!analysisId) {
-      return { ok: false, error: 'Missing analysis id — please re-analyze.', errorCode: 'missing_analysis' as const };
+      return { ok: false, error: 'Missing analysis id, please re-analyze.', errorCode: 'missing_analysis' as const };
     }
     try {
       const resp = await chrome.runtime.sendMessage({
@@ -1162,7 +1162,7 @@ export const SidePanel: React.FC = () => {
 
       if (response?.cached) {
         // Say so rather than letting an identical report read as a no-op.
-        showNotification('Showing your saved gap analysis for this job — nothing changed since last time.', 'info');
+        showNotification('Showing your saved gap analysis for this job, nothing changed since last time.', 'info');
       }
 
       if (response?.success && response?.gaps?.length > 0) {
@@ -1182,7 +1182,7 @@ export const SidePanel: React.FC = () => {
         if (!response?.success) {
           console.warn('[ProfileAI] Gap analysis failed:', response?.error);
           showNotification(
-            'Could not analyze your skill gaps for this job — tailoring without the gap review.',
+            'Could not analyze your skill gaps for this job, tailoring without the gap review.',
             'warning'
           );
         }
@@ -1191,7 +1191,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.warn('[ProfileAI] Gap analysis threw, proceeding to tailor:', error);
       showNotification(
-        'Could not analyze your skill gaps for this job — tailoring without the gap review.',
+        'Could not analyze your skill gaps for this job, tailoring without the gap review.',
         'warning'
       );
       await doTailor(null, undefined, activeSettings);
@@ -1676,8 +1676,8 @@ export const SidePanel: React.FC = () => {
         <>
           {/* Signed-out surface: the LinkedIn Profile Analyzer is our
               acquisition hook, so it must run WITHOUT sign-in OR a profile, and
-              it stays pinned to the top on EVERY page — not just
-              linkedin.com/in/* tabs — so a first-time user always has one free
+              it stays pinned to the top on EVERY page, not just
+              linkedin.com/in/* tabs, so a first-time user always has one free
               thing to try. Off a profile tab the pill opens LinkedIn instead of
               analyzing nothing. Same pill the signed-in surfaces use, so the
               hook looks identical before and after sign-in. */}

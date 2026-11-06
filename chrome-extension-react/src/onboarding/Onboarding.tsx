@@ -312,7 +312,7 @@ export const Onboarding: React.FC = () => {
 
   const renderHeadline = (text: string) => {
     switch (text) {
-      case '__JSX_AUTOFILL__': return <>Click <span className="accent">Autofill Form</span> to see the extension in action.</>;
+      case '__JSX_AUTOFILL__': return <>Click <span className="accent">Quick Fill Basics</span> to see the extension in action.</>;
       case '__JSX_KEYWORDS__': return <>See your <span className="accent">keyword match</span> score for every job.</>;
       case '__JSX_TAILOR__': return <><span className="pro-badge">PRO</span> <span className="accent">Tailor</span> your resume for every job, with full control.</>;
       case '__JSX_COVER__': return <><span className="pro-badge">PRO</span> Generate a <span className="accent">tailored cover letter</span> in one click.</>;
@@ -555,7 +555,7 @@ export const Onboarding: React.FC = () => {
                     <button className={`p-action autofill ${ps === 'autofill-ready' ? 'pulse-btn' : ''}`}
                       onClick={ps === 'autofill-ready' && cur.interactive === 'autofill' ? handleAutofill : undefined}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4V20H20V13" strokeLinecap="round" strokeLinejoin="round"/><path d="M9 15L20 4" strokeLinecap="round" strokeLinejoin="round"/><path d="M15 4H20V9" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      <span>Autofill Form</span>
+                      <span>Quick Fill Basics</span>
                     </button>
                     <button className="p-action tailor" disabled>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9" strokeLinecap="round" strokeLinejoin="round"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -656,7 +656,7 @@ export const Onboarding: React.FC = () => {
 
               {/* ── Footer ── */}
               <div className="panel-footer">
-                <span>ProfilleAI v1.0.0</span>
+                <span>ProfilleAI v{chrome.runtime?.getManifest?.()?.version ?? 'unknown'}</span>
                 <span>AI Settings</span>
                 <span>Help</span>
                 <span>Sign Out</span>

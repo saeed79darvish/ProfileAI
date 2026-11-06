@@ -284,18 +284,17 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
               <div className="jm-progress-track">
                 <div className="jm-progress-fill" style={{ width: `${Math.min(100, matchScore)}%` }} />
               </div>
-              <span className="jm-progress-pct">{matchScore}%</span>
             </div>
             <p className="jm-source-note">
               Scored against your title, experience and skills
               {components?.seniorityBasis === 'dates' && components.requiredYears
-                ? ` — ${components.candidateYears} yrs against the ${components.requiredYears}+ this posting asks for`
+                ? `, ${components.candidateYears} yrs against the ${components.requiredYears}+ this posting asks for`
                 : ''}
             </p>
             {verdictLine && <p className="jm-verdict-line">{verdictLine}</p>}
             {components?.cappedByBlockers && (
               <p className="jm-missing-summary">
-                Score capped — this application would be filtered out before a human reads it.
+                Score capped, this application would be filtered out before a human reads it.
               </p>
             )}
           </div>
@@ -373,7 +372,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
             Partly evidenced ({partialCount})
           </h5>
           <p className="jm-group-note">
-            Adjacent or dated experience — counted at half credit. Tailoring can usually
+            Adjacent or dated experience, counted at half credit. Tailoring can usually
             close these.
           </p>
           <div className="jm-chips">
@@ -395,7 +394,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-            {provisional ? 'Terms not in your profile' : 'Gaps — ranked by impact'}
+            {provisional ? 'Terms not in your profile' : 'Gaps, ranked by impact'}
           </h5>
           <div className="jm-missing-list">
             {visibleMissing.map(({ keyword, impact }) => (
@@ -437,7 +436,7 @@ export const JobMatchSection: React.FC<JobMatchSectionProps> = ({
               </>
             )}
           </button>
-          <p className="jm-tailor-note">AI rewrites your profile to match — safe, additive edits only</p>
+          <p className="jm-tailor-note">AI rewrites your profile to match, safe, additive edits only</p>
         </>
       )}
     </div>

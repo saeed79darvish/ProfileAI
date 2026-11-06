@@ -99,7 +99,7 @@ export function scrapeJobFromDocument(): ScrapedJob {
     {
       name: 'lever',
       match: /lever\.co/,
-      title: ['.posting-headline h2', 'h1.posting-headline', 'h1'],
+      title: ['.posting-headline h2', 'h1.posting-headline', '.posting-header h2', '.posting-page h2', 'h1'],
       company: ['.main-header-logo img[alt]', '.posting-categories .location'],
       description: ['.posting-page', '.section-wrapper', '.content', '[class*="posting-"]'],
     },
@@ -203,7 +203,9 @@ export function scrapeJobFromDocument(): ScrapedJob {
         // `alt` for the logo-image company selectors (Lever puts the company
         // name only in the header logo's alt text).
         const raw = (el.tagName === 'IMG' ? el.getAttribute('alt') : null) || el.textContent || '';
-        const text = raw.replace(/\s+/g, ' ').trim();
+        let text = raw.replace(/\s+/g, ' ').trim();
+        // A logo's alt is "Palantir Technologies logo"; the company is the part before it.
+        if (el.tagName === 'IMG') text = text.replace(/\s+(?:company\s+)?logo$/i, '').trim();
         if (text && text.length < maxLen) return { text, via: sel };
       } catch (_) {
         /* invalid selector for this engine — skip */

@@ -356,7 +356,7 @@ function startExtensionContextHeartbeat() {
       PROFILEAI_INJECTED_CLASSES.forEach((cls) => {
         document.querySelectorAll(`.${cls}`).forEach((n) => n.remove());
       });
-      console.log('[ProfileAI] Extension context invalidated — cleaned up injected DOM');
+      console.log('[ProfileAI] Extension context invalidated, cleaned up injected DOM');
     } catch {
       /* best-effort */
     }
@@ -730,7 +730,7 @@ function handleNavigation() {
   // happily returns the profile owner's name on linkedin.com/in/* pages, which
   // used to write a phantom "job" into storage that the SidePanel displayed.
   const tryStoreNav = (attempt: number) => {
-    if (!extAlive()) return; // stale script after extension reload — bail
+    if (!extAlive()) return; // stale script after extension reload, bail
     if (!isJobPage) {
       if (attempt < 4) {
         // detectJobPage()'s content-analysis pass is async (2s timer) — retry
@@ -760,7 +760,7 @@ function handleNavigation() {
       // Gave up: better no job than the wrong one. The panel clears and the
       // user is told to re-analyze rather than silently tailoring to the
       // posting they were looking at a minute ago.
-      console.warn('[ProfileAI] Nav: gave up reading this posting after', attempt, 'attempts — clearing stored job');
+      console.warn('[ProfileAI] Nav: gave up reading this posting after', attempt, 'attempts, clearing stored job');
       try { chrome.storage.local.remove(['currentJobInfo', 'currentJobUrl']); } catch (_) {}
       lastStoredJob = null;
     }
@@ -847,7 +847,7 @@ function storeJobInfo(info: JobInfo): boolean {
   const url = location.href;
 
   if (lastStoredJob && lastStoredJob.url !== url && lastStoredJob.fingerprint === fingerprint) {
-    console.log('[ProfileAI] Scrape is byte-identical to the previous job on a new URL — pane has not repainted yet, not storing');
+    console.log('[ProfileAI] Scrape is byte-identical to the previous job on a new URL, pane has not repainted yet, not storing');
     return false;
   }
 
@@ -1703,7 +1703,7 @@ function doInjectMatchBanner(jobArea: HTMLElement) {
 
   banner.innerHTML = `
     <button class="profileai-inline-close" title="Dismiss">&times;</button>
-    <div class="profileai-inline-score" data-label="—" style="--score-deg:0deg"></div>
+    <div class="profileai-inline-score" data-label="N/A" style="--score-deg:0deg"></div>
     <div class="profileai-inline-info">
       <p class="profileai-inline-title">Resume Match</p>
       <p class="profileai-inline-sub">Click "Analyze" to check keyword match</p>
@@ -1820,7 +1820,7 @@ async function handleInlineAnalyze(banner: HTMLElement) {
       showNotification(response?.error || 'Keyword analysis failed');
     }
   } catch (e) {
-    showNotification('Analysis failed — please try again');
+    showNotification('Analysis failed, please try again');
   } finally {
     inlineBannerState.analyzing = false;
     if (analyzeBtn) {
@@ -1845,7 +1845,7 @@ function updateBannerScore(banner: HTMLElement) {
 
   if (scoreEl) {
     scoreEl.style.setProperty('--score-deg', `${deg}deg`);
-    scoreEl.setAttribute('data-label', score === null ? '—' : `${score}%`);
+    scoreEl.setAttribute('data-label', score === null ? 'N/A' : `${score}%`);
   }
   if (titleEl) titleEl.textContent = 'Resume Match';
   if (subEl) {
@@ -2063,7 +2063,7 @@ function getInputLabel(input: Element): string | null {
     '[class*="FormField"]', '[class*="form-row"]', '[class*="input-group"]',
     '[class*="form_field"]', '[class*="formField"]',
     '[data-automation-id]', // Workday
-    'div[class]', // broad fallback — closest div with a class
+    'div[class]', // broad fallback, closest div with a class
   ];
   for (const sel of containerSelectors) {
     const container = input.closest(sel);
@@ -2107,7 +2107,58 @@ function getInputLabel(input: Element): string | null {
   return null;
 }
 
+// Fields the current autofill wrote into. Checked again after the page has had
+// time to react, because some widgets (Lever's location box) wipe typed text on
+// blur, and reporting those as filled hides a blank required field.
+const filledTracker = new Set<HTMLElement>();
+
+function fieldLabel(el: HTMLElement): string {
+  // First line only: a label often wraps helper text ("No location found. Try...").
+  const clean = (raw: string | null | undefined) =>
+    (raw || '').split('\n').map((l) => l.replace(/[*✱]/g, '').replace(/\s+/g, ' ').trim()).find(Boolean) || '';
+  const short = (t: string) => (t.length <= 40 ? t : t.slice(0, 38).replace(/\s+\S*$/, '') + '…');
+  const id = el.getAttribute('id');
+  const byFor = id ? document.querySelector<HTMLElement>(`label[for="${CSS.escape(id)}"]`) : null;
+  const wrap = el.closest('label');
+  const box = el.closest('li, fieldset, .field, .application-field, [class*="field"], [class*="question"]');
+  const inBox = box ? box.querySelector<HTMLElement>('label, legend, .application-label, [class*="label"]') : null;
+  const attr = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+  const name = el.getAttribute('name') || '';
+  // A machine name ("cards[3da5...][field0]") is worse than a generic word.
+  const readableName = /^[A-Za-z][A-Za-z _-]{1,30}$/.test(name) ? name : '';
+  return short(clean(byFor?.innerText) || clean(wrap?.innerText) || clean(inBox?.innerText) || clean(attr) || readableName);
+}
+
+/** Visible required fields that are still empty, with a readable name for each. */
+function emptyRequiredFields(container: Element): { el: HTMLElement; label: string }[] {
+  const sel =
+    'input[required]:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), ' +
+    'input[aria-required="true"]:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), ' +
+    'textarea[required], select[required]';
+  const out: { el: HTMLElement; label: string }[] = [];
+  container.querySelectorAll<HTMLInputElement>(sel).forEach((el) => {
+    if (el.value) return;
+    const style = window.getComputedStyle(el);
+    const visible = el.type === 'file' || (style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null);
+    if (!visible) return;
+    const sel = el as unknown as HTMLSelectElement;
+    if (el.tagName === 'SELECT' && sel.selectedIndex > 0) return;
+    const label = fieldLabel(el) || (el.type === 'file' ? 'Resume' : 'A required question');
+    out.push({ el, label });
+  });
+  return out;
+}
+
+/** Amber ring that stays until the person touches the field. */
+function flagNeedsYou(el: HTMLElement) {
+  el.style.boxShadow = '0 0 0 2px rgba(245, 158, 11, 0.8)';
+  const clear = () => { el.style.boxShadow = ''; };
+  el.addEventListener('focus', clear, { once: true });
+  el.addEventListener('input', clear, { once: true });
+}
+
 function fillInput(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
+  filledTracker.add(input);
   // Strip characters that Workday and other ATS platforms reject: < > [ ] " { } \
   const sanitized = value.replace(/[<>\[\]"{}\\]/g, '');
 
@@ -2883,7 +2934,7 @@ async function collectUnfilledCustomDropdowns(
     if (sv && (sv.textContent || '').trim()) return false;
     // Or the trigger's own visible text isn't the placeholder ("Select...", "Choose...")
     const text = ((t as HTMLElement).innerText || '').trim().toLowerCase();
-    if (text && !text.startsWith('select') && !text.startsWith('choose') && !text.startsWith('—')) {
+    if (text && !text.startsWith('select') && !text.startsWith('choose') && !text.startsWith('\u2014')) {
       // For phone-country pickers the visible text is just "+1" — still treat as filled.
       if (/^\+?\d/.test(text)) return false;
     }
@@ -3842,6 +3893,7 @@ function fillWorkdayCustomFields(container: Element, profile: any, skipped?: str
 }
 
 async function fillForm(container: Element, silent = false) {
+  filledTracker.clear();
   let filledCount = 0;
   // Track fields the autofill chose to skip (e.g. dropdown with no confident match).
   // Surfaced in the completion toast so users know what to fill manually.
@@ -4520,34 +4572,28 @@ async function fillForm(container: Element, silent = false) {
     }
   }
 
-  // Highlight unfilled required fields with amber
-  container.querySelectorAll('input[required]:not([type="radio"]):not([type="checkbox"]), textarea[required], select[required]').forEach((input) => {
-    if (!(input as HTMLInputElement).value) {
-      (input as HTMLElement).style.boxShadow = '0 0 0 2px rgba(245, 158, 11, 0.5)';
-      setTimeout(() => { (input as HTMLElement).style.boxShadow = ''; }, 4000);
-    }
-  });
-  // Also highlight unfilled required select elements that still show placeholder
-  container.querySelectorAll('select[required]').forEach((select) => {
-    const sel = select as HTMLSelectElement;
-    if (!sel.value || sel.selectedIndex === 0) {
-      (sel as HTMLElement).style.boxShadow = '0 0 0 2px rgba(245, 158, 11, 0.5)';
-      setTimeout(() => { (sel as HTMLElement).style.boxShadow = ''; }, 4000);
-    }
-  });
-
   // Restore scroll position to where user was before autofill
   window.scrollTo(scrollX, scrollY);
-  
+
+  // Let the page react (blur handlers, validation) before counting what stuck.
+  await new Promise((r) => setTimeout(r, 900));
+  const lost = Array.from(filledTracker).filter((el) => !(el as HTMLInputElement).value);
+  const verifiedCount = Math.max(0, filledCount - lost.length);
+  const needsYou = emptyRequiredFields(container);
+  needsYou.forEach(({ el }) => flagNeedsYou(el));
+
   if (!silent && filledCount > 0) {
-    // Dedupe + truncate skipped list for the toast
+    const names = Array.from(new Set(needsYou.map((n) => n.label)));
     const uniqueSkipped = Array.from(new Set(skippedFields.map(s => s.trim()).filter(Boolean)));
-    if (uniqueSkipped.length > 0) {
+    if (names.length > 0) {
+      const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : '');
+      showNotification(`✓ Filled ${verifiedCount} fields. Needs you: ${shown}`, 7000);
+    } else if (uniqueSkipped.length > 0) {
       const preview = uniqueSkipped.slice(0, 2).map(s => s.length > 30 ? s.substring(0, 30) + '…' : s).join(', ');
       const more = uniqueSkipped.length > 2 ? ` +${uniqueSkipped.length - 2} more` : '';
-      showNotification(`✓ Autofilled ${filledCount} fields. Please review: ${preview}${more}`);
+      showNotification(`✓ Filled ${verifiedCount} fields. Please review: ${preview}${more}`, 5000);
     } else {
-      showNotification(`✓ Autofilled ${filledCount} fields!`);
+      showNotification(`✓ Filled ${verifiedCount} fields. Nothing else is required.`);
     }
   }
   console.log('[ProfileAI] Autofill completed:', filledCount, 'fields,', skippedFields.length, 'skipped');
@@ -4933,7 +4979,7 @@ async function downloadTailoredResume(tailored: any, jobInfo: { title?: string; 
 }
 
 // Show notification
-function showNotification(message: string) {
+function showNotification(message: string, durationMs = 3000) {
   const existing = document.querySelector('.profileai-notification');
   if (existing) existing.remove();
   
@@ -4944,7 +4990,7 @@ function showNotification(message: string) {
   
   setTimeout(() => {
     notification.remove();
-  }, 3000);
+  }, durationMs);
 }
 
 // Message listener
@@ -6065,7 +6111,7 @@ async function liOpenInlinePopover(field: HTMLElement, anchor: HTMLButtonElement
 
   const runRewrite = async (action: string, customPrompt?: string) => {
     if (!liExtAlive()) {
-      bodyEl.innerHTML = `<div class="pai-err">Extension needs a reload — please refresh this page.</div>`;
+      bodyEl.innerHTML = `<div class="pai-err">Extension needs a reload, please refresh this page.</div>`;
       return;
     }
     const text = readFieldText();

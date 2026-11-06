@@ -188,10 +188,10 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
       if (resp?.success) {
         onNotification('Inserted into field', 'success');
       } else {
-        onNotification('Could not find the field on the page — try Copy instead', 'warning');
+        onNotification('Could not find the field on the page, try Copy instead', 'warning');
       }
     } catch {
-      onNotification('Could not reach the page — try Copy instead', 'warning');
+      onNotification('Could not reach the page, try Copy instead', 'warning');
     }
   }, [answers, onNotification]);
 
@@ -346,7 +346,7 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                         autoFocus
                       />
                     ) : (
-                      <div className="smart-answer-text">{a?.answer || '—'}</div>
+                      <div className="smart-answer-text">{a?.answer || 'No answer'}</div>
                     )}
 
                     <div className="smart-answer-actions">
