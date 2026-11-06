@@ -539,6 +539,17 @@ const Split = styled.div`
   @media (max-width: 1100px) { grid-template-columns: minmax(0, 1fr); }
 `;
 
+// The list keeps its place while the page scrolls, and scrolls on its own when it is long,
+// so choosing a resume far down the list never leaves the detail out of sight.
+const ListCard = styled.div`
+  padding: 20px; border-radius: 20px; background: #fff; border: 1.5px solid ${C.line};
+  position: sticky; top: 84px; max-height: calc(100vh - 104px); overflow-y: auto; overscroll-behavior: contain;
+`;
+const DetailCard = styled.div`
+  padding: 24px; border-radius: 20px; background: #fff; border: 1.5px solid ${C.line}; min-width: 0;
+  scroll-margin-top: 84px;
+`;
+
 /* ── the preview, cached per copy ─────────────────────────────── */
 
 const previewCache = new Map();
@@ -627,7 +638,12 @@ export default function TailoredResumes({ items, loading, onItemsChange, isMobil
     return () => { document.body.style.overflow = prev; };
   }, [isMobile, tp]);
 
-  const open = (g) => { setSelectedId(g.id); setVersionId(null); };
+  const detailTop = useRef(null);
+  const open = (g) => {
+    setSelectedId(g.id); setVersionId(null);
+    // Bring the detail into view, on a wide screen where the list sits beside it.
+    if (!isMobile) setTimeout(() => detailTop.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
   const close = () => { setSelectedId(null); setVersionId(null); };
 
   const remove = (target) => {
@@ -768,8 +784,8 @@ export default function TailoredResumes({ items, loading, onItemsChange, isMobil
         </>
       ) : (
         <Split>
-          <div style={{ padding: 20, borderRadius: 20, background: '#fff', border: `1.5px solid ${C.line}` }}>{list}</div>
-          {detail ? <div style={{ padding: 24, borderRadius: 20, background: '#fff', border: `1.5px solid ${C.line}`, minWidth: 0 }}>{detail}</div> : null}
+          <ListCard>{list}</ListCard>
+          {detail ? <DetailCard ref={detailTop}>{detail}</DetailCard> : null}
         </Split>
       )}
 
