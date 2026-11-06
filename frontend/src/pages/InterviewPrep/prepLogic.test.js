@@ -45,9 +45,9 @@ test('sortGuard: newest first, undated last, then source count', () => {
   assert.deepEqual(sortGuard(qs).map((q) => q.id), ['c', 'a', 'b']);
 });
 test('poll timing', () => {
-  assert.equal(pollExpired(0, 89999), false);
-  assert.equal(pollExpired(0, 90000), true);
+  assert.equal(pollExpired(0, 239999), false);
+  assert.equal(pollExpired(0, 240000), true);
   assert.equal(progressStep(0), 0);
-  assert.equal(progressStep(15000), 2);
+  assert.equal(progressStep(60000), 2);
   assert.equal(progressStep(999999), 3);
 });

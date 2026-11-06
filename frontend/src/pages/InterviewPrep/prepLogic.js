@@ -72,12 +72,12 @@ export function sortGuard(questions) {
 }
 
 export const POLL_MS = 3000;
-export const POLL_LIMIT_MS = 90000;
+export const POLL_LIMIT_MS = 240000;
 
 /** True once polling has run past the limit. */
 export const pollExpired = (startedAt, now = Date.now()) => now - startedAt >= POLL_LIMIT_MS;
 
 /** How many of the four progress lines show as done after `elapsedMs` of waiting. */
 export function progressStep(elapsedMs, lines = 4) {
-  return Math.max(0, Math.min(lines - 1, Math.floor(elapsedMs / 7000)));
+  return Math.max(0, Math.min(lines - 1, Math.floor(elapsedMs / 25000)));
 }

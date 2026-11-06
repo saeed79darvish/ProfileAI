@@ -103,7 +103,9 @@ const Steps = styled.ul`
   li[data-state='now'] { color: ${C.ink}; font-weight: 600; }
   .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #d5d8e3; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #fff; }
   li[data-state='done'] .dot { background: #22a05a; border-color: #22a05a; }
-  li[data-state='now'] .dot { border-color: ${C.brand}; }
+  li[data-state='now'] .dot { border-color: ${C.brand}; border-top-color: transparent; animation: prepSpin 0.8s linear infinite; }
+  @keyframes prepSpin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { li[data-state='now'] .dot { animation: none; border-top-color: ${C.brand}; } }
 `;
 const Sheet = styled.div`
   position: fixed; inset: 0; z-index: 1300; background: rgba(19, 21, 42, 0.45); display: flex; align-items: flex-end; justify-content: center;
@@ -159,7 +161,7 @@ function Progress({ elapsed }) {
   return (
     <Section aria-live="polite">
       <h2>Researching</h2>
-      <p className="sub">This usually takes under a minute.</p>
+      <p className="sub">This can take one to three minutes the first time for a company. You can leave this page, the research keeps going and will be here when you come back. {Math.floor(elapsed / 1000)}s so far.</p>
       <Steps>
         {STEPS.map((s, i) => (
           <li key={s} data-state={i < now ? 'done' : i === now ? 'now' : 'todo'}>
