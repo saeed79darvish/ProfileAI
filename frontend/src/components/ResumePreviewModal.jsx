@@ -2711,7 +2711,7 @@ export default function ResumePreviewModal({
                 </>
               ) : (
                 <>
-                  <ApplySecondaryBtn type="button" onClick={onApply} disabled={saveState.phase === 'saving'}>Open application</ApplySecondaryBtn>
+                  <ApplySecondaryBtn type="button" onClick={onApply} disabled={saveState.phase === 'saving'}>Open page</ApplySecondaryBtn>
                   <DownloadBtn $accent={downloadColor} onClick={saveForPhone} disabled={saveState.phase === 'saving'}>
                     {saveState.phase === 'saving' ? <CircularProgress size={18} style={{ color: '#fff' }} /> : 'Save resume'}
                   </DownloadBtn>

@@ -444,7 +444,7 @@ const Sheet = styled.div`
   }
   .kit summary::-webkit-details-marker { display: none; }
   .kit summary::after { content: '+'; float: right; color: #6b7280; font-weight: 500; }
-  .kit[open] summary::after { content: '\2212'; }
+  .kit[open] summary::after { content: '\\2212'; }
   .kit button {
     display: flex;
     align-items: center;
