@@ -356,7 +356,7 @@ export default function InterviewPrep() {
                 {prep.process?.timeline && <p className="sub" style={{ marginTop: 14, marginBottom: 0 }}>{prep.process.timeline}</p>}
                 {Array.isArray(prep.process?.tips) && prep.process.tips.length > 0 && (
                   <ul style={{ margin: '12px 0 0', paddingLeft: 20, fontSize: 15, lineHeight: 1.5 }}>
-                    {prep.process.tips.map((t, i) => <li key={i}>{t}</li>)}
+                    {prep.process.tips.map((t, i) => <li key={i}>{typeof t === "string" ? t : t?.text}</li>)}
                   </ul>
                 )}
               </Section>
