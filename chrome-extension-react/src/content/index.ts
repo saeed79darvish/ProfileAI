@@ -1,12 +1,14 @@
 // ProfileAI Content Script
 // Runs on all pages - shows overlay panel as iframe
 //
-// Imports are limited to src/jobScrape.ts, which Rollup inlines into
+// Imports are limited to src/jobScrape.ts and src/answerMemory (plain TS, no
+// chrome APIs), which Rollup inlines into
 // content.js (content scripts are classic scripts and cannot resolve imports
 // at runtime — the build is checked for this). The scraper is shared because
 // having a second copy here is what let the content script and the background
 // worker disagree about the same posting.
 import { scrapeJobFromDocument } from '../jobScrape';
+import { parseWordHint, pickOption, cleanOptionTexts, type WordHint } from '../answerMemory';
 
 // Environment: 'development' | 'production'
 const ENV = 'production';
@@ -1193,6 +1195,9 @@ function openOverlay() {
   const iframe = document.createElement('iframe');
   iframe.id = 'profileai-overlay-iframe';
   iframe.src = chrome.runtime.getURL('src/sidepanel/index.html');
+  // The panel records voice (answers and experience). A frame on someone else's page
+  // may only use the microphone if the page that embeds it hands the permission down.
+  iframe.allow = 'microphone; clipboard-write';
   
   overlayContainer.appendChild(iframe);
   document.body.appendChild(overlayContainer);
@@ -1826,6 +1831,127 @@ function openCustomDropdown(trigger: Element): HTMLElement {
   // Some libraries open on .click() only (Headless UI button patterns).
   try { inner.click(); } catch (_) {}
   return inner;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+const hasDrawnValue = (control: Element) =>
+  !!control.querySelector('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]');
+
+/**
+ * Sets a dropdown, radio group or native select from a stored answer. Only the
+ * option the answer clearly means is chosen (pickOption), and when no option
+ * matches nothing is touched. react-select listens to mousedown and click, not
+ * to value setters, so the menu is opened and the option clicked.
+ */
+async function fillChoiceElement(el: HTMLElement, hint: { answer?: string; choiceValue?: string }): Promise<boolean> {
+  try {
+    if (el instanceof HTMLSelectElement) {
+      const opts = Array.from(el.options).filter((o) => o.value && o.text.trim());
+      const pick = pickOption(opts.map((o) => o.text.trim()), hint);
+      const opt = pick ? opts.find((o) => o.text.trim() === pick) : null;
+      if (!opt) return false;
+      el.value = opt.value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    if (el instanceof HTMLInputElement && el.type === 'radio') {
+      const radios = el.name
+        ? Array.from(document.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(el.name)}"]`))
+        : [el];
+      const labels = radios.map((r) => cleanQuestionLabel(getInputLabel(r) || r.value));
+      const pick = pickOption(labels, hint);
+      const idx = pick ? labels.indexOf(pick) : -1;
+      if (idx < 0) return false;
+      radios[idx].click();
+      return radios[idx].checked;
+    }
+    if (el.getAttribute('role') === 'combobox' || el.closest('[class*="select__control"]')) {
+      const control = el.closest<HTMLElement>('[class*="select__control"], [class*="control"]') || el;
+      if (hasDrawnValue(control)) return true;
+      const input = (control.querySelector('input[role="combobox"], input') || el) as HTMLElement;
+      try { control.scrollIntoView({ block: 'center' }); } catch (_) {}
+      try { input.focus({ preventScroll: true }); } catch (_) {}
+      const rect = control.getBoundingClientRect();
+      const pos = { clientX: rect.left + Math.min(rect.width / 2, 40), clientY: rect.top + rect.height / 2, button: 0, bubbles: true, cancelable: true };
+      control.dispatchEvent(new MouseEvent('mousedown', pos));
+      control.dispatchEvent(new MouseEvent('mouseup', pos));
+
+      const scope = (control.parentElement || document.body) as HTMLElement;
+      const optionSel = '[class*="select__option"], [class*="-option"], [role="option"]';
+      const readOptions = () => {
+        const local = Array.from(scope.querySelectorAll<HTMLElement>(optionSel));
+        const found = local.length ? local : Array.from(document.querySelectorAll<HTMLElement>(optionSel));
+        return found.filter((o) => (o.textContent || '').trim() && o.getBoundingClientRect().height > 0);
+      };
+      let options: HTMLElement[] = [];
+      for (let waited = 0; waited < 1500; waited += 100) {
+        options = readOptions();
+        if (options.length) break;
+        await sleep(100);
+      }
+      const texts = options.map((o) => (o.textContent || '').trim());
+      const pick = pickOption(texts, hint);
+      const target = pick ? options[texts.indexOf(pick)] : null;
+      if (!target) {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+        return false;
+      }
+      const r = target.getBoundingClientRect();
+      const tpos = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, bubbles: true, cancelable: true };
+      target.dispatchEvent(new MouseEvent('mousedown', tpos));
+      target.dispatchEvent(new MouseEvent('mouseup', tpos));
+      target.dispatchEvent(new MouseEvent('click', tpos));
+      await sleep(250);
+      if (!hasDrawnValue(control)) {
+        // Some builds only commit through the typed-text path.
+        await commitOptionClick(target, control);
+        await sleep(300);
+      }
+      if (hasDrawnValue(control)) {
+        control.style.boxShadow = '';
+        return true;
+      }
+      return false;
+    }
+  } catch (e) {
+    console.warn('[ProfileAI] fillChoiceElement failed', e);
+  }
+  return false;
+}
+
+/**
+ * Quick Fill: dropdowns that ask about a stored fact are answered from the
+ * person's memory and removed from the AI batch, so a fact is never guessed.
+ */
+async function fillFactDropdowns(pending: AiDropdownCandidate[], skipped: string[]): Promise<number> {
+  if (pending.length === 0) return 0;
+  let filled = 0;
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'FACT_DROPDOWN_ANSWERS',
+      data: { fields: pending.map((c) => ({ question: c.question, options: c.options.map((o) => o.text) })) },
+    });
+    const matched = new Set<string>(resp?.matched || []);
+    if (matched.size === 0) return 0;
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const cand = pending[i];
+      if (!matched.has(cand.question)) continue;
+      pending.splice(i, 1);
+      const d = resp.details?.[cand.question];
+      if (d?.source === 'fact' && (d.answer || d.choiceValue)) {
+        if (await fillChoiceElement(cand.selectEl as HTMLElement, { answer: d.answer, choiceValue: d.choiceValue })) {
+          filled++;
+          continue;
+        }
+      }
+      skipped.push(cand.question);
+    }
+  } catch (e) {
+    console.warn('[ProfileAI] fact dropdowns failed', e);
+  }
+  return filled;
 }
 
 function closeCustomDropdown(trigger: Element) {
@@ -3806,67 +3932,20 @@ async function fillForm(container: Element, silent = false) {
   for (const extra of additionalUnfilled) aiDropdownPending.push(extra);
   }
 
-  if (aiDropdownPending.length > 0) {
-    const jobInfo = (() => {
-      try { return getJobInfo(); } catch { return null; }
-    })();
-    console.log('[ProfileAI] AI fallback: requesting', aiDropdownPending.length, 'dropdown answers in one batch');
-    try {
-      const batchResp = await chrome.runtime.sendMessage({
-        type: 'AUTOFILL_SUGGEST_BATCH',
-        data: {
-          fields: aiDropdownPending.map((c, i) => ({
-            i,
-            question: c.question,
-            fieldType: 'dropdown',
-            options: c.options.map(o => o.text),
-          })),
-          jobContext: jobInfo ? { title: jobInfo.title, company: jobInfo.company } : undefined,
-        },
-      });
-      const answers: Array<{ i: number; value: string; confidence: number }> = batchResp?.answers || [];
-      console.log('[ProfileAI] AI fallback: got', answers.length, 'answers');
-      for (const ans of answers) {
-        const cand = aiDropdownPending[ans.i];
-        if (!cand) continue;
-        if (!ans.value || ans.confidence < 0.4) {
-          skippedFields.push(cand.question);
-          continue;
-        }
-        try {
-          // Re-open the dropdown using the cross-library helper.
-          openCustomDropdown(cand.selectEl);
-          await new Promise((r) => setTimeout(r, 380));
-          const valueLower = ans.value.toLowerCase();
-          const liveOpts = Array.from(document.querySelectorAll(
-            '[role="option"], [class*="option" i]:not([class*="OptionContainer"]), [class*="menu" i] li, [class*="listbox" i] li'
-          )).filter(o => {
-            const r = o.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          });
-          const target =
-            liveOpts.find(o => (o.textContent || '').trim().toLowerCase() === valueLower) ||
-            liveOpts.find(o => (o.textContent || '').trim().toLowerCase().startsWith(valueLower)) ||
-            liveOpts.find(o => (o.textContent || '').trim().toLowerCase().includes(valueLower));
-          if (target) {
-            await commitOptionClick(target, cand.selectEl);
-            filledCount++;
-            console.log('[ProfileAI] ✓ AI-filled dropdown:', cand.question.substring(0, 50), '→', ans.value);
-          } else {
-            // Couldn't relocate the option — close menu and skip.
-            closeCustomDropdown(cand.selectEl);
-            skippedFields.push(cand.question);
-          }
-          // Give the previous dropdown time to fully close before opening the next.
-          await new Promise((r) => setTimeout(r, 350));
-        } catch (e) {
-          console.warn('[ProfileAI] AI dropdown commit failed:', e);
-        }
-      }
-    } catch (e) {
-      console.warn('[ProfileAI] AI batch fallback failed:', e);
-    }
+  // Dropdowns are answered only from the person's saved facts, matched to the
+  // options the page really shows. Anything else stays empty for the person:
+  // no dropdown is ever sent to the AI batch.
+  if (basicsOnly) {
+    const found = await detectChoiceQuestions(0);
+    const cands: AiDropdownCandidate[] = found
+      .filter((q) => q.fieldType !== 'radio' && q.options && q.options.length)
+      .map((q) => ({ question: q.question, selectEl: detectedQuestionRegistry.get(q.id) as Element, options: q.options!.map((text) => ({ text })) }))
+      .filter((c) => !!c.selectEl);
+    filledCount += await fillFactDropdowns(cands, skippedFields);
+  } else {
+    filledCount += await fillFactDropdowns(aiDropdownPending, skippedFields);
   }
+  aiDropdownPending.forEach((c) => skippedFields.push(c.question));
 
   // --- Collect unfilled radio/select/checkbox for AI if no rule-based match ---
   if (autofillMode.useAI) {
@@ -3953,6 +4032,16 @@ async function fillForm(container: Element, silent = false) {
           const meta = cq as any;
           const answer = result.answers[question];
           if (!answer) continue;
+          const det = result.details?.[question];
+          if (meta.fieldType === 'select' || meta.fieldType === 'radio') {
+            // Choice questions come only from a saved fact, never from a model guess.
+            if (det?.source === 'fact' && await fillChoiceElement(input, { answer: det.answer || answer, choiceValue: det.choiceValue })) {
+              filledCount++;
+            } else {
+              skippedFields.push(question);
+            }
+            continue;
+          }
 
           if (meta.fieldType === 'radio' && meta.radios) {
             // Fill radio by AI-selected answer
@@ -3991,6 +4080,15 @@ async function fillForm(container: Element, silent = false) {
   const verifiedCount = Math.max(0, filledCount - lost.length);
   const needsYou = emptyRequiredFields(container);
   needsYou.forEach(({ el }) => flagNeedsYou(el));
+
+  // Required dropdowns still empty: tell the panel, which shows their real
+  // options as buttons so the person can choose.
+  try {
+    const stillEmpty = (await detectChoiceQuestions(0)).filter((q) => !q.optional && q.options && q.options.length);
+    if (stillEmpty.length > 0) {
+      chrome.runtime.sendMessage({ type: 'QUICKFILL_NEEDS_CHOICES', data: { count: stillEmpty.length } }).catch(() => {});
+    }
+  } catch (_) { /* the amber rings still mark them */ }
 
   if (!silent && filledCount > 0) {
     const names = Array.from(new Set(needsYou.map((n) => n.label)));
@@ -4469,24 +4567,32 @@ function setupMessageListener() {
         sendResponse({ success: true });
         break;
       case 'DETECT_QUESTIONS': {
-        try {
-          const questions = detectOpenEndedQuestions();
-          sendResponse({ questions });
-        } catch (e) {
-          console.warn('[ProfileAI] DETECT_QUESTIONS failed', e);
-          sendResponse({ questions: [] });
-        }
+        detectOpenEndedQuestions()
+          .then((questions) => sendResponse({ questions }))
+          .catch((e) => {
+            console.warn('[ProfileAI] DETECT_QUESTIONS failed', e);
+            sendResponse({ questions: [] });
+          });
         break;
       }
       case 'INSERT_ANSWER': {
         try {
-          const { questionId, answer } = (message.data || {}) as { questionId: string; answer: string };
-          const ok = insertAnswerIntoField(questionId, answer);
-          sendResponse({ success: ok });
+          const { questionId, answer, choiceValue } = (message.data || {}) as { questionId: string; answer: string; choiceValue?: string };
+          insertAnswerIntoField(questionId, answer, choiceValue)
+            .then((ok) => sendResponse({ success: ok }))
+            .catch((e) => {
+              console.warn('[ProfileAI] INSERT_ANSWER failed', e);
+              sendResponse({ success: false });
+            });
         } catch (e) {
           console.warn('[ProfileAI] INSERT_ANSWER failed', e);
           sendResponse({ success: false });
         }
+        break;
+      }
+      case 'HIGHLIGHT_FIELD': {
+        const { questionId, on } = (message.data || {}) as { questionId: string; on: boolean };
+        sendResponse({ success: highlightQuestionField(questionId, !!on) });
         break;
       }
     }
@@ -4550,14 +4656,46 @@ function isElementVisible(el: HTMLElement): boolean {
   return true;
 }
 
-function detectOpenEndedQuestions() {
+/** Helper text a form shows around a field: aria-describedby, hint paragraphs, the label itself. */
+function fieldHelperText(el: HTMLElement, labelText: string): string {
+  const parts: string[] = [labelText];
+  const described = el.getAttribute('aria-describedby');
+  if (described) {
+    described.split(/\s+/).forEach((id) => {
+      const t = document.getElementById(id)?.textContent;
+      if (t) parts.push(t);
+    });
+  }
+  const box = el.closest('.field, .application-field, [class*="field"], [class*="question"], .form-group, li, fieldset');
+  if (box) {
+    box.querySelectorAll('.help-text, .description, small, p, [class*="description"], [class*="hint"], [class*="helper"], [class*="help"]').forEach((n) => {
+      if (n.contains(el)) return;
+      const t = (n.textContent || '').trim();
+      if (t && t.length < 300) parts.push(t);
+    });
+  }
+  parts.push((el as HTMLInputElement).placeholder || '');
+  return parts.join(' ');
+}
+
+function isFieldRequired(el: HTMLElement, labelText: string): boolean {
+  if ((el as HTMLInputElement).required || el.getAttribute('aria-required') === 'true') return true;
+  const box = el.closest('.field, .application-field, [class*="field"], [class*="question"], .form-group, li, fieldset');
+  const lab = box?.querySelector('label, legend, [class*="label"]');
+  return /[*\u2731]/.test(`${labelText} ${lab?.textContent || ''}`);
+}
+
+async function detectOpenEndedQuestions() {
   const out: Array<{
     id: string;
     question: string;
-    fieldType: 'textarea' | 'longtext' | 'contenteditable';
+    fieldType: 'textarea' | 'longtext' | 'contenteditable' | 'select' | 'radio' | 'combobox';
     placeholder?: string;
     index: number;
     hasContent?: boolean;
+    options?: string[];
+    optional?: boolean;
+    wordHint?: WordHint;
   }> = [];
   detectedQuestionRegistry.clear();
 
@@ -4589,6 +4727,7 @@ function detectOpenEndedQuestions() {
     if (!looksLikeOpenEndedQuestion(question, placeholder, fieldType)) return;
     const id = hashString(`${question}::${fieldType}::${idx}`);
     detectedQuestionRegistry.set(id, el);
+    const hint = parseWordHint(fieldHelperText(el, label || ''));
     out.push({
       id,
       question,
@@ -4596,6 +4735,8 @@ function detectOpenEndedQuestions() {
       placeholder: placeholder || undefined,
       index: idx,
       hasContent: !!(rawValue && rawValue.trim().length > 5),
+      optional: !isFieldRequired(el, label || ''),
+      ...(hint ? { wordHint: hint } : {}),
     });
     idx++;
   };
@@ -4604,15 +4745,155 @@ function detectOpenEndedQuestions() {
   longInputs.forEach((inp) => tryAdd(inp, 'longtext', inp.value, inp.placeholder || ''));
   editables.forEach((ce) => tryAdd(ce, 'contenteditable', ce.innerText || '', ce.getAttribute('data-placeholder') || ''));
 
+  (await detectChoiceQuestions(idx)).forEach((c) => out.push(c));
+
   lastDetectionTs = Date.now();
-  console.log('[ProfileAI] Detected', out.length, 'open-ended questions');
+  console.log('[ProfileAI] Detected', out.length, 'questions');
   return out;
 }
 
-function insertAnswerIntoField(questionId: string, answer: string): boolean {
+const cleanQuestionLabel = (raw: string | null | undefined) =>
+  (raw || '').replace(/[*\u2731]/g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Reads the real options of a react-select dropdown by opening its menu for a
+ * moment, then closes it again without choosing anything. Returns [] for
+ * dropdowns that load options as you type.
+ */
+async function readComboboxOptions(control: HTMLElement): Promise<string[]> {
+  const input = (control.querySelector('input[role="combobox"], input') || control) as HTMLElement;
+  const before = document.activeElement as HTMLElement | null;
+  const rect = control.getBoundingClientRect();
+  const pos = { clientX: rect.left + Math.min(rect.width / 2, 40), clientY: rect.top + rect.height / 2, button: 0, bubbles: true, cancelable: true };
+  const scope = (control.parentElement || document.body) as HTMLElement;
+  const optionSel = '[class*="select__option"], [class*="-option"], [role="option"]';
+  let texts: string[] = [];
+  try {
+    try { input.focus({ preventScroll: true }); } catch (_) {}
+    control.dispatchEvent(new MouseEvent('mousedown', pos));
+    control.dispatchEvent(new MouseEvent('mouseup', pos));
+    for (let waited = 0; waited < 800; waited += 100) {
+      // The menu is drawn beside the control on some forms and elsewhere on others.
+      const local = Array.from(scope.querySelectorAll<HTMLElement>(optionSel));
+      const pool = local.length ? local : Array.from(document.querySelectorAll<HTMLElement>(optionSel));
+      const found = pool.filter((o) => o.getBoundingClientRect().height > 0);
+      if (found.length) { texts = found.map((o) => o.textContent || ''); break; }
+      await sleep(100);
+    }
+  } finally {
+    const esc = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true };
+    input.dispatchEvent(new KeyboardEvent('keydown', esc));
+    input.dispatchEvent(new KeyboardEvent('keyup', esc));
+    await sleep(60);
+    if (scope.querySelector(optionSel) || document.querySelector('[class*="select__menu"]')) {
+      // Still open: a second Escape, then let go of focus.
+      input.dispatchEvent(new KeyboardEvent('keydown', esc));
+      await sleep(60);
+    }
+    if (before && before !== input && document.body.contains(before)) { try { before.focus({ preventScroll: true }); } catch (_) {} }
+    else if (!before || before === document.body) { try { input.blur(); } catch (_) {} }
+  }
+  return cleanOptionTexts(texts);
+}
+
+/**
+ * Unfilled dropdowns and radio groups, with their real options. The side panel
+ * decides which of them it may answer from the person's memory; the rest are
+ * shown to the person with these options.
+ */
+async function detectChoiceQuestions(startIdx: number) {
+  const out: Array<{
+    id: string; question: string; fieldType: 'select' | 'radio' | 'combobox';
+    index: number; options?: string[]; optional: boolean;
+  }> = [];
+  let idx = startIdx;
+  const push = (el: HTMLElement, question: string, fieldType: 'select' | 'radio' | 'combobox', options: string[] | undefined, required: boolean) => {
+    const q = cleanQuestionLabel(question);
+    if (!q || q.length < 4) return;
+    const id = hashString(`${q}::${fieldType}::${idx}`);
+    detectedQuestionRegistry.set(id, el);
+    out.push({ id, question: q, fieldType, index: idx, ...(options ? { options } : {}), optional: !required });
+    idx++;
+  };
+
+  document.querySelectorAll<HTMLSelectElement>('select:not([disabled])').forEach((sel) => {
+    if (!isElementVisible(sel)) return;
+    if (sel.selectedIndex > 0 && sel.value) return;
+    const label = getInputLabel(sel) || sel.getAttribute('aria-label') || '';
+    const options = Array.from(sel.options).filter((o) => o.value && o.text.trim()).map((o) => o.text.trim());
+    if (options.length === 0) return;
+    push(sel, label, 'select', options, isFieldRequired(sel, label));
+  });
+
+  const groups = new Map<string, HTMLInputElement[]>();
+  document.querySelectorAll<HTMLInputElement>('input[type="radio"]:not([disabled])').forEach((r) => {
+    if (!r.name) return;
+    const list = groups.get(r.name) || [];
+    list.push(r);
+    groups.set(r.name, list);
+  });
+  groups.forEach((radios) => {
+    if (radios.some((r) => r.checked) || !isElementVisible(radios[0])) return;
+    const options = radios.map((r) => cleanQuestionLabel(getInputLabel(r) || r.value)).filter(Boolean);
+    const legend = radios[0].closest('fieldset')?.querySelector('legend')?.textContent;
+    const rg = radios[0].closest('[role="radiogroup"]');
+    const rgLabel = rg?.getAttribute('aria-label') || (rg?.getAttribute('aria-labelledby') ? document.getElementById(rg.getAttribute('aria-labelledby') || '')?.textContent : '');
+    const fromBox = extractDropdownLabel(radios[0]);
+    const question = legend || rgLabel || (options.includes(cleanQuestionLabel(fromBox)) ? '' : fromBox) || '';
+    if (options.length) push(radios[0], question, 'radio', options, isFieldRequired(radios[0], question));
+  });
+
+  const comboboxes = Array.from(document.querySelectorAll<HTMLInputElement>('input[role="combobox"]')).slice(0, 25);
+  for (const inp of comboboxes) {
+    const control = inp.closest<HTMLElement>('[class*="select__control"], [class*="control"]');
+    if (!control || !isElementVisible(control)) continue;
+    if (control.querySelector('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]')) continue;
+    const byFor = inp.id ? document.querySelector(`label[for="${CSS.escape(inp.id)}"]`)?.textContent : '';
+    const label = byFor || extractDropdownLabel(control) || inp.getAttribute('aria-label') || '';
+    if (!cleanQuestionLabel(label) || cleanQuestionLabel(label).length < 4) continue;
+    let options: string[] = [];
+    if (/select__control/.test(control.className)) options = await readComboboxOptions(control);
+    push(inp, label, 'combobox', options.length ? options : undefined, isFieldRequired(inp, label));
+  }
+  return out;
+}
+
+/** Scroll to a detected field and ring it softly, or clear the ring. */
+let highlighted: { el: HTMLElement; outline: string; offset: string; shadow: string } | null = null;
+function clearFieldHighlight() {
+  if (!highlighted) return;
+  const { el, outline, offset, shadow } = highlighted;
+  el.style.outline = outline;
+  el.style.outlineOffset = offset;
+  el.style.boxShadow = shadow;
+  highlighted = null;
+}
+function highlightQuestionField(questionId: string, on: boolean): boolean {
+  clearFieldHighlight();
+  if (!on) return true;
+  const base = detectedQuestionRegistry.get(questionId);
+  if (!base || !document.body.contains(base)) return false;
+  const el = (base.getAttribute('role') === 'combobox'
+    ? base.closest<HTMLElement>('[class*="control"]')
+    : base instanceof HTMLInputElement && base.type === 'radio'
+      ? base.closest<HTMLElement>('fieldset, [role="radiogroup"], [class*="field"]')
+      : null) || base;
+  try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+  highlighted = { el, outline: el.style.outline, offset: el.style.outlineOffset, shadow: el.style.boxShadow };
+  el.style.outline = '2px solid rgba(124, 58, 237, 0.85)';
+  el.style.outlineOffset = '2px';
+  el.style.boxShadow = '0 0 0 6px rgba(124, 58, 237, 0.18)';
+  return true;
+}
+
+async function insertAnswerIntoField(questionId: string, answer: string, choiceValue?: string): Promise<boolean> {
   const el = detectedQuestionRegistry.get(questionId);
   if (!el || !document.body.contains(el)) {
     return false;
+  }
+  clearFieldHighlight();
+  if (el instanceof HTMLSelectElement || el.getAttribute('role') === 'combobox' || (el instanceof HTMLInputElement && el.type === 'radio')) {
+    return fillChoiceElement(el, { answer, choiceValue });
   }
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     fillInput(el, answer);
@@ -4794,7 +5075,7 @@ async function openFloatingPopover(target: HTMLElement, anchor: HTMLElement, for
     (pop.querySelector('.pa-pop-text') as HTMLElement).innerText = answer;
     pop.querySelector('.pa-pop-close')?.addEventListener('click', () => pop.remove());
     pop.querySelector('[data-act="insert"]')?.addEventListener('click', () => {
-      insertAnswerIntoField(fakeId, answer);
+      void insertAnswerIntoField(fakeId, answer);
       pop.remove();
     });
     pop.querySelector('[data-act="copy"]')?.addEventListener('click', async () => {

@@ -14,6 +14,7 @@ import { PromoCodeRedeem } from './components/PromoCodeRedeem';
 import { Notification, NotificationProps } from './components/Notification';
 import { CoverLetterModal } from './components/CoverLetterModal';
 import { SmartAnswersModal, type SmartAnswersRestore } from './components/SmartAnswersModal';
+import { AddExperienceModal } from './components/AddExperienceModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { TailorFlow, type TailorRestore, type TailorStatus } from './components/TailorFlow';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
@@ -95,6 +96,8 @@ export const SidePanel: React.FC = () => {
   const [coverLetterInjected, setCoverLetterInjected] = useState<{ text: string; ts: number } | null>(null);
   const [smartAnswersRestore, setSmartAnswersRestore] = useState<SmartAnswersRestore | null>(null);
   const [showSmartAnswers, setShowSmartAnswers] = useState(false);
+  const [showAddExperience, setShowAddExperience] = useState(false);
+  const [choicesOnly, setChoicesOnly] = useState(false);
   const [isDetectingQuestions, setIsDetectingQuestions] = useState(false);
   const [detectedCount, setDetectedCount] = useState(0);
   const [showMatchAnalysis, setShowMatchAnalysis] = useState(false);
@@ -384,6 +387,24 @@ export const SidePanel: React.FC = () => {
     }
   }, [profile]);
 
+  // Quick Fill leaves required dropdowns it has no saved fact for. Show them,
+  // with their real options, in the Answer Questions screen (choices only, so
+  // nothing is drafted or billed).
+  useEffect(() => {
+    const listener = (message: any) => {
+      if (message?.type !== 'QUICKFILL_NEEDS_CHOICES') return;
+      const n = Number(message.data?.count) || 0;
+      if (n <= 0) return;
+      showNotification(`${n} dropdown${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} your choice`, 'info');
+      setSmartAnswersRestore(null);
+      setChoicesOnly(true);
+      setShowSmartAnswers(false);
+      window.setTimeout(() => setShowSmartAnswers(true), 50);
+    };
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, []);
+
   const handleSmartAnswers = useCallback(async () => {
     setIsDetectingQuestions(true);
     try {
@@ -397,6 +418,7 @@ export const SidePanel: React.FC = () => {
         } catch (_) {}
       }
       // Open the modal — it will run detect + answer when opened.
+      setChoicesOnly(false);
       setShowSmartAnswers(true);
     } finally {
       setIsDetectingQuestions(false);
@@ -885,6 +907,7 @@ export const SidePanel: React.FC = () => {
               onQuickFillBasics={handleAutofill}
               onTailor={handleTailor}
               onCoverLetter={handleCoverLetter}
+              onAddExperience={() => setShowAddExperience(true)}
               hasJob={!!currentJob}
               tailorStatus={tailorStatus}
               isDetecting={isDetectingQuestions}
@@ -965,9 +988,12 @@ export const SidePanel: React.FC = () => {
           loadAnswersCount();
         }}
         restore={smartAnswersRestore}
+        choicesOnly={choicesOnly}
         onOpStart={() => beginOp('smartAnswers')}
         onOpEnd={() => endOp('smartAnswers')}
       />
+
+      <AddExperienceModal open={showAddExperience} onClose={() => setShowAddExperience(false)} />
 
       <MatchAnalysisModal
         open={showMatchAnalysis}

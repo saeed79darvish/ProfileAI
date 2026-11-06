@@ -4,6 +4,10 @@ import type { User, FullProfile, Message } from '../types';
 import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
 import { scrapeJobFromDocument, mergeScrapes } from '../jobScrape';
 import { parseLimit, type LimitInfo } from '../sidepanel/tailorLogic';
+import {
+  ANSWERS_RULES_VERSION, applyRulesVersion, buildSeedStoryPatch, matchFact,
+  type AnswerCatalog, type AnswerDetail,
+} from '../answerMemory';
 
 // Any task that was still running when a previous worker generation was torn
 // down has no fetch behind it any more. Flag those immediately on boot so a
@@ -269,17 +273,6 @@ async function handleMessage(
       case 'GET_SAVED_ANSWERS':
         const { savedAnswers } = await chrome.storage.local.get('savedAnswers');
         sendResponse({ answers: savedAnswers || {} });
-        break;
-
-      case 'GET_SEED_ANSWERS':
-        const { seedAnswers } = await chrome.storage.local.get('seedAnswers');
-        sendResponse({ seedAnswers: seedAnswers || {} });
-        break;
-
-      case 'SAVE_SEED_ANSWERS':
-        const seedData = message.data as Record<string, string>;
-        await chrome.storage.local.set({ seedAnswers: seedData });
-        sendResponse({ success: true });
         break;
 
       case 'GET_ONBOARDING_STATUS':
@@ -591,7 +584,7 @@ async function handleMessage(
         break;
 
       case 'GENERATE_AI_ANSWERS':
-        const aiData = message.data as { questions: string[]; jobDescription: string; questionMeta?: Array<{ question: string; fieldType: string; options?: string[] | null }> };
+        const aiData = message.data as { questions: string[]; jobDescription: string; questionMeta?: AnswerQuestionMeta[] };
         const aiResult = await runBackgroundTask(
           'singleAnswer',
           `page-answers:${hashStringBg((aiData.questions || []).join('|'))}`,
@@ -734,9 +727,37 @@ async function handleMessage(
         break;
       }
 
+      case 'MEMORY_CATALOG':
+        sendResponse({ success: true, catalog: await getAnswerCatalog() });
+        break;
+
+      case 'MEMORY_GET':
+        sendResponse(await getMemory());
+        break;
+
+      case 'MEMORY_SAVE':
+        sendResponse(await saveMemory(message.data as { answerFacts?: Record<string, any>; answerStories?: Record<string, any> }));
+        break;
+
+      case 'MEMORY_TRANSCRIBE':
+        sendResponse(await transcribeAudio(message.data as { audioBase64: string; mimeType?: string }));
+        break;
+
+      case 'EXPERIENCE_FROM_SPEECH':
+        sendResponse(await experienceFromSpeech(message.data as { transcript: string; roleHint?: string }));
+        break;
+
+      case 'EXPERIENCE_APPEND':
+        sendResponse(await experienceAppend(message.data as { roleIndex: number; bullets: string[] }));
+        break;
+
+      case 'FACT_DROPDOWN_ANSWERS':
+        sendResponse(await factDropdownAnswers(message.data as { fields: Array<{ question: string; options?: string[] }>; jobDescription?: string }));
+        break;
+
       case 'GENERATE_SMART_ANSWERS': {
         const data = message.data as {
-          questions: Array<{ id: string; question: string; fieldType: string }>;
+          questions: SmartQuestionIn[];
           jobInfo?: { title?: string; company?: string; description?: string } | null;
           jobUrl?: string;
         };
@@ -752,14 +773,16 @@ async function handleMessage(
 
       case 'GENERATE_SINGLE_ANSWER': {
         const data = message.data as {
-          question: { id: string; question: string; fieldType: string };
+          question: SmartQuestionIn;
           jobInfo?: { title?: string; company?: string; description?: string } | null;
           jobUrl?: string;
           forceRegenerate?: boolean;
+          instruction?: 'shorter' | 'more_specific' | 'more_personal';
+          extraDetail?: string;
         };
         const result = await runBackgroundTask(
           'singleAnswer',
-          `${jobTaskKey({ jobUrl: data.jobUrl })}::${data.question?.id || 'q'}${data.forceRegenerate ? ':regen' : ''}`,
+          `${jobTaskKey({ jobUrl: data.jobUrl })}::${data.question?.id || 'q'}${data.forceRegenerate ? ':regen' : ''}${data.instruction ? ':' + data.instruction : ''}${data.extraDetail ? ':x' + data.extraDetail.length : ''}`,
           undefined,
           () => generateSingleSmartAnswer(data),
         );
@@ -1402,7 +1425,7 @@ interface ApiResult {
 }
 
 async function authedApi(
-  method: 'GET' | 'POST' | 'PUT',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH',
   path: string,
   payload?: unknown,
   opts: { retryTransient?: boolean } = {},
@@ -1415,9 +1438,10 @@ async function authedApi(
       method,
       headers: {
         Authorization: `Bearer ${authToken}`,
-        ...(payload !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        // A FormData body sets its own multipart boundary header.
+        ...(payload !== undefined && !(payload instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: payload !== undefined ? JSON.stringify(payload) : undefined,
+      body: payload === undefined ? undefined : payload instanceof FormData ? payload : JSON.stringify(payload),
     };
     const url = `${CONFIG.API_BASE}${path}`;
     return opts.retryTransient ? fetchWithTransientRetry(url, init) : fetch(url, init);
@@ -2336,18 +2360,24 @@ function extractSkillsFromExperience(experience: any[]): string[] {
   return Array.from(found);
 }
 
-// AI-powered answer generation for screening questions
-async function generateAIAnswers(questions: string[], jobDescription: string, questionMeta?: Array<{ question: string; fieldType: string; options?: string[] | null }>) {
+// AI-powered answer generation for screening questions. The server loads the
+// person's answer memory itself, so nothing personal is sent from here beyond
+// the profile snapshot. `details` carries where each answer came from.
+interface AnswerQuestionMeta {
+  question: string;
+  fieldType: string;
+  options?: string[] | null;
+  optional?: boolean;
+  wordHint?: { min: number; max: number } | null;
+}
+
+async function generateAIAnswers(questions: string[], jobDescription: string, questionMeta?: AnswerQuestionMeta[]) {
   try {
     if (!cachedProfile) await fetchProfile();
     const profile = cachedProfile || ({} as any);
 
-    // Load seed answers for personalized context
-    const { seedAnswers } = await chrome.storage.local.get('seedAnswers');
-
     if (!authToken) {
-      // Not authenticated — use local fallback
-      return { answers: generateLocalAnswers(questions, profile, seedAnswers || {}) };
+      return { answers: generateLocalAnswers(questions, profile), details: {} as Record<string, AnswerDetail> };
     }
 
     console.log('[ProfileAI] Generating AI answers for', questions.length, 'questions');
@@ -2361,7 +2391,13 @@ async function generateAIAnswers(questions: string[], jobDescription: string, qu
       body: JSON.stringify({
         questions,
         jobDescription,
-        questionMeta: questionMeta || questions.map(q => ({ question: q, fieldType: 'text', options: null })),
+        questionMeta: (questionMeta || questions.map((q): AnswerQuestionMeta => ({ question: q, fieldType: 'text', options: null }))).map((m) => ({
+          question: m.question,
+          fieldType: m.fieldType,
+          ...(m.options ? { options: m.options } : {}),
+          ...(m.optional ? { optional: true } : {}),
+          ...(m.wordHint ? { wordHint: m.wordHint } : {}),
+        })),
         profile: {
           title: profile.title || profile.headline,
           summary: profile.summary,
@@ -2370,36 +2406,32 @@ async function generateAIAnswers(questions: string[], jobDescription: string, qu
           education: profile.education,
           location: profile.location,
         },
-        // Include seed answers for better personalization
-        seedAnswers: seedAnswers || {},
       }),
     });
 
     if (!response.ok) {
       console.log('[ProfileAI] API failed, using local answer generation');
-      return { answers: generateLocalAnswers(questions, profile, seedAnswers || {}) };
+      return { answers: generateLocalAnswers(questions, profile), details: {} as Record<string, AnswerDetail> };
     }
 
     const result = await response.json();
-    return { answers: result.answers || result.data?.answers || {} };
+    const body = result.data?.answers ? result.data : result;
+    return {
+      answers: (body.answers || {}) as Record<string, string>,
+      details: (body.details || {}) as Record<string, AnswerDetail>,
+    };
   } catch (error) {
     console.error('[ProfileAI] AI answer generation error:', error);
-    // Fallback to local
     const profile = cachedProfile || ({} as any);
-    const { seedAnswers } = await chrome.storage.local.get('seedAnswers');
-    return { answers: generateLocalAnswers(questions, profile, seedAnswers || {}) };
+    return { answers: generateLocalAnswers(questions, profile), details: {} as Record<string, AnswerDetail> };
   }
 }
 
-// Local fallback answer generation (no API needed)
-function generateLocalAnswers(questions: string[], profile: any, seedAnswers: Record<string, string> = {}): Record<string, string> {
+// Local fallback answer generation (no API needed). Only used when the server
+// cannot be reached; it never states personal facts, only what the profile says.
+function generateLocalAnswers(questions: string[], profile: any): Record<string, string> {
   const answers: Record<string, string> = {};
-
-  // Extract skills
   const skills = flattenSkills(profile.skills);
-
-  // Helper to get seed answer content
-  const getSeedContext = (key: string) => seedAnswers[key] || '';
 
   questions.forEach((q) => {
     const question = q.toLowerCase();
@@ -2411,45 +2443,11 @@ function generateLocalAnswers(questions: string[], profile: any, seedAnswers: Re
     if (question.includes('tech stack') || question.includes('technologies') || question.includes('proficient')) {
       if (skills.length) answers[q] = skills.slice(0, 10).join(', ');
     } else if (
-      (question.includes('interested') || question.includes('excited') || question.includes('attract') || question.includes('appeal')) &&
-      (question.includes('role') || question.includes('position') || question.includes('opportunity') || question.includes('company') || question.includes('job'))
+      (question.includes('interested') || question.includes('excited') || question.includes('attract') || question.includes('appeal') || question.includes('why')) &&
+      (question.includes('role') || question.includes('position') || question.includes('opportunity') || question.includes('company') || question.includes('job') || question.includes('apply') || question.includes('join'))
     ) {
-      const motivation = getSeedContext('career_motivation');
-      const idealRole = getSeedContext('ideal_role');
-      if (motivation || idealRole) {
-        answers[q] = `${motivation} ${idealRole}`.trim().slice(0, 500);
-      } else {
+      if (skills.length) {
         answers[q] = `This role lines up well with my background in ${skills.slice(0, 3).join(', ')}. ${(profile.summary || '').slice(0, 200)}`.trim();
-      }
-    } else if (question.includes('why') && (question.includes('interested') || question.includes('apply') || question.includes('join') || question.includes('company') || question.includes('role'))) {
-      // Use seed answers for motivation questions
-      const motivation = getSeedContext('career_motivation');
-      const idealRole = getSeedContext('ideal_role');
-      if (motivation || idealRole) {
-        answers[q] = `${motivation} ${idealRole}`.trim().slice(0, 500);
-      } else {
-        answers[q] = `This role caught my attention because it lines up well with my background in ${skills.slice(0, 3).join(', ')}. ${(profile.summary || '').slice(0, 200)}`;
-      }
-    } else if (question.includes('career') && question.includes('goal')) {
-      const goals = getSeedContext('career_goals');
-      if (goals) {
-        answers[q] = goals;
-      }
-    } else if (question.includes('achievement') || question.includes('proud') || question.includes('accomplishment')) {
-      const achievement = getSeedContext('proudest_achievement');
-      if (achievement) {
-        answers[q] = achievement;
-      }
-    } else if (question.includes('unique') || question.includes('stand out') || question.includes('set you apart') || question.includes('strength')) {
-      const strength = getSeedContext('unique_strength');
-      if (strength) {
-        answers[q] = strength;
-      }
-    } else if (question.includes('work style') || question.includes('work environment') || question.includes('team') || question.includes('collaboration')) {
-      const workStyle = getSeedContext('work_style');
-      const idealRole = getSeedContext('ideal_role');
-      if (workStyle || idealRole) {
-        answers[q] = `${workStyle} ${idealRole}`.trim().slice(0, 400);
       }
     }
   });
@@ -2706,24 +2704,28 @@ function smartAnswerCacheKey(jobId: string, question: string): string {
   return `${jobId}:${hashStringBg(question.toLowerCase().trim())}`;
 }
 
-async function loadSmartAnswerCache(): Promise<Record<string, { answer: string; ts: number }>> {
-  const { smartAnswerCache } = await chrome.storage.local.get('smartAnswerCache');
-  return smartAnswerCache || {};
+interface SmartCacheEntry { answer: string; ts: number; source?: string }
+
+/** Cached answers written under older answer rules may contain invented facts,
+ *  so a version bump throws the whole cache away once. */
+async function loadSmartAnswerCache(): Promise<Record<string, SmartCacheEntry>> {
+  const { smartAnswerCache, smartAnswerRulesVersion } = await chrome.storage.local.get(['smartAnswerCache', 'smartAnswerRulesVersion']);
+  const v = applyRulesVersion<SmartCacheEntry>(smartAnswerCache, smartAnswerRulesVersion);
+  if (v.reset) {
+    await chrome.storage.local.set({ smartAnswerCache: {}, smartAnswerRulesVersion: v.version });
+  }
+  return v.cache;
 }
 
-async function saveSmartAnswerCacheEntry(key: string, answer: string) {
+async function saveSmartAnswerCacheEntry(key: string, answer: string, source = 'ai') {
   const cache = await loadSmartAnswerCache();
-  cache[key] = { answer, ts: Date.now() };
+  cache[key] = { answer, ts: Date.now(), source };
   // Cap cache size to avoid storage bloat (keep newest 200).
   const entries = Object.entries(cache);
-  if (entries.length > 200) {
-    entries.sort((a, b) => b[1].ts - a[1].ts);
-    const trimmed: Record<string, { answer: string; ts: number }> = {};
-    entries.slice(0, 200).forEach(([k, v]) => { trimmed[k] = v; });
-    await chrome.storage.local.set({ smartAnswerCache: trimmed });
-  } else {
-    await chrome.storage.local.set({ smartAnswerCache: cache });
-  }
+  const keep: Record<string, SmartCacheEntry> = {};
+  (entries.length > 200 ? entries.sort((x, y) => y[1].ts - x[1].ts).slice(0, 200) : entries)
+    .forEach(([k, v]) => { keep[k] = v; });
+  await chrome.storage.local.set({ smartAnswerCache: keep, smartAnswerRulesVersion: ANSWERS_RULES_VERSION });
 }
 
 // Find a similar saved answer (fuzzy word overlap, threshold ≥0.7).
@@ -2748,66 +2750,231 @@ function findSimilarSavedAnswer(question: string, savedAnswers: Record<string, s
   return bestAnswer;
 }
 
+const TEXT_FIELD_TYPES = new Set(['textarea', 'longtext', 'contenteditable', 'text']);
+
+interface SmartQuestionIn {
+  id: string;
+  question: string;
+  fieldType: string;
+  options?: string[] | null;
+  optional?: boolean;
+  wordHint?: { min: number; max: number } | null;
+}
+
+interface SmartResultOut {
+  questionId: string;
+  question: string;
+  answer: string;
+  source: AnswerDetail['source'];
+  detail: AnswerDetail;
+  /** Re-used from an earlier run rather than generated now. */
+  cached?: 'job' | 'saved';
+}
+
+/** Questions that must be answered by the server from the person's memory and
+ *  never from a local cache or a fuzzy saved answer. */
+function serverOnlyQuestion(q: SmartQuestionIn, catalog: AnswerCatalog | null): boolean {
+  if (!TEXT_FIELD_TYPES.has(q.fieldType)) return true;
+  return !!matchFact(q.question, catalog);
+}
+
+const normQuestion = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
+
+function lookupByQuestion<T>(map: Record<string, T> | undefined, question: string): T | undefined {
+  if (!map) return undefined;
+  if (map[question] !== undefined) return map[question];
+  const target = normQuestion(question);
+  for (const [k, v] of Object.entries(map)) if (normQuestion(k) === target) return v;
+  return undefined;
+}
+
+function detailFor(question: string, answers: Record<string, string>, details: Record<string, AnswerDetail>): AnswerDetail {
+  const d = lookupByQuestion(details, question);
+  const ans = lookupByQuestion(answers, question) || d?.answer || '';
+  if (d) return { ...d, answer: d.answer ?? ans };
+  return ans ? { answer: ans, source: 'ai' } : { answer: '', source: 'needs_you' };
+}
+
+// -- Answer memory client ------------------------------------------------------
+const CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
+
+async function getAnswerCatalog(): Promise<AnswerCatalog | null> {
+  const { answerCatalogCache } = await chrome.storage.local.get('answerCatalogCache');
+  const fresh = answerCatalogCache && Date.now() - answerCatalogCache.ts < CATALOG_TTL_MS;
+  if (fresh) return answerCatalogCache.data as AnswerCatalog;
+  if (!authToken) return (answerCatalogCache?.data as AnswerCatalog) || null;
+  const r = await authedApi('GET', '/career-context/answer-catalog', undefined, { retryTransient: true });
+  const data = (r.body?.facts ? r.body : r.body?.data) as AnswerCatalog | undefined;
+  if (r.ok && data?.facts) {
+    await chrome.storage.local.set({ answerCatalogCache: { ts: Date.now(), data } });
+    return data;
+  }
+  return (answerCatalogCache?.data as AnswerCatalog) || null;
+}
+
+async function getMemory(): Promise<{ success: boolean; answerFacts: Record<string, any>; answerStories: Record<string, any>; error?: string }> {
+  const r = await authedApi('GET', '/career-context', undefined, { retryTransient: true });
+  if (!r.ok) return { success: false, answerFacts: {}, answerStories: {}, error: r.error };
+  const ctx = r.body?.answerFacts !== undefined || r.body?.answerStories !== undefined
+    ? r.body
+    : (r.body?.data || r.body?.careerContext || r.body || {});
+  return { success: true, answerFacts: ctx.answerFacts || {}, answerStories: ctx.answerStories || {} };
+}
+
+async function saveMemory(patch: { answerFacts?: Record<string, any>; answerStories?: Record<string, any> }) {
+  const r = await authedApi('PATCH', '/career-context', patch, { retryTransient: true });
+  return r.ok ? { success: true as const } : apiFailure(r, 'Could not save that');
+}
+
+/** One-time move of the old local seed answers into the server memory. */
+async function migrateSeedAnswers(): Promise<void> {
+  try {
+    if (!authToken) return;
+    const { seedAnswers } = await chrome.storage.local.get('seedAnswers');
+    if (!seedAnswers || typeof seedAnswers !== 'object' || Object.keys(seedAnswers).length === 0) {
+      if (seedAnswers !== undefined) await chrome.storage.local.remove('seedAnswers');
+      return;
+    }
+    const mem = await getMemory();
+    if (!mem.success) return;
+    const { patch, count } = buildSeedStoryPatch(seedAnswers, mem.answerStories);
+    if (count > 0) {
+      const saved = await saveMemory({ answerStories: patch });
+      if (!saved.success) return;
+    }
+    await chrome.storage.local.remove('seedAnswers');
+  } catch (err) {
+    console.warn('[ProfileAI] seed answer migration failed', err);
+  }
+}
+
+async function transcribeAudio(d: { audioBase64: string; mimeType?: string }) {
+  try {
+    const bin = atob(d.audioBase64 || '');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const type = d.mimeType || 'audio/webm';
+    const form = new FormData();
+    form.append('audio', new Blob([bytes], { type }), type.includes('mp4') ? 'speech.mp4' : 'speech.webm');
+    // Paid call: never resent automatically.
+    const r = await authedApi('POST', '/profiles/transcribe', form);
+    const text = r.body?.text ?? r.body?.data?.text;
+    if (!r.ok || typeof text !== 'string') return apiFailure(r, 'Could not turn that into text');
+    return { success: true as const, text };
+  } catch (err) {
+    return { success: false as const, error: 'Could not read the recording. Please try again or type it instead.' };
+  }
+}
+
+async function experienceFromSpeech(d: { transcript: string; roleHint?: string }) {
+  if (!d?.transcript || !d.transcript.trim()) return { success: false as const, error: 'Say or type what you did first.' };
+  const r = await authedApi('POST', '/profiles/experience-from-speech', { transcript: d.transcript.trim(), ...(d.roleHint ? { roleHint: d.roleHint } : {}) });
+  const body = r.body?.bullets ? r.body : r.body?.data;
+  if (!r.ok || !Array.isArray(body?.bullets)) return apiFailure(r, 'Could not write the bullets');
+  return {
+    success: true as const,
+    bullets: body.bullets as string[],
+    roleIndex: typeof body.roleIndex === 'number' ? body.roleIndex as number : null,
+    roleCandidates: (body.roleCandidates || []) as Array<{ index: number; title: string; company: string }>,
+    followUp: (body.followUp || null) as string | null,
+  };
+}
+
+async function experienceAppend(d: { roleIndex: number; bullets: string[] }) {
+  const r = await authedApi('POST', '/profiles/experience/append', { roleIndex: d.roleIndex, bullets: d.bullets });
+  if (!r.ok) return apiFailure(r, 'Could not add that to your experience');
+  // The cached profile is now stale; the next read refetches it.
+  cachedProfile = null;
+  void fetchProfile();
+  return { success: true as const };
+}
+
+/**
+ * Quick Fill: answers only the dropdown questions that ask about a stored fact.
+ * Everything else is left to the existing flow. A fact question with no stored
+ * fact comes back unmatched so it is skipped instead of guessed.
+ */
+async function factDropdownAnswers(d: { fields: Array<{ question: string; options?: string[] }>; jobDescription?: string }) {
+  const catalog = await getAnswerCatalog();
+  const matched = (d.fields || []).filter((f) => matchFact(f.question, catalog));
+  if (matched.length === 0) return { success: true as const, matched: [] as string[], details: {} as Record<string, AnswerDetail> };
+  const res = await generateAIAnswers(
+    matched.map((f) => f.question),
+    d.jobDescription || '',
+    matched.map((f) => ({ question: f.question, fieldType: 'select', options: f.options && f.options.length ? f.options : null })),
+  );
+  const details: Record<string, AnswerDetail> = {};
+  matched.forEach((f) => { details[f.question] = detailFor(f.question, res.answers, res.details); });
+  return { success: true as const, matched: matched.map((f) => f.question), details };
+}
+
 async function generateSmartAnswers(payload: {
-  questions: Array<{ id: string; question: string; fieldType: string }>;
+  questions: SmartQuestionIn[];
   jobInfo?: { title?: string; company?: string; description?: string } | null;
   jobUrl?: string;
-}): Promise<{ success: boolean; results?: Array<{ questionId: string; question: string; answer: string; source: 'cache' | 'saved' | 'ai' }>; error?: string }> {
+}): Promise<{ success: boolean; results?: SmartResultOut[]; error?: string }> {
   try {
     if (!payload.questions || payload.questions.length === 0) {
       return { success: true, results: [] };
     }
 
+    await migrateSeedAnswers();
+    const catalog = await getAnswerCatalog();
     const jobId = jobIdFromContext(payload.jobInfo, payload.jobUrl);
     const cache = await loadSmartAnswerCache();
     const { savedAnswers = {} } = await chrome.storage.local.get('savedAnswers');
 
-    const results: Array<{ questionId: string; question: string; answer: string; source: 'cache' | 'saved' | 'ai' }> = [];
-    const needAI: typeof payload.questions = [];
+    const results = new Map<string, SmartResultOut>();
+    const needAI: SmartQuestionIn[] = [];
 
     for (const q of payload.questions) {
-      const cKey = smartAnswerCacheKey(jobId, q.question);
-      // 1. Per-job cache (saves AI cost on re-scans)
-      if (cache[cKey]?.answer) {
-        results.push({ questionId: q.id, question: q.question, answer: cache[cKey].answer, source: 'cache' });
-        continue;
+      if (!serverOnlyQuestion(q, catalog)) {
+        const cKey = smartAnswerCacheKey(jobId, q.question);
+        // 1. Per-job cache (saves AI cost on re-scans)
+        if (cache[cKey]?.answer) {
+          const a = cache[cKey].answer;
+          results.set(q.id, { questionId: q.id, question: q.question, answer: a, source: 'ai', detail: { answer: a, source: 'ai' }, cached: 'job' });
+          continue;
+        }
+        // 2. Generic saved answers (cross-job consistency)
+        const saved = findSimilarSavedAnswer(q.question, savedAnswers);
+        if (saved) {
+          results.set(q.id, { questionId: q.id, question: q.question, answer: saved, source: 'ai', detail: { answer: saved, source: 'ai' }, cached: 'saved' });
+          await saveSmartAnswerCacheEntry(cKey, saved);
+          continue;
+        }
       }
-      // 2. Generic saved answers (cross-job consistency)
-      const saved = findSimilarSavedAnswer(q.question, savedAnswers);
-      if (saved) {
-        results.push({ questionId: q.id, question: q.question, answer: saved, source: 'saved' });
-        // Also seed into per-job cache so re-scan is instant.
-        await saveSmartAnswerCacheEntry(cKey, saved);
+      // A dropdown or radio question the memory does not cover is never sent to
+      // the model: the person chooses it from the form's real options.
+      if (!TEXT_FIELD_TYPES.has(q.fieldType) && !matchFact(q.question, catalog)) {
+        results.set(q.id, { questionId: q.id, question: q.question, answer: '', source: 'needs_you', detail: { answer: '', source: 'needs_you' } });
         continue;
       }
       needAI.push(q);
     }
 
-    // 3. Anything left → ask the AI (in one round-trip via existing endpoint).
+    // 3. Everything else goes to the server in one round-trip.
     if (needAI.length > 0) {
-      const questionsTxt = needAI.map((q) => q.question);
       const aiResp = await generateAIAnswers(
-        questionsTxt,
+        needAI.map((q) => q.question),
         payload.jobInfo?.description || '',
-        needAI.map((q) => ({ question: q.question, fieldType: q.fieldType, options: null })),
+        needAI.map((q) => ({ question: q.question, fieldType: q.fieldType, options: q.options || null, optional: q.optional, wordHint: q.wordHint })),
       );
-      const answers = (aiResp?.answers || {}) as Record<string, string>;
       for (const q of needAI) {
-        const ans = answers[q.question] || answers[q.question.toLowerCase()] || '';
-        if (ans) {
-          results.push({ questionId: q.id, question: q.question, answer: ans, source: 'ai' });
-          // Cache & auto-save to grow saved-answers over time.
-          const cKey = smartAnswerCacheKey(jobId, q.question);
-          await saveSmartAnswerCacheEntry(cKey, ans);
-          try { await saveAnswer(q.question, ans); } catch (_) {}
-        } else {
-          results.push({ questionId: q.id, question: q.question, answer: '', source: 'ai' });
+        const detail = detailFor(q.question, aiResp.answers, aiResp.details);
+        results.set(q.id, { questionId: q.id, question: q.question, answer: detail.answer || '', source: detail.source, detail });
+        if (detail.answer && !serverOnlyQuestion(q, catalog) && detail.source !== 'needs_you') {
+          // Cache & auto-save to grow saved-answers over time. Fact answers are
+          // never cached: the memory can change between runs.
+          await saveSmartAnswerCacheEntry(smartAnswerCacheKey(jobId, q.question), detail.answer, detail.source);
+          if (detail.source === 'ai') { try { await saveAnswer(q.question, detail.answer); } catch (_) {} }
         }
       }
     }
 
-    // Preserve original ordering
-    const ordered = payload.questions.map((q) => results.find((r) => r.questionId === q.id) || { questionId: q.id, question: q.question, answer: '', source: 'ai' as const });
+    const ordered = payload.questions.map((q) => results.get(q.id) || {
+      questionId: q.id, question: q.question, answer: '', source: 'needs_you' as const, detail: { answer: '', source: 'needs_you' as const },
+    });
     return { success: true, results: ordered };
   } catch (err) {
     console.error('[ProfileAI] generateSmartAnswers error', err);
@@ -2815,60 +2982,69 @@ async function generateSmartAnswers(payload: {
   }
 }
 
+const REFINE_HINTS: Record<string, string> = {
+  shorter: 'Rewrite instruction: make the answer noticeably shorter and keep only the strongest point.',
+  more_specific: 'Rewrite instruction: make the answer more specific, using concrete details from the profile only.',
+  more_personal: 'Rewrite instruction: make the answer more personal and in a natural first person voice, using only what the profile and memory say.',
+};
+
 async function generateSingleSmartAnswer(payload: {
-  question: { id: string; question: string; fieldType: string };
+  question: SmartQuestionIn;
   jobInfo?: { title?: string; company?: string; description?: string } | null;
   jobUrl?: string;
   forceRegenerate?: boolean;
-}): Promise<{ success: boolean; answer?: string; source?: 'cache' | 'saved' | 'ai'; error?: string }> {
+  instruction?: 'shorter' | 'more_specific' | 'more_personal';
+  /** Something the person added in their own words, by voice or typing. */
+  extraDetail?: string;
+}): Promise<{ success: boolean; answer?: string; source?: AnswerDetail['source']; detail?: AnswerDetail; cached?: 'job' | 'saved'; error?: string }> {
   try {
     const q = payload.question;
     const jobId = jobIdFromContext(payload.jobInfo, payload.jobUrl);
     const cKey = smartAnswerCacheKey(jobId, q.question);
+    const catalog = await getAnswerCatalog();
+    const serverOnly = serverOnlyQuestion(q, catalog);
 
-    if (!payload.forceRegenerate) {
+    if (!payload.forceRegenerate && !serverOnly) {
       const cache = await loadSmartAnswerCache();
       if (cache[cKey]?.answer) {
-        return { success: true, answer: cache[cKey].answer, source: 'cache' };
+        const a = cache[cKey].answer;
+        return { success: true, answer: a, source: 'ai', detail: { answer: a, source: 'ai' }, cached: 'job' };
       }
       const { savedAnswers = {} } = await chrome.storage.local.get('savedAnswers');
       const saved = findSimilarSavedAnswer(q.question, savedAnswers);
       if (saved) {
         await saveSmartAnswerCacheEntry(cKey, saved);
-        return { success: true, answer: saved, source: 'saved' };
+        return { success: true, answer: saved, source: 'ai', detail: { answer: saved, source: 'ai' }, cached: 'saved' };
       }
     }
 
+    // The server does not take a rewrite instruction yet, so it travels as an
+    // extra line of the question text.
+    const extra = (payload.extraDetail || '').replace(/["\n]+/g, ' ').trim().slice(0, 1200);
+    const hints = [
+      payload.instruction ? REFINE_HINTS[payload.instruction] : '',
+      extra ? `The candidate asked for this change to the answer, in their own words. Apply it, keep the answer truthful, and do not add facts that neither the profile nor this request contains: ${extra}` : '',
+    ].filter(Boolean);
+    const sentText = hints.length ? `${q.question}\n\n(${hints.join(' ')})` : q.question;
     const aiResp = await generateAIAnswers(
-      [q.question],
+      [sentText],
       payload.jobInfo?.description || '',
-      [{ question: q.question, fieldType: q.fieldType, options: null }],
+      [{ question: sentText, fieldType: q.fieldType, options: q.options || null, optional: q.optional, wordHint: q.wordHint }],
     );
-    const answersMap = (aiResp?.answers as Record<string, string>) || {};
-    // Exact-key lookup first; the AI route returns answers keyed by the
-    // original question, but tiny whitespace/punctuation drift breaks that
-    // lookup and used to produce a misleading "No answer generated" error.
-    let answer = answersMap[q.question] || '';
-    if (!answer) {
-      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim();
-      const target = norm(q.question);
-      for (const [k, v] of Object.entries(answersMap)) {
-        if (typeof v === 'string' && v.trim() && norm(k) === target) {
-          answer = v;
-          break;
-        }
-      }
+    let detail = detailFor(sentText, aiResp.answers, aiResp.details);
+    if (!detail.answer) {
+      // Single-question requests only ever have one answer in the map anyway.
+      const firstVal = Object.values(aiResp.answers).find((v) => typeof v === 'string' && v.trim());
+      const firstDetail = Object.values(aiResp.details)[0];
+      if (firstDetail?.answer) detail = firstDetail;
+      else if (firstVal) detail = { answer: firstVal, source: 'ai' };
     }
-    if (!answer) {
-      // Last resort: take the first non-empty value (single-question requests
-      // only ever have one answer in the map anyway).
-      const firstVal = Object.values(answersMap).find((v) => typeof v === 'string' && v.trim());
-      if (firstVal) answer = firstVal as string;
+    if (!detail.answer && detail.source !== 'needs_you') return { success: false, error: 'No answer generated' };
+    if (detail.answer && !serverOnly && detail.source !== 'needs_you') {
+      await saveSmartAnswerCacheEntry(cKey, detail.answer, detail.source);
+      if (detail.source === 'ai') { try { await saveAnswer(q.question, detail.answer); } catch (_) {} }
     }
-    if (!answer) return { success: false, error: 'No answer generated' };
-    await saveSmartAnswerCacheEntry(cKey, answer);
-    try { await saveAnswer(q.question, answer); } catch (_) {}
-    return { success: true, answer, source: 'ai' };
+    return { success: true, answer: detail.answer, source: detail.source, detail };
   } catch (err) {
     return { success: false, error: (err as Error).message || 'Generation failed' };
   }

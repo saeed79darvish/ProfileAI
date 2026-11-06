@@ -23,6 +23,7 @@ const ENTRIES = [
   { entry: 'src/jobScrape.ts', name: 'jobScrape' },
   { entry: 'src/sidepanel/downloadPayload.ts', name: 'downloadPayload' },
   { entry: 'src/sidepanel/tailorLogic.ts', name: 'tailorLogic' },
+  { entry: 'src/answerMemory/index.ts', name: 'answerMemory' },
 ];
 
 let built = false;

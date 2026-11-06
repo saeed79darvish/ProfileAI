@@ -1,3 +1,4 @@
+import type { AnswerDetail, WordHint } from './answerMemory';
 // Type definitions for ProfileAI Extension
 
 export interface User {
@@ -151,8 +152,6 @@ export type MessageType =
   | 'SAVE_ANSWER'
   | 'DELETE_ANSWER'
   | 'CLEAR_ANSWERS'
-  | 'GET_SEED_ANSWERS'
-  | 'SAVE_SEED_ANSWERS'
   | 'GET_ONBOARDING_STATUS'
   | 'OPEN_ONBOARDING'
   | 'GET_JOB_INFO'
@@ -190,6 +189,15 @@ export type MessageType =
   | 'GENERATE_SMART_ANSWERS'
   | 'GENERATE_SINGLE_ANSWER'
   | 'INSERT_ANSWER'
+  | 'HIGHLIGHT_FIELD'
+  | 'QUICKFILL_NEEDS_CHOICES'
+  | 'MEMORY_CATALOG'
+  | 'MEMORY_GET'
+  | 'MEMORY_SAVE'
+  | 'MEMORY_TRANSCRIBE'
+  | 'EXPERIENCE_FROM_SPEECH'
+  | 'EXPERIENCE_APPEND'
+  | 'FACT_DROPDOWN_ANSWERS'
   | 'ANALYZE_MATCH';
 
 export interface DetectedQuestion {
@@ -197,8 +205,14 @@ export interface DetectedQuestion {
   id: string;
   /** The question/label text shown next to the field. */
   question: string;
-  /** Field type: textarea | longtext | contenteditable */
-  fieldType: 'textarea' | 'longtext' | 'contenteditable';
+  /** Field type: a text field, or a dropdown / radio group the answer memory covers. */
+  fieldType: 'textarea' | 'longtext' | 'contenteditable' | 'select' | 'radio' | 'combobox';
+  /** Choice questions: the visible option texts (not known for react-select until opened). */
+  options?: string[];
+  /** The form does not require this field. */
+  optional?: boolean;
+  /** Word limit the form states, e.g. "200-400 words". */
+  wordHint?: WordHint;
   /** Optional placeholder/hint text. */
   placeholder?: string;
   /** Approximate field index (DOM order). */
@@ -211,11 +225,16 @@ export interface SmartAnswer {
   questionId: string;
   question: string;
   answer: string;
-  source: 'cache' | 'saved' | 'ai';
-  /** Whether the user has edited the AI-generated answer. */
+  /** Where the answer came from; `detail.source` is the same value. */
+  detail: AnswerDetail;
+  /** Re-used from an earlier run rather than generated now. */
+  cached?: 'job' | 'saved';
+  /** Whether the user has edited the answer. */
   edited?: boolean;
   /** Loading state during regeneration. */
   loading?: boolean;
+  /** Written into the page field. */
+  done?: boolean;
   error?: string;
 }
 
@@ -230,16 +249,6 @@ export interface MatchAnalysis {
 export interface Message {
   type: MessageType;
   data?: unknown;
-}
-
-// Seed answers for personalized AI responses
-export interface SeedAnswers {
-  career_motivation?: string;
-  ideal_role?: string;
-  career_goals?: string;
-  proudest_achievement?: string;
-  unique_strength?: string;
-  work_style?: string;
 }
 
 export interface AuthState {

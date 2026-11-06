@@ -5,6 +5,7 @@ interface QuickActionsProps {
   onQuickFillBasics: () => void;
   onTailor: () => void;
   onCoverLetter: () => void;
+  onAddExperience: () => void;
   hasJob: boolean;
   tailorStatus?: 'idle' | 'running' | 'ready';
   isDetecting?: boolean;
@@ -16,6 +17,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
   onQuickFillBasics,
   onTailor,
   onCoverLetter,
+  onAddExperience,
   tailorStatus = 'idle',
   isDetecting,
   detectedCount,
@@ -31,7 +33,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
         className="action-headline smart-answers-headline"
         onClick={onSmartAnswers}
         disabled={isDetecting}
-        title="Find open-ended questions on this page and draft tailored answers"
+        title="Answer this application's questions from your profile and what you have told us"
       >
         <div className="headline-icon">
           {isDetecting ? (
@@ -56,7 +58,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
             )}
           </div>
           <div className="headline-subtitle">
-            AI drafts tailored answers for the hard, open-ended ones
+            Answers from your profile and what you told us, never guessed
           </div>
         </div>
         <svg className="headline-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -122,6 +124,18 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
             <line x1="16" y1="17" x2="8" y2="17" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span>Cover Letter</span>
+        </button>
+
+        <button
+          className="action-btn tertiary"
+          onClick={onAddExperience}
+          title="Say what you did at work and add it to your resume"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="9" y="3" width="6" height="11" rx="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>Add Experience</span>
         </button>
       </div>
     </div>

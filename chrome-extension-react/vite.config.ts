@@ -50,6 +50,7 @@ export default defineConfig({
         gapreview: resolve(__dirname, 'src/gapreview/index.html'),
         download: resolve(__dirname, 'src/download/index.html'),
         onboarding: resolve(__dirname, 'src/onboarding/index.html'),
+        micpermission: resolve(__dirname, 'src/micpermission/index.html'),
         background: resolve(__dirname, 'src/background/index.ts'),
         // NOTE: the content script is NOT built here. It is a classic script
         // and must be self-contained, which a multi-entry build cannot
