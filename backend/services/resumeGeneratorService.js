@@ -48,6 +48,15 @@ const templates = {
 };
 
 // Helper to convert hex to RGB
+/** "Degree, Field", without repeating a field that only restates the degree. */
+const degreeLine = (degree, field) => {
+  const d = String(degree || '').trim();
+  const f = String(field || '').trim();
+  if (!f || f.toLowerCase() === d.toLowerCase() || d.toLowerCase().includes(f.toLowerCase())) return d;
+  if (!d) return f;
+  return `${d}, ${f}`;
+};
+
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? {
@@ -402,7 +411,7 @@ const generateClassicPDF = (profile, user, bulletStyle, sectionOrder, opts = {})
           doc.fontSize(10.5).fillColor('#000000').font('Helvetica-Bold').text(school, pageMargin, currentY, { width: contentWidth });
           currentY = doc.y;
         }
-        const dl = field ? `${degree} — ${field}` : degree;
+        const dl = degreeLine(degree, field);
         if (dl) {
           doc.fontSize(9.5).font('Helvetica').fillColor('#666666').text(dl, pageMargin, currentY, { width: contentWidth });
           currentY = doc.y + 6;
@@ -545,7 +554,7 @@ const generateModernPDF = (profile, user, accentColor = '#10b981', bulletStyle, 
                .text(school, sidebarPadding, sideY, { width: sidebarContentWidth });
             sideY = doc.y + 1;
           }
-          const dl = field ? `${degree}, ${field}` : degree;
+          const dl = degreeLine(degree, field);
           if (dl) {
             doc.fillOpacity(0.8);
             doc.fontSize(7.5).fillColor('#ffffff').font('Helvetica')
@@ -976,7 +985,7 @@ const generateMinimalPDF = (profile, user, bulletStyle, sectionOrder, opts = {})
                .text(school, pageMargin, currentY, { width: contentWidth });
             currentY = doc.y;
           }
-          const dl = field ? `${degree}, ${field}` : degree;
+          const dl = degreeLine(degree, field);
           if (dl) {
             doc.fontSize(9).font('Helvetica').fillColor('#666666')
                .text(dl, pageMargin, currentY, { width: contentWidth });
@@ -1240,7 +1249,7 @@ const generateCenteredPDF = (profile, user, bulletStyle, sectionOrder, opts = {}
              .text(school, pageMargin, currentY, { width: contentWidth });
           currentY = doc.y;
         }
-        const dl = field ? `${degree} — ${field}` : degree;
+        const dl = degreeLine(degree, field);
         if (dl) {
           doc.fontSize(10).font('Helvetica-Oblique').fillColor('#000000')
              .text(dl, pageMargin, currentY, { width: contentWidth });

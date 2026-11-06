@@ -2337,9 +2337,11 @@ CRITICAL INSTRUCTIONS:
    - Connect the candidate's motivations and career goals to the job requirements
    - Be genuine and professional, not generic or templated
    - Do NOT use placeholder language like "I am excited about this opportunity" without specific context
-5. For yes/no questions: Answer "Yes" or "No" appropriately for a candidate seeking employment
+5. For yes/no questions the profile can answer (for example "Do you have experience with React?"): answer "Yes" or "No" from the profile. If the profile cannot answer it, follow rule 8
 6. Be truthful — do not fabricate experience or skills not present in the profile
 7. Match your answer length to the field type: short for radio/select/text, detailed for textarea
+8. PERSONAL FACTS YOU CANNOT KNOW: some questions ask for facts about the candidate's life or legal status that the profile does not contain. These include start date or earliest availability, notice period, deadlines or timeline considerations, salary or compensation expectations, work authorization or visa sponsorship, willingness to relocate or travel, whether they applied or interviewed here before, security clearance, references, and anything about age, health, family or background. Never guess or invent these, and never write a plausible-sounding answer. Return an empty string "" for that question unless the answer is stated outright in the profile or the candidate's personal insights above. The candidate will fill those in themselves.
+9. OPTIONAL FIELDS: if a question is labelled optional, or is a catch-all such as "Additional information", "Anything else you want to share", or "Personal preferences", return "" unless the profile or personal insights clearly call for an answer. Do not volunteer commitments on the candidate's behalf, such as offering to share code samples or portfolio examples.
 
 WRITING STYLE (MANDATORY):
 - Write like a real human, NOT like AI. Use natural, conversational prose.
