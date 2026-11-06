@@ -427,6 +427,8 @@ const Sheet = styled.div`
   p { margin: 0 0 18px; font-size: 15.5px; line-height: 1.45; color: #6b7280; }
   .calm { margin: 12px 0 0; font-size: 13.5px; text-align: center; }
   .open { margin-bottom: 14px; }
+  /* The shared buttons are built for a footer row (flex: 1); in this sheet they fill the width. */
+  .open button, & > button { display: block; width: 100%; box-sizing: border-box; padding: 0 20px; }
   .kit {
     margin: 0 0 16px;
     border: 1px solid #e5e7f0;
@@ -458,10 +460,11 @@ const Sheet = styled.div`
     font: inherit;
     text-align: left;
     cursor: pointer;
+    box-sizing: border-box;
   }
   .kit .k { flex: 0 0 64px; font-size: 13px; color: #6b7280; }
   .kit .v { flex: 1; min-width: 0; font-size: 15px; color: #13152a; overflow-wrap: anywhere; }
-  .kit .c { flex: 0 0 auto; font-size: 14px; font-weight: 650; color: #4b4fc4; }
+  .kit .c { flex: 0 0 auto; font-size: 14px; font-weight: 650; color: #4b4fc4; white-space: nowrap; }
   .links { display: flex; flex-direction: column; margin-top: 12px; }
   .links button {
     height: 48px;
