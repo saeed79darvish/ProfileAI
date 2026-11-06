@@ -149,7 +149,9 @@ const Tabs = styled.div`
 const Quick = styled.div`
   display: flex;
   gap: 8px;
-  padding: 12px 16px;
+  /* Rows sit close together: the chips are one block, not two separate sections. */
+  padding: 10px 16px 0;
+  & + & { padding-top: 8px; }
   overflow-x: auto;
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
@@ -163,26 +165,26 @@ const Pill = styled.button`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 40px;
-  padding: 0 16px;
+  height: 34px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1.5px solid ${(p) => (p.$on ? '#5b5fd6' : '#e2e4ec')};
   background: ${(p) => (p.$on ? '#5b5fd6' : '#fff')};
   color: ${(p) => (p.$on ? '#fff' : '#13152a')};
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  svg { font-size: 16px; }
+  svg { font-size: 15px; }
 `;
 
 const ResultsRow = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 16px 10px;
-  font-size: 15px;
+  padding: 12px 16px 8px;
+  font-size: 14px;
   color: #5a5e7a;
   strong { color: #13152a; }
   button {
@@ -551,7 +553,7 @@ export default function MobileJobsView({
           </Quick>
           {suggestedRoles && (
             <Quick aria-label="Suggested roles">
-              <span style={{ alignSelf: 'center', flexShrink: 0, fontSize: 13, fontWeight: 600, color: '#667085', whiteSpace: 'nowrap' }}>Start with</span>
+              <span style={{ alignSelf: 'center', flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: '#667085', whiteSpace: 'nowrap' }}>Start with</span>
               {suggestedRoles.map((role) => (
                 <Pill key={role} type="button" onClick={() => onSearchChange(role)}>{role}</Pill>
               ))}

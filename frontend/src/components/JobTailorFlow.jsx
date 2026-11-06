@@ -63,7 +63,50 @@ const flatSkills = (skills) => (Array.isArray(skills) ? skills : skills && typeo
   .filter(Boolean);
 const same = (a, b) => String(a || '').replace(/\s+/g, ' ').trim().toLowerCase() === String(b || '').replace(/\s+/g, ' ').trim().toLowerCase();
 const applyUrlOf = (job) => job?.applyUrl || job?.sourceUrl || job?.url || '';
+/**
+ * Opens a posting in a new tab and says whether it worked. window.open with the
+ * noopener feature returns null even on success, so a blank tab is opened first
+ * (in the tap, so it is allowed), cut loose from this page, and then pointed at
+ * the posting.
+ */
+function openInNewTab(url) {
+  try {
+    const win = window.open('about:blank', '_blank');
+    if (!win) return false;
+    try { win.opener = null; } catch (_) { /* cross-origin handle: nothing to cut */ }
+    win.location.replace(url);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 const lowerFirst = (s) => (s && /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+
+/** The tailored resume as plain text, for the "Enter manually" box on a company's form. */
+function resumeAsText(copy = {}, user = {}, profile = {}) {
+  const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+  const contact = [user?.email, profile?.phone, profile?.location, profile?.linkedinUrl].filter(Boolean).join(' | ');
+  const lines = [name, copy.title, contact].filter(Boolean);
+  if (copy.summary) lines.push('', 'SUMMARY', String(copy.summary).trim());
+  const roles = (copy.experience || []).filter((e) => e && (e.title || e.company));
+  if (roles.length) {
+    lines.push('', 'EXPERIENCE');
+    roles.forEach((e) => {
+      const dates = [e.startDate, e.current ? 'Present' : e.endDate].filter(Boolean).join(' to ');
+      lines.push('', [e.title, e.company].filter(Boolean).join(', ') + (dates ? ` (${dates})` : ''));
+      String(e.description || '').split('\n').map((l) => l.replace(/^[\s\u2022*-]+/, '').trim()).filter(Boolean)
+        .forEach((l) => lines.push(`- ${l}`));
+    });
+  }
+  const skills = flatSkills(copy.skillsGrouped || copy.skills);
+  if (skills.length) lines.push('', 'SKILLS', skills.join(', '));
+  const edu = (copy.education || []).filter((e) => e && (e.institution || e.school || e.degree));
+  if (edu.length) {
+    lines.push('', 'EDUCATION');
+    edu.forEach((e) => lines.push([e.degree, e.field, e.institution || e.school].filter(Boolean).join(', ')));
+  }
+  return lines.join('\n');
+}
 
 function resumeText(p = {}) {
   return [
@@ -382,6 +425,42 @@ const Sheet = styled.div`
   h3 { margin: 0 0 6px; font-size: 21px; font-weight: 700; color: #13152a; }
   p { margin: 0 0 18px; font-size: 15.5px; line-height: 1.45; color: #6b7280; }
   .pair { display: flex; gap: 10px; }
+  .open { margin-bottom: 14px; }
+  .kit {
+    margin: 0 0 16px;
+    border: 1px solid #e5e7f0;
+    border-radius: 14px;
+    background: #f8f9fc;
+    overflow: hidden;
+  }
+  .kit summary {
+    list-style: none;
+    padding: 13px 16px;
+    font-size: 15px;
+    font-weight: 650;
+    color: #13152a;
+    cursor: pointer;
+  }
+  .kit summary::-webkit-details-marker { display: none; }
+  .kit summary::after { content: '+'; float: right; color: #6b7280; font-weight: 500; }
+  .kit[open] summary::after { content: '\2212'; }
+  .kit button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 8px 16px;
+    border: none;
+    border-top: 1px solid #e5e7f0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .kit .k { flex: 0 0 64px; font-size: 13px; color: #6b7280; }
+  .kit .v { flex: 1; min-width: 0; font-size: 15px; color: #13152a; overflow-wrap: anywhere; }
+  .kit .c { flex: 0 0 auto; font-size: 14px; font-weight: 650; color: #4b4fc4; }
   .links { display: flex; flex-direction: column; margin-top: 12px; }
   .links button {
     height: 48px;
@@ -433,6 +512,8 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
   const [saving, setSaving] = useState(false);
   const [finalCopy, setFinalCopy] = useState(null);
   const [applySheet, setApplySheet] = useState(false);
+  // Whether the company's page really opened: a phone may block the new tab.
+  const [applyOpened, setApplyOpened] = useState(true);
   const [creditLabel, setCreditLabel] = useState('1 credit');
   const bodyRef = useRef(null);
   const rescoreRef = useRef(0);
@@ -772,11 +853,32 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
 
   // In the tap itself, so the new tab isn't blocked; the PDF downloads next.
   const handleApply = () => {
-    window.open(applyUrl, '_blank', 'noopener,noreferrer');
+    setApplyOpened(openInNewTab(applyUrl));
     // Only postings we hold can be tracked as applications.
     if (!job?._isExternal) return;
     window.dispatchEvent(new CustomEvent('job-application-started', { detail: { jobId: job.id } }));
     setTimeout(() => mountedRef.current && setApplySheet(true), 600);
+  };
+
+  // A phone has no extension to fill the company's form, so the details are one tap away here.
+  const detailRows = [
+    ['Name', [user?.firstName, user?.lastName].filter(Boolean).join(' ')],
+    ['Email', user?.email],
+    ['Phone', profile?.phone],
+    ['LinkedIn', profile?.linkedinUrl],
+    ['Location', profile?.location],
+  ].filter(([, value]) => value).map(([label, value]) => ({ label, shown: value, text: value }));
+  if (finalCopy) {
+    // "Enter manually" on the company's form takes pasted text: no file to hunt for.
+    detailRows.unshift({ label: 'Resume', shown: 'As text, to paste into Enter manually', text: resumeAsText(finalCopy, user, profile) });
+  }
+  const copyDetail = async (label, value) => {
+    try {
+      await navigator.clipboard.writeText(String(value));
+      toast.success(`${label} copied`);
+    } catch (_) {
+      toast.error('Could not copy. Press and hold the text instead.');
+    }
   };
 
   const confirmApplied = () => {
@@ -1076,13 +1178,39 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
         <Sheet>
           <div className="grab" />
           <h3>Did you apply?</h3>
-          <p>We opened {company}&rsquo;s page and downloaded your tailored resume. Tell us when you&rsquo;ve sent it and we&rsquo;ll move this job to Applied.</p>
+          <p>
+            {applyOpened
+              ? `We opened ${company}\u2019s application in a new tab and downloaded your tailored resume. Come back to this tab any time to copy your details. Tell us when you\u2019ve sent it and we\u2019ll move this job to Applied.`
+              : `Your tailored resume is downloaded. Your browser blocked the new tab, so tap below to open ${company}\u2019s application.`}
+          </p>
+          {!applyOpened && applyUrl && (
+            <div className="open">
+              <PrimaryBtn
+                type="button"
+                onClick={() => setApplyOpened(openInNewTab(applyUrl))}
+              >
+                Open {company}&rsquo;s application
+              </PrimaryBtn>
+            </div>
+          )}
+          {detailRows.length > 0 && (
+            <details className="kit">
+              <summary>Your details, tap to copy</summary>
+              {detailRows.map(({ label, shown, text }) => (
+                <button type="button" key={label} onClick={() => copyDetail(label, text)}>
+                  <span className="k">{label}</span>
+                  <span className="v">{shown}</span>
+                  <span className="c">Copy</span>
+                </button>
+              ))}
+            </details>
+          )}
           <div className="pair">
             <SecondaryBtn type="button" onClick={() => setApplySheet(false)}>Not yet</SecondaryBtn>
             <PrimaryBtn type="button" onClick={confirmApplied}>Yes, I applied</PrimaryBtn>
           </div>
           <div className="links">
-            {applyUrl && <button type="button" onClick={() => window.open(applyUrl, '_blank', 'noopener,noreferrer')}>Open {company}&rsquo;s page again</button>}
+            {applyUrl && applyOpened && <button type="button" onClick={() => openInNewTab(applyUrl)}>Open {company}&rsquo;s page again</button>}
             {typeof document !== 'undefined' && document.getElementById('similar-jobs') && (
               <button type="button" onClick={findSimilar}>Find similar jobs</button>
             )}
