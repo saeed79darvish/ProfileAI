@@ -31,7 +31,7 @@ export const TOKENS = {
 
 // ── Hero Section ──
 export const HERO_CHIP_LABEL = 'AI Job Search Copilot';
-export const HERO_TITLE_PARTS = { prefix: 'An AI copilot for ', highlight: 'your whole job search', suffix: '' } as const;
+export const HERO_TITLE_PARTS = { prefix: 'Find the jobs that are ', highlight: 'actually hiring', suffix: ', and actually fit you.' } as const;
 export const HERO_SUBTITLE = 'Talk it through with Remi, your AI career coach, and ProfilleAI builds your profile. Then it searches a live feed of jobs for you, ranks them by fit, flags postings nobody is hiring for, and tailors your resume and cover letter to each one. The Chrome extension works on the job sites you already use, and the Claude connector lets you search jobs from Claude.';
 
 export const HERO_BUTTONS = {
