@@ -18,6 +18,7 @@ const { guestAnalysisLimiter, hashIp, normalizeProfileUrl: normalizeProfileUrlFo
 const { clientIp } = require('../utils/clientIp');
 const { getCachedAnalysis, setCachedAnalysis } = require('../services/aiAnalysisCacheService');
 const aiService = require('../services/aiService');
+const profileSmartFill = require('../services/profileSmartFill');
 const resumeParserService = require('../services/resumeParserService');
 const coverLetterService = require('../services/coverLetterService');
 const profileCoachService = require('../services/profileCoachService');
@@ -2736,12 +2737,39 @@ router.post('/generate-cover-letter', authMiddleware, aiRateLimiter('cover_lette
   }
 });
 
+// @route   POST /api/profiles/smart-fill
+// @desc    One free sentence in, the fields of one education / experience /
+//          project entry (or a skills list) out. Nothing is saved.
+// @access  Private. Uses the profile_enhance_assist bucket, not an Enhance credit.
+router.post('/smart-fill', authMiddleware, aiRateLimiter('profile_enhance_assist', { freeWhen: 'noProfileYet' }), async (req, res) => {
+  try {
+    const result = await profileSmartFill.smartFill({
+      kind: req.body?.kind,
+      text: req.body?.text,
+      generateText: (prompt, opts) => aiService.generateText(prompt, opts),
+    });
+    await recordAIUsage(req.user.id, 'profile_enhance_assist');
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof profileSmartFill.SmartFillError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('Error in smart-fill:', error);
+    res.status(500).json({ error: 'Could not read that. Try again.' });
+  }
+});
+
 // @route   POST /api/profiles/enhance-text
 // @desc    Enhance individual text (project description, experience description, etc.)
 // @access  Private
 router.post('/enhance-text', authMiddleware, aiRateLimiter('profile_enhance', { freeWhen: 'noProfileYet' }), async (req, res) => {
   try {
     const { text, type, context } = req.body;
+    // A short spoken or typed instruction ("add that I led a team of 5") the
+    // rewrite must apply on top of the existing text.
+    const instruction = typeof req.body.instruction === 'string'
+      ? req.body.instruction.replace(/\s+/g, ' ').trim().slice(0, 400)
+      : '';
 
     if (!text || text.trim().length < 10) {
       return res.status(400).json({ error: 'Text must be at least 10 characters' });
@@ -2884,6 +2912,12 @@ Guidelines:
 Provide ONLY the enhanced bio, nothing else.`;
     }
 
+    if (instruction) {
+      // The instruction is the candidate's own words, so facts in it are theirs
+      // to add; this relaxes the no-invention rule for that instruction only.
+      prompt += `\n\nCANDIDATE INSTRUCTION (apply it to the text above; facts stated in it are true and may be added, but add nothing beyond them): "${instruction}"`;
+    }
+
     const enhancedText = await aiService.generateText(prompt);
 
     if (!enhancedText) {
@@ -2919,6 +2953,7 @@ Provide ONLY the enhanced bio, nothing else.`;
       context?.company,
       context?.role,
       context?.period,
+      instruction,
       Array.isArray(context?.technologies) ? context.technologies.join(' ') : context?.technologies,
     ].filter(Boolean);
     const hallucinationFlags = checkGrounding(text, trimmed, contextStrings);

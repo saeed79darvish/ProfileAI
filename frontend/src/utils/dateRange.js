@@ -101,3 +101,22 @@ export const parseLegacyPeriod = (value) => {
   }
   return null;
 };
+
+/**
+ * "" when the pair is fine or cannot be compared; a sentence when the end
+ * comes before the start. Compares on year and month; a bare year counts as
+ * January for the start and December for the end so "2020" to "2020" is fine.
+ */
+export const dateRangeError = (startDate, endDate) => {
+  if (!startDate || !endDate || isPresentValue(endDate)) return '';
+  const key = (value, endOfPeriod) => {
+    const iso = toIsoMonth(value);
+    if (!iso) return null;
+    const bare = /^\d{4}$/.test(String(value).trim());
+    return bare && endOfPeriod ? `${iso.slice(0, 4)}-12` : iso;
+  };
+  const start = key(startDate, false);
+  const end = key(endDate, true);
+  if (!start || !end) return '';
+  return end < start ? 'The end date is before the start date.' : '';
+};

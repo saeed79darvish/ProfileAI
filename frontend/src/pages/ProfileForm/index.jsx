@@ -122,7 +122,10 @@ import AIProcessingModal from '@/components/AIProcessingModal';
 import LimitReachedModal from '@/components/LimitReachedModal';
 import { parseLimitError } from '@/utils/aiLimit';
 import AICreditsBadge from '@/components/AICreditsBadge';
-import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange } from '@/utils/dateRange';
+import { toIsoMonth, isPresentValue, parseLegacyPeriod, formatDateRange, dateRangeError } from '@/utils/dateRange';
+import SmartFillBar from '@/components/SmartFillBar';
+import CommaListField from '@/components/CommaListField';
+import DescriptionAssist from './DescriptionAssist';
 import { trackEvent } from '@/utils/analytics';
 import { saveGuestProfileDraft } from '@/utils/guestDraft';
 import { normalizeEducationRows } from '@/utils/education';
@@ -319,6 +322,11 @@ const ProfileForm = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saveToast, setSaveToast] = useState({ open: false, message: '' });
+  // Entries whose fields were just filled from a sentence ('experience-2'), so the card says to check them.
+  const [smartFilled, setSmartFilled] = useState({});
+  // The instruction typed or dictated for each Enhance box ('exp-0'), applied by the next Enhance.
+  const [enhanceNotes, setEnhanceNotes] = useState({});
+  const [pullingSkills, setPullingSkills] = useState(null);
   const [suggestions, setSuggestions] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showEnhancePrompt, setShowEnhancePrompt] = useState(false);
@@ -1044,6 +1052,13 @@ const ProfileForm = () => {
         if (msg) errs[`projects.${i}.${field}`] = msg;
       });
     });
+    // An end date before its own start date, on any dated entry.
+    [['experience', 'experience'], ['education', 'education'], ['projects', 'projects']].forEach(([section, key]) => {
+      (nextForm[section] || []).forEach((row, i) => {
+        const msg = dateRangeError(row?.startDate, row?.endDate);
+        if (msg) errs[`${key}.${i}.dates`] = msg;
+      });
+    });
     return errs;
   }, [formData, validateField]);
 
@@ -1064,6 +1079,12 @@ const ProfileForm = () => {
   // provided (the user picked one in the dropdown), use it; otherwise fall
   // back to categorizeSkillsHelper so the user doesn't have to pick.
   const handleAddSkillUnified = (raw, explicitCategory = null) => {
+    // A pasted "React, Node, AWS" is three skills, not one chip.
+    const parts = [...new Map(String(raw || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean).map((x) => [x.toLowerCase(), x])).values()];
+    if (parts.length > 1) {
+      parts.forEach((part) => handleAddSkillUnified(part, explicitCategory));
+      return;
+    }
     const skill = (raw || '').trim();
     if (!skill) return;
     let category = explicitCategory;
@@ -1137,6 +1158,8 @@ const ProfileForm = () => {
   };
 
   const handleDeleteExperience = (index) => {
+    setSmartFilled({});
+    setEnhanceNotes({});
     setFormData({
       ...formData,
       experience: formData.experience.filter((_, i) => i !== index)
@@ -1206,6 +1229,8 @@ const ProfileForm = () => {
   }, []);
 
   const handleDeleteProject = (index) => {
+    setSmartFilled({});
+    setEnhanceNotes({});
     setFormData({
       ...formData,
       projects: formData.projects.filter((_, i) => i !== index)
@@ -1248,17 +1273,81 @@ const ProfileForm = () => {
   };
 
   const handleDeleteEducation = (index) => {
+    setSmartFilled({});
+    setEnhanceNotes({});
     setFormData({
       ...formData,
       education: formData.education.filter((_, i) => i !== index)
     });
   };
 
+  // A row with nothing in its identifying fields is "blank": the one-sentence fill is offered on it.
+  const isBlankRow = (section, row) => {
+    const has = (v) => (Array.isArray(v) ? v.length > 0 : !!String(v ?? '').trim());
+    const keys = { experience: ['company', 'title', 'description'], education: ['institution', 'degree', 'fieldOfStudy', 'field', 'description'], projects: ['title', 'description'] }[section];
+    return !keys.some((k) => has(row?.[k]));
+  };
+
+  const handleAssistLimit = (err) => setLimitInfo(parseLimitError(err) || { featureType: 'profile_enhance_assist', upgradeRequired: true, buyMoreUrl: '/pricing' });
+
+  // Put the parsed fields into the real inputs of one entry. Never overwrites what is already there.
+  const applySmartFill = (section, index, item) => {
+    const has = (v) => (Array.isArray(v) ? v.length > 0 : !!String(v ?? '').trim());
+    setFormData((prev) => ({
+      ...prev,
+      [section]: prev[section].map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row };
+        Object.entries(item).forEach(([key, value]) => { if (has(value) && !has(row[key])) next[key] = value; });
+        return next;
+      }),
+    }));
+    setSmartFilled((prev) => ({ ...prev, [`${section}-${index}`]: true }));
+  };
+
+  const applySmartSkills = (item) => {
+    const incoming = item?.skills || [];
+    setFormData((prev) => {
+      const existing = new Set(Object.values(prev.skills || {}).flat().map((x) => String(x).toLowerCase()));
+      const fresh = incoming.filter((x) => !existing.has(String(x).toLowerCase()));
+      const grouped = categorizeSkillsHelper(fresh);
+      const skills = { ...prev.skills };
+      Object.keys(grouped).forEach((key) => { skills[key] = [...(skills[key] || []), ...grouped[key]]; });
+      return { ...prev, skills };
+    });
+    setSaveToast({ open: true, message: `Added ${incoming.length} skill${incoming.length === 1 ? '' : 's'}. Remember to save.` });
+  };
+
+  // Skills named in a description, merged into that row's own skills list.
+  const pullSkillsFromText = async (section, index, field, text) => {
+    if (!requireAuthForAction()) return;
+    const key = `${section}-${index}`;
+    setPullingSkills(key);
+    try {
+      const response = await profileAPI.smartFill('skills', text);
+      const found = response.data?.item?.skills || [];
+      setFormData((prev) => ({
+        ...prev,
+        [section]: prev[section].map((row, i) => {
+          if (i !== index) return row;
+          const current = Array.isArray(row[field]) ? row[field] : [];
+          const have = new Set(current.map((x) => String(x).toLowerCase()));
+          return { ...row, [field]: [...current, ...found.filter((x) => !have.has(String(x).toLowerCase()))] };
+        }),
+      }));
+    } catch (err) {
+      if (err?.response?.status === 429) handleAssistLimit(err);
+      else setError(extractApiError(err, 'Could not read skills from that text'));
+    } finally {
+      setPullingSkills(null);
+    }
+  };
+
   // Inline enhance: AI-improve a single text field
   const [enhancingField, setEnhancingField] = useState(null);
   // Pending diff preview: { fieldId, original, enhanced, applyFn, label }
   const [enhancePreview, setEnhancePreview] = useState(null);
-  const handleEnhanceField = async (fieldId, type, text, context, applyFn, label = 'this section') => {
+  const handleEnhanceField = async (fieldId, type, text, context, applyFn, label = 'this section', instruction = '') => {
     if (!requireAuthForAction()) return;
     if (!text || text.trim().length < 10) {
       setError('Text must be at least 10 characters to enhance');
@@ -1266,7 +1355,7 @@ const ProfileForm = () => {
     }
     setEnhancingField(fieldId);
     try {
-      const response = await profileAPI.enhanceText(text, type, context);
+      const response = await profileAPI.enhanceText(text, type, context, undefined, instruction);
       if (response.data?.success && response.data.enhancedText) {
         const enhanced = stripMarkdown(response.data.enhancedText);
         // 5.3: never overwrite user content silently — show diff preview first.
@@ -1287,6 +1376,7 @@ const ProfileForm = () => {
 
   const acceptEnhancePreview = () => {
     if (enhancePreview?.applyFn) enhancePreview.applyFn(enhancePreview.enhanced);
+    if (enhancePreview?.fieldId) setEnhanceNotes((prev) => ({ ...prev, [enhancePreview.fieldId]: '' }));
     setEnhancePreview(null);
     setSaveToast({ open: true, message: 'Enhancement applied. Remember to save.' });
   };
@@ -1355,8 +1445,12 @@ const ProfileForm = () => {
         // "Project 1 — Live Demo URL" label.
         if (name.startsWith('projects.')) {
           const [, idx, field] = name.split('.');
-          const human = PROJECT_URL_LABELS[field] || field;
+          const human = field === 'dates' ? 'Dates' : (PROJECT_URL_LABELS[field] || field);
           return { name, label: `Project ${parseInt(idx, 10) + 1}, ${human}`, message: msg };
+        }
+        if (/^(experience|education)\.\d+\.dates$/.test(name)) {
+          const [section, idx] = name.split('.');
+          return { name, label: `${section === 'experience' ? 'Experience' : 'Education'} ${parseInt(idx, 10) + 1}, Dates`, message: msg };
         }
         return { name, label: labels[name] || name, message: msg };
       });
@@ -1364,7 +1458,9 @@ const ProfileForm = () => {
       // Focus first invalid field
       const firstName = summary[0]?.name;
       if (firstName) {
-        const targetRef = firstName.startsWith('projects.') ? projectsRef : basicInfoRef;
+        const targetRef = firstName.startsWith('projects.') ? projectsRef
+          : firstName.startsWith('experience.') ? experienceRef
+            : firstName.startsWith('education.') ? educationRef : basicInfoRef;
         targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         setTimeout(() => {
           // Project inputs use composite names ("projects.0.url"); the
@@ -3009,6 +3105,15 @@ const ProfileForm = () => {
           <Paper ref={skillsRef} sx={{ p: { xs: 2, sm: 3 }, mb: { xs: 1.5, sm: 3 }, background: 'white', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
             <Typography variant="h6" sx={{ color: '#1a1a2e', fontWeight: 600, mb: { xs: 1.5, sm: 2 } }}>Skills & Expertise</Typography>
 
+            <SmartFillBar
+              kind="skills"
+              compact
+              buttonLabel="Add skills"
+              beforeRun={requireAuthForAction}
+              onLimit={handleAssistLimit}
+              onApply={applySmartSkills}
+            />
+
             {/* Single unified input + optional category override. The "Auto" choice
                 runs categorizeSkillsHelper; selecting a category bypasses it. */}
             <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'flex-start', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
@@ -3284,7 +3389,7 @@ const ProfileForm = () => {
               </Box>
             )}
             {formData.experience.map((exp, index) => (
-              <Box key={index} sx={{ mb: 3, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
+              <Box key={index} role="group" aria-label={`Experience ${index + 1}`} sx={{ mb: 3, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                   <Typography variant="subtitle2" sx={{ color: '#374151', fontWeight: 600 }}>
                     Experience {index + 1}
@@ -3294,12 +3399,29 @@ const ProfileForm = () => {
                       size="small"
                       onClick={() => setDeleteConfirm({ open: true, type: 'experience', index, label: exp.title || exp.company || `Experience ${index + 1}` })}
                       sx={{ color: 'rgba(239, 68, 68, 0.7)' }}
-                      aria-label="Remove experience"
+                      aria-label={`Remove experience ${index + 1}`}
                     >
                       <DeleteIcon />
                     </IconButton>
                   </Tooltip>
                 </Box>
+                {isBlankRow('experience', exp) && (
+                  <SmartFillBar
+                    kind="experience"
+                    beforeRun={requireAuthForAction}
+                    onLimit={handleAssistLimit}
+                    onApply={(item) => applySmartFill('experience', index, item)}
+                  />
+                )}
+                {smartFilled['experience-' + index] && (
+                  <Alert
+                    severity="success"
+                    onClose={() => setSmartFilled((prev) => ({ ...prev, ['experience-' + index]: false }))}
+                    sx={{ mb: 2 }}
+                  >
+                    Filled from your note. Check each field, change anything that is off, then save.
+                  </Alert>
+                )}
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -3341,7 +3463,7 @@ const ProfileForm = () => {
                       <option value="Internship">Internship</option>
                     </TextField>
                   </Grid>
-                  <Grid item xs={12} sm={4}>
+                  <Grid item xs={12} sm={8}>
                     <TextField
                       fullWidth
                       size="small"
@@ -3416,7 +3538,9 @@ const ProfileForm = () => {
                         value={exp.endDate}
                         onChange={(e) => handleExperienceChange(index, 'endDate', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        helperText={!toIsoMonth(exp.endDate) && exp.endDate ? `Saved as: ${exp.endDate}` : ''}
+                        name={`experience.${index}.dates`}
+                        error={!!dateRangeError(exp.startDate, exp.endDate)}
+                        helperText={dateRangeError(exp.startDate, exp.endDate) || (!toIsoMonth(exp.endDate) && exp.endDate ? `Saved as: ${exp.endDate}` : '')}
                         sx={darkTextFieldSx}
                       />
                     )}
@@ -3447,6 +3571,17 @@ const ProfileForm = () => {
                       helperText={`${exp.description?.length || 0}/${FIELD_LIMITS.experienceDescription}`}
                       sx={darkTextFieldSx}
                     />
+                    <DescriptionAssist
+                      value={exp.description}
+                      onChange={(text) => handleExperienceChange(index, 'description', text)}
+                      maxLength={FIELD_LIMITS.experienceDescription}
+                      hints={[exp.company, exp.title, ...(exp.skills || [])].filter(Boolean).join(', ')}
+                      label="description"
+                      showInstruction={!isFirstBuild}
+                      instruction={enhanceNotes[`exp-${index}`]}
+                      onInstructionChange={(text) => setEnhanceNotes((prev) => ({ ...prev, [`exp-${index}`]: text }))}
+                      onError={setError}
+                    />
                     <InlineAIEnhanceButton
                       hidden={isFirstBuild}
                       loading={enhancingField === `exp-${index}`}
@@ -3456,19 +3591,31 @@ const ProfileForm = () => {
                           ? 'Draft a sentence or two, AI will turn it into impact-driven bullets.'
                           : 'Rewrite as STAR-style bullets with stronger verbs and metrics.'
                       }
-                      onClick={() => handleEnhanceField(`exp-${index}`, 'experience', exp.description, { company: exp.company, title: exp.title, period: formatDateRange(exp.startDate, exp.endDate) || exp.period }, (enhanced) => handleExperienceChange(index, 'description', enhanced), `${exp.title || 'experience'} description`)}
+                      onClick={() => handleEnhanceField(`exp-${index}`, 'experience', exp.description, { company: exp.company, title: exp.title, period: formatDateRange(exp.startDate, exp.endDate) || exp.period }, (enhanced) => handleExperienceChange(index, 'description', enhanced), `${exp.title || 'experience'} description`, enhanceNotes[`exp-${index}`])}
                     />
                   </Grid>
                   <Grid item xs={12}>
-                    <TextField
+                    <CommaListField
                       fullWidth
                       size="small"
                       label="Skills (comma-separated)"
-                      value={(exp.skills || []).join(', ')}
-                      onChange={(e) => handleExperienceChange(index, 'skills', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                      value={exp.skills || []}
+                      onChange={(list) => handleExperienceChange(index, 'skills', list)}
                       placeholder="e.g., React, Node.js, AWS"
                       sx={darkTextFieldSx}
                     />
+                    {(exp.skills || []).length === 0 && (exp.description || '').trim().length >= 20 && (
+                      <Button
+                        type="button"
+                        size="small"
+                        onClick={() => pullSkillsFromText('experience', index, 'skills', exp.description)}
+                        disabled={pullingSkills === `experience-${index}`}
+                        startIcon={pullingSkills === `experience-${index}` ? <CircularProgress size={14} sx={{ color: 'inherit' }} /> : <AIIcon sx={{ fontSize: 16 }} />}
+                        sx={{ textTransform: 'none', fontWeight: 600, fontSize: 12.5, color: '#4f46e5', mt: 0.5 }}
+                      >
+                        Pull skills from the description
+                      </Button>
+                    )}
                   </Grid>
                 </Grid>
               </Box>
@@ -3482,20 +3629,47 @@ const ProfileForm = () => {
                 Add Education
               </Button>
             </Box>
+            {formData.education.length === 0 && (
+              <Box sx={{ textAlign: 'center', py: 3, color: '#64748b' }}>
+                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                  No education added yet. Click "Add Education", then describe it in one line and we fill the fields.
+                </Typography>
+              </Box>
+            )}
             {formData.education.map((edu, index) => (
-              <Box key={index} sx={{ mb: 2, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+              <Box key={index} role="group" aria-label={`Education ${index + 1}`} sx={{ mb: 2, p: 2, bgcolor: '#fafbfc', borderRadius: 1, border: '1px solid #e5e7eb' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ color: '#374151', fontWeight: 600 }}>
+                    Education {index + 1}
+                  </Typography>
                   <Tooltip title="Remove this education entry">
                     <IconButton
                       size="small"
                       onClick={() => setDeleteConfirm({ open: true, type: 'education', index, label: edu.degree || edu.institution || `Education ${index + 1}` })}
                       sx={{ color: 'rgba(239, 68, 68, 0.7)' }}
-                      aria-label="Remove education"
+                      aria-label={`Remove education ${index + 1}`}
                     >
                       <DeleteIcon />
                     </IconButton>
                   </Tooltip>
                 </Box>
+                {isBlankRow('education', edu) && (
+                  <SmartFillBar
+                    kind="education"
+                    beforeRun={requireAuthForAction}
+                    onLimit={handleAssistLimit}
+                    onApply={(item) => applySmartFill('education', index, item)}
+                  />
+                )}
+                {smartFilled['education-' + index] && (
+                  <Alert
+                    severity="success"
+                    onClose={() => setSmartFilled((prev) => ({ ...prev, ['education-' + index]: false }))}
+                    sx={{ mb: 2 }}
+                  >
+                    Filled from your note. Check each field, change anything that is off, then save.
+                  </Alert>
+                )}
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={12}>
                     <TextField
@@ -3560,7 +3734,9 @@ const ProfileForm = () => {
                       onChange={(e) => handleEducationChange(index, 'endDate', e.target.value)}
                       disabled={isPresentValue(edu.endDate)}
                       InputLabelProps={{ shrink: true }}
-                      helperText={isPresentValue(edu.endDate) ? 'Currently enrolled' : (!toIsoMonth(edu.endDate) && edu.endDate ? `Saved as: ${edu.endDate}` : (edu.year ? `Legacy year: ${edu.year}` : ''))}
+                      name={`education.${index}.dates`}
+                      error={!!dateRangeError(edu.startDate, edu.endDate)}
+                      helperText={dateRangeError(edu.startDate, edu.endDate) || (isPresentValue(edu.endDate) ? 'Currently enrolled' : (!toIsoMonth(edu.endDate) && edu.endDate ? `Saved as: ${edu.endDate}` : (edu.year ? `Legacy year: ${edu.year}` : '')))}
                       sx={darkTextFieldSx}
                     />
                     <FormControlLabel
@@ -3608,7 +3784,20 @@ const ProfileForm = () => {
                       value={edu.description || ''}
                       onChange={(e) => handleEducationChange(index, 'description', e.target.value)}
                       placeholder="Relevant coursework, thesis, activities, or extracurriculars..."
+                      inputProps={{ maxLength: FIELD_LIMITS.educationDescription }}
+                      helperText={`${edu.description?.length || 0}/${FIELD_LIMITS.educationDescription}`}
                       sx={darkTextFieldSx}
+                    />
+                    <DescriptionAssist
+                      value={edu.description || ''}
+                      onChange={(text) => handleEducationChange(index, 'description', text)}
+                      maxLength={FIELD_LIMITS.educationDescription}
+                      hints={[edu.institution, edu.degree, edu.fieldOfStudy].filter(Boolean).join(', ')}
+                      label="coursework"
+                      showInstruction={!isFirstBuild}
+                      instruction={enhanceNotes[`edu-${index}`]}
+                      onInstructionChange={(text) => setEnhanceNotes((prev) => ({ ...prev, [`edu-${index}`]: text }))}
+                      onError={setError}
                     />
                     <InlineAIEnhanceButton
                       hidden={isFirstBuild}
@@ -3620,7 +3809,7 @@ const ProfileForm = () => {
                           ? 'Add coursework, thesis or activities \u2014 AI will tighten the wording.'
                           : 'Rewrite for clarity and recruiter-friendly tone.'
                       }
-                      onClick={() => handleEnhanceField(`edu-${index}`, 'summary', edu.description, { degree: edu.degree, institution: edu.institution, fieldOfStudy: edu.fieldOfStudy }, (enhanced) => handleEducationChange(index, 'description', enhanced), `${edu.degree || 'education'} description`)}
+                      onClick={() => handleEnhanceField(`edu-${index}`, 'summary', edu.description, { degree: edu.degree, institution: edu.institution, fieldOfStudy: edu.fieldOfStudy }, (enhanced) => handleEducationChange(index, 'description', enhanced), `${edu.degree || 'education'} description`, enhanceNotes[`edu-${index}`])}
                     />
                   </Grid>
                 </Grid>
@@ -3636,7 +3825,7 @@ const ProfileForm = () => {
               </Button>
             </Box>
             {formData.projects.map((project, index) => (
-              <Box key={index} sx={{ mb: 3, p: 2, bgcolor: '#fafbfc', borderRadius: 2, border: '1px solid #e5e7eb' }}>
+              <Box key={index} role="group" aria-label={`Project ${index + 1}`} sx={{ mb: 3, p: 2, bgcolor: '#fafbfc', borderRadius: 2, border: '1px solid #e5e7eb' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#667eea' }}>
                     Project {index + 1}
@@ -3646,12 +3835,29 @@ const ProfileForm = () => {
                       size="small"
                       onClick={() => setDeleteConfirm({ open: true, type: 'project', index, label: project.title || project.name || `Project ${index + 1}` })}
                       sx={{ color: 'rgba(239, 68, 68, 0.7)' }}
-                      aria-label="Remove project"
+                      aria-label={`Remove project ${index + 1}`}
                     >
                       <DeleteIcon />
                     </IconButton>
                   </Tooltip>
                 </Box>
+                {isBlankRow('projects', project) && (
+                  <SmartFillBar
+                    kind="project"
+                    beforeRun={requireAuthForAction}
+                    onLimit={handleAssistLimit}
+                    onApply={(item) => applySmartFill('projects', index, item)}
+                  />
+                )}
+                {smartFilled['projects-' + index] && (
+                  <Alert
+                    severity="success"
+                    onClose={() => setSmartFilled((prev) => ({ ...prev, ['projects-' + index]: false }))}
+                    sx={{ mb: 2 }}
+                  >
+                    Filled from your note. Check each field, change anything that is off, then save.
+                  </Alert>
+                )}
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -3689,6 +3895,17 @@ const ProfileForm = () => {
                       helperText={`${project.description?.length || 0}/${FIELD_LIMITS.projectDescription}`}
                       sx={darkTextFieldSx}
                     />
+                    <DescriptionAssist
+                      value={project.description}
+                      onChange={(text) => handleProjectChange(index, 'description', text)}
+                      maxLength={FIELD_LIMITS.projectDescription}
+                      hints={[project.title, ...(Array.isArray(project.technologies) ? project.technologies : [])].filter(Boolean).join(', ')}
+                      label="description"
+                      showInstruction={!isFirstBuild}
+                      instruction={enhanceNotes[`proj-${index}`]}
+                      onInstructionChange={(text) => setEnhanceNotes((prev) => ({ ...prev, [`proj-${index}`]: text }))}
+                      onError={setError}
+                    />
                     <InlineAIEnhanceButton
                       hidden={isFirstBuild}
                       loading={enhancingField === `proj-${index}`}
@@ -3698,7 +3915,7 @@ const ProfileForm = () => {
                           ? 'Add a quick description, AI will sharpen scope, role and outcomes.'
                           : 'Tighten copy and highlight the technical impact.'
                       }
-                      onClick={() => handleEnhanceField(`proj-${index}`, 'project', project.description, { title: project.title, role: project.role, technologies: project.technologies }, (enhanced) => handleProjectChange(index, 'description', enhanced), `${project.title || 'project'} description`)}
+                      onClick={() => handleEnhanceField(`proj-${index}`, 'project', project.description, { title: project.title, role: project.role, technologies: project.technologies }, (enhanced) => handleProjectChange(index, 'description', enhanced), `${project.title || 'project'} description`, enhanceNotes[`proj-${index}`])}
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
@@ -3797,7 +4014,9 @@ const ProfileForm = () => {
                       onChange={(e) => handleProjectChange(index, 'endDate', e.target.value)}
                       disabled={isPresentValue(project.endDate)}
                       InputLabelProps={{ shrink: true }}
-                      helperText={isPresentValue(project.endDate) ? 'Currently in progress' : (!toIsoMonth(project.endDate) && project.endDate ? `Saved as: ${project.endDate}` : '')}
+                      name={`projects.${index}.dates`}
+                      error={!!dateRangeError(project.startDate, project.endDate)}
+                      helperText={dateRangeError(project.startDate, project.endDate) || (isPresentValue(project.endDate) ? 'Currently in progress' : (!toIsoMonth(project.endDate) && project.endDate ? `Saved as: ${project.endDate}` : ''))}
                       sx={darkTextFieldSx}
                     />
                     <FormControlLabel
@@ -3814,16 +4033,28 @@ const ProfileForm = () => {
                     />
                   </Grid>
                   <Grid item xs={12}>
-                    <TextField
+                    <CommaListField
                       fullWidth
                       size="small"
                       label="Tools & Technologies Used"
-                      value={Array.isArray(project.technologies) ? project.technologies.join(', ') : (project.technologies || '')}
-                      onChange={(e) => handleProjectChange(index, 'technologies', e.target.value.split(',').map(t => t.trim()).filter(t => t))}
+                      value={Array.isArray(project.technologies) ? project.technologies : (project.technologies || '')}
+                      onChange={(list) => handleProjectChange(index, 'technologies', list)}
                       placeholder="Excel, Salesforce, AutoCAD, SAP (comma separated)"
                       helperText="Separate technologies with commas"
                       sx={darkTextFieldSx}
                     />
+                    {(!Array.isArray(project.technologies) || project.technologies.length === 0) && (project.description || '').trim().length >= 20 && (
+                      <Button
+                        type="button"
+                        size="small"
+                        onClick={() => pullSkillsFromText('projects', index, 'technologies', project.description)}
+                        disabled={pullingSkills === `projects-${index}`}
+                        startIcon={pullingSkills === `projects-${index}` ? <CircularProgress size={14} sx={{ color: 'inherit' }} /> : <AIIcon sx={{ fontSize: 16 }} />}
+                        sx={{ textTransform: 'none', fontWeight: 600, fontSize: 12.5, color: '#4f46e5', mt: 0.5 }}
+                      >
+                        Pull technologies from the description
+                      </Button>
+                    )}
                   </Grid>
                 </Grid>
               </Box>
@@ -3831,7 +4062,7 @@ const ProfileForm = () => {
             {formData.projects.length === 0 && (
               <Box sx={{ textAlign: 'center', py: 4, color: '#9ca3af' }}>
                 <Typography variant="body2" sx={{ color: '#9ca3af' }}>
-                  No projects added yet. Click "Add Project" to showcase your work!
+                  No projects added yet. Click "Add Project", then describe it in a sentence and we fill the fields.
                 </Typography>
               </Box>
             )}
