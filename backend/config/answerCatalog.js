@@ -393,5 +393,5 @@ const needsFactOf = (factId) => {
 
 module.exports = {
   FACTS, STORIES, publicCatalog, factById, storyById,
-  detectFact, detectStory, mapFactToOption, factToText, deriveFacts, needsFactOf,
+  detectFact, detectStory, mapFactToOption, polarityOf: polarity, factToText, deriveFacts, needsFactOf,
 };

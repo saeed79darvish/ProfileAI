@@ -13,6 +13,9 @@
 const {
   detectFact, detectStory, mapFactToOption, factToText, deriveFacts, needsFactOf, STORIES,
 } = require('../config/answerCatalog');
+const {
+  RESOLVABLE_FIELDS, findLearned, learnedDetail,
+} = require('./learnedAnswers');
 
 const CATCH_ALL = /additional information|anything else|personal preferences|other (comments|information)|comments?\b.*\boptional|is there anything/i;
 
@@ -46,18 +49,34 @@ function parseModelJson(raw, repair) {
  * @param {string[]} args.questions
  * @param {Array<object>} [args.questionMeta]
  * @param {{answerFacts?: object, answerStories?: object}} [args.memory]
+ * @param {(call: {question:string, candidates:Array, prompt:string}) => Promise<object|null>} [args.runLearnedMatch]
+ *        Small model stage that decides whether an earlier learned question means the same thing.
  * @param {(call: {items: Array, storyContext: string}) => Promise<Object<string,string>>} args.runModel
  *        Only ever receives the open-ended questions.
  * @returns {Promise<{answers: Object<string,string>, details: Object<string,object>, modelCalled: boolean}>}
  */
-async function answerQuestions({ questions, questionMeta, memory, runModel }) {
+async function answerQuestions({ questions, questionMeta, memory, runModel, runLearnedMatch }) {
   const facts = deriveFacts(memory);
   const stories = (memory && memory.answerStories) || {};
   const meta = Array.isArray(questionMeta) ? questionMeta : [];
   const details = {};
   const modelItems = [];
+  const learned = (memory && Array.isArray(memory.learnedAnswers)) ? memory.learnedAnswers : [];
+  const learnedUsed = [];
 
-  questions.forEach((question, index) => {
+  // Learned answers: only for short fields, never for sensitive questions.
+  // Returns true when it settled the question.
+  const tryLearned = async (question, m, options, fieldType) => {
+    if (!learned.length || !RESOLVABLE_FIELDS.has(fieldType)) return false;
+    const found = await findLearned(question, learned, runLearnedMatch);
+    if (!found) return false;
+    const detail = learnedDetail(question, found, options);
+    if (detail.source === 'learned') learnedUsed.push(detail.learnedId);
+    details[question] = detail;
+    return true;
+  };
+
+  for (const [index, question] of questions.entries()) {
     const m = meta[index] || {};
     const options = Array.isArray(m.options) ? m.options : [];
     const fieldType = m.fieldType || 'text';
@@ -65,14 +84,15 @@ async function answerQuestions({ questions, questionMeta, memory, runModel }) {
 
     if (hit && hit.sensitive) {
       details[question] = { answer: '', source: 'needs_you' };
-      return;
+      continue;
     }
 
     if (hit) {
       const stored = facts[hit];
       if (!stored) {
+        if (await tryLearned(question, m, options, fieldType)) { details[question].factId = hit; continue; }
         details[question] = { answer: '', source: 'needs_you', factId: hit, needsFact: needsFactOf(hit) };
-        return;
+        continue;
       }
       // Dropdowns built with react-select only list their options when opened, so the
       // page cannot send them up front. A question phrased as yes or no is answered
@@ -85,21 +105,23 @@ async function answerQuestions({ questions, questionMeta, memory, runModel }) {
       if (!answer) {
         // The person told us, but this form's wording does not fit it: theirs to answer.
         details[question] = { answer: '', source: 'needs_you', factId: hit };
-        return;
+        continue;
       }
       details[question] = { answer, source: 'fact', factId: hit, choiceValue: stored.value };
-      return;
+      continue;
     }
+
+    if (await tryLearned(question, m, options, fieldType)) continue;
 
     const storyId = detectStory(question);
     const story = storyId && stories[storyId] && stories[storyId].text ? storyId : null;
     const catchAll = CATCH_ALL.test(question) || (m.optional === true && fieldType === 'textarea');
     if (catchAll && !story) {
       details[question] = { answer: '', source: 'ai' };
-      return;
+      continue;
     }
     modelItems.push({ index, question, meta: m, storyId: story });
-  });
+  }
 
   let modelCalled = false;
   if (modelItems.length) {
@@ -131,7 +153,7 @@ async function answerQuestions({ questions, questionMeta, memory, runModel }) {
   for (const [question, d] of Object.entries(details)) {
     if (typeof d.answer === 'string' && d.answer.trim()) answers[question] = d.answer;
   }
-  return { answers, details, modelCalled };
+  return { answers, details, modelCalled, learnedUsed };
 }
 
 /* ---------- dictated experience ---------- */

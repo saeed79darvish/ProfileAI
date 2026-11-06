@@ -564,12 +564,28 @@ const startServer = async () => {
       console.warn('⚠️  CareerContexts table ensure skipped:', err.message);
     }
 
+    // "Did you apply?" follow-up columns on ExternalApplications.
+    try {
+      const { up: ensureExternalApplicationFollowUp } = require('./scripts/migrations/ensureExternalApplicationFollowUp');
+      await ensureExternalApplicationFollowUp();
+    } catch (err) {
+      console.warn('⚠️  ExternalApplications follow-up columns ensure skipped:', err.message);
+    }
+
     // Answer memory columns on CareerContexts (answerFacts, answerStories).
     try {
       const { up: ensureCareerContextAnswerMemory } = require('./scripts/migrations/ensureCareerContextAnswerMemory');
       await ensureCareerContextAnswerMemory();
     } catch (err) {
       console.warn('⚠️  CareerContexts answer memory columns ensure skipped:', err.message);
+    }
+
+    // Learned answers column on CareerContexts.
+    try {
+      const { up: ensureCareerContextLearnedAnswers } = require('./scripts/migrations/ensureCareerContextLearnedAnswers');
+      await ensureCareerContextLearnedAnswers();
+    } catch (err) {
+      console.warn('⚠️  CareerContexts learnedAnswers column ensure skipped:', err.message);
     }
 
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =

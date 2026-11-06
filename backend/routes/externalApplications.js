@@ -68,6 +68,42 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+// @route   GET /api/external-applications/pending
+// @desc    Started applications we have not confirmed and may now ask about
+// @access  Private
+router.get('/pending', authMiddleware, async (req, res) => {
+  try {
+    const { pendingWhere, toPending, MAX_PENDING } = require('../services/applicationFollowUp');
+    const rows = await ExternalApplication.findAll({
+      where: pendingWhere(req.user.id),
+      order: [['updatedAt', 'DESC']],
+      limit: MAX_PENDING,
+    });
+    res.json({ success: true, pending: rows.map(toPending) });
+  } catch (error) {
+    console.error('Error loading pending applications:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   POST /api/external-applications/:id/answer
+// @desc    Answer "Did you apply?" with applied | not_yet | not_applying
+// @access  Private
+router.post('/:id/answer', authMiddleware, async (req, res) => {
+  try {
+    const { changesForAnswer } = require('../services/applicationFollowUp');
+    const application = await ExternalApplication.findOne({ where: { id: req.params.id, userId: req.user.id } });
+    if (!application) return res.status(404).json({ message: 'Application not found' });
+    const changes = changesForAnswer(application, req.body && req.body.answer);
+    if (!changes) return res.status(400).json({ message: 'Unknown answer, or this application is already confirmed' });
+    await application.update(changes);
+    res.json({ success: true, application });
+  } catch (error) {
+    console.error('Error answering application follow-up:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   GET /api/external-applications/stats
 // @desc    Get application statistics for the current user
 // @access  Private

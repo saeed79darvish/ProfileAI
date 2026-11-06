@@ -87,6 +87,12 @@ const ExternalApplication = sequelize.define('ExternalApplication', {
     allowNull: true,
     defaultValue: DataTypes.NOW,
   },
+  // "Did you apply?" follow-up (services/applicationFollowUp.js): when we last
+  // asked, when to ask again after "Not yet", and when the person said they are
+  // not applying. Columns added by scripts/migrations/ensureExternalApplicationFollowUp.js.
+  askedAt: { type: DataTypes.DATE, allowNull: true },
+  snoozedUntil: { type: DataTypes.DATE, allowNull: true },
+  dismissedAt: { type: DataTypes.DATE, allowNull: true },
   // Optional metadata
   salary: {
     type: DataTypes.STRING,

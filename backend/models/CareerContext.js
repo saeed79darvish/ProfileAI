@@ -45,6 +45,9 @@ const CareerContext = sequelize.define('CareerContext', {
      config/answerCatalog.js. */
   answerFacts: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
   answerStories: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+  /* Learned answers: what the person picked or typed on forms, newest first,
+     capped at 300. Shape in services/learnedAnswers.js. */
+  learnedAnswers: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
 }, {
   tableName: 'CareerContexts',
   timestamps: true,

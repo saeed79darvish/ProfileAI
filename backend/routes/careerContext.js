@@ -6,6 +6,10 @@
  * PATCH   /             the person's own edit; replaces what it names
  * POST    /merge        the coach's write; fills gaps, or corrects with overwrite
  * POST    /summarize    a voice call's transcript in, a short summary saved
+ * GET     /learned      answers remembered from application forms
+ * POST    /learned      remember one (upsert by question); sensitive ones are skipped
+ * PATCH   /learned/:id  edit a remembered answer
+ * DELETE  /learned/:id  forget one
  * DELETE  /item         forget one field, the assessment, or one summary
  * DELETE  /             forget everything
  */
@@ -93,6 +97,43 @@ router.post('/summarize', aiRateLimiter('profile_coach'), async (req, res) => {
     const context = await service.merge(req.user.id, { summary, summarySource: 'call' });
     res.json({ success: true, context });
   } catch (error) { fail(res, 'summarize', error); }
+});
+
+router.get('/learned', async (req, res) => {
+  try {
+    res.json({ success: true, items: await service.listLearned(req.user.id) });
+  } catch (error) { fail(res, 'learned list', error); }
+});
+
+router.post('/learned', async (req, res) => {
+  try {
+    const { question, answer, kind, options, company, jobTitle } = req.body || {};
+    const result = await service.upsertLearned(req.user.id, { question, answer, kind, options, company, jobTitle });
+    if (result.skipped) return res.json({ success: true, skipped: result.skipped });
+    res.json({ success: true, item: result.item });
+  } catch (error) {
+    if (error?.status === 400) return res.status(400).json({ error: error.message, code: error.code });
+    fail(res, 'learned save', error);
+  }
+});
+
+router.patch('/learned/:id', async (req, res) => {
+  try {
+    const item = await service.editLearned(req.user.id, req.params.id, req.body?.answer);
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true, item });
+  } catch (error) {
+    if (error?.status === 400) return res.status(400).json({ error: error.message, code: error.code });
+    fail(res, 'learned edit', error);
+  }
+});
+
+router.delete('/learned/:id', async (req, res) => {
+  try {
+    const removed = await service.removeLearned(req.user.id, req.params.id);
+    if (!removed) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (error) { fail(res, 'learned delete', error); }
 });
 
 router.delete('/item', async (req, res) => {

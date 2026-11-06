@@ -9,6 +9,7 @@
 
 const { CAREER_STAGES, SENIORITY_IDS } = require('./jobSeniorityFit');
 const { factById, storyById } = require('../config/answerCatalog');
+const learnedLib = require('./learnedAnswers');
 
 const MAX_ANSWER_TEXT = 2000;
 const MAX_FACT_NOTE = 500;
@@ -207,13 +208,67 @@ function makeCareerContextService({ CareerContext }) {
     return toView(row);
   };
 
+  /* ---------- learned answers ---------- */
+
+  const listLearned = async (userId) => {
+    const row = await CareerContext.findOne({ where: { userId } });
+    return (row && row.learnedAnswers) || [];
+  };
+
+  /** Remember an answer. Also keeps answerFacts in step when the answer maps to a catalog value. */
+  const upsertLearned = async (userId, input) => {
+    const row = await load(userId);
+    const result = learnedLib.upsertLearned(row.learnedAnswers, input);
+    if (result.skipped) return { skipped: result.skipped };
+    const next = { learnedAnswers: result.items };
+    if (result.factId && result.choiceValue) {
+      try {
+        Object.assign(next, mergeAnswerMemory(row, { answerFacts: { [result.factId]: result.choiceValue } }));
+        delete next.answerStories;
+      } catch { /* the learned answer is still kept */ }
+    }
+    await row.update(next);
+    return { item: result.item };
+  };
+
+  const editLearned = async (userId, id, answer) => {
+    const row = await load(userId);
+    const result = learnedLib.editLearned(row.learnedAnswers, id, answer);
+    if (!result) return null;
+    const next = { learnedAnswers: result.items };
+    if (result.item.factId && result.choiceValue) {
+      try {
+        const merged = mergeAnswerMemory(row, { answerFacts: { [result.item.factId]: result.choiceValue } });
+        next.answerFacts = merged.answerFacts;
+      } catch { /* keep the edit */ }
+    }
+    await row.update(next);
+    return result.item;
+  };
+
+  const removeLearned = async (userId, id) => {
+    const row = await load(userId);
+    const items = row.learnedAnswers || [];
+    if (!items.some((i) => i.id === id)) return false;
+    await row.update({ learnedAnswers: items.filter((i) => i.id !== id) });
+    return true;
+  };
+
+  /** Count the uses of learned answers that filled a form. */
+  const bumpLearned = async (userId, ids) => {
+    if (!ids || !ids.length) return;
+    const row = await CareerContext.findOne({ where: { userId } });
+    if (!row) return;
+    await row.update({ learnedAnswers: learnedLib.bumpUses(row.learnedAnswers, ids) });
+  };
+
   /** Forget everything. */
   const clear = async (userId) => {
     await CareerContext.destroy({ where: { userId } });
     return toView(null);
   };
 
-  return { get, merge, edit, forget, clear };
+  return { get, merge, edit, forget, clear, listLearned, upsertLearned, editLearned, removeLearned, bumpLearned };
 }
 
 module.exports = { makeCareerContextService, mergeAnswerMemory, toView, cleanConstraints, CONSTRAINT_KEYS, TEXT_KEYS, SECTOR_IDS };

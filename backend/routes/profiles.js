@@ -2269,6 +2269,18 @@ router.post('/generate-answers', authMiddleware, aiRateLimiter('tailor_profile')
     const memory = {
       answerFacts: memoryRow?.answerFacts || {},
       answerStories: memoryRow?.answerStories || {},
+      learnedAnswers: memoryRow?.learnedAnswers || [],
+    };
+
+    // Small fast model that judges whether an earlier learned question means the same thing.
+    const runLearnedMatch = async ({ prompt }) => {
+      const { callAI, HAIKU_MODEL } = require('../services/ai/core');
+      const response = await callAI({
+        model: HAIKU_MODEL,
+        max_tokens: 100,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      return parseModelJson(response?.choices?.[0]?.message?.content || '');
     };
 
     // Build skills string safely
@@ -2372,7 +2384,7 @@ Return ONLY valid JSON, no additional text or markdown.`;
 
     let result;
     try {
-      result = await answerQuestions({ questions, questionMeta, memory, runModel });
+      result = await answerQuestions({ questions, questionMeta, memory, runModel, runLearnedMatch });
     } catch (e) {
       if (e.parseFailure) {
         console.error('Failed to parse AI response:', e);
@@ -2383,6 +2395,14 @@ Return ONLY valid JSON, no additional text or markdown.`;
 
     // Record AI usage only when the model was actually used
     if (result.modelCalled) await recordAIUsage(req.user.id, 'generate_answers');
+
+    // Count the learned answers that filled a form; never fail the request over it.
+    if (result.learnedUsed && result.learnedUsed.length) {
+      try {
+        const { makeCareerContextService } = require('../services/careerContextService');
+        await makeCareerContextService({ CareerContext }).bumpLearned(req.user.id, result.learnedUsed);
+      } catch (e) { console.warn('learned answer use count skipped:', e.message); }
+    }
 
     res.json({
       success: true,
