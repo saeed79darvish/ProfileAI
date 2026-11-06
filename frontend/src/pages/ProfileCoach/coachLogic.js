@@ -384,6 +384,15 @@ export const SAVE_CHOICE = '__save_for_later';
  * buttons, with no way on the page to sign up. Typos included ("sinup").
  */
 /**
+ * A call that left the profile with almost nothing. It is not allowed to stand
+ * in for the rest of the conversation: fewer than three facts heard, or no
+ * skills, school, job or project on the draft at all.
+ */
+export const callWasThin = (draft = {}, heardCount = 0) => heardCount < 3
+  || !((draft.skills || []).length || (draft.education || []).some((r) => r && r.institution)
+    || (draft.experience || []).length || (draft.projects || []).length);
+
+/**
  * "Just finish this", "show me the jobs", "I don't want to answer more": they
  * are leaving the questions, not answering the current one. The coach used to
  * reply "I hear you" and ask the next ten, which is what made a person who

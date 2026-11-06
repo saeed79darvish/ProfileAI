@@ -137,6 +137,9 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
   // True once the greeting is done and turn detection may answer on its own.
   const greetedRef = useRef(false);
   const greetingCapRef = useRef(null);
+  // The greeting has been generated and is playing out; replies start when it stops.
+  const greetingDoneRef = useRef(false);
+  const greetingTriesRef = useRef(0);
 
   const handlersRef = useRef({ onTranscript, onLearned, onEnded, onError, onShareFailed });
   useEffect(() => {
@@ -403,8 +406,24 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
       case 'response.done':
         responseInFlightRef.current = false;
         nudgesRef.current = 0;
-        // The first response is the greeting.
-        startReplying();
+        /* The first response is the greeting. It only counts when it was
+           said: a greeting that was cancelled (a noise, an echo) is asked
+           for again, once, instead of being taken as done. That is what left
+           a call that opened with "Hey," and then answered nothing. */
+        if (!greetedRef.current) {
+          const status = event.response?.status;
+          if (status && status !== 'completed' && greetingTriesRef.current < 2) {
+            greetingTriesRef.current += 1;
+            setTimeout(() => {
+              if (endedRef.current || greetedRef.current) return;
+              try { channelRef.current?.send(JSON.stringify({ type: 'response.create' })); } catch { /* closed */ }
+            }, 700);
+            break;
+          }
+          // Replies start once it has stopped playing, not when it was written.
+          greetingDoneRef.current = true;
+          if (!speakingRef.current) setTimeout(startReplying, 800);
+        }
         if (goodbyeSentRef.current) {
           /* The goodbye has been said: leave once it has finished playing.
              A goodbye that came back as only a note-taking tool call gets
@@ -450,6 +469,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
         speakingRef.current = false;
         setSpeaking(false);
         setLevel(0);
+        // The greeting has finished playing: a short beat for its echo to die, then listen.
+        if (greetingDoneRef.current && !greetedRef.current) setTimeout(startReplying, 800);
         break;
 
       /* They have finished a turn. Its words come later, from a separate
@@ -467,7 +488,11 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
       // What the person said, once the transcriber is sure of it.
       case 'conversation.item.input_audio_transcription.completed': {
         const text = String(event.transcript || '').trim();
-        if (!text) {
+        /* Nothing is owed to anyone before the greeting has been said, so
+           whatever the transcriber wrote then is a room, an echo or a
+           mis-hearing ("Okay."), not an answer. It used to be filed as the
+           person's first words and counted the call as held. */
+        if (!text || !greetedRef.current) {
           if (event.item_id) handlersRef.current.onTranscript?.({ role: 'me', itemId: event.item_id, text: '' });
           break;
         }
@@ -584,6 +609,8 @@ export const useVoiceCall = ({ onTranscript, onLearned, onEnded, onError, onShar
     responseInFlightRef.current = false;
     nudgesRef.current = 0;
     greetedRef.current = false;
+    greetingDoneRef.current = false;
+    greetingTriesRef.current = 0;
     closingRef.current = false;
     goodbyeSentRef.current = false;
     goodbyeSpokenRef.current = false;

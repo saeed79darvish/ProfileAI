@@ -127,6 +127,7 @@ import {
   SAVE_CHOICE,
   wantsToSaveForLater,
   wantsToFinishNow,
+  callWasThin,
   conversationFinished,
   ACCOUNT_EXISTS_CHOICE,
   RETRY_IMPORT_CHOICES,
@@ -1704,8 +1705,15 @@ const ProfileCoach = () => {
     if (!heardAnythingRef.current && theySpoke) {
       heardKeysRef.current = new Set();
       heardSkillsRef.current = new Set();
-      pushCoach(TEXT.VOICE_DONE_TALK);
-      afterCall(draftRef.current);
+      /* Nothing was written down: a call like that has not covered the
+         rest, so the questions come back in the chat instead of the page
+         going straight to a review of an empty profile. */
+      const talkOnly = callWasThin(draftRef.current, 0)
+        ? { ...draftRef.current, mode: 'chat' } : draftRef.current;
+      draftRef.current = talkOnly;
+      setDraft(talkOnly);
+      pushCoach(callWasThin(talkOnly, 0) ? TEXT.VOICE_DONE_THIN : TEXT.VOICE_DONE_TALK);
+      afterCall(talkOnly);
       return;
     }
     if (!heardAnythingRef.current) {
@@ -1754,9 +1762,18 @@ const ProfileCoach = () => {
     heardKeysRef.current = new Set();
     const checkSkills = Array.from(heardSkillsRef.current);
     heardSkillsRef.current = new Set();
-    const merged = draftRef.current;
-    pushCoach(TEXT.VOICE_DONE);
-    trackEvent('coach_voice_completed', { fields: heard.length });
+    /* A short or vague call must not stand in for the whole conversation.
+       After choosing to talk, the chat asked nothing more ("the call covered
+       it"), so a thirty second call that caught nothing went straight to a
+       review of an empty profile. Thin calls hand the questions back. */
+    const thin = callWasThin(draftRef.current, heard.length);
+    const merged = thin && draftRef.current.mode === 'voice' ? { ...draftRef.current, mode: 'chat' } : draftRef.current;
+    if (merged !== draftRef.current) {
+      draftRef.current = merged;
+      setDraft(merged);
+    }
+    pushCoach(thin ? TEXT.VOICE_DONE_THIN : TEXT.VOICE_DONE);
+    trackEvent('coach_voice_completed', { fields: heard.length, thin });
     /* Names and dates are what speech gets wrong, and on a resume they are
        the mistakes that matter. The facts the call heard are shown once,
        each fixable in place, before the conversation moves on. */

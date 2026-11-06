@@ -23,6 +23,7 @@ import {
   applyCheckEdit,
   fieldFromText,
   wantsToFinishNow,
+  callWasThin,
   FIELD_NOT_LISTED_CHIP,
   dedupeExperience,
   normalizePlace,
@@ -1812,4 +1813,11 @@ test('wantsToFinishNow hears a person leaving the questions, not an answer', () 
   assert.equal(wantsToFinishNow('stop asking me questions'), true);
   assert.equal(wantsToFinishNow('i built a tool that shows me jobs matching my resume and also a lot of other things i did last year'), false);
   assert.equal(wantsToFinishNow('product manager'), false);
+});
+
+test('callWasThin: a vague call does not cover the conversation, a rich one does', () => {
+  assert.equal(callWasThin({ skills: [], education: [], experience: [], projects: [] }, 1), true);
+  assert.equal(callWasThin({ skills: ['Go'], education: [] }, 2), true);
+  assert.equal(callWasThin({ skills: [], education: [] }, 6), true);
+  assert.equal(callWasThin({ skills: ['Go', 'SQL'], experience: [{ title: 'Dev' }] }, 5), false);
 });

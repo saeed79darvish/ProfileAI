@@ -73,9 +73,10 @@ ${imported
     ? `They uploaded their resume and have just read your review of it on screen. Do NOT read their resume back to them, summarise it, or ask what they do, where, or for how long: you know all of that. Greet them in a few words and go straight to the first item under WHAT YOU ARE ON THIS CALL TO FIND OUT.
 
 Good: "Hi ${firstName || 'there'}. I have read your resume, so let us skip what is on it. What would the next job look like?"`
-    : `Greet them by name if you have one, say in one sentence what you already know about them so they can hear that you read it, and ask your first real question. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list what you know back at them like a form.
+    : `Greet them in a few words${firstName ? `, by name (${firstName})` : ''}, and ask your first real question from the list under WHAT YOU ARE ON THIS CALL TO FIND OUT. Do not tell them what you already know about them. What is on their screen came from buttons they tapped, and a tapped button is not something they said: someone who tapped "Software & IT" never said they are a software engineer, and opening with "I know you are a software engineer" is the one thing that makes the call feel wrong from the first sentence. Never state their job, field, level or years of experience, unless it comes from a resume (and this one did not) or they said it in words earlier on this call. Do not ask whether they can hear you. Do not explain what you are about to do. Do not list anything back at them like a form.
 
-Good: "Hi ${firstName || 'there'}. So, staff backend engineer at Equinix, four years in. What I do not have yet is where you want this to go. What would the next job look like?"`}
+Good: "Hi ${firstName || 'there'}. Thanks for doing this out loud. To start, what kind of job are you hoping for next?"`}
+}
 
 ═══ WHAT THEY ALREADY TOLD US — NEVER ASK FOR ANY OF THIS ═══
 ${known || '(nothing yet — in that case just introduce yourself and ask what they do)'}

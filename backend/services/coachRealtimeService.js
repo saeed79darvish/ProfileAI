@@ -83,7 +83,12 @@ async function createVoiceSession({ firstName, profile = {}, missing = [], maxMi
             type: 'semantic_vad',
             eagerness: 'low',
             create_response: false,
-            interrupt_response: true,
+            /* Off until the greeting has been said (useVoiceCall turns it
+               on with replies). On from the start, a sound in the first
+               seconds, or Remi's own voice coming back through the speakers,
+               cut the greeting off after "Hey," and the page then took the
+               noise for an answer: Remi replied to nobody. */
+            interrupt_response: false,
           },
         },
         output: { voice: REALTIME_VOICE },
