@@ -987,6 +987,7 @@ test('answering every question fills the bar', () => {
     experience: [{ title: 'Staff Frontend Developer', company: 'Acme', startDate: '2019' }],
     education: [{ institution: 'State', degree: 'BSc' }],
     linkedinUrl: 'https://linkedin.com/in/x',
+    roleTypes: ['full_time'],
   };
   const raw = computeProfileCompletion(draftToProfileShape(draft));
   // The shared rubric no longer scores the photo or a project alongside a
@@ -1820,4 +1821,14 @@ test('callWasThin: a vague call does not cover the conversation, a rich one does
   assert.equal(callWasThin({ skills: ['Go'], education: [] }, 2), true);
   assert.equal(callWasThin({ skills: [], education: [] }, 6), true);
   assert.equal(callWasThin({ skills: ['Go', 'SQL'], experience: [{ title: 'Dev' }] }, 5), false);
+});
+
+test('coachCompletion: an empty Looking for row keeps the meter under 100', () => {
+  const items = [
+    { key: 'title', done: true }, { key: 'location', done: true }, { key: 'skills', done: true },
+    { key: 'exp', done: true }, { key: 'edu', done: true }, { key: 'proj', done: true },
+  ];
+  const draft = { experience: [{ title: 'Dev' }] };
+  assert.ok(coachCompletion({ items }, draft).pct < 100);
+  assert.equal(coachCompletion({ items }, { ...draft, workStyle: 'remote' }).pct, 100);
 });

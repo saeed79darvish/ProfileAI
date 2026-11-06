@@ -188,7 +188,7 @@ export default function AdminPromos() {
                     />
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
-                    {p.creator ? `${p.creator.firstName} ${p.creator.lastName}` : '—'}
+                    {p.creator ? `${p.creator.firstName} ${p.creator.lastName}` : 'None'}
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title="View redemptions">

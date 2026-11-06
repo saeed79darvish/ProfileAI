@@ -2156,6 +2156,17 @@ const ProfileCoach = () => {
     if (chip.asText) {
       if (message.spent || busy) return;
       spendChips(message.id);
+      /* "I'm not sure yet" as a bare sentence gave the model nothing to work
+         with, and it said nothing back. The page answers it itself and asks
+         for what the coach can actually use. */
+      if (chip.id === '__say:not_sure_field') {
+        pushMine(chip.label);
+        const sector = LADDER.find((st) => st.id === 'sector');
+        pushCoach(TEXT.FIELD_NOT_SURE, sector ? {
+          stepId: sector.id, chips: getChips(sector, draftRef.current), selected: [],
+        } : undefined);
+        return;
+      }
       submitTextRef.current?.(null, chip.label);
       return;
     }
@@ -2989,10 +3000,32 @@ const ProfileCoach = () => {
       return;
     }
 
+    const rowsBefore = (draftRef.current.experience || []).length;
     const turn = await runTurn(text, step);
     if (!turn.ok) {
       setError(TEXT.ERROR_GENERIC);
       return;
+    }
+    /* "Anywhere before that?" answered with a job, and no second job landed
+       on the panel: the coach heard it but filed nothing. Read the answer
+       for the role directly, once, and add it as the earlier job. */
+    if (step.id === 'previousRole' && !turn.skip && !saysUnsure(text) && text.trim().length > 8
+      && (draftRef.current.experience || []).length === rowsBefore) {
+      try {
+        const { data } = await profileAPI.coachInterpret({
+          stepId: 'currentRole',
+          question: questionText(step, current),
+          answer: text,
+          context: { title: current.title, sector: current.sector },
+        });
+        if (data?.fields && (data.fields.title || data.fields.company)) {
+          const nextDraft = mergeInterpreted(draftRef.current, 'currentRole', data.fields, { append: true });
+          draftRef.current = nextDraft;
+          setDraft(nextDraft);
+        }
+      } catch {
+        // The end-of-conversation read still has the answer.
+      }
     }
     /* The coach heard the role ("You taught English there for 11 years")
        but filed no job, or half of one: its `learned` came back without a company

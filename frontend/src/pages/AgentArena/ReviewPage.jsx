@@ -2326,7 +2326,7 @@ const ReviewPage = () => {
                           {standardFields.map((fa, i) => (
                             <span key={fa.fieldId || `${fa.label || fa.question}-${i}`}>
                               <strong style={{ fontWeight: 600 }}>{fa.label || fa.question}:</strong>{' '}
-                              <span style={{ color: '#6B6787' }}>{fa.answer || '—'}</span>
+                              <span style={{ color: '#6B6787' }}>{fa.answer || 'None'}</span>
                             </span>
                           ))}
                         </div>
@@ -2448,7 +2448,7 @@ const ReviewPage = () => {
                           flexDirection: 'column',
                         }}>
                           <div style={{ fontSize: 22, fontWeight: 800, color: '#2D2A3E', lineHeight: 1 }}>
-                            {selected.match ?? '—'}<span style={{ fontSize: 12, fontWeight: 600, color: '#6B6787' }}>%</span>
+                            {selected.match ?? 'N/A'}{selected.match != null && <span style={{ fontSize: 12, fontWeight: 600, color: '#6B6787' }}>%</span>}
                           </div>
                           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.4px', color: '#6B6787', textTransform: 'uppercase' }}>Match</div>
                         </div>

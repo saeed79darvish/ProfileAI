@@ -39,7 +39,7 @@ const STATUS_PRESENTATION = {
   rejected:         { label: 'Rejected',          tone: 'neutral' },
 };
 
-const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
+const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : 'None');
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString() : '');
 
 const SentDetailPage = () => {
@@ -66,7 +66,7 @@ const SentDetailPage = () => {
     if (submission?.attempts > 0 || submission?.lastAttemptAt) {
       items.push({
         label: `Submission attempt${submission.attempts > 1 ? `s · ${submission.attempts}` : ''}`,
-        when: submission.lastAttemptAt ? fmt(submission.lastAttemptAt) : '—',
+        when: submission.lastAttemptAt ? fmt(submission.lastAttemptAt) : 'None',
         tone: 'brand',
       });
     }
@@ -79,7 +79,7 @@ const SentDetailPage = () => {
     } else if (submission?.error) {
       items.push({
         label: 'Submission failed',
-        when: submission.lastAttemptAt ? fmt(submission.lastAttemptAt) : '—',
+        when: submission.lastAttemptAt ? fmt(submission.lastAttemptAt) : 'None',
         tone: 'bad',
       });
     } else {
@@ -148,8 +148,8 @@ const SentDetailPage = () => {
 
             <FactGrid>
               <Fact label="Submitted" value={submission?.submittedAt ? fmt(submission.submittedAt) : 'Not yet submitted'} />
-              <Fact label="Last attempt" value={submission?.lastAttemptAt ? fmt(submission.lastAttemptAt) : '—'} />
-              <Fact label="Caught by scout" value={app.caughtAt || '—'} />
+              <Fact label="Last attempt" value={submission?.lastAttemptAt ? fmt(submission.lastAttemptAt) : 'None'} />
+              <Fact label="Caught by scout" value={app.caughtAt || 'None'} />
               <Fact label="Last update" value={fmt(app.updatedAt)} />
             </FactGrid>
 

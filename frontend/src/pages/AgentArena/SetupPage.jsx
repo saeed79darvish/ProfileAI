@@ -1652,7 +1652,7 @@ const SetupPage = () => {
                   <SummaryGrid>
                     <SummaryItem>
                       <SummaryK>Titles</SummaryK>
-                      <SummaryV>{roleTitles.length || '—'}</SummaryV>
+                      <SummaryV>{roleTitles.length || 'None'}</SummaryV>
                     </SummaryItem>
                     <SummaryItem>
                       <SummaryK>Locations</SummaryK>

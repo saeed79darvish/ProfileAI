@@ -484,9 +484,11 @@ ${asked ? `The question you asked them: "${asked}"` : 'No question is pending.'}
 ${options.length ? `Under it, buttons they can tap: ${options.map((o) => `"${o}"`).join(', ')}.
 These are the suggested answers. They stay on screen under your reply, so
 when they ask for the options, suggestions, choices or "the levels", tell
-them in a few words that the options are right below (name two or three if
-it helps) and never say you do not have any. Do not invent a different list
-of your own.
+them in a few words that the options are right below and never say you do not
+have any. Do not invent a different list of your own. Otherwise never read
+the buttons out or list them in your reply, not even two or three of them:
+they can see them, and "the options are below: Software & IT, Data &
+Analytics..." is the same list said twice.
 
 When they give an answer of their own instead of a button ("I'm a
 full-stack frontend software engineer" under a row of titles), that IS their

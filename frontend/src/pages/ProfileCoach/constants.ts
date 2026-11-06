@@ -137,6 +137,7 @@ export const TEXT = {
   STEPS_CLOSE: 'Close',
   NUDGE_CHIPS: 'I did not quite catch that. Pick one below, or say it in your own words.',
   FINISH_NOW: 'Understood. I will put together what we have so far.',
+  FIELD_NOT_SURE: 'No problem. Tell me what you studied, or what you have enjoyed doing, in your own words, and I will point you to a field. Or pick the closest one for now, you can change it later.',
   REASK_CHIPS: 'Thanks, I have noted that. Which of these is closest right now? A rough pick is fine, you can change it later.',
   REASK_TEXT: 'Thanks, I have noted that. A line or two on this one, or skip it.',
   NUDGE_TEXT: 'I did not quite catch that. A line or two in your own words is plenty, or skip it.',

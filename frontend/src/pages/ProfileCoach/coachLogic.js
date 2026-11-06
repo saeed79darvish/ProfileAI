@@ -449,6 +449,11 @@ export const FIELD_NOT_LISTED_CHIP = { id: CUSTOM_ANSWER_CHIP.id, label: "My fie
 export const sectorChips = (expanded = false) => {
   const chips = (expanded ? JOB_SECTORS : PRIMARY_SECTORS)
     .map((s) => ({ id: s.id, label: s.label }));
+  /* Someone who has no field yet (a new grad, someone leaving one) had a
+     wall of fields and nothing to tap that was true. Sent as words, so the
+     coach explores it with them instead of asking them to pick at random.
+     Before "More fields", which stays last. */
+  if (!expanded) chips.push({ id: '__say:not_sure_field', label: "I'm not sure yet", asText: true });
   chips.push(expanded ? { ...FIELD_NOT_LISTED_CHIP } : { ...MORE_SECTORS_CHIP });
   return chips;
 };
@@ -2989,6 +2994,14 @@ export const coachCompletion = (completion, draft = {}) => {
   });
 
   if (!applicable.length) return completion;
+
+  /* The panel has a "Looking for" row and the rubric does not, so a profile
+     with no job type, work style or target could read 100% "Every part of it
+     is filled in" next to an empty row. It counts here, where the panel is. */
+  const lookingFor = !!(draft.roleTypes || []).length || !!draft.workStyle || !!draft.target;
+  if (!applicable.some((i) => i.key === 'lookingFor')) {
+    applicable.push({ key: 'lookingFor', label: 'What you are looking for', done: lookingFor });
+  }
 
   const done = applicable.filter((i) => i.done).length;
   const pct = Math.round((done / applicable.length) * 100);

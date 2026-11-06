@@ -112,7 +112,7 @@ test('onboardingBlockMessageFor: apply path gets the AI-tools framing', () => {
 
 test('onboardingBlockMessageFor: arbitrary path gets the default copy', () => {
   const msg = onboardingBlockMessageFor('/feed');
-  assert.match(msg, /finish creating your profile/i);
+  assert.match(msg, /build your profile first/i);
 });
 
 // ── isVerificationExemptPath ─────────────────────────────────────────────────

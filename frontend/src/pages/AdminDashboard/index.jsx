@@ -41,7 +41,7 @@ const StatCard = ({ title, value, icon, color = COLORS.PRIMARY, subtitle, onClic
             {title}
           </Typography>
           <Typography variant="h4" fontWeight={700}>
-            {value?.toLocaleString() ?? '—'}
+            {value?.toLocaleString() ?? 'None'}
           </Typography>
           {subtitle && (
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
