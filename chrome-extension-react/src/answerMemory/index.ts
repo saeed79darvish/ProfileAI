@@ -4,3 +4,4 @@ export * from './text';
 export * from './match';
 export * from './cards';
 export * from './mic';
+export * from './learned';

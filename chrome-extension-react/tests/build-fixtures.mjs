@@ -24,6 +24,7 @@ const ENTRIES = [
   { entry: 'src/sidepanel/downloadPayload.ts', name: 'downloadPayload' },
   { entry: 'src/sidepanel/tailorLogic.ts', name: 'tailorLogic' },
   { entry: 'src/answerMemory/index.ts', name: 'answerMemory' },
+  { entry: 'src/sidepanel/pendingApplication.ts', name: 'pendingApplication' },
 ];
 
 let built = false;

@@ -8,7 +8,7 @@
 // having a second copy here is what let the content script and the background
 // worker disagree about the same posting.
 import { scrapeJobFromDocument } from '../jobScrape';
-import { parseWordHint, pickOption, cleanOptionTexts, type WordHint } from '../answerMemory';
+import { parseWordHint, pickOption, cleanOptionTexts, decideLearn, type WordHint } from '../answerMemory';
 
 // Environment: 'development' | 'production'
 const ENV = 'production';
@@ -164,6 +164,14 @@ function extAlive(): boolean {
   }
 }
 
+/** What marks a page as holding a job application form. Shared by job page
+ *  detection and by answer learning so both agree on what an application is. */
+const APPLICATION_FORM_SELECTOR =
+  'input[name*="resume" i], input[name*="cv" i], input[accept*=".pdf"], ' +
+  'form[action*="apply" i], form[action*="application" i], form[action*="submit" i], ' +
+  'button[class*="apply" i], a[class*="apply" i], ' +
+  '[class*="application-form" i], [id*="application-form" i]';
+
 // Initialize
 async function init() {
   if (isInitialized) return;
@@ -195,6 +203,7 @@ async function init() {
   // Detect if this is a job-related page
   detectJobPage();
   detectSite();
+  setupPageLearning();
   
   // Check auth silently in background
   await checkAuthSilently();
@@ -428,12 +437,7 @@ function detectJobPage() {
     if (isJobPage) return; // Already detected
     
     // Must have a job application form — look for resume/CV upload or apply-specific forms
-    const hasApplicationForm = document.querySelector(
-      'input[name*="resume" i], input[name*="cv" i], input[accept*=".pdf"], ' +
-      'form[action*="apply" i], form[action*="application" i], form[action*="submit" i], ' +
-      'button[class*="apply" i], a[class*="apply" i], ' +
-      '[class*="application-form" i], [id*="application-form" i]'
-    );
+    const hasApplicationForm = document.querySelector(APPLICATION_FORM_SELECTOR);
     
     if (!hasApplicationForm) return; // No application form, not a job page
     
@@ -1835,6 +1839,10 @@ function openCustomDropdown(trigger: Element): HTMLElement {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** The text a react-select control currently shows as its single value. */
+const shownValue = (control: Element) =>
+  (control.querySelector('[class*="single-value"], [class*="singleValue"]')?.textContent || '').replace(/\s+/g, ' ').trim();
+
 const hasDrawnValue = (control: Element) =>
   !!control.querySelector('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]');
 
@@ -1844,7 +1852,16 @@ const hasDrawnValue = (control: Element) =>
  * matches nothing is touched. react-select listens to mousedown and click, not
  * to value setters, so the menu is opened and the option clicked.
  */
-async function fillChoiceElement(el: HTMLElement, hint: { answer?: string; choiceValue?: string }): Promise<boolean> {
+async function fillChoiceElement(el: HTMLElement, hint: { answer?: string; choiceValue?: string; replace?: boolean }): Promise<boolean> {
+  extFillBegin();
+  try {
+    return await fillChoiceElementInner(el, hint);
+  } finally {
+    extFillEnd();
+  }
+}
+
+async function fillChoiceElementInner(el: HTMLElement, hint: { answer?: string; choiceValue?: string; replace?: boolean }): Promise<boolean> {
   try {
     if (el instanceof HTMLSelectElement) {
       const opts = Array.from(el.options).filter((o) => o.value && o.text.trim());
@@ -1869,7 +1886,7 @@ async function fillChoiceElement(el: HTMLElement, hint: { answer?: string; choic
     }
     if (el.getAttribute('role') === 'combobox' || el.closest('[class*="select__control"]')) {
       const control = el.closest<HTMLElement>('[class*="select__control"], [class*="control"]') || el;
-      if (hasDrawnValue(control)) return true;
+      if (hasDrawnValue(control) && !hint.replace) return true;
       const input = (control.querySelector('input[role="combobox"], input') || el) as HTMLElement;
       try { control.scrollIntoView({ block: 'center' }); } catch (_) {}
       try { input.focus({ preventScroll: true }); } catch (_) {}
@@ -1903,13 +1920,17 @@ async function fillChoiceElement(el: HTMLElement, hint: { answer?: string; choic
       target.dispatchEvent(new MouseEvent('mousedown', tpos));
       target.dispatchEvent(new MouseEvent('mouseup', tpos));
       target.dispatchEvent(new MouseEvent('click', tpos));
-      await sleep(250);
-      if (!hasDrawnValue(control)) {
+      const wanted = (target.textContent || '').trim();
+      // Changing a value that is already drawn must show the new text, not just any value.
+      const landed = () => (hint.replace ? shownValue(control).toLowerCase() === wanted.toLowerCase() : hasDrawnValue(control));
+      // The menu closes and the new value is drawn a moment after the click.
+      for (let waited = 0; waited < 1000 && !landed(); waited += 100) await sleep(100);
+      if (!landed()) {
         // Some builds only commit through the typed-text path.
         await commitOptionClick(target, control);
         await sleep(300);
       }
-      if (hasDrawnValue(control)) {
+      if (landed()) {
         control.style.boxShadow = '';
         return true;
       }
@@ -1940,9 +1961,11 @@ async function fillFactDropdowns(pending: AiDropdownCandidate[], skipped: string
       if (!matched.has(cand.question)) continue;
       pending.splice(i, 1);
       const d = resp.details?.[cand.question];
-      if (d?.source === 'fact' && (d.answer || d.choiceValue)) {
+      if ((d?.source === 'fact' || d?.source === 'learned') && (d.answer || d.choiceValue)) {
         if (await fillChoiceElement(cand.selectEl as HTMLElement, { answer: d.answer, choiceValue: d.choiceValue })) {
           filled++;
+          // Anything filled from the person's memory (a saved fact or a learned answer) is listed for review.
+          noteReused(cand.selectEl as HTMLElement, cand.question, d, cand.options.map((o) => o.text));
           continue;
         }
       }
@@ -3429,6 +3452,16 @@ function fillWorkdayCustomFields(container: Element, profile: any, skipped?: str
 }
 
 async function fillForm(container: Element, silent = false) {
+  extFillBegin();
+  reusedThisRun = [];
+  try {
+    await fillFormInner(container, silent);
+  } finally {
+    extFillEnd();
+  }
+}
+
+async function fillFormInner(container: Element, silent = false) {
   filledTracker.clear();
   let filledCount = 0;
   // Track fields the autofill chose to skip (e.g. dropdown with no confident match).
@@ -4035,8 +4068,9 @@ async function fillForm(container: Element, silent = false) {
           const det = result.details?.[question];
           if (meta.fieldType === 'select' || meta.fieldType === 'radio') {
             // Choice questions come only from a saved fact, never from a model guess.
-            if (det?.source === 'fact' && await fillChoiceElement(input, { answer: det.answer || answer, choiceValue: det.choiceValue })) {
+            if ((det?.source === 'fact' || det?.source === 'learned') && await fillChoiceElement(input, { answer: det.answer || answer, choiceValue: det.choiceValue })) {
               filledCount++;
+              noteReused(input as HTMLElement, question, det, meta.options || []);
             } else {
               skippedFields.push(question);
             }
@@ -4085,8 +4119,11 @@ async function fillForm(container: Element, silent = false) {
   // options as buttons so the person can choose.
   try {
     const stillEmpty = (await detectChoiceQuestions(0)).filter((q) => !q.optional && q.options && q.options.length);
-    if (stillEmpty.length > 0) {
-      chrome.runtime.sendMessage({ type: 'QUICKFILL_NEEDS_CHOICES', data: { count: stillEmpty.length } }).catch(() => {});
+    if (stillEmpty.length > 0 || reusedThisRun.length > 0) {
+      chrome.runtime.sendMessage({
+        type: 'QUICKFILL_NEEDS_CHOICES',
+        data: { count: stillEmpty.length, reused: reusedThisRun.slice(0, 30) },
+      }).catch(() => {});
     }
   } catch (_) { /* the amber rings still mark them */ }
 
@@ -4577,8 +4614,8 @@ function setupMessageListener() {
       }
       case 'INSERT_ANSWER': {
         try {
-          const { questionId, answer, choiceValue } = (message.data || {}) as { questionId: string; answer: string; choiceValue?: string };
-          insertAnswerIntoField(questionId, answer, choiceValue)
+          const { questionId, answer, choiceValue, replace } = (message.data || {}) as { questionId: string; answer: string; choiceValue?: string; replace?: boolean };
+          insertAnswerIntoField(questionId, answer, choiceValue, replace)
             .then((ok) => sendResponse({ success: ok }))
             .catch((e) => {
               console.warn('[ProfileAI] INSERT_ANSWER failed', e);
@@ -4796,6 +4833,17 @@ async function readComboboxOptions(control: HTMLElement): Promise<string[]> {
   return cleanOptionTexts(texts);
 }
 
+/** The question and option texts of a radio group, read one way everywhere. */
+function radioGroupQuestion(radios: HTMLInputElement[]): { question: string; options: string[] } {
+  const options = radios.map((r) => cleanQuestionLabel(getInputLabel(r) || r.value)).filter(Boolean);
+  const legend = radios[0].closest('fieldset')?.querySelector('legend')?.textContent;
+  const rg = radios[0].closest('[role="radiogroup"]');
+  const rgLabel = rg?.getAttribute('aria-label') || (rg?.getAttribute('aria-labelledby') ? document.getElementById(rg.getAttribute('aria-labelledby') || '')?.textContent : '');
+  const fromBox = extractDropdownLabel(radios[0]);
+  const question = legend || rgLabel || (options.includes(cleanQuestionLabel(fromBox)) ? '' : fromBox) || '';
+  return { question, options };
+}
+
 /**
  * Unfilled dropdowns and radio groups, with their real options. The side panel
  * decides which of them it may answer from the person's memory; the rest are
@@ -4812,6 +4860,7 @@ async function detectChoiceQuestions(startIdx: number) {
     if (!q || q.length < 4) return;
     const id = hashString(`${q}::${fieldType}::${idx}`);
     detectedQuestionRegistry.set(id, el);
+    detectedQuestionLabels.set(id, q);
     out.push({ id, question: q, fieldType, index: idx, ...(options ? { options } : {}), optional: !required });
     idx++;
   };
@@ -4834,12 +4883,7 @@ async function detectChoiceQuestions(startIdx: number) {
   });
   groups.forEach((radios) => {
     if (radios.some((r) => r.checked) || !isElementVisible(radios[0])) return;
-    const options = radios.map((r) => cleanQuestionLabel(getInputLabel(r) || r.value)).filter(Boolean);
-    const legend = radios[0].closest('fieldset')?.querySelector('legend')?.textContent;
-    const rg = radios[0].closest('[role="radiogroup"]');
-    const rgLabel = rg?.getAttribute('aria-label') || (rg?.getAttribute('aria-labelledby') ? document.getElementById(rg.getAttribute('aria-labelledby') || '')?.textContent : '');
-    const fromBox = extractDropdownLabel(radios[0]);
-    const question = legend || rgLabel || (options.includes(cleanQuestionLabel(fromBox)) ? '' : fromBox) || '';
+    const { question, options } = radioGroupQuestion(radios);
     if (options.length) push(radios[0], question, 'radio', options, isFieldRequired(radios[0], question));
   });
 
@@ -4871,8 +4915,8 @@ function clearFieldHighlight() {
 function highlightQuestionField(questionId: string, on: boolean): boolean {
   clearFieldHighlight();
   if (!on) return true;
-  const base = detectedQuestionRegistry.get(questionId);
-  if (!base || !document.body.contains(base)) return false;
+  const base = resolveRegistered(questionId);
+  if (!base) return false;
   const el = (base.getAttribute('role') === 'combobox'
     ? base.closest<HTMLElement>('[class*="control"]')
     : base instanceof HTMLInputElement && base.type === 'radio'
@@ -4886,14 +4930,45 @@ function highlightQuestionField(questionId: string, on: boolean): boolean {
   return true;
 }
 
-async function insertAnswerIntoField(questionId: string, answer: string, choiceValue?: string): Promise<boolean> {
-  const el = detectedQuestionRegistry.get(questionId);
-  if (!el || !document.body.contains(el)) {
+/** The question text behind each registered field, to find it again when the page redraws it. */
+const detectedQuestionLabels = new Map<string, string>();
+
+/**
+ * The live element for a registered field. A dropdown that was just filled is often
+ * redrawn by the page as a new element, so the saved one is gone; look it up again by
+ * its question text.
+ */
+function resolveRegistered(questionId: string): HTMLElement | null {
+  const saved = detectedQuestionRegistry.get(questionId);
+  if (saved && document.body.contains(saved)) return saved;
+  const want = cleanQuestionLabel(detectedQuestionLabels.get(questionId) || '').toLowerCase();
+  if (!want) return null;
+  const sameQuestion = (text: string | null | undefined) => cleanQuestionLabel(text || '').toLowerCase() === want;
+  for (const inp of Array.from(document.querySelectorAll<HTMLInputElement>('input[role="combobox"]'))) {
+    const control = inp.closest<HTMLElement>('[class*="select__control"], [class*="control"]');
+    const byFor = inp.id ? document.querySelector(`label[for="${CSS.escape(inp.id)}"]`)?.textContent : '';
+    if (sameQuestion(byFor) || (control && sameQuestion(extractDropdownLabel(control))) || sameQuestion(inp.getAttribute('aria-label'))) {
+      detectedQuestionRegistry.set(questionId, inp);
+      return inp;
+    }
+  }
+  for (const sel of Array.from(document.querySelectorAll<HTMLSelectElement>('select'))) {
+    if (sameQuestion(getInputLabel(sel) || sel.getAttribute('aria-label'))) {
+      detectedQuestionRegistry.set(questionId, sel);
+      return sel;
+    }
+  }
+  return null;
+}
+
+async function insertAnswerIntoField(questionId: string, answer: string, choiceValue?: string, replace?: boolean): Promise<boolean> {
+  const el = resolveRegistered(questionId);
+  if (!el) {
     return false;
   }
   clearFieldHighlight();
-  if (el instanceof HTMLSelectElement || el.getAttribute('role') === 'combobox' || (el instanceof HTMLInputElement && el.type === 'radio')) {
-    return fillChoiceElement(el, { answer, choiceValue });
+  if (el instanceof HTMLSelectElement || el.getAttribute('role') === 'combobox' || (el instanceof HTMLInputElement && el.type === 'radio') || el.closest('[class*="select__control"]')) {
+    return fillChoiceElement(el, { answer, choiceValue, replace });
   }
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     fillInput(el, answer);
@@ -4908,6 +4983,186 @@ async function insertAnswerIntoField(questionId: string, answer: string, choiceV
     return true;
   }
   return false;
+}
+
+// -----------------------------------------------------------------------------
+// Answer memory: what the extension filled from memory, and learning from the
+// person's own choices on the page
+// -----------------------------------------------------------------------------
+
+/** While the extension is filling, the page events it causes are not the person's choices. */
+let extFillDepth = 0;
+const extFillBegin = () => { extFillDepth++; };
+/** Released late so a debounced page event that fires just after a fill still sees the flag. */
+const extFillEnd = () => { window.setTimeout(() => { extFillDepth = Math.max(0, extFillDepth - 1); }, 1500); };
+
+interface ReusedEntry {
+  id: string;
+  question: string;
+  answer: string;
+  options: string[];
+  fieldType: 'select' | 'radio' | 'combobox';
+  learnedId?: string;
+  learnedFrom?: { question: string; company?: string; at?: string };
+}
+let reusedThisRun: ReusedEntry[] = [];
+
+/** Remember a field the extension filled from an earlier answer, so the panel can list it with a Change button. */
+function noteReused(el: HTMLElement, question: string, d: any, options: string[]) {
+  try {
+    const q = cleanQuestionLabel(question);
+    if (!q || reusedThisRun.some((r) => r.question === q)) return;
+    const fieldType: ReusedEntry['fieldType'] = el instanceof HTMLSelectElement ? 'select'
+      : el instanceof HTMLInputElement && el.type === 'radio' ? 'radio' : 'combobox';
+    const id = hashString(`${q}::reused::${reusedThisRun.length}`);
+    detectedQuestionRegistry.set(id, el);
+    detectedQuestionLabels.set(id, q);
+    reusedThisRun.push({
+      id, question: q, answer: String(d.answer || ''), options: cleanOptionTexts(options || []), fieldType,
+      ...(d.learnedId ? { learnedId: String(d.learnedId) } : {}),
+      ...(d.learnedFrom ? { learnedFrom: d.learnedFrom } : {}),
+    });
+  } catch (_) { /* the page is already filled; the list is a courtesy */ }
+}
+
+const looksLikeApplicationForm = () => {
+  try { return isJobPage || !!document.querySelector(APPLICATION_FORM_SELECTOR); } catch { return false; }
+};
+
+interface LearnTarget {
+  question: string; answer: string; kind: 'choice' | 'text';
+  options?: string[]; inputType?: string; tag?: string; fieldHints?: string;
+}
+
+const SELECT_CONTROL_SEL = '[class*="select__control"]';
+
+/** Reads the question and the chosen answer from the element the person just changed. */
+function describeLearnTarget(el: Element): LearnTarget | null {
+  if (el instanceof HTMLSelectElement) {
+    if (el.disabled || (el.selectedIndex <= 0 && !el.value)) return null;
+    const opt = el.options[el.selectedIndex];
+    const answer = (opt?.text || '').trim();
+    const label = getInputLabel(el) || el.getAttribute('aria-label') || extractDropdownLabel(el);
+    const options = Array.from(el.options).filter((o) => o.value && o.text.trim()).map((o) => o.text.trim());
+    return { question: cleanQuestionLabel(label), answer, kind: 'choice', options, tag: 'select', inputType: 'select', fieldHints: `${el.name} ${el.id} ${el.autocomplete}` };
+  }
+  if (el instanceof HTMLInputElement && el.type === 'radio') {
+    if (!el.name || !el.checked) return null;
+    const radios = Array.from(document.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(el.name)}"]`));
+    const { question, options } = radioGroupQuestion(radios);
+    const answer = cleanQuestionLabel(getInputLabel(el) || el.value);
+    return { question: cleanQuestionLabel(question), answer, kind: 'choice', options, tag: 'input', inputType: 'radio', fieldHints: el.name };
+  }
+  if (el instanceof HTMLInputElement) {
+    if (el.matches('[role="combobox"], [list]') || el.closest(SELECT_CONTROL_SEL) || el.readOnly || el.disabled) return null;
+    const type = (el.type || 'text').toLowerCase();
+    if (type !== 'text') return { question: '', answer: '', kind: 'text', inputType: type, tag: 'input' };
+    if (el.value.length > 200) return null;
+    const label = getInputLabel(el) || el.getAttribute('aria-label') || '';
+    return { question: cleanQuestionLabel(label), answer: el.value, kind: 'text', tag: 'input', inputType: 'text', fieldHints: `${el.name} ${el.id} ${el.autocomplete}` };
+  }
+  if (el.matches(SELECT_CONTROL_SEL)) {
+    if (el.querySelector('[class*="multi-value"], [class*="multiValue"]')) return null;
+    const answer = shownValue(el);
+    const inp = el.querySelector<HTMLInputElement>('input[role="combobox"], input');
+    const byFor = inp?.id ? document.querySelector(`label[for="${CSS.escape(inp.id)}"]`)?.textContent : '';
+    const label = byFor || extractDropdownLabel(el) || inp?.getAttribute('aria-label') || '';
+    return { question: cleanQuestionLabel(label), answer, kind: 'choice', tag: 'div', inputType: 'combobox', fieldHints: inp ? `${inp.name} ${inp.id}` : '' };
+  }
+  return null;
+}
+
+let learnJobCache: { ts: number; url: string; company?: string; title?: string } | null = null;
+function currentJobForLearning(): { company?: string; title?: string } {
+  const now = Date.now();
+  if (learnJobCache && learnJobCache.url === location.href && now - learnJobCache.ts < 60000) return learnJobCache;
+  let company: string | undefined;
+  let title: string | undefined;
+  try {
+    const scraped = scrapeJobFromDocument();
+    company = scraped.company || undefined;
+    title = scraped.title || undefined;
+  } catch (_) { /* send without them */ }
+  learnJobCache = { ts: now, url: location.href, company, title };
+  return learnJobCache;
+}
+
+const lastLearned = new Map<string, string>();
+
+function learnFromPage(el: Element) {
+  try {
+    if (extFillDepth > 0 || !extAlive() || !document.contains(el)) return;
+    if (!looksLikeApplicationForm()) return;
+    const t = describeLearnTarget(el);
+    if (!t) return;
+    const job = currentJobForLearning();
+    const decision = decideLearn({ ...t, company: job.company, jobTitle: job.title });
+    if (!decision.learn) return;
+    const key = decision.payload.question.toLowerCase();
+    if (lastLearned.get(key) === decision.payload.answer) return;
+    lastLearned.set(key, decision.payload.answer);
+    chrome.runtime.sendMessage({ type: 'LEARNED_SAVE', data: decision.payload }).catch(() => {});
+  } catch (_) { /* learning must never get in the way of the page */ }
+}
+
+const learnTimers = new WeakMap<Element, number>();
+function scheduleLearn(el: Element) {
+  try {
+    if (extFillDepth > 0) return;
+    const prev = learnTimers.get(el);
+    if (prev) window.clearTimeout(prev);
+    learnTimers.set(el, window.setTimeout(() => learnFromPage(el), 800));
+  } catch (_) { /* ignore */ }
+}
+
+/** react-select draws its value in a node of its own, so watch that after a trusted click or key. */
+const selectWatchers = new WeakMap<Element, { observer: MutationObserver; stop: number; last: string }>();
+function watchSelectControl(control: Element) {
+  try {
+    const existing = selectWatchers.get(control);
+    if (existing) {
+      window.clearTimeout(existing.stop);
+      existing.stop = window.setTimeout(() => { existing.observer.disconnect(); selectWatchers.delete(control); }, 8000);
+      return;
+    }
+    const entry = { last: shownValue(control), stop: 0, observer: null as unknown as MutationObserver };
+    entry.observer = new MutationObserver(() => {
+      const now = shownValue(control);
+      if (now && now !== entry.last) {
+        entry.last = now;
+        scheduleLearn(control);
+      }
+    });
+    entry.observer.observe(control, { childList: true, subtree: true, characterData: true });
+    entry.stop = window.setTimeout(() => { entry.observer.disconnect(); selectWatchers.delete(control); }, 8000);
+    selectWatchers.set(control, entry);
+  } catch (_) { /* ignore */ }
+}
+
+function setupPageLearning() {
+  try {
+    const opts = { capture: true, passive: true } as const;
+    document.addEventListener('change', (e) => {
+      try {
+        if (!e.isTrusted) return;
+        const t = e.target;
+        if (t instanceof HTMLSelectElement || (t instanceof HTMLInputElement && (t.type === 'radio' || t.type === 'text'))) scheduleLearn(t);
+      } catch (_) { /* ignore */ }
+    }, opts);
+    const onTrustedPick = (e: Event) => {
+      try {
+        if (!e.isTrusted || extFillDepth > 0) return;
+        if (e instanceof KeyboardEvent && e.key !== 'Enter' && e.key !== 'Tab') return;
+        const t = e.target instanceof Element ? e.target : null;
+        const control = t?.closest(SELECT_CONTROL_SEL)
+          || (t?.closest('[class*="select__menu"]') ? (document.activeElement as Element | null)?.closest(SELECT_CONTROL_SEL) : null)
+          || (document.activeElement as Element | null)?.closest(SELECT_CONTROL_SEL);
+        if (control) watchSelectControl(control);
+      } catch (_) { /* ignore */ }
+    };
+    document.addEventListener('click', onTrustedPick, opts);
+    document.addEventListener('keydown', onTrustedPick, opts);
+  } catch (_) { /* ignore */ }
 }
 
 // -----------------------------------------------------------------------------

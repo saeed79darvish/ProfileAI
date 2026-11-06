@@ -12,7 +12,7 @@ export const SavedAnswersSection: React.FC<SavedAnswersSectionProps> = ({ count,
         <h4 className="section-title">Saved Answers</h4>
         <span className="badge">{count}</span>
       </div>
-      <p className="section-desc">Custom answers are saved automatically and reused for similar questions.</p>
+      <p className="section-desc">We remember what you answer on applications and fill it in the next time the same kind of question comes up.</p>
       <button className="btn secondary small" onClick={onManage}>
         Manage Answers
       </button>

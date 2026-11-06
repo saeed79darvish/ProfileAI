@@ -13,9 +13,12 @@ import { AutofillSettings, getAutofillMode } from './components/AutofillSettings
 import { PromoCodeRedeem } from './components/PromoCodeRedeem';
 import { Notification, NotificationProps } from './components/Notification';
 import { CoverLetterModal } from './components/CoverLetterModal';
-import { SmartAnswersModal, type SmartAnswersRestore } from './components/SmartAnswersModal';
+import { SmartAnswersModal, type SmartAnswersRestore, type ReusedQuestion } from './components/SmartAnswersModal';
+import { reusedToast, buildSavedRows } from '../answerMemory';
+import { learnedList } from './memoryApi';
 import { AddExperienceModal } from './components/AddExperienceModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
+import { PendingApplicationCard } from './components/PendingApplicationCard';
 import { TailorFlow, type TailorRestore, type TailorStatus } from './components/TailorFlow';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState, KeywordAnalysis } from '../types';
@@ -50,6 +53,7 @@ export const SidePanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [answersCount, setAnswersCount] = useState(0);
   const [showAnswersModal, setShowAnswersModal] = useState(false);
+  const [reusedQuestions, setReusedQuestions] = useState<ReusedQuestion[]>([]);
   const [notification, setNotification] = useState<NotificationProps | null>(null);
   /**
    * Why the last Analyze click came back empty, shown against the button that
@@ -352,7 +356,8 @@ export const SidePanel: React.FC = () => {
 
   const loadAnswersCount = async () => {
     const { savedAnswers } = await chrome.storage.local.get('savedAnswers');
-    setAnswersCount(Object.keys(savedAnswers || {}).length);
+    const learned = await learnedList();
+    setAnswersCount(buildSavedRows(learned.ok ? learned.items : [], savedAnswers || {}).length);
   };
 
   const handleRefresh = useCallback(async () => {
@@ -394,8 +399,17 @@ export const SidePanel: React.FC = () => {
     const listener = (message: any) => {
       if (message?.type !== 'QUICKFILL_NEEDS_CHOICES') return;
       const n = Number(message.data?.count) || 0;
-      if (n <= 0) return;
-      showNotification(`${n} dropdown${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} your choice`, 'info');
+      const reusedList: ReusedQuestion[] = Array.isArray(message.data?.reused) ? message.data.reused : [];
+      if (n <= 0 && reusedList.length === 0) return;
+      if (reusedList.length > 0) showNotification(reusedToast(reusedList.length), 'info');
+      else showNotification(`${n} dropdown${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} your choice`, 'info');
+      // Quick Fill can report twice (a second pass finds the dropdowns already filled and
+      // reports none), so what was already reported is kept, not replaced.
+      setReusedQuestions((prev) => {
+        if (reusedList.length === 0) return prev;
+        const seen = new Set(prev.map((r) => r.question));
+        return [...prev, ...reusedList.filter((r) => !seen.has(r.question))];
+      });
       setSmartAnswersRestore(null);
       setChoicesOnly(true);
       setShowSmartAnswers(false);
@@ -889,6 +903,8 @@ export const SidePanel: React.FC = () => {
       ) : (
         <>
           <div className="main-content">
+            <PendingApplicationCard currentUrl={currentJob?.url} />
+
             <ProfileSection profile={profile} />
             
             <JobMatchSection 
@@ -989,6 +1005,7 @@ export const SidePanel: React.FC = () => {
         }}
         restore={smartAnswersRestore}
         choicesOnly={choicesOnly}
+        reused={reusedQuestions}
         onOpStart={() => beginOp('smartAnswers')}
         onOpEnd={() => endOp('smartAnswers')}
       />

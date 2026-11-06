@@ -5,8 +5,8 @@ import { runBackgroundTask, sweepInterruptedTasks, jobTaskKey } from '../tasks';
 import { scrapeJobFromDocument, mergeScrapes } from '../jobScrape';
 import { parseLimit, type LimitInfo } from '../sidepanel/tailorLogic';
 import {
-  ANSWERS_RULES_VERSION, applyRulesVersion, buildSeedStoryPatch, matchFact,
-  type AnswerCatalog, type AnswerDetail,
+  ANSWERS_RULES_VERSION, applyRulesVersion, buildSeedStoryPatch, matchFact, decideLearn, isMemorySource, isSensitiveQuestion,
+  type AnswerCatalog, type AnswerDetail, type LearnInput, type LearnedItem,
 } from '../answerMemory';
 
 // Any task that was still running when a previous worker generation was torn
@@ -721,9 +721,29 @@ async function handleMessage(
           // older builds did and why autofill alone counted as an application.
           stage?: 'in_progress' | 'applied';
           confirmedBy?: string;
+          tailoredProfileId?: string;
         };
         const saveAppResult = await saveExternalApplication(appData);
         sendResponse(saveAppResult);
+        break;
+      }
+
+      case 'PENDING_APPLICATIONS': {
+        const r = await authedApi('GET', '/external-applications/pending', undefined, { retryTransient: true });
+        sendResponse(r.ok && Array.isArray(r.body?.pending)
+          ? { success: true, pending: r.body.pending }
+          : { success: false, pending: [], error: r.error });
+        break;
+      }
+
+      case 'ANSWER_APPLICATION': {
+        const a = message.data as { id: string; answer: 'applied' | 'not_yet' | 'not_applying' };
+        if (!a?.id || !['applied', 'not_yet', 'not_applying'].includes(a.answer)) {
+          sendResponse({ success: false, error: 'Missing application or answer.' });
+          break;
+        }
+        const r = await authedApi('POST', `/external-applications/${encodeURIComponent(a.id)}/answer`, { answer: a.answer });
+        sendResponse(r.ok ? { success: true, application: r.body?.application } : { success: false, error: r.error });
         break;
       }
 
@@ -749,6 +769,22 @@ async function handleMessage(
 
       case 'EXPERIENCE_APPEND':
         sendResponse(await experienceAppend(message.data as { roleIndex: number; bullets: string[] }));
+        break;
+
+      case 'LEARNED_SAVE':
+        sendResponse(await learnedSave(message.data as Partial<LearnInput>));
+        break;
+
+      case 'LEARNED_LIST':
+        sendResponse(await learnedList(!!(message.data as { fresh?: boolean } | undefined)?.fresh));
+        break;
+
+      case 'LEARNED_EDIT':
+        sendResponse(await learnedEdit(message.data as { id: string; answer: string }));
+        break;
+
+      case 'LEARNED_DELETE':
+        sendResponse(await learnedDelete(message.data as { id: string }));
         break;
 
       case 'FACT_DROPDOWN_ANSWERS':
@@ -1425,7 +1461,7 @@ interface ApiResult {
 }
 
 async function authedApi(
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   payload?: unknown,
   opts: { retryTransient?: boolean } = {},
@@ -2812,6 +2848,75 @@ async function getAnswerCatalog(): Promise<AnswerCatalog | null> {
   return (answerCatalogCache?.data as AnswerCatalog) || null;
 }
 
+// -- Learned answers (private, per person) -------------------------------------
+// Everything the person answers on an application, kept so the same kind of
+// question is never asked twice. The server owns matching and the sensitive
+// list; the client only decides what is worth sending.
+const LEARNED_TTL_MS = 60 * 1000;
+let learnedCache: { ts: number; items: LearnedItem[] } | null = null;
+
+const dropLearnedCache = () => { learnedCache = null; };
+
+async function learnedList(fresh = false): Promise<{ success: boolean; items: LearnedItem[]; error?: string }> {
+  if (!authToken) return { success: false, items: [], error: 'Sign in to ProfileAI to continue.' };
+  if (!fresh && learnedCache && Date.now() - learnedCache.ts < LEARNED_TTL_MS) return { success: true, items: learnedCache.items };
+  const r = await authedApi('GET', '/career-context/learned', undefined, { retryTransient: true });
+  const items = r.body?.items ?? r.body?.data?.items;
+  if (!r.ok || !Array.isArray(items)) return { success: false, items: learnedCache?.items || [], error: r.error || 'Could not load your answers' };
+  learnedCache = { ts: Date.now(), items: items as LearnedItem[] };
+  return { success: true, items: learnedCache.items };
+}
+
+/** Whether there is anything to reuse; a failed read counts as none so a form is never held up. */
+async function hasLearned(): Promise<boolean> {
+  try {
+    const r = await learnedList();
+    return r.items.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function learnedSave(d: Partial<LearnInput>) {
+  try {
+    const decision = decideLearn({
+      question: d?.question || '',
+      answer: d?.answer || '',
+      kind: d?.kind === 'text' ? 'text' : 'choice',
+      options: d?.options,
+      company: d?.company,
+      jobTitle: d?.jobTitle,
+      inputType: d?.inputType,
+      tag: d?.tag,
+      fieldHints: d?.fieldHints,
+    });
+    if (!decision.learn) return { success: true as const, skipped: decision.reason };
+    const r = await authedApi('POST', '/career-context/learned', decision.payload, { retryTransient: true });
+    if (!r.ok) return apiFailure(r, 'Could not remember that');
+    dropLearnedCache();
+    if (r.body?.skipped) return { success: true as const, skipped: String(r.body.skipped) };
+    return { success: true as const, item: (r.body?.item ?? r.body?.data?.item) as LearnedItem | undefined };
+  } catch (err) {
+    return { success: false as const, error: 'Could not remember that' };
+  }
+}
+
+async function learnedEdit(d: { id: string; answer: string }) {
+  if (!d?.id || !d.answer || !d.answer.trim()) return { success: false as const, error: 'Type an answer first.' };
+  const r = await authedApi('PATCH', `/career-context/learned/${encodeURIComponent(d.id)}`, { answer: d.answer.trim() }, { retryTransient: true });
+  if (!r.ok) return apiFailure(r, 'Could not save that change');
+  dropLearnedCache();
+  return { success: true as const, item: (r.body?.item ?? r.body?.data?.item) as LearnedItem | undefined };
+}
+
+async function learnedDelete(d: { id: string }) {
+  if (!d?.id) return { success: false as const, error: 'Missing answer.' };
+  const r = await authedApi('DELETE', `/career-context/learned/${encodeURIComponent(d.id)}`, undefined, { retryTransient: true });
+  if (!r.ok) return apiFailure(r, 'Could not delete that');
+  dropLearnedCache();
+  return { success: true as const };
+}
+
 async function getMemory(): Promise<{ success: boolean; answerFacts: Record<string, any>; answerStories: Record<string, any>; error?: string }> {
   const r = await authedApi('GET', '/career-context', undefined, { retryTransient: true });
   if (!r.ok) return { success: false, answerFacts: {}, answerStories: {}, error: r.error };
@@ -2896,16 +3001,29 @@ async function experienceAppend(d: { roleIndex: number; bullets: string[] }) {
  */
 async function factDropdownAnswers(d: { fields: Array<{ question: string; options?: string[] }>; jobDescription?: string }) {
   const catalog = await getAnswerCatalog();
-  const matched = (d.fields || []).filter((f) => matchFact(f.question, catalog));
-  if (matched.length === 0) return { success: true as const, matched: [] as string[], details: {} as Record<string, AnswerDetail> };
+  // A fact question always goes to the server. Any other dropdown goes too when
+  // the person has earlier answers, because the server may recognise it as the
+  // same kind of question worded differently.
+  const learned = await hasLearned();
+  const candidates = (d.fields || []).filter((f) => !!matchFact(f.question, catalog) || (learned && !isSensitiveQuestion(f.question)));
+  if (candidates.length === 0) return { success: true as const, matched: [] as string[], details: {} as Record<string, AnswerDetail> };
   const res = await generateAIAnswers(
-    matched.map((f) => f.question),
+    candidates.map((f) => f.question),
     d.jobDescription || '',
-    matched.map((f) => ({ question: f.question, fieldType: 'select', options: f.options && f.options.length ? f.options : null })),
+    candidates.map((f) => ({ question: f.question, fieldType: 'select', options: f.options && f.options.length ? f.options : null })),
   );
   const details: Record<string, AnswerDetail> = {};
-  matched.forEach((f) => { details[f.question] = detailFor(f.question, res.answers, res.details); });
-  return { success: true as const, matched: matched.map((f) => f.question), details };
+  const matched: string[] = [];
+  for (const f of candidates) {
+    const detail = detailFor(f.question, res.answers, res.details);
+    const isFact = !!matchFact(f.question, catalog);
+    // A dropdown that is not a fact question is only claimed when memory
+    // answered it; anything else stays with the person.
+    if (!isFact && detail.source !== 'learned') continue;
+    details[f.question] = detail;
+    matched.push(f.question);
+  }
+  return { success: true as const, matched, details };
 }
 
 async function generateSmartAnswers(payload: {
@@ -2920,6 +3038,7 @@ async function generateSmartAnswers(payload: {
 
     await migrateSeedAnswers();
     const catalog = await getAnswerCatalog();
+    const learnedAvailable = await hasLearned();
     const jobId = jobIdFromContext(payload.jobInfo, payload.jobUrl);
     const cache = await loadSmartAnswerCache();
     const { savedAnswers = {} } = await chrome.storage.local.get('savedAnswers');
@@ -2946,7 +3065,7 @@ async function generateSmartAnswers(payload: {
       }
       // A dropdown or radio question the memory does not cover is never sent to
       // the model: the person chooses it from the form's real options.
-      if (!TEXT_FIELD_TYPES.has(q.fieldType) && !matchFact(q.question, catalog)) {
+      if (!TEXT_FIELD_TYPES.has(q.fieldType) && !matchFact(q.question, catalog) && !(learnedAvailable && !isSensitiveQuestion(q.question))) {
         results.set(q.id, { questionId: q.id, question: q.question, answer: '', source: 'needs_you', detail: { answer: '', source: 'needs_you' } });
         continue;
       }
@@ -2961,7 +3080,12 @@ async function generateSmartAnswers(payload: {
         needAI.map((q) => ({ question: q.question, fieldType: q.fieldType, options: q.options || null, optional: q.optional, wordHint: q.wordHint })),
       );
       for (const q of needAI) {
-        const detail = detailFor(q.question, aiResp.answers, aiResp.details);
+        let detail = detailFor(q.question, aiResp.answers, aiResp.details);
+        // A dropdown is only ever answered from memory (facts or earlier answers),
+        // never from a drafted guess.
+        if (!TEXT_FIELD_TYPES.has(q.fieldType) && !isMemorySource(detail.source) && detail.source !== 'needs_you') {
+          detail = { answer: '', source: 'needs_you' };
+        }
         results.set(q.id, { questionId: q.id, question: q.question, answer: detail.answer || '', source: detail.source, detail });
         if (detail.answer && !serverOnlyQuestion(q, catalog) && detail.source !== 'needs_you') {
           // Cache & auto-save to grow saved-answers over time. Fact answers are
@@ -3158,6 +3282,7 @@ async function saveExternalApplication(data: {
   // for a manual add, wrong for an autofill, which is the bug this closes.
   stage?: 'in_progress' | 'applied';
   confirmedBy?: string;
+  tailoredProfileId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   if (!authToken) {
     console.log('[ProfileAI] Not authenticated, skipping application save');
@@ -3180,6 +3305,7 @@ async function saveExternalApplication(data: {
         matchScore: data.matchScore,
         stage: data.stage,
         confirmedBy: data.confirmedBy,
+        ...(data.tailoredProfileId ? { tailoredProfileId: data.tailoredProfileId } : {}),
       }),
     });
 

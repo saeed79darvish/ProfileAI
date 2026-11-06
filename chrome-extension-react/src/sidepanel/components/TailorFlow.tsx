@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CONFIG } from '../../config';
 import type { JobInfo } from '../../types';
 import { buildDownloadPayload } from '../downloadPayload';
+import { PendingApplicationCard } from './PendingApplicationCard';
 import {
   STEPS,
   PROGRESS,
@@ -182,9 +183,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
   const [finalCopy, setFinalCopy] = useState<any | null>(null);
   const [downloaded, setDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [applied, setApplied] = useState(false);
-  const [notYet, setNotYet] = useState(false);
-  const [recording, setRecording] = useState(false);
   const [creditLabel, setCreditLabel] = useState('1 credit');
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rescoreRef = useRef(0);
@@ -257,8 +255,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     setAsking(null);
     setFinalCopy(null);
     setDownloaded(false);
-    setApplied(false);
-    setNotYet(false);
     setShowCovered(false);
   }, []);
 
@@ -276,7 +272,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
       setFinalCopy(initialCopy);
       setStep('apply');
       setDownloaded(false);
-      setApplied(false);
       return;
     }
     if (sameJob && stepRef.current === 'apply') return;
@@ -484,8 +479,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     const stamped = { ...copy, jobTitle: job?.title, company: job?.company, matchScore: matchNow ?? undefined };
     setFinalCopy(stamped);
     setDownloaded(false);
-    setApplied(false);
-    setNotYet(false);
     setStep('apply');
     // The panel finds this again for the same posting and opens at Apply.
     if (jobUrl) {
@@ -518,6 +511,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
         await chrome.tabs.create({ url: `${CONFIG.WEB_BASE}/resume/download?ext=1`, active: true });
       }
       setDownloaded(true);
+      recordStart();
     } catch (err) {
       setError((err as Error).message || 'Could not open the download. Please try again.');
     } finally {
@@ -525,28 +519,29 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     }
   };
 
-  const confirmApplied = async () => {
-    if (!job) return;
-    setRecording(true);
-    setError('');
-    const res = await send<{ success: boolean; error?: string }>('SAVE_EXTERNAL_APPLICATION', {
+  // Downloading a resume is not applying. Record the start quietly; the
+  // server asks about it later, and real submission detection marks it applied.
+  const startedFor = useRef<string | null>(null);
+  const recordStart = useCallback(() => {
+    if (!job || !jobUrl || !finalCopy) return;
+    if (startedFor.current === jobUrl) return;
+    startedFor.current = jobUrl;
+    void send('SAVE_EXTERNAL_APPLICATION', {
       jobTitle: job.title || '',
       company: job.company || '',
-      jobUrl: jobUrl || undefined,
+      jobUrl,
       platform: platformOf(jobUrl),
       location: job.location,
       matchScore: matchNow ?? undefined,
-      stage: 'applied',
-      confirmedBy: 'user',
+      stage: 'in_progress',
+      confirmedBy: 'tailored_resume',
+      tailoredProfileId: result?.savedId || undefined,
     });
-    setRecording(false);
-    if (res?.success) {
-      setApplied(true);
-      onNotify(`Recorded your application for ${job.title || 'this job'}.`, 'success');
-    } else {
-      setError(res?.error || 'Could not record your application. Please try again.');
-    }
-  };
+  }, [job, jobUrl, finalCopy, matchNow, result]);
+
+  useEffect(() => {
+    if (open && step === 'apply' && finalCopy) recordStart();
+  }, [open, step, finalCopy, recordStart]);
 
   const tailorAgain = () => {
     setResult(null);
@@ -554,7 +549,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     setError('');
     setLimit(null);
     setDownloaded(false);
-    setApplied(false);
     setStep('fit');
     if (!match) void loadMatch();
   };
@@ -604,6 +598,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     }
     return (
       <>
+        <PendingApplicationCard currentUrl={jobUrl} />
         {error && <p className="tf-error" role="alert">{error}</p>}
         <section className="tf-card tf-score">
           <Ring score={score ?? match.score} />
@@ -854,25 +849,9 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
       </button>
       {downloaded && <p className="tf-hint centered">The download window is open on the job page. Pick PDF or Word and save it.</p>}
 
-      {jobUrl && (
-        <section className="tf-card tf-applied">
-          <h4>Did you apply?</h4>
-          {applied ? (
-            <p className="tf-note ok"><Check size={13} /> Recorded in your job tracker.</p>
-          ) : (
-            <>
-              <p className="tf-note">This page is {company}&rsquo;s application. Once you have submitted it, tell us and we&rsquo;ll record it.</p>
-              {notYet && <p className="tf-note">No problem. Tailor Profile on this job brings you back here to record it.</p>}
-              <div className="tf-pair">
-                <button type="button" className="tf-btn secondary" onClick={() => { setNotYet(true); setError(''); }} disabled={recording}>Not yet</button>
-                <button type="button" className="tf-btn secondary strong" onClick={() => void confirmApplied()} disabled={recording}>
-                  {recording ? <Spinner small /> : 'Yes, I applied'}
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-      )}
+      <p className="tf-hint centered">
+        Saved. We will ask about this application next time you are here, and we mark it applied on our own when we see it submitted.
+      </p>
     </>
   );
 

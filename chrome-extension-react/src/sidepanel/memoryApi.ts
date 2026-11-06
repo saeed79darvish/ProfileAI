@@ -1,4 +1,4 @@
-import type { AnswerCatalog } from '../answerMemory';
+import type { AnswerCatalog, LearnedItem, LearnPayload } from '../answerMemory';
 
 /** Thin wrappers over the background worker's answer memory handlers. */
 
@@ -22,6 +22,44 @@ export async function saveFact(id: string, value: string): Promise<boolean> {
     return !!r?.success;
   } catch {
     return false;
+  }
+}
+
+/** Remember an answer the person just gave. Resolves to the stored item, or null when nothing was kept. */
+export async function learnedSave(payload: LearnPayload): Promise<LearnedItem | null> {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'LEARNED_SAVE', data: payload });
+    return r?.success && r.item ? (r.item as LearnedItem) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function learnedList(fresh = false): Promise<{ ok: true; items: LearnedItem[] } | { ok: false; error: string }> {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'LEARNED_LIST', data: { fresh } });
+    if (r?.success) return { ok: true, items: Array.isArray(r.items) ? r.items : [] };
+    return { ok: false, error: r?.error || 'Could not load your answers.' };
+  } catch {
+    return { ok: false, error: 'Could not load your answers.' };
+  }
+}
+
+export async function learnedEdit(id: string, answer: string): Promise<{ ok: true; item?: LearnedItem } | { ok: false; error: string }> {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'LEARNED_EDIT', data: { id, answer } });
+    return r?.success ? { ok: true, item: r.item } : { ok: false, error: r?.error || 'Could not save that change.' };
+  } catch {
+    return { ok: false, error: 'Could not save that change.' };
+  }
+}
+
+export async function learnedDelete(id: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'LEARNED_DELETE', data: { id } });
+    return r?.success ? { ok: true } : { ok: false, error: r?.error || 'Could not delete that.' };
+  } catch {
+    return { ok: false, error: 'Could not delete that.' };
   }
 }
 

@@ -41,6 +41,7 @@ export function sourceLine(detail: AnswerDetail | null | undefined, cached?: boo
   if (cached) return 'Saved for this job';
   switch (detail?.source) {
     case 'profile': return 'From your profile';
+    case 'learned': return 'From your earlier answer';
     case 'fact':
     case 'story': return 'From what you told us';
     case 'needs_you': return detail.needsFact ? 'We do not have this yet' : 'Only you can answer this one';

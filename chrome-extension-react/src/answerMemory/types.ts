@@ -36,7 +36,7 @@ export interface NeedsFact {
   choices?: FactChoice[];
 }
 
-export type DetailSource = 'fact' | 'story' | 'profile' | 'ai' | 'needs_you';
+export type DetailSource = 'fact' | 'story' | 'profile' | 'ai' | 'needs_you' | 'learned';
 
 export interface AnswerDetail {
   answer: string;
@@ -45,6 +45,37 @@ export interface AnswerDetail {
   choiceValue?: string;
   needsFact?: NeedsFact;
   wordCount?: number;
+  /** source 'learned': the stored item this answer came from. */
+  learnedId?: string;
+  learnedFrom?: LearnedFrom;
+  /** source 'needs_you': a stored answer that did not map to the form's options. */
+  suggestion?: string;
+}
+
+/** Where a learned answer was first given. */
+export interface LearnedFrom {
+  question: string;
+  company?: string;
+  at?: string;
+}
+
+/** One remembered answer, as the server returns it. */
+export interface LearnedItem {
+  id: string;
+  question: string;
+  key?: string;
+  kind: 'choice' | 'text';
+  answer: string;
+  options?: string[];
+  factId?: string;
+  choiceValue?: string;
+  company?: string;
+  jobTitle?: string;
+  source?: 'user';
+  uses?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  lastUsedAt?: string;
 }
 
 export interface WordHint {

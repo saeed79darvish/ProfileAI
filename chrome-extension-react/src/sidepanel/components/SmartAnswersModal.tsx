@@ -4,9 +4,21 @@ import type { DetectedQuestion, SmartAnswer, JobInfo } from '../../types';
 import {
   deriveCardState, stateLabel, sourceLine, progressOf, progressLabel, wordStatus, matchFact,
   isSensitiveQuestion, canSaveFromOptions, saveDecision,
-  type AnswerCatalog, type AnswerDetail, type NeedsFact,
+  youAnsweredLine, useSuggestionLabel, buildReviewList,
+  type AnswerCatalog, type AnswerDetail, type NeedsFact, type LearnedFrom,
 } from '../../answerMemory';
-import { getCatalog, saveFact } from '../memoryApi';
+import { getCatalog, saveFact, learnedSave } from '../memoryApi';
+
+/** A field Quick Fill filled from an earlier answer, as the page reports it. */
+export interface ReusedQuestion {
+  id: string;
+  question: string;
+  answer: string;
+  options: string[];
+  fieldType: 'select' | 'radio' | 'combobox';
+  learnedId?: string;
+  learnedFrom?: LearnedFrom;
+}
 
 /** One finished answer as the worker reports it. Older stored runs lack
  *  `detail`, and used a different `source` vocabulary, so both are read. */
@@ -39,6 +51,8 @@ interface SmartAnswersModalProps {
   restore?: SmartAnswersRestore | null;
   /** Show only dropdown and radio questions (opened after Quick Fill). */
   choicesOnly?: boolean;
+  /** Fields Quick Fill filled from earlier answers, listed first with a Change button. */
+  reused?: ReusedQuestion[];
   /** Bracket the batch request so the panel knows this instance is awaiting
    *  it and shouldn't also apply the mirrored result. */
   onOpStart?: () => void;
@@ -61,7 +75,7 @@ const isTextQuestion = (q: DetectedQuestion) => TEXT_TYPES.has(q.fieldType);
 
 function toCard(q: DetectedQuestion | undefined, r: ResultRow): SmartAnswer {
   const legacy = r.source === 'cache' ? 'job' : r.source === 'saved' ? 'saved' : undefined;
-  const source = r.detail?.source || (['fact', 'story', 'profile', 'needs_you'].includes(r.source || '') ? (r.source as AnswerDetail['source']) : 'ai');
+  const source = r.detail?.source || (['fact', 'story', 'profile', 'needs_you', 'learned'].includes(r.source || '') ? (r.source as AnswerDetail['source']) : 'ai');
   const answer = r.answer ?? r.detail?.answer ?? '';
   return {
     questionId: r.questionId,
@@ -136,10 +150,25 @@ const OptionAsk: React.FC<{
   save: boolean;
   onToggleSave: (v: boolean) => void;
   onPick: (option: string) => void;
-}> = ({ options, sensitive, canSave, save, onToggleSave, onPick }) => (
+  /** A stored answer that did not map to these options: one tap to try it. */
+  suggestion?: string;
+  onUseSuggestion?: () => void;
+  /** Changing an answer that is already filled. */
+  changing?: boolean;
+  onCancel?: () => void;
+}> = ({ options, sensitive, canSave, save, onToggleSave, onPick, suggestion, onUseSuggestion, changing, onCancel }) => (
   <div className="aq-fact">
+    {suggestion && onUseSuggestion && (
+      <button type="button" className="aq-choice primary aq-suggest" onClick={onUseSuggestion}>
+        {useSuggestionLabel(suggestion)}
+      </button>
+    )}
     <p className="aq-fact-ask">
-      {sensitive ? 'This one is yours to choose. We never save it or fill it for you.' : 'Choose your answer. It goes into the form as you pick it.'}
+      {sensitive
+        ? 'This one is yours to choose. We never save it or fill it for you.'
+        : changing
+          ? 'Choose another answer. It goes into the form and we will remember it.'
+          : 'Choose your answer. It goes into the form as you pick it.'}
     </p>
     <div className="aq-choices">
       {options.map((o) => (
@@ -155,6 +184,11 @@ const OptionAsk: React.FC<{
         {save && <p className="aq-privacy">{PRIVACY_LINE}</p>}
       </>
     )}
+    {onCancel && (
+      <div className="aq-actions">
+        <button type="button" className="aq-btn" onClick={onCancel}>Cancel</button>
+      </div>
+    )}
   </div>
 );
 
@@ -166,6 +200,7 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
   onAnswersGenerated,
   restore = null,
   choicesOnly = false,
+  reused = [],
   onOpStart,
   onOpEnd,
 }) => {
@@ -179,6 +214,8 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [saveNext, setSaveNext] = useState<Record<string, boolean>>({});
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [changeId, setChangeId] = useState<string | null>(null);
+  const [reusedIds, setReusedIds] = useState<string[]>([]);
   const ranOnce = useRef(false);
   const highlightedId = useRef<string | null>(null);
 
@@ -216,15 +253,39 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
         return !!matchFact(q.question, catalog as AnswerCatalog | null)
           || (hasOptions && (!q.optional || isSensitiveQuestion(q.question)));
       });
-      if (detected.length === 0) {
+      // Answers Quick Fill already put in from memory are listed first, and
+      // nothing the person already answered is asked again.
+      const reusedNow = choicesOnly ? reused : [];
+      const reusedQs: DetectedQuestion[] = reusedNow.map((r, i) => ({
+        id: r.id, question: r.question, fieldType: r.fieldType, options: r.options, optional: false, index: -1 - i,
+      }));
+      const reusedAnswers: Record<string, SmartAnswer> = {};
+      reusedNow.forEach((r) => {
+        reusedAnswers[r.id] = {
+          questionId: r.id, question: r.question, answer: r.answer, done: true,
+          detail: { answer: r.answer, source: 'learned', ...(r.learnedId ? { learnedId: r.learnedId } : {}), ...(r.learnedFrom ? { learnedFrom: r.learnedFrom } : {}) },
+        };
+      });
+      const taken = new Set(reusedNow.map((r) => r.question.toLowerCase()));
+      const fresh = detected.filter((q) => !taken.has(q.question.toLowerCase()));
+      setReusedIds(reusedNow.map((r) => r.id));
+      if (fresh.length === 0 && reusedQs.length === 0) {
         setQuestions([]);
         setStatus('empty');
         return;
       }
-      setQuestions(detected);
+      if (fresh.length === 0) {
+        setQuestions(reusedQs);
+        setAnswers(reusedAnswers);
+        setStatus('ready');
+        onAnswersGenerated?.(reusedQs.length);
+        return;
+      }
+      const detectedAll = [...reusedQs, ...fresh];
+      setQuestions(detectedAll);
 
-      const initial: Record<string, SmartAnswer> = {};
-      detected.forEach((q) => {
+      const initial: Record<string, SmartAnswer> = { ...reusedAnswers };
+      fresh.forEach((q) => {
         initial[q.id] = { questionId: q.id, question: q.question, answer: '', detail: { answer: '', source: 'ai' }, loading: true };
       });
       setAnswers(initial);
@@ -236,7 +297,7 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
         resp = await chrome.runtime.sendMessage({
           type: 'GENERATE_SMART_ANSWERS',
           data: {
-            questions: detected.map((q) => ({
+            questions: fresh.map((q) => ({
               id: q.id, question: q.question, fieldType: q.fieldType,
               options: q.options || null, optional: q.optional, wordHint: q.wordHint || null,
             })),
@@ -252,12 +313,12 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
 
       const next: Record<string, SmartAnswer> = { ...initial };
       (resp.results || []).forEach((r: ResultRow) => {
-        next[r.questionId] = toCard(detected.find((q) => q.id === r.questionId), r);
+        next[r.questionId] = toCard(fresh.find((q) => q.id === r.questionId), r);
       });
       Object.keys(next).forEach((k) => { next[k] = { ...next[k], loading: false }; });
       setAnswers(next);
       setStatus('ready');
-      onAnswersGenerated?.(detected.length);
+      onAnswersGenerated?.(detectedAll.length);
     } catch (err) {
       console.warn('[ProfileAI] Smart answers failed', err);
       setErrorMsg((err as Error).message || 'Could not generate answers');
@@ -265,7 +326,7 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
     }
     // onOpStart/onOpEnd are deliberately not dependencies: the panel passes
     // fresh arrows on every render and they only touch a ref.
-  }, [currentJob, onAnswersGenerated, choicesOnly]);
+  }, [currentJob, onAnswersGenerated, choicesOnly, reused]);
 
   // Rehydrate from a background run. Declared BEFORE the auto-run effect so
   // `ranOnce` is already set by the time that one checks it, otherwise
@@ -302,15 +363,16 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
       ranOnce.current = false;
       setMenuId(null);
       setEditingId(null);
+      setChangeId(null);
       if (highlightedId.current) void highlight(highlightedId.current, false);
     }
   }, [open, runDetectAndAnswer, highlight]);
 
-  const insertInto = useCallback(async (qid: string, answer: string, choiceValue?: string): Promise<boolean> => {
+  const insertInto = useCallback(async (qid: string, answer: string, choiceValue?: string, replace?: boolean): Promise<boolean> => {
     const tabId = await activeTabId();
     if (!tabId) return false;
     try {
-      const resp = await chrome.tabs.sendMessage(tabId, { type: 'INSERT_ANSWER', data: { questionId: qid, answer, choiceValue } });
+      const resp = await chrome.tabs.sendMessage(tabId, { type: 'INSERT_ANSWER', data: { questionId: qid, answer, choiceValue, replace } });
       return !!resp?.success;
     } catch {
       return false;
@@ -403,6 +465,46 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
     } catch (_) {}
   };
 
+  /** Remember what the person chose, with the job it was chosen for. Quiet when nothing is kept. */
+  const remember = useCallback(async (question: string, answer: string, kind: 'choice' | 'text', options?: string[]) => {
+    return learnedSave({ question, answer, kind, options, company: currentJob?.company, jobTitle: currentJob?.title });
+  }, [currentJob]);
+
+  /** Change an answer that came from memory: fill the page, then update the stored item. */
+  const handleChangePick = useCallback(async (qid: string, option: string) => {
+    const q = questions.find((x) => x.id === qid);
+    const a = answers[qid];
+    if (!q || !a) return;
+    setChangeId(null);
+    setCard(qid, { loading: true, error: undefined });
+    const ok = await insertInto(qid, option, undefined, true);
+    const item = await remember(q.question, option, 'choice', q.options);
+    const detail: AnswerDetail = {
+      answer: option,
+      source: 'learned',
+      learnedId: item?.id || a.detail.learnedId,
+      learnedFrom: { question: q.question, ...(currentJob?.company ? { company: currentJob.company } : {}), at: new Date().toISOString() },
+    };
+    setCard(qid, { loading: false, answer: option, detail, edited: false, done: ok });
+    if (ok) onNotification('Changed, and we will remember it', 'success');
+    else onNotification('Could not set that dropdown. Choose it on the page.', 'warning');
+  }, [questions, answers, currentJob, insertInto, remember, onNotification, setCard]);
+
+  /** One tap on a stored answer that did not map to the form's options. */
+  const handleSuggestionUse = useCallback(async (qid: string, suggestion: string) => {
+    const q = questions.find((x) => x.id === qid);
+    if (!q) return;
+    setCard(qid, { loading: true, error: undefined });
+    const ok = await insertInto(qid, suggestion);
+    if (ok) {
+      setCard(qid, { loading: false, answer: suggestion, detail: { answer: suggestion, source: 'learned' }, edited: false, done: true });
+      onNotification('Filled in on the page', 'success');
+    } else {
+      setCard(qid, { loading: false });
+      onNotification('That is not one of this form\'s options. Choose one below.', 'warning');
+    }
+  }, [questions, insertInto, onNotification, setCard]);
+
   /** The person answered a question the memory did not cover. */
   const handleFactPick = useCallback(async (qid: string, fact: NeedsFact, value: string, label: string) => {
     const q = questions.find((x) => x.id === qid);
@@ -431,9 +533,10 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
     }
     const ok = await insertInto(qid, detail.answer, detail.choiceValue);
     setCard(qid, { loading: false, answer: detail.answer, detail, edited: false, done: ok });
+    if (save) void remember(q.question, label, fact.type === 'text' ? 'text' : 'choice', q.options);
     if (ok) onNotification(save ? 'Filled in and saved for next time' : 'Filled in on the page', 'success');
     else onNotification('Saved, but this field needs you. Choose it on the page.', 'warning');
-  }, [questions, saveNext, currentJob, insertInto, onNotification, setCard]);
+  }, [questions, saveNext, currentJob, insertInto, remember, onNotification, setCard]);
 
   /** The person chose one of the form's real options. */
   const handleOptionPick = useCallback(async (qid: string, option: string) => {
@@ -451,9 +554,10 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
     const detail: AnswerDetail = { answer: option, source: 'fact', ...(fact ? { factId: fact.id } : {}) };
     const ok = await insertInto(qid, option);
     setCard(qid, { loading: false, answer: option, detail, edited: false, done: ok });
+    if (saveNext[qid] !== false) void remember(q.question, option, 'choice', q.options);
     if (ok) onNotification(saved ? 'Filled in and saved for next time' : 'Filled in on the page', 'success');
     else onNotification('Could not set that dropdown. Choose it on the page.', 'warning');
-  }, [questions, answers, saveNext, insertInto, onNotification, setCard]);
+  }, [questions, answers, saveNext, insertInto, remember, onNotification, setCard]);
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -464,8 +568,11 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
   const cards = questions.map((q) => {
     const a = answers[q.id];
     const state = a ? deriveCardState({ detail: a.detail, answer: a.answer, edited: a.edited, optional: q.optional, cached: !!a.cached }) : 'needs_you';
-    return { q, a, state };
+    return { q, a, state, id: q.id, fromMemory: reusedIds.includes(q.id) };
   });
+  const ordered = buildReviewList(cards);
+  const orderedCards = [...ordered.reused, ...ordered.rest];
+  const showGroups = ordered.reused.length > 0;
   const progress = progressOf(cards.map((c) => ({ state: c.state, done: c.a?.done, loading: c.a?.loading })));
   const readyCount = status === 'ready' ? readyIds().length : 0;
   const pct = progress.total ? Math.round((progress.ready / progress.total) * 100) : 0;
@@ -535,17 +642,23 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
 
           {(status === 'generating' || status === 'ready') && (
             <div className="aq-list">
-              {cards.map(({ q, a, state }) => {
+              {orderedCards.map(({ q, a, state, fromMemory }, idx) => {
                 if (!a) return null;
+                const learned = a.detail.source === 'learned';
+                const canChange = learned && !isTextQuestion(q) && !!(q.options && q.options.length);
                 const text = isTextQuestion(q);
                 const isEditing = editingId === q.id;
                 const hasAnswer = !!a.answer.trim();
                 const showAnswer = hasAnswer && state !== 'skipped';
                 const ws = text && hasAnswer ? wordStatus(isEditing ? editDraft : a.answer, q.wordHint) : null;
+                const heading = showGroups && idx === 0
+                  ? 'Reused from your earlier answers'
+                  : showGroups && idx === ordered.reused.length ? 'Still needs you' : '';
                 return (
+                  <React.Fragment key={q.id}>
+                  {heading && <h4 className="aq-group-title">{heading}</h4>}
                   <div
-                    key={q.id}
-                    className={`aq-card aq-${state}${a.done ? ' aq-filled' : ''}`}
+                    className={`aq-card aq-${state}${a.done ? ' aq-filled' : ''}${fromMemory ? ' aq-reused' : ''}`}
                     onMouseEnter={() => highlight(q.id, true)}
                     onMouseLeave={() => highlight(q.id, false)}
                     onFocusCapture={() => highlight(q.id, true)}
@@ -555,6 +668,8 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                       <div className="aq-chips">
                         {a.loading ? (
                           <span className="aq-chip aq-chip-busy">Working</span>
+                        ) : learned ? (
+                          <span className="aq-chip aq-chip-learned">From your earlier answer</span>
                         ) : (
                           <span className={`aq-chip aq-chip-${state}`}>{stateLabel(state)}</span>
                         )}
@@ -583,7 +698,11 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                     </div>
 
                     <div className="aq-question">{q.question}</div>
-                    <div className="aq-source">{sourceLine(a.detail, !!a.cached, a.edited)}</div>
+                    <div className="aq-source">
+                      {learned && a.detail.learnedFrom
+                        ? youAnsweredLine(a.detail.answer || a.answer, a.detail.learnedFrom)
+                        : sourceLine(a.detail, !!a.cached, a.edited)}
+                    </div>
 
                     {a.loading ? (
                       <div className="aq-loading"><div className="spinner" /><span>Drafting</span></div>
@@ -607,6 +726,17 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                           <button className="aq-btn" onClick={() => setEditingId(null)}>Cancel</button>
                         </div>
                       </>
+                    ) : changeId === q.id && canChange ? (
+                      <OptionAsk
+                        options={q.options as string[]}
+                        sensitive={false}
+                        canSave={false}
+                        save={false}
+                        changing
+                        onToggleSave={() => {}}
+                        onPick={(o) => handleChangePick(q.id, o)}
+                        onCancel={() => setChangeId(null)}
+                      />
                     ) : (state === 'needs_you' || state === 'skipped') && !text && q.options && q.options.length > 0 ? (
                       <OptionAsk
                         options={q.options}
@@ -615,6 +745,8 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                         save={saveNext[q.id] !== false}
                         onToggleSave={(v) => setSaveNext((p) => ({ ...p, [q.id]: v }))}
                         onPick={(o) => handleOptionPick(q.id, o)}
+                        suggestion={a.detail.suggestion}
+                        onUseSuggestion={a.detail.suggestion ? () => handleSuggestionUse(q.id, a.detail.suggestion as string) : undefined}
                       />
                     ) : state === 'needs_you' && a.detail.needsFact ? (
                       <FactAsk
@@ -673,10 +805,15 @@ export const SmartAnswersModal: React.FC<SmartAnswersModalProps> = ({
                           <button className={`aq-btn primary${a.done ? ' is-done' : ''}`} onClick={() => handleUse(q.id)}>
                             {a.done ? 'Filled. Use again' : 'Use this'}
                           </button>
+                          {canChange && <button className="aq-btn" onClick={() => setChangeId(q.id)}>Change</button>}
                         </div>
+                        {learned && !canChange && !text && (
+                          <p className="aq-note">To change it, choose another answer on the page. We will remember it.</p>
+                        )}
                       </>
                     ) : null}
                   </div>
+                  </React.Fragment>
                 );
               })}
             </div>

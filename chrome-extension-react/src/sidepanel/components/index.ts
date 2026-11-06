@@ -12,3 +12,4 @@ export { Notification } from './Notification';
 export { CoverLetterModal } from './CoverLetterModal';
 export { SmartAnswersModal } from './SmartAnswersModal';
 export { MatchAnalysisModal } from './MatchAnalysisModal';
+export { PendingApplicationCard } from './PendingApplicationCard';
