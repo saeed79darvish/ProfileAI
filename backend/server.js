@@ -564,6 +564,14 @@ const startServer = async () => {
       console.warn('⚠️  CareerContexts table ensure skipped:', err.message);
     }
 
+    // Answer memory columns on CareerContexts (answerFacts, answerStories).
+    try {
+      const { up: ensureCareerContextAnswerMemory } = require('./scripts/migrations/ensureCareerContextAnswerMemory');
+      await ensureCareerContextAnswerMemory();
+    } catch (err) {
+      console.warn('⚠️  CareerContexts answer memory columns ensure skipped:', err.message);
+    }
+
     // Add ATSBoards.isStartup and derive it from board provenance (seed list =
     // known companies → false; discovered greenhouse/lever/ashby boards →
     // true). This powers the accurate "Startups" job filter. AWAITED (not

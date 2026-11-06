@@ -8,6 +8,55 @@
  */
 
 const { CAREER_STAGES, SENIORITY_IDS } = require('./jobSeniorityFit');
+const { factById, storyById } = require('../config/answerCatalog');
+
+const MAX_ANSWER_TEXT = 2000;
+const MAX_FACT_NOTE = 500;
+
+const badRequest = (message) => Object.assign(new Error(message), { status: 400, code: 'invalid_answer_memory' });
+
+const plainText = (v, max) => String(v ?? '').replace(/\r\n/g, '\n').trim().slice(0, max);
+
+/**
+ * Applies a partial edit to the answer memory. Pure: returns the next
+ * { answerFacts, answerStories }, or throws a 400-tagged error.
+ * `null` (or an empty value) deletes a key. updatedAt is stamped here.
+ */
+function mergeAnswerMemory(current = {}, patch = {}, now = new Date()) {
+  const stamp = now.toISOString();
+  const facts = { ...(current.answerFacts || {}) };
+  const stories = { ...(current.answerStories || {}) };
+  const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+
+  if (patch.answerFacts !== undefined) {
+    if (!isObj(patch.answerFacts)) throw badRequest('answerFacts must be an object');
+    for (const [id, raw] of Object.entries(patch.answerFacts)) {
+      const fact = factById(id);
+      if (!fact) throw badRequest(`Unknown fact: ${id}`);
+      if (raw === null) { delete facts[id]; continue; }
+      const entry = isObj(raw) ? raw : { value: raw };
+      const value = plainText(entry.value, MAX_ANSWER_TEXT);
+      if (!value) { delete facts[id]; continue; }
+      if (fact.choices && !fact.choices.some((c) => c.value === value)) {
+        throw badRequest(`Invalid value for ${id}`);
+      }
+      const note = plainText(entry.note, MAX_FACT_NOTE);
+      facts[id] = { value, ...(note ? { note } : {}), updatedAt: stamp };
+    }
+  }
+
+  if (patch.answerStories !== undefined) {
+    if (!isObj(patch.answerStories)) throw badRequest('answerStories must be an object');
+    for (const [id, raw] of Object.entries(patch.answerStories)) {
+      if (!storyById(id)) throw badRequest(`Unknown story: ${id}`);
+      if (raw === null) { delete stories[id]; continue; }
+      const text = plainText(isObj(raw) ? raw.text : raw, MAX_ANSWER_TEXT);
+      if (!text) { delete stories[id]; continue; }
+      stories[id] = { text, updatedAt: stamp };
+    }
+  }
+  return { answerFacts: facts, answerStories: stories };
+}
 
 const MAX_SUMMARIES = 20;
 const MAX_TEXT = 1000;
@@ -79,6 +128,8 @@ const toView = (row) => ({
   constraints: row?.constraints || {},
   assessment: row?.assessment || null,
   summaries: row?.summaries || [],
+  answerFacts: row?.answerFacts || {},
+  answerStories: row?.answerStories || {},
   updatedAt: row?.updatedAt || null,
 });
 
@@ -132,6 +183,9 @@ function makeCareerContextService({ CareerContext }) {
     if (patch.constraints && typeof patch.constraints === 'object') {
       next.constraints = cleanConstraints(patch.constraints);
     }
+    if (patch.answerFacts !== undefined || patch.answerStories !== undefined) {
+      Object.assign(next, mergeAnswerMemory(row, patch));
+    }
     if (Object.keys(next).length) await row.update(next);
     return toView(row);
   };
@@ -162,4 +216,4 @@ function makeCareerContextService({ CareerContext }) {
   return { get, merge, edit, forget, clear };
 }
 
-module.exports = { makeCareerContextService, toView, cleanConstraints, CONSTRAINT_KEYS, TEXT_KEYS, SECTOR_IDS };
+module.exports = { makeCareerContextService, mergeAnswerMemory, toView, cleanConstraints, CONSTRAINT_KEYS, TEXT_KEYS, SECTOR_IDS };

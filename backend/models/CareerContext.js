@@ -39,6 +39,12 @@ const CareerContext = sequelize.define('CareerContext', {
   assessment: { type: DataTypes.JSONB, allowNull: true },
   // [{ at, source: 'call' | 'chat', text }], newest last, capped.
   summaries: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
+  /* Answer memory: what the person told us so application questions can be
+     answered for them. answerFacts: { [factId]: { value, note?, updatedAt } };
+     answerStories: { [storyId]: { text, updatedAt } }. Catalog in
+     config/answerCatalog.js. */
+  answerFacts: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+  answerStories: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
 }, {
   tableName: 'CareerContexts',
   timestamps: true,

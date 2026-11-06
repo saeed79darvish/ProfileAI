@@ -33,7 +33,7 @@ const ROUTE_META = {
   '/extension': {
     title: 'ProfilleAI Chrome Extension: Apply to Any Job, Anywhere',
     description:
-      'The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on LinkedIn, Greenhouse, Workday, and any career page.',
+      'The ProfilleAI Chrome extension autofills applications, drafts AI answers to screening questions, and tailors your resume on Greenhouse, Workday, Lever, and any career page.',
   },
   '/jobs': {
     title: 'Browse Jobs: Curated Roles with AI Matching | ProfilleAI',

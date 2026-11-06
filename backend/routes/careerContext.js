@@ -1,6 +1,7 @@
 /**
  * /api/career-context — what ProfilleAI knows about the signed-in candidate.
  *
+ * GET     /answer-catalog  the facts and stories the answer memory can hold
  * GET     /             the record (empty fields when there is none yet)
  * PATCH   /             the person's own edit; replaces what it names
  * POST    /merge        the coach's write; fills gaps, or corrects with overwrite
@@ -17,6 +18,7 @@ const { makeCareerContextService } = require('../services/careerContextService')
 const { callAI, HAIKU_MODEL } = require('../services/ai/core');
 const { callSummaryPrompt } = require('../services/ai/prompts/careerContext');
 
+const { publicCatalog } = require('../config/answerCatalog');
 const { invalidateJobsRankingForUser } = require('../services/jobEmbeddingService');
 
 const router = express.Router();
@@ -36,6 +38,11 @@ const fail = (res, label, error) => {
   res.status(500).json({ error: 'Could not update what we know about you' });
 };
 
+/* The facts and stories the memory can hold. Clients read this, never copy it. */
+router.get('/answer-catalog', (req, res) => {
+  res.json({ success: true, ...publicCatalog() });
+});
+
 router.get('/', async (req, res) => {
   try {
     res.json({ success: true, context: await service.get(req.user.id) });
@@ -47,7 +54,10 @@ router.patch('/', async (req, res) => {
     const context = await service.edit(req.user.id, req.body || {});
     refreshJobs(req.user.id);
     res.json({ success: true, context });
-  } catch (error) { fail(res, 'edit', error); }
+  } catch (error) {
+    if (error?.status === 400) return res.status(400).json({ error: error.message, code: error.code });
+    fail(res, 'edit', error);
+  }
 });
 
 router.post('/merge', async (req, res) => {
