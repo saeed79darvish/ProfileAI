@@ -2,7 +2,7 @@ const express = require('express');
 const { personalizeProbes, makeInterviewPrepService } = require('../services/interviewPrepService');
 
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
-const FEATURE = 'career_suggestions'; // existing allowance bucket; research itself is shared and cached
+const FEATURE = 'interview_prep'; // paid allowance (Pro and above); cache hits and shared research cost nothing
 
 function sendError(res, err) {
   const status = err.status || 500;

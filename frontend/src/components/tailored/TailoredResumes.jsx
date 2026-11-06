@@ -970,9 +970,20 @@ function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenRes
     { title: 'Questions to ask', items: (prep.questionsToAsk || []).map((q) => ({ text: typeof q === 'string' ? q : q.question || '' })) },
   ].filter((s) => s.items.some((i) => i.head || i.text));
 
+  const paidPlan = ['pro', 'pro_plus'].includes(user?.subscriptionTier) || user?.role === 'admin';
+  const researchCard = (
+    <Box style={{ marginBottom: 16 }}>
+      <h4>What candidates recently asked at {company}{!paidPlan && <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700, color: '#4b4fc4', background: '#ecedfb', borderRadius: 999, padding: '2px 8px', verticalAlign: 'middle' }}>Pro</span>}</h4>
+      <p className="lead">We read recent public interview reports for this role, then show the likely questions with a link and date for each.</p>
+      <Primary type="button" onClick={() => navigate(`/interview-prep/${tp.id}`)}>{paidPlan ? 'See recent questions' : 'See what Pro includes'}</Primary>
+    </Box>
+  );
+
   const prepTab = (() => {
     if (step === 'ask') {
       return (
+        <>
+        {researchCard}
         <Box>
           <h4>Got an interview at {company}?</h4>
           <p className="lead">We&rsquo;ll build a prep guide from this job, your resume and your gaps.</p>
@@ -981,6 +992,7 @@ function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenRes
             <Secondary $big type="button" style={{ flex: 1 }} onClick={() => { setGotInterview(false); setStep('details'); }}>Not yet, prepare anyway</Secondary>
           </div>
         </Box>
+        </>
       );
     }
     if (step === 'loading') {
@@ -1009,6 +1021,7 @@ function Detail({ tp, group, desk, user, profile, onVersion, onStatus, onOpenRes
             <h4 style={{ margin: 0, fontSize: 18 }}>Your {ROUND_LABEL[meta.interviewLevel] ? `${ROUND_LABEL[meta.interviewLevel].toLowerCase()} ` : ''}prep guide</h4>
             <button type="button" onClick={() => setStep('details')} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: 15, fontWeight: 600, color: '#4b4fc4', cursor: 'pointer' }}>Prep another round</button>
           </div>
+          {researchCard}
           <GuideGrid $desk={desk}>
             {guide.map((s, i) => {
               const isOpen = desk || openGuide === i;

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { researchViaAnthropicWebSearch } = require('./anthropicWebResearch');
+const { researchViaAnthropicWebSearch, pageAgeToIso } = require('./anthropicWebResearch');
 
 const NOW = new Date('2026-11-06T00:00:00Z');
 const quiet = () => {};
@@ -118,7 +118,7 @@ test('falls back once to the older tool type on a 400 about the tool', async () 
   assert.equal(p.coverage, 'none');
 });
 
-test('sources older than 12 months are not citable', async () => {
+test('sources older than 24 months are not citable', async () => {
   const client = fakeClient([{
     stop_reason: 'end_turn', usage: {},
     content: [searchBlock([U1], { page_age: 'January 3, 2024' }), textBlock(answer({ summary: 's', questions: [{ text: 'Old question about sorting', category: 'coding', sourceUrls: [U1] }] }))],
@@ -130,4 +130,46 @@ test('sources older than 12 months are not citable', async () => {
 test('unreadable answer fails the run', async () => {
   const client = fakeClient([{ stop_reason: 'end_turn', usage: {}, content: [textBlock('no json here')] }]);
   await assert.rejects(researchViaAnthropicWebSearch({ company: 'A', jobTitle: 'B', client, now: NOW, log: quiet }), { code: 'model_failed' });
+});
+
+test('dates and notes the model read on the pages fill undated sources; bad or old dates do not', async () => {
+  const undated = (urls) => ({ type: 'web_search_tool_result', tool_use_id: 't', content: urls.map((u) => ({ type: 'web_search_result', url: u, title: 'T', page_age: null, encrypted_content: 'e' })) });
+  const client = fakeClient([{
+    stop_reason: 'end_turn', usage: {},
+    content: [undated([U1, U2, U3]), textBlock(answer({
+      summary: 's',
+      questions: [
+        { text: 'Design a rate limiter', category: 'system_design', sourceUrls: [U1] },
+        { text: 'Question from an old post', category: 'coding', sourceUrls: [U2] },
+        { text: 'Tell me about a failure', category: 'behavioral', sourceUrls: [U3] },
+      ],
+      sources: [
+        { url: U1, postedOn: '2026-09-14', note: 'Candidate describes a rate limiter design round.' },
+        { url: U2, postedOn: '2024-01-02', note: 'Old.' },
+        { url: U3, postedOn: '2027-05-01', note: 'Future date is ignored.' },
+        { url: 'https://made.up/q', postedOn: '2026-10-01', note: 'unknown source' },
+      ],
+    }))],
+  }]);
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  const byUrl = Object.fromEntries(p.sources.map((s) => [s.url, s]));
+  assert.equal(byUrl[U1].date.slice(0, 10), '2026-09-14');
+  assert.match(byUrl[U1].excerpt, /rate limiter/);
+  assert.equal(byUrl[U2], undefined); // older than the window: its question is dropped
+  assert.equal(byUrl[U3].date, null); // a future date is not trusted
+  assert.deepEqual(p.questions.map((q) => q.text).sort(), ['Design a rate limiter', 'Tell me about a failure']);
+});
+
+test('page_age in relative words becomes a date, so the 24 month window holds', async () => {
+  assert.equal(pageAgeToIso('73 days ago', NOW).slice(0, 10), '2026-08-25');
+  assert.equal(pageAgeToIso('2 weeks ago', NOW).slice(0, 10), '2026-10-23');
+  assert.equal(pageAgeToIso('April 30, 2026', NOW).slice(0, 10), '2026-04-30');
+  assert.equal(pageAgeToIso('', NOW), null);
+  assert.equal(pageAgeToIso('sometime', NOW), null);
+  const client = fakeClient([{
+    stop_reason: 'end_turn', usage: {},
+    content: [searchBlock([U1], { page_age: '800 days ago' }), textBlock(answer({ summary: 's', questions: [{ text: 'Question from an old post', category: 'coding', sourceUrls: [U1] }] }))],
+  }]);
+  const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
+  assert.deepEqual(p.questions, []);
 });

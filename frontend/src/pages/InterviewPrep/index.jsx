@@ -206,6 +206,10 @@ export default function InterviewPrep() {
     const fail = (e) => {
       if (run.current !== runId) return true;
       if (e?.response?.status === 503 && e.response.data?.code === 'search_not_configured') { setPhase('unavailable'); return true; }
+      // 403/429 from the plan limiter: free plans have no research, paid plans have a monthly count.
+      if ([403, 429].includes(e?.response?.status) && (e.response.data?.upgradeRequired || e.response.data?.feature === 'interview_prep')) {
+        setErrMsg(e.response.data?.upgradeRequired ? 'upgrade' : 'limit'); setPhase('locked'); return true;
+      }
       setErrMsg(e?.response?.data?.error || e?.response?.data?.message || ''); setPhase('failed'); return true;
     };
     const finish = (id, p) => {
@@ -294,6 +298,16 @@ export default function InterviewPrep() {
           <Center>
             <h2>Interview research is not available yet</h2>
             <p>We will turn it on soon.</p>
+            <Btn type="button" $ghost onClick={() => navigate(-1)}>Go back</Btn>
+          </Center>
+        )}
+        {phase === 'locked' && (
+          <Center>
+            <h2>{errMsg === 'upgrade' ? 'Recent interview questions are a Pro feature' : 'You have used this month\u2019s interview research'}</h2>
+            <p>{errMsg === 'upgrade'
+              ? 'Pro and Pro Plus read what candidates recently shared about this role at this company, and show you the likely questions with their sources and dates.'
+              : 'Your allowance renews next month. Pro Plus includes more research each month.'}</p>
+            <Btn type="button" onClick={() => navigate('/pricing')}>See plans</Btn>
             <Btn type="button" $ghost onClick={() => navigate(-1)}>Go back</Btn>
           </Center>
         )}

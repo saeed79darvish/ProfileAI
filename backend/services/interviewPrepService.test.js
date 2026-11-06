@@ -29,12 +29,12 @@ test('keys: company and role normalization', () => {
   assert.equal(svc.roleKeyOf('Senior Software Engineer!'), svc.roleKeyOf('software engineer, senior'));
 });
 
-test('dedupes urls, drops results older than 12 months, caps at 12, counts frequency', async () => {
+test('dedupes urls, drops results older than 24 months, caps at 12, counts frequency', async () => {
   const seenQueries = [];
   const search = async ({ query }) => {
     seenQueries.push(query);
     const list = Array.from({ length: 8 }, (_, i) => result(i + 1));
-    list.push(result(99, { publishedAt: '2025-01-01T00:00:00.000Z' })); // too old
+    list.push(result(99, { publishedAt: '2024-01-01T00:00:00.000Z' })); // too old
     list.push(result(1, { url: 'https://www.reddit.com/r/jobs/1/?utm_source=x' })); // dup
     list.push(result(50, { publishedAt: null, url: 'https://x.com/undated' })); // undated kept
     return list;
@@ -67,6 +67,10 @@ test('coverage thresholds', () => {
   assert.equal(svc.coverageOf(q(4, ['s1', 's2', 's3'])), 'thin');
   assert.equal(svc.coverageOf(q(5, ['s1', 's2'])), 'thin');
   assert.equal(svc.coverageOf(q(5, ['s1', 's2', 's3'])), 'good');
+  // one-off posts are not corroboration: five questions with one source each stay thin
+  const oneOffs = ['s1', 's2', 's3', 's4', 's5'].map((id) => ({ sourceIds: [id] }));
+  assert.equal(svc.coverageOf(oneOffs), 'thin');
+  assert.equal(svc.coverageOf([...oneOffs, { sourceIds: ['s1', 's2'] }, { sourceIds: ['s2', 's3'] }]), 'good');
 });
 
 test('no search results gives coverage none without calling the model', async () => {

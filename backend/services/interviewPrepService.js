@@ -9,14 +9,14 @@
  *  - only the text the search returned is used; stored excerpts are at most
  *    300 characters; emitted text never repeats more than 25 consecutive words
  *    of a source;
- *  - only the last 12 months count.
+ *  - only the last 24 months count.
  *
  * The search and the model are injected so tests never touch the network.
  */
 
 const DAY_MS = 86400000;
 const CACHE_DAYS = 21;
-const WINDOW_DAYS = 365;
+const WINDOW_DAYS = 730;
 const MAX_RESULTS_KEPT = 12;
 const BATCH_SIZE = 4;
 const SEARCH_CONCURRENCY = 3;
@@ -25,7 +25,7 @@ const QUOTE_MAX_WORDS = 25;
 const SOURCE_TEXT_FOR_MODEL = 5000;
 const CATEGORIES = new Set(['coding', 'system_design', 'behavioral', 'role_specific', 'other']);
 const DISCLAIMER = 'Summaries of what other candidates reported publicly. Questions change, so use this as a guide, not a promise.';
-const NO_EVIDENCE_SUMMARY = 'We could not find recent public reports (from the last 12 months) of what candidates were asked for this role at this company, so there is nothing reliable to show yet.';
+const NO_EVIDENCE_SUMMARY = 'We could not find recent public reports (from the last 2 years) of what candidates were asked for this role at this company, so there is nothing reliable to show yet.';
 
 /* ---------- small text helpers ---------- */
 
@@ -145,7 +145,10 @@ function mergeGroups(items, groups) {
 function coverageOf(questions) {
   if (!questions.length) return 'none';
   const distinct = new Set(questions.flatMap((q) => q.sourceIds)).size;
-  return questions.length < 5 || distinct < 3 ? 'thin' : 'good';
+  // "good" needs independent confirmation: at least two questions that two or more
+  // separate sources report, not just a long list of one-off posts.
+  const confirmed = questions.filter((q) => q.sourceIds.length >= 2).length;
+  return questions.length < 5 || distinct < 3 || confirmed < 2 ? 'thin' : 'good';
 }
 
 /**
@@ -217,7 +220,7 @@ function assemblePayload({ company, role, now = new Date(), sources, questions, 
 
 function fallbackSummary(questions, sources) {
   const sites = [...new Set(sources.map((s) => s.site).filter(Boolean))].slice(0, 4).join(', ');
-  return `We found ${questions.length} question${questions.length === 1 ? '' : 's'} that candidates reported in the last 12 months, drawn from ${sources.length} public source${sources.length === 1 ? '' : 's'}${sites ? ` (${sites})` : ''}. Treat this as a guide, not a promise.`;
+  return `We found ${questions.length} question${questions.length === 1 ? '' : 's'} that candidates reported in the last 2 years, drawn from ${sources.length} public source${sources.length === 1 ? '' : 's'}${sites ? ` (${sites})` : ''}. Treat this as a guide, not a promise.`;
 }
 
 /* ---------- search + model pipeline ---------- */
@@ -279,7 +282,7 @@ async function gatherResults({ company, jobTitle, search, now }) {
   for (const r of lists.flat()) {
     if (!r || !r.url) continue;
     const publishedAt = isoOrNull(r.publishedAt);
-    if (publishedAt && new Date(publishedAt).getTime() < cutoff) continue; // older than 12 months
+    if (publishedAt && new Date(publishedAt).getTime() < cutoff) continue; // older than 24 months
     const content = clean(r.content, 20000);
     if (content.length < 40) continue;
     const key = normUrl(r.url);
@@ -448,7 +451,9 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
         const research = getResearch();
         const payload = await research(input);
         const t = now();
-        await row.update({ status: 'ready', payload, error: null, generatedAt: t, expiresAt: new Date(t.getTime() + CACHE_DAYS * DAY_MS) });
+        // An empty result may be a bad run, not a fact about the company: retry after a day.
+        const keepDays = payload.coverage === 'none' ? 1 : CACHE_DAYS;
+        await row.update({ status: 'ready', payload, error: null, generatedAt: t, expiresAt: new Date(t.getTime() + keepDays * DAY_MS) });
       } catch (err) {
         console.error('[interviewPrep] research failed:', err && err.message);
         try { await row.update({ status: 'failed', error: clean((err && err.message) || 'failed', 500) }); } catch { /* row gone */ }

@@ -6,7 +6,7 @@
  *
  * HONESTY GATE: the model's JSON is only a proposal. Any question, round, tip
  * or topic that cites a URL which is not in the search results or citations
- * (or is older than 12 months) is dropped; frequency is recomputed from the
+ * (or is older than 24 months) is dropped; frequency is recomputed from the
  * distinct cited URLs.
  */
 
@@ -16,20 +16,22 @@ const {
 const { hostOf } = require('./searchProvider');
 
 const MODEL = process.env.INTERVIEW_PREP_MODEL || 'claude-sonnet-5-5';
-const MAX_TOKENS = 8000;
+const MAX_TOKENS = 16000;
 const MAX_USES = 8;
 const MAX_CONTINUATIONS = 3;
 const TOOL_TYPES = ['web_search_20260209', 'web_search_20250305'];
 
 const SYSTEM = `You research what job candidates recently reported about interviewing for a specific role at a specific company, using web search. Strict rules:
-- Look only at content from the last 12 months. Search broadly: Reddit, LeetCode Discuss, Blind, Glassdoor, Levels.fyi, interviewing.io and the company's own interview or careers pages, wherever they appear.
+- Do not write commentary between searches. Your only text output is the final JSON.
+- Look only at content from the last 24 months, newest first. Search broadly: Reddit, LeetCode Discuss, Blind, Glassdoor, Levels.fyi, interviewing.io and the company's own interview or careers pages, wherever they appear.
 - Every question and every process fact MUST be supported by a web result you found. Never invent. Ignore unrelated companies and roles.
 - Paraphrase. Never copy more than 25 consecutive words from a source.
 - If the evidence is thin, say so in the summary and return fewer items. Empty lists are fine.
 - Cite by the full URL of the web result in "sourceUrls".
 - category is one of: coding, system_design, behavioral, role_specific, other. Merge duplicate questions into one item with all its sources.
 Finish with ONLY this JSON (no other prose after it):
-{"summary":"3 to 5 sentences, only from sources","timeline":{"text":"","sourceUrls":[]}|null,"rounds":[{"name":"","format":"","notes":"","sourceUrls":[]}],"tips":[{"text":"","sourceUrls":[]}],"questions":[{"text":"","category":"","sourceUrls":[]}],"topics":[{"name":"","why":"","sourceUrls":[]}]}`;
+{"summary":"3 to 5 sentences, only from sources","timeline":{"text":"","sourceUrls":[]}|null,"rounds":[{"name":"","format":"","notes":"","sourceUrls":[]}],"tips":[{"text":"","sourceUrls":[]}],"questions":[{"text":"","category":"","sourceUrls":[]}],"topics":[{"name":"","why":"","sourceUrls":[]}],"sources":[{"url":"","postedOn":"YYYY-MM-DD or YYYY-MM or null","note":""}]}
+"sources" lists every url you cited. postedOn is the date the post or review was published, only when the page itself shows it, otherwise null (never guess). note is one short sentence in your own words on what that source says about this interview.`;
 
 let sharedClient = null;
 function defaultClient() {
@@ -41,6 +43,17 @@ function defaultClient() {
 }
 
 const isToolTypeComplaint = (err) => err && err.status === 400 && /web_search|tool/i.test(String(err.message || ''));
+
+/** page_age arrives as text such as "73 days ago" or "April 30, 2025". */
+function pageAgeToIso(v, now) {
+  if (!v || typeof v !== 'string') return null;
+  const rel = v.trim().match(/^(\d+)\s+(day|week|month|year)s?\s+ago$/i);
+  if (rel) {
+    const per = { day: 1, week: 7, month: 30, year: 365 }[rel[2].toLowerCase()];
+    return new Date(now.getTime() - Number(rel[1]) * per * 86400000).toISOString();
+  }
+  return isoOrNull(v);
+}
 
 /** Pulls sources out of server tool blocks and citations. Branches on list vs error object. */
 function collectSources(blocks, now) {
@@ -59,7 +72,7 @@ function collectSources(blocks, now) {
     if (!b) continue;
     if (b.type === 'web_search_tool_result') {
       if (Array.isArray(b.content)) {
-        for (const r of b.content) if (r && r.type === 'web_search_result') add(r.url, r.title, isoOrNull(r.page_age), '');
+        for (const r of b.content) if (r && r.type === 'web_search_result') add(r.url, r.title, pageAgeToIso(r.page_age, now), '');
       } // else: { error_code } object with HTTP 200 - no sources from this search
     } else if (b.type === 'text' && Array.isArray(b.citations)) {
       for (const c of b.citations) if (c && c.url) add(c.url, c.title, null, c.cited_text);
@@ -75,7 +88,7 @@ function collectSources(blocks, now) {
 async function researchViaAnthropicWebSearch({ company, jobTitle, level, client = defaultClient(), model = MODEL, now = new Date(), log = console.log }) {
   const { createMessage } = require('../ai/core');
   const role = clean(jobTitle, 160);
-  const userPrompt = `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 12 months of what candidates report about interviewing for this role at this company, then answer with the JSON.`;
+  const userPrompt = `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 24 months of what candidates report about interviewing for this role at this company, then answer with the JSON.`;
   const messages = [{ role: 'user', content: userPrompt }];
   let toolIdx = 0;
   const allBlocks = [];
@@ -119,6 +132,21 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
     throw Object.assign(new Error('The research answer could not be read'), { code: 'model_failed' });
   }
 
+  // Source details the model read on the pages (search results often carry no date).
+  // A date is used only when it parses, is not in the future and is inside the window;
+  // a source older than the window is removed, so anything citing it is dropped below.
+  const cutoff = now.getTime() - WINDOW_DAYS * 86400000;
+  for (const m of Array.isArray(parsed.sources) ? parsed.sources : []) {
+    const s = m && typeof m.url === 'string' ? sourceMap.get(normUrl(m.url)) : null;
+    if (!s) continue;
+    const when = typeof m.postedOn === 'string' && /^\d{4}-\d{2}(-\d{2})?$/.test(m.postedOn.trim()) ? isoOrNull(m.postedOn.trim()) : null;
+    if (when && !s.date && new Date(when).getTime() <= now.getTime()) {
+      if (new Date(when).getTime() < cutoff) { sourceMap.delete(normUrl(m.url)); continue; }
+      s.date = when;
+    }
+    if (!s.excerpt && typeof m.note === 'string') s.excerpt = excerptOf(m.note);
+  }
+
   // Honesty gate: every cited url must resolve to a known, in-window source.
   const resolve = (urls) => {
     const list = Array.isArray(urls) ? urls : [];
@@ -150,4 +178,4 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
   });
 }
 
-module.exports = { researchViaAnthropicWebSearch, collectSources };
+module.exports = { researchViaAnthropicWebSearch, collectSources, pageAgeToIso };
