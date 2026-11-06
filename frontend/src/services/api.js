@@ -508,6 +508,9 @@ export const careerContextAPI = {
   summarizeCall: (transcript) => api.post('/career-context/summarize', { transcript }),
   forget: ({ field, summaryIndex }) => api.delete('/career-context/item', { data: { field, summaryIndex } }),
   clear: () => api.delete('/career-context'),
+  learned: () => api.get('/career-context/learned'),
+  editLearned: (id, answer) => api.patch(`/career-context/learned/${encodeURIComponent(id)}`, { answer }),
+  deleteLearned: (id) => api.delete(`/career-context/learned/${encodeURIComponent(id)}`),
 };
 
 // Tailored Profiles API
@@ -1467,6 +1470,12 @@ export const externalApplicationAPI = {
 
   // Get application statistics (counts by status, weekly stats, etc.)
   getStats: () => api.get('/external-applications/stats'),
+
+  // Started applications quiet for a while, to ask about once
+  getPending: () => api.get('/external-applications/pending'),
+
+  // Answer the question: 'applied' | 'not_yet' | 'not_applying'
+  answer: (id, answer) => api.post(`/external-applications/${id}/answer`, { answer }),
 
   // Save a new external application
   create: (data) => api.post('/external-applications', data),

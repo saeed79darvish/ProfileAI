@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { BackgroundTasksProvider } from './contexts/BackgroundTasksContext';
 import BackgroundTasksIndicator from './components/BackgroundTasksIndicator';
+import PendingApplicationCard from './components/PendingApplicationCard';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import ReturningUserGate from './components/ReturningUserGate';
@@ -262,6 +263,8 @@ function AppContent() {
       {/* AI work that keeps running after its modal is hidden — visible on
           every page, so leaving the page that started it loses nothing. */}
       {!isOverlayMode && <BackgroundTasksIndicator />}
+      {/* Asks "Did you apply?" once, later, for applications started and left quiet. */}
+      {!hideNavbar && <PendingApplicationCard />}
       {!isOverlayMode && <CookieConsentBanner />}
       {/* Global API failure banner. Outside the boundary on purpose: it has to
           survive a route crash, and it's what tells the user *why* the page

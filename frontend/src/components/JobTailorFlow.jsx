@@ -8,7 +8,7 @@ import {
   AutoAwesome as SparkIcon,
   Send as SendIcon,
 } from '@mui/icons-material';
-import { profileAPI, tailoredProfileAPI, subscriptionAPI } from '../services/api';
+import { profileAPI, tailoredProfileAPI, subscriptionAPI, externalApplicationAPI } from '../services/api';
 import { extractApiError } from '../utils/apiError';
 import { parseLimitError } from '../utils/aiLimit';
 import { useBackgroundTasks, useMountedRef } from '@/contexts/BackgroundTasksContext';
@@ -28,8 +28,9 @@ import ResumePreviewModal from './ResumePreviewModal';
  *            then each changed section before and after, to keep or skip or
  *            refine with Ask AI. Saving updates the tailored copy.
  *   Apply  - the Download Resume screen as it is everywhere else, plus Apply:
- *            the job's page opens, the PDF downloads, and a sheet asks whether
- *            they applied, which moves the job to Applied.
+ *            the job's page opens, the PDF downloads, and the start is tracked
+ *            quietly. A sheet offers their details to copy; the "Did you
+ *            apply?" question comes later, from PendingApplicationCard.
  */
 
 const STEPS = ['Fit', 'Plan', 'Review', 'Apply'];
@@ -424,7 +425,7 @@ const Sheet = styled.div`
   .grab { width: 40px; height: 5px; margin: 0 auto 16px; border-radius: 3px; background: #d9dbe5; }
   h3 { margin: 0 0 6px; font-size: 21px; font-weight: 700; color: #13152a; }
   p { margin: 0 0 18px; font-size: 15.5px; line-height: 1.45; color: #6b7280; }
-  .pair { display: flex; gap: 10px; }
+  .calm { margin: 12px 0 0; font-size: 13.5px; text-align: center; }
   .open { margin-bottom: 14px; }
   .kit {
     margin: 0 0 16px;
@@ -854,6 +855,20 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
   // In the tap itself, so the new tab isn't blocked; the PDF downloads next.
   const handleApply = () => {
     setApplyOpened(openInNewTab(applyUrl));
+    // Tracked quietly; never blocks the tap. 409 means it is already tracked.
+    if (applyUrl) {
+      const body = {
+        jobTitle: job?.title || 'Untitled position',
+        company: job?.company || '',
+        jobUrl: applyUrl,
+        stage: 'in_progress',
+        confirmedBy: 'tailored_resume',
+      };
+      if (job?._isExternal && job?.id) body.externalJobId = job.id;
+      if (result?.savedId) body.tailoredProfileId = result.savedId;
+      if (typeof score === 'number') body.matchScore = score;
+      try { Promise.resolve(externalApplicationAPI.create(body)).catch(() => {}); } catch (_) { /* ignore */ }
+    }
     // Only postings we hold can be tracked as applications.
     if (!job?._isExternal) return;
     window.dispatchEvent(new CustomEvent('job-application-started', { detail: { jobId: job.id } }));
@@ -879,12 +894,6 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
     } catch (_) {
       toast.error('Could not copy. Press and hold the text instead.');
     }
-  };
-
-  const confirmApplied = () => {
-    window.dispatchEvent(new CustomEvent('job-application-confirmed', { detail: { jobId: job?.id } }));
-    toast.success(`Moved ${job?.title || 'this job'} to Applied.`);
-    finish();
   };
 
   const findSimilar = () => {
@@ -1177,10 +1186,10 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
       >
         <Sheet>
           <div className="grab" />
-          <h3>Did you apply?</h3>
+          <h3>Your resume is ready</h3>
           <p>
             {applyOpened
-              ? `We opened ${company}\u2019s application in a new tab and downloaded your tailored resume. Come back to this tab any time to copy your details. Tell us when you\u2019ve sent it and we\u2019ll move this job to Applied.`
+              ? `We opened ${company}\u2019s application in a new tab and downloaded your tailored resume. Come back to this tab any time to copy your details.`
               : `Your tailored resume is downloaded. Your browser blocked the new tab, so tap below to open ${company}\u2019s application.`}
           </p>
           {!applyOpened && applyUrl && (
@@ -1205,10 +1214,8 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
               ))}
             </details>
           )}
-          <div className="pair">
-            <SecondaryBtn type="button" onClick={() => setApplySheet(false)}>Not yet</SecondaryBtn>
-            <PrimaryBtn type="button" onClick={confirmApplied}>Yes, I applied</PrimaryBtn>
-          </div>
+          <PrimaryBtn type="button" onClick={() => setApplySheet(false)}>Done</PrimaryBtn>
+          <p className="calm">We will ask you about this application next time you are here.</p>
           <div className="links">
             {applyUrl && applyOpened && <button type="button" onClick={() => openInNewTab(applyUrl)}>Open {company}&rsquo;s page again</button>}
             {typeof document !== 'undefined' && document.getElementById('similar-jobs') && (

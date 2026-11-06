@@ -14,6 +14,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import { trackEvent } from '@/utils/analytics';
 import { TEXT, FIELDS, CONSTRAINT_FIELDS } from './constants';
 import AnswersSection from './AnswersSection';
+import LearnedAnswersSection from './LearnedAnswersSection';
 
 /**
  * What ProfilleAI knows about you.
@@ -235,6 +236,8 @@ const AboutYou = () => {
           </Paper>
 
           <AnswersSection context={context} busy={busy} run={run} />
+
+          <LearnedAnswersSection />
 
           {hasAnything && (
             <Button color="error" variant="outlined" onClick={() => setConfirmClear(true)} disabled={busy}>
