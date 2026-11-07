@@ -199,10 +199,9 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
     const out = [];
     for (const u of list) {
       const s = sourceMap.get(normUrl(u));
-      if (!s) return null; // one unresolvable citation drops the whole item
-      out.push(s.url);
+      if (s) out.push(s.url); // an unknown url is dropped from the item, never trusted
     }
-    return [...new Set(out)];
+    return out.length ? [...new Set(out)] : null; // nothing resolvable: the item is dropped
   };
   const keep = (arr, needs) => (Array.isArray(arr) ? arr : []).flatMap((it) => {
     if (!it || typeof it !== 'object' || !it[needs]) return [];
@@ -211,6 +210,8 @@ async function researchViaAnthropicWebSearch({ company, jobTitle, level, client 
   });
 
   const sources = new Map([...sourceMap.values()].map((s) => [s.url, s]));
+  const kept = { rounds: keep(parsed.rounds, 'name'), questions: keep(parsed.questions, 'text') };
+  log(`[interviewPrep] proposed vs cited-and-kept: rounds ${(parsed.rounds || []).length}/${kept.rounds.length}, questions ${(parsed.questions || []).length}/${kept.questions.length}; round names: ${(parsed.rounds || []).map((r) => r && r.name).join(' | ')}`);
   const questions = dedupeQuestions(keep(parsed.questions, 'text').map((q) => ({ text: q.text, category: q.category, urls: q.urls })));
   const rounds = keep(parsed.rounds, 'name');
   const tips = keep(parsed.tips, 'text');

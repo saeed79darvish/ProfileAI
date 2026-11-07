@@ -81,3 +81,17 @@ export const pollExpired = (startedAt, now = Date.now()) => now - startedAt >= P
 export function progressStep(elapsedMs, lines = 4) {
   return Math.max(0, Math.min(lines - 1, Math.floor(elapsedMs / 25000)));
 }
+
+/** A likely company name from a job link on a common job board ("job-boards.greenhouse.io/glean/jobs/1" gives "Glean"), else "". */
+export function companyFromUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return ''; }
+  const host = u.hostname.toLowerCase();
+  const first = u.pathname.split('/').filter(Boolean)[0] || '';
+  let slug = '';
+  if (/(^|\.)greenhouse\.io$|(^|\.)lever\.co$|(^|\.)ashbyhq\.com$|(^|\.)workable\.com$/.test(host)) slug = first;
+  else if (/\.myworkdayjobs\.com$/.test(host)) slug = host.split('.')[0];
+  slug = slug.replace(/[^a-z0-9-]/g, '');
+  if (!slug || /^(jobs?|careers?|embed|apply|j|v1)$/.test(slug)) return '';
+  return slug.split('-').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+}

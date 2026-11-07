@@ -171,9 +171,10 @@ const STAGES = [
   { key: 'ai', label: 'AI and ML focus', test: /\bai\b|\bllm\b|\brag\b|machine learning|agent/i },
   { key: 'behavioral', label: 'Behavioral and hiring manager', test: /behaviou?ral|values|culture|leadership|bar.?raiser|hiring manager|manager|team match/i },
   { key: 'final', label: 'Final review', test: /committee|debrief|offer|reference|final review/i },
-  { key: 'coding', label: 'Coding rounds', test: /cod(e|ing)|algorithm|data structure|live|javascript|frontend|front.end|onsite|on-site|loop/i },
+  { key: 'onsite', label: 'Onsite loop', test: /^(?!.*(cod|design|behaviou?ral|values|manager)).*(on-?site|final (loop|round)|\bloop\b)/i },
+  { key: 'coding', label: 'Coding rounds', test: /cod(e|ing)|algorithm|data structure|\blive\b|javascript|frontend|front.end/i },
 ];
-const STAGE_ORDER = ['recruiter', 'assessment', 'phone', 'coding', 'design', 'ai', 'behavioral', 'final'];
+const STAGE_ORDER = ['recruiter', 'assessment', 'phone', 'onsite', 'coding', 'design', 'ai', 'behavioral', 'final'];
 const MAX_ROUNDS = 7;
 
 function stageOf(round) {

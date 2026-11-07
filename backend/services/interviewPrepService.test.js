@@ -194,6 +194,13 @@ test('rounds the sources word differently collapse into one ordered timeline', (
   assert.equal(recruiter.format, 'Phone or video call with a recruiter');
   assert.equal(merged[3].sourceIds.length, 2);
   assert.equal(merged.length, 7);
+  const loop = svc.mergeRounds([
+    { name: 'Virtual onsite loop', format: '', notes: '', sourceIds: ['s1'] },
+    { name: 'Final loop (onsite or virtual)', format: '', notes: '', sourceIds: ['s2'] },
+    { name: 'Technical phone screen', format: '', notes: '', sourceIds: ['s3'] },
+  ]);
+  assert.deepEqual(loop.map((m) => m.name), ['Technical phone screen', 'Onsite loop']);
+  assert.deepEqual(loop[1].sourceIds.sort(), ['s1', 's2']);
 });
 
 test('job postings and job boards are not sources; interview pages are', () => {

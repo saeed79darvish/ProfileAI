@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, sortGuard, pollExpired, progressStep } from './prepLogic.js';
+import { filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, sortGuard, pollExpired, progressStep, companyFromUrl } from './prepLogic.js';
 
 const qs = [
   { id: 'a', text: 'Reverse a list', category: 'coding', mostRecent: '2026-03-10T00:00:00Z', sourceIds: ['s1', 's2'] },
@@ -50,4 +50,14 @@ test('poll timing', () => {
   assert.equal(progressStep(0), 0);
   assert.equal(progressStep(60000), 2);
   assert.equal(progressStep(999999), 3);
+});
+
+test('a company name can be read from common job board links', () => {
+  assert.equal(companyFromUrl('https://job-boards.greenhouse.io/glean/jobs/4545'), 'Glean');
+  assert.equal(companyFromUrl('https://boards.greenhouse.io/scale-ai/jobs/1'), 'Scale Ai');
+  assert.equal(companyFromUrl('https://jobs.lever.co/verkada/abc'), 'Verkada');
+  assert.equal(companyFromUrl('https://jobs.ashbyhq.com/roblox/xyz'), 'Roblox');
+  assert.equal(companyFromUrl('https://acme.wd5.myworkdayjobs.com/en-US/careers/job/x'), 'Acme');
+  assert.equal(companyFromUrl('https://www.example.com/careers/engineer'), '');
+  assert.equal(companyFromUrl('not a url'), '');
 });

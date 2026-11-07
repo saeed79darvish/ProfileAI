@@ -6,7 +6,7 @@ import { tailoredProfileAPI } from '@/services/api';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
-  CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, POLL_MS,
+  CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, POLL_MS,
 } from './prepLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc', bg: '#f3f4f8' };
@@ -181,12 +181,14 @@ export default function InterviewPrep() {
   const [prep, setPrep] = useState(null);
   const [errMsg, setErrMsg] = useState('');
   const [elapsed, setElapsed] = useState(0);
+  const [companyInput, setCompanyInput] = useState('');
   const [cat, setCat] = useState('all');
   const [topicOpen, setTopicOpen] = useState(null);
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
   const [sheet, setSheet] = useState(false);
   const run = useRef(0);
   const prepId = useRef(null);
+  const typed = useRef('');
 
   const personalize = useCallback(async (id, runId) => {
     setProbes({ state: 'loading', list: [] });
@@ -199,9 +201,11 @@ export default function InterviewPrep() {
     }
   }, [tailoredId]);
 
-  const start = useCallback(async (profile, refresh) => {
+  const start = useCallback(async (profile, refresh, typedCompany) => {
     const runId = ++run.current;
-    const company = companyOf(profile);
+    if (typedCompany) typed.current = String(typedCompany).trim();
+    const company = String(typed.current || companyOf(profile)).trim();
+    if (!company) { setCompanyInput(companyFromUrl(profile.jobUrl)); setPhase('needsCompany'); return; }
     const jobTitle = String(profile.jobTitle || '').trim();
     setPhase('researching'); setElapsed(0); setErrMsg(''); setProbes({ state: 'idle', list: [] });
     const began = Date.now();
@@ -224,7 +228,7 @@ export default function InterviewPrep() {
       const { id, status, prep: ready } = res.data || {};
       if (status === 'ready' && ready) return finish(id, ready);
       if (!id) return fail();
-      // Poll every 3 seconds, give up after 90.
+      // Poll every 3 seconds, give up after four minutes.
       for (;;) {
         await new Promise((r) => setTimeout(r, POLL_MS));
         if (run.current !== runId) return;
@@ -301,6 +305,21 @@ export default function InterviewPrep() {
             <h2>Interview research is not available yet</h2>
             <p>We will turn it on soon.</p>
             <Btn type="button" $ghost onClick={() => navigate(-1)}>Go back</Btn>
+          </Center>
+        )}
+        {phase === 'needsCompany' && (
+          <Center>
+            <h2>Which company is this interview for?</h2>
+            <p>This resume does not say. Tell us and we will look up what candidates reported for {tp?.jobTitle || 'this role'}.</p>
+            <input
+              value={companyInput}
+              onChange={(e) => setCompanyInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && companyInput.trim()) start(tp, false, companyInput); }}
+              placeholder="Company name"
+              aria-label="Company name"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', fontSize: 16, border: '1.5px solid #d5d8e3', borderRadius: 12, marginBottom: 12 }}
+            />
+            <Btn type="button" disabled={!companyInput.trim()} onClick={() => start(tp, false, companyInput)}>Start research</Btn>
           </Center>
         )}
         {phase === 'locked' && (

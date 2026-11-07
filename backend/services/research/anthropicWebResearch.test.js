@@ -53,8 +53,10 @@ test('builds a cited payload; drops uncited and unknown-url items; recomputes fr
   }], seen);
   const p = await researchViaAnthropicWebSearch({ company: 'Acme', jobTitle: 'Engineer', client, now: NOW, log: quiet });
 
-  assert.deepEqual(p.questions.map((q) => q.text), ['Design a rate limiter', 'Tell me about a failure']);
+  // a question that cites one real and one made-up url keeps only the real citation
+  assert.deepEqual(p.questions.map((q) => q.text), ['Design a rate limiter', 'Question citing a made up url', 'Tell me about a failure']);
   assert.equal(p.questions[0].frequency, 2);
+  assert.equal(p.questions.find((q) => q.text === 'Question citing a made up url').frequency, 1);
   assert.equal(p.process.rounds.length, 1);
   assert.equal(p.process.rounds[0].sourceIds.length, 2);
   assert.equal(p.process.tips.length, 1);
