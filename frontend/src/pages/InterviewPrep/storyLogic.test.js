@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
 } from './storyLogic.js';
 
 const topics = [
@@ -83,4 +83,23 @@ test('safeList and safeBeats only return strings', () => {
   assert.deepEqual(safeBeats([{ label: 'Setup', text: 't' }, { label: {}, text: 'u' }, { label: 'x' }]), [
     { label: 'Setup', text: 't' }, { label: '', text: 'u' },
   ]);
+});
+
+test('the candidate\'s own words are sent only when they wrote something', () => {
+  const topics = [{ id: 't1', theme: 'Performance', titles: [{ id: 't1a', title: 'The slow billing pages', experienceRef: { company: 'Equinix' } }] }];
+  const sel = { topicId: 't1', titleId: 't1a' };
+  assert.equal('details' in writePayload('tp1', topics, sel), false);
+  assert.equal('details' in writePayload('tp1', topics, sel, '   \n  '), false);
+  assert.equal(writePayload('tp1', topics, sel, '  Finance could   not close\nthe month.  ').details, 'Finance could not close the month.');
+  assert.equal(writePayload('tp1', topics, sel, 'x'.repeat(3000)).details.length, 1200);
+});
+
+test('answers to the coach\'s questions are sent only for the ones written', () => {
+  const topics = [{ id: 't1', theme: 'Performance', titles: [{ id: 't1a', title: 'The slow billing pages', experienceRef: { company: 'Equinix' } }] }];
+  const sel = { topicId: 't1', titleId: 't1a' };
+  const qs = [{ id: 'q1', question: 'What was the real problem?' }, { id: 'q2', question: 'Client or server rendering?' }, { id: 'q3', question: 'Hardest part?' }];
+  const a = answersFor(qs, { q1: '  Finance could not close the month ', q3: '   ' });
+  assert.deepEqual(a, [{ question: 'What was the real problem?', answer: 'Finance could not close the month' }]);
+  assert.deepEqual(writePayload('tp1', topics, sel, a).answers, a);
+  assert.equal('answers' in writePayload('tp1', topics, sel, answersFor(qs, {})), false);
 });

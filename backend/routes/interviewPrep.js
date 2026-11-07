@@ -1,6 +1,6 @@
 const express = require('express');
 const { personalizeProbes, makeInterviewPrepService } = require('../services/interviewPrepService');
-const { suggestTopics, writeStory, cleanRef, cleanSpoken } = require('../services/interviewStoriesService');
+const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = require('../services/interviewStoriesService');
 
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 const STORY_FEATURE = 'career_suggestions'; // stories share the existing allowance, never a second bucket
@@ -137,16 +137,30 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
     } catch (err) { return sendError(res, err); }
   });
 
-  router.post('/:id/stories', authMiddleware, requirePaidPlan, async (req, res) => {
+  // Questions the coach asks about the chosen story before writing it. Part of the same story, so it
+  // checks the allowance but does not use one up; the write call does.
+  router.post('/:id/stories/questions', authMiddleware, requirePaidPlan, async (req, res) => {
     try {
       const { theme, title, experienceRef } = req.body || {};
       const ctx = await loadStoryContext(req, res);
       if (!ctx) return undefined;
       if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ success: false, code: 'invalid_request', message: 'A story title is required.' });
       if (!(await runMiddleware(storyLimiter, req, res))) return undefined;
+      const questions = await storyQuestions({ prep: ctx.prepRow.prep, profile: ctx.source, theme, title, experienceRef: cleanRef(experienceRef), runModel: storyModel });
+      return res.json({ success: true, questions });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  router.post('/:id/stories', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      const { theme, title, experienceRef, details, answers } = req.body || {};
+      const ctx = await loadStoryContext(req, res);
+      if (!ctx) return undefined;
+      if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ success: false, code: 'invalid_request', message: 'A story title is required.' });
+      if (!(await runMiddleware(storyLimiter, req, res))) return undefined;
       const prep = ctx.prepRow.prep;
       const ref = cleanRef(experienceRef);
-      const written = await writeStory({ prep, profile: ctx.source, theme, title, experienceRef: ref, runModel: storyModel });
+      const written = await writeStory({ prep, profile: ctx.source, theme, title, experienceRef: ref, details: typeof details === 'string' ? details : '', answers: Array.isArray(answers) ? answers.slice(0, 4) : [], runModel: storyModel });
       const row = await models.InterviewStory.create({
         userId: req.user.id, prepId: req.params.id, tailoredProfileId: ctx.tailoredProfileId,
         company: String(prep.company || '').slice(0, 255), role: String(prep.role || '').slice(0, 255),

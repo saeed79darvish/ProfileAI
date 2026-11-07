@@ -8,6 +8,7 @@ export const interviewPrepAPI = {
   get: (id) => api.get(base(id)),
   personalize: (id, tailoredProfileId) => api.post(`${base(id)}/personalize`, { tailoredProfileId }),
   storyTopics: (id, tailoredProfileId) => api.post(`${base(id)}/stories/topics`, { tailoredProfileId }),
+  storyQuestions: (id, body) => api.post(`${base(id)}/stories/questions`, body),
   writeStory: (id, body) => api.post(`${base(id)}/stories`, body),
   listStories: (id) => api.get(`${base(id)}/stories`),
   updateStory: (id, storyId, spoken) => api.patch(`${base(id)}/stories/${encodeURIComponent(storyId)}`, { spoken }),

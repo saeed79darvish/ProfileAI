@@ -44,10 +44,27 @@ export function findSelection(topics, sel) {
 export const canWrite = (topics, sel) => !!findSelection(topics, sel);
 
 // Request body for writeStory from a valid selection.
-export function writePayload(tailoredProfileId, topics, sel) {
+export function writePayload(tailoredProfileId, topics, sel, extra = '') {
   const f = findSelection(topics, sel);
   if (!f) return null;
-  return { tailoredProfileId, theme: str(f.topic.theme), title: str(f.title.title), experienceRef: f.title.experienceRef || {} };
+  const body = { tailoredProfileId, theme: str(f.topic.theme), title: str(f.title.title), experienceRef: f.title.experienceRef || {} };
+  if (Array.isArray(extra)) {
+    // Answers to the coach's questions: only the ones they wrote something for.
+    const answers = answersFor(extra);
+    if (answers.length) body.answers = answers;
+  } else {
+    const own = str(extra).replace(/\s+/g, ' ').trim().slice(0, 1200);
+    if (own) body.details = own; // one free box, sent only when they gave one
+  }
+  return body;
+}
+
+// [{ question, answer }] from the questions and the typed answers (a map of question id to text).
+export function answersFor(questions, answers = {}) {
+  return (Array.isArray(questions) ? questions : [])
+    .map((q) => ({ question: str(q && q.question), answer: str(q && q.answer !== undefined ? q.answer : answers[q && q.id]).replace(/\s+/g, ' ').trim().slice(0, 600) }))
+    .filter((a) => a.question && a.answer)
+    .slice(0, 4);
 }
 
 // Keyboard navigation for a radiogroup. Returns the next index or null.

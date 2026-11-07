@@ -3,8 +3,9 @@ import styled from 'styled-components';
 import { useNavigate } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { interviewPrepAPI } from '@/services/interviewPrep';
+import NoteField from '@/components/flow/NoteField';
 import {
-  splitSpoken, firstLine, experienceLabel, canWrite, writePayload, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, canWrite, findSelection, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
 } from './storyLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc' };
@@ -217,7 +218,11 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
   const alive = useRef(true);
   const [stories, setStories] = useState([]);
   const [expanded, setExpanded] = useState(null);
-  const [phase, setPhase] = useState('idle'); // idle | findingTopics | topics | writing
+  const [phase, setPhase] = useState('idle'); // idle | findingTopics | topics | details | writing
+  const [details, setDetails] = useState('');
+  const [questions, setQuestions] = useState([]); // the coach's questions about the chosen story
+  const [answerMap, setAnswerMap] = useState({});
+  const [askingQuestions, setAskingQuestions] = useState(false);
   const [topics, setTopics] = useState([]);
   const [sel, setSel] = useState(null);
   const [problem, setProblem] = useState(null); // { kind, message }
@@ -252,8 +257,30 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
     }
   }, [prepId, tailoredId]);
 
+  // After a title is picked, the coach asks a few questions about that story before it writes.
+  const askQuestions = useCallback(async () => {
+    const picked = findSelection(topics, sel);
+    if (!picked) return;
+    setProblem(null); setQuestions([]); setAnswerMap({}); setDetails('');
+    setAskingQuestions(true); setPhase('details');
+    try {
+      const res = await interviewPrepAPI.storyQuestions(prepId, {
+        tailoredProfileId: tailoredId, theme: picked.topic.theme, title: picked.title.title, experienceRef: picked.title.experienceRef || {},
+      });
+      if (!alive.current) return;
+      const list = safeList(res.data?.questions).map((q, i) => ({ id: String(q?.id || `q${i + 1}`), question: String(q?.question || ''), hint: String(q?.hint || '') })).filter((q) => q.question);
+      setQuestions(list); // none: the page falls back to one free box
+    } catch (e) {
+      if (!alive.current) return;
+      const pr = storyError(e);
+      if (pr.kind === 'upgrade' || pr.kind === 'limit') { setProblem(pr); setPhase('topics'); } // a plan problem is shown, not hidden
+    } finally {
+      if (alive.current) setAskingQuestions(false);
+    }
+  }, [prepId, tailoredId, topics, sel]);
+
   const write = useCallback(async () => {
-    const body = writePayload(tailoredId, topics, sel);
+    const body = writePayload(tailoredId, topics, sel, questions.length ? answersFor(questions, answerMap) : details);
     if (!body) return;
     setLastAction('write'); setProblem(null); setPhase('writing');
     try {
@@ -262,10 +289,10 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
       const story = res.data?.story;
       if (!story || !story.id || !story.spoken) { setProblem({ kind: 'retry', message: '' }); setPhase('topics'); return; }
       setStories((prev) => cleanStories([story, ...prev.filter((s) => s.id !== story.id)]));
-      setExpanded(story.id); setPhase('idle'); setSel(null);
+      setExpanded(story.id); setPhase('idle'); setSel(null); setDetails(''); setQuestions([]); setAnswerMap({});
     } catch (e) {
       if (!alive.current) return;
-      setProblem(storyError(e)); setPhase(topics.length ? 'topics' : 'idle');
+      setProblem(storyError(e)); setPhase(topics.length ? 'details' : 'idle');
     }
   }, [prepId, tailoredId, topics, sel]);
 
@@ -318,10 +345,56 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
           <p className="sub">Pick the story you want to tell. You can write more afterwards.</p>
           <TopicPicker topics={topics} sel={sel} onSelect={setSel} />
           <div className="stack" style={{ marginTop: 14 }}>
-            <B type="button" disabled={!canWrite(topics, sel)} onClick={write}>Write this story</B>
+            <B type="button" disabled={!canWrite(topics, sel)} onClick={askQuestions}>Continue</B>
           </div>
         </>
       )}
+
+      {phase === 'details' && (() => {
+        const picked = findSelection(topics, sel);
+        const title = picked ? picked.title.title : '';
+        const answered = questions.length ? answersFor(questions, answerMap).length : details.trim() ? 1 : 0;
+        return (
+          <>
+            <p className="sub">{title ? `You picked: ${title}` : 'Almost there.'}</p>
+            <h3>Make it yours</h3>
+            <p className="sub" style={{ marginTop: 6 }}>
+              A few questions so the story is really yours. Answer the ones you can, the way you would tell a friend, or tap the mic and talk. Skip any you like.
+            </p>
+            {askingQuestions && <div className="busy" aria-live="polite"><CircularProgress size={22} />Thinking about what to ask you</div>}
+            {!askingQuestions && questions.length > 0 && questions.map((q, i) => (
+              <div key={q.id} style={{ marginTop: i ? 14 : 6 }}>
+                <div style={{ fontWeight: 650, fontSize: 15.5, lineHeight: 1.4 }}>{q.question}</div>
+                {q.hint && <div className="sub" style={{ margin: '2px 0 0', fontSize: 13.5 }}>{q.hint}</div>}
+                <NoteField
+                  multiline
+                  value={answerMap[q.id] || ''}
+                  onChange={(v) => setAnswerMap((m) => ({ ...m, [q.id]: v }))}
+                  maxLength={600}
+                  hints={`${title}. ${q.question}`}
+                  label={q.question}
+                  placeholder="Type or tap the mic"
+                />
+              </div>
+            ))}
+            {!askingQuestions && questions.length === 0 && (
+              <NoteField
+                multiline
+                value={details}
+                onChange={setDetails}
+                maxLength={1200}
+                hints={title}
+                label="Your own words about this story"
+                placeholder="What was the real problem, what did you do, and what changed? Numbers help."
+              />
+            )}
+            <div className="stack" style={{ marginTop: 16 }}>
+              <B type="button" disabled={askingQuestions} onClick={write}>{answered ? 'Write my story' : 'Write it without extra details'}</B>
+              <B type="button" $ghost onClick={() => { setProblem(null); setPhase('topics'); }}>Back to titles</B>
+            </div>
+          </>
+        );
+      })()}
 
       {problemView}
 

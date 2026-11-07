@@ -40,6 +40,9 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   const modelCalls = [];
   const storyModel = async (a) => {
     modelCalls.push(a);
+    if (a.purpose === 'story_questions') {
+      return JSON.stringify({ questions: [{ question: 'What was the real problem you were solving?', hint: 'for example slow pages' }, { question: 'How was it built: client-side or server-side rendering, and why?', hint: 'say what you chose' }, { question: 'What was the hardest part and how did you solve it?', hint: '' }] });
+    }
     if (a.purpose === 'story_topics') {
       const t = (n) => ({ title: n, angle: 'a', experienceRef: ref });
       return JSON.stringify({ topics: [{ theme: 'Scaling', why: 'w', questions: ['q'], titles: [t('A'), t('B'), t('C')] }] });
@@ -121,4 +124,26 @@ test('PATCH and DELETE are own-only; edits are cleaned', async () => {
     assert.equal(t.InterviewStory.rows.length, 0);
     assert.equal((await t.call(`/${PREP_ID}/stories/${id}`, { spoken: 'x' }, 'PATCH')).status, 404);
   } finally { t.close(); }
+});
+
+test('questions: paid only, no allowance used, and the answers reach the story prompt', async () => {
+  const free = await setup({ user: { id: 'u1', role: 'candidate', subscriptionTier: 'free' } });
+  const denied = await free.call(`/${PREP_ID}/stories/questions`, { title: 'x', theme: 'y', experienceRef: ref });
+  assert.equal(denied.status, 403);
+  assert.equal(free.modelCalls.length, 0);
+  free.close();
+
+  const t = await setup();
+  const qs = await t.call(`/${PREP_ID}/stories/questions`, { title: 'The slow billing pages at Equinix', theme: 'Performance', experienceRef: ref });
+  assert.equal(qs.status, 200);
+  assert.equal(qs.body.questions.length, 3);
+  assert.deepEqual(qs.body.questions.map((q) => q.id), ['q1', 'q2', 'q3']);
+  assert.equal(t.usage.length, 0); // asking does not use an allowance
+  const written = await t.call(`/${PREP_ID}/stories`, { title: 'The slow billing pages at Equinix', theme: 'Performance', experienceRef: ref, answers: [{ question: 'How was it built?', answer: 'We moved to server-side rendering with Next.js' }, { question: 'Skipped?', answer: '   ' }] });
+  assert.equal(written.status, 200);
+  const prompt = t.modelCalls.find((c) => c.purpose === 'story_write').prompt;
+  assert.match(prompt, /server-side rendering with Next\.js/);
+  assert.doesNotMatch(prompt, /Skipped\?/);
+  assert.equal(t.usage.length, 1); // the write uses one
+  t.close();
 });
