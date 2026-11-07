@@ -142,6 +142,63 @@ function mergeGroups(items, groups) {
   return out;
 }
 
+/* ---------- job postings are not candidate reports ---------- */
+
+const JOB_BOARD_HOSTS = /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|smartrecruiters\.com|myworkdayjobs\.com|icims\.com|jobvite\.com|bamboohr\.com|theladders\.com|peerlist\.io|jobmentis\.com|ziprecruiter\.com|simplyhired\.com|jooble\.org|wellfound\.com|dice\.com|monster\.com|indeed\.com|builtin\.com|remoteok\.com|weworkremotely\.com|agentic-engineering-jobs\.com)$/i;
+
+/** True for a job posting or job board page: its "process" text describes a vacancy, not what candidates were asked. */
+function isJobPostingUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  const host = u.hostname.toLowerCase();
+  const path = u.pathname.toLowerCase();
+  if (/interview|experience|questions?/.test(path)) return false; // an interview page on a job site is still an interview page
+  if (/(^|\.)(reddit\.com|teamblind\.com|leetcode\.com|news\.ycombinator\.com|quora\.com|substack\.com|medium\.com|dev\.to|levels\.fyi)$/.test(host)) return false; // forums: r/jobs is not a job board
+  if (JOB_BOARD_HOSTS.test(host)) return true;
+  if (/^(jobs|job-boards|talents|careers)\./.test(host)) return true;
+  return /\/(jobs?|job-listing|viewjob|vacanc(y|ies)|positions?|openings?)(\/|$)/.test(path) || /\/careers?\/.*\/(apply|\d{5,})/.test(path);
+}
+
+/* ---------- one timeline instead of every source's wording ---------- */
+
+// Sources name the same stage in many ways ("Recruiter call", "Recruiter Screen", "Initial screening").
+// Each round is placed in a stage; rounds in the same stage are merged, and stages run in the usual order.
+const STAGES = [
+  { key: 'recruiter', label: 'Recruiter screen', test: /recruiter|\bhr\b|initial (call|screen|conversation)|intro(ductory)? (call|chat)/i },
+  { key: 'assessment', label: 'Online assessment', test: /online assessment|codesignal|hackerrank|codility|take.?home|\boa\b|assessment/i },
+  { key: 'phone', label: 'Technical phone screen', test: /phone|tech(nical)? screen|team screen|screening round/i },
+  { key: 'design', label: 'System design', test: /system design|architecture|design (round|interview|exercise)/i },
+  { key: 'ai', label: 'AI and ML focus', test: /\bai\b|\bllm\b|\brag\b|machine learning|agent/i },
+  { key: 'behavioral', label: 'Behavioral and hiring manager', test: /behaviou?ral|values|culture|leadership|bar.?raiser|hiring manager|manager|team match/i },
+  { key: 'final', label: 'Final review', test: /committee|debrief|offer|reference|final review/i },
+  { key: 'coding', label: 'Coding rounds', test: /cod(e|ing)|algorithm|data structure|live|javascript|frontend|front.end|onsite|on-site|loop/i },
+];
+const STAGE_ORDER = ['recruiter', 'assessment', 'phone', 'coding', 'design', 'ai', 'behavioral', 'final'];
+const MAX_ROUNDS = 7;
+
+function stageOf(round) {
+  const name = `${round.name || ''}`;
+  const hit = STAGES.find((st) => st.test.test(name)) || STAGES.find((st) => st.test.test(`${name} ${round.format || ''}`));
+  return hit ? hit.key : null;
+}
+
+function mergeRounds(rounds) {
+  const byKey = new Map();
+  const other = [];
+  for (const r of rounds) {
+    const key = stageOf(r);
+    if (!key) { if (!other.some((o) => o.name.toLowerCase() === r.name.toLowerCase())) other.push(r); continue; }
+    const cur = byKey.get(key);
+    if (!cur) { byKey.set(key, { ...r, sourceIds: [...r.sourceIds] }); continue; }
+    for (const id of r.sourceIds) if (!cur.sourceIds.includes(id)) cur.sourceIds.push(id);
+    if ((r.format || '').length > (cur.format || '').length) cur.format = r.format;
+    if ((r.notes || '').length > (cur.notes || '').length) cur.notes = r.notes;
+  }
+  const label = (key) => STAGES.find((st) => st.key === key).label;
+  const merged = STAGE_ORDER.filter((k) => byKey.has(k)).map((k) => ({ ...byKey.get(k), name: label(k) }));
+  return [...merged, ...other].slice(0, MAX_ROUNDS);
+}
+
 function coverageOf(questions) {
   if (!questions.length) return 'none';
   const distinct = new Set(questions.flatMap((q) => q.sourceIds)).size;
@@ -157,7 +214,8 @@ function coverageOf(questions) {
  * questions: [{text, category, urls}]  rounds: [{name, format, notes, urls}]  tips: [{text, urls}]
  * topics: [{name, why, urls}]  timeline: {text, urls}|null
  */
-function assemblePayload({ company, role, now = new Date(), sources, questions, rounds = [], tips = [], topics = [], timeline = null, summary = '' }) {
+function assemblePayload({ company, role, now = new Date(), sources: allSources, questions, rounds = [], tips = [], topics = [], timeline = null, summary = '' }) {
+  const sources = new Map([...allSources].filter(([u]) => !isJobPostingUrl(u)));
   const idByUrl = new Map();
   const order = [];
   const idsFor = (urls) => {
@@ -206,7 +264,7 @@ function assemblePayload({ company, role, now = new Date(), sources, questions, 
     coverage,
     summary: coverage === 'none' ? NO_EVIDENCE_SUMMARY : guard(clean(summary, 1200)) || fallbackSummary(outQuestions, outSources),
     process: {
-      rounds: outRounds,
+      rounds: mergeRounds(outRounds),
       timeline: outTimeline && outTimeline.sourceIds.length ? outTimeline.text : null,
       timelineSourceIds: outTimeline ? outTimeline.sourceIds : [],
       tips: outTips,
@@ -520,7 +578,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
 module.exports = {
   researchInterview, personalizeProbes, makeInterviewPrepService,
   // shared with the Claude web search path
-  assemblePayload, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
+  assemblePayload, mergeRounds, isJobPostingUrl, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
   companyKeyOf, roleKeyOf, questionKey, profileSnapshot, buildQueries,
   CACHE_DAYS, WINDOW_DAYS, DISCLAIMER, NO_EVIDENCE_SUMMARY,
 };

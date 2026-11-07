@@ -167,3 +167,50 @@ test('personalizeProbes validates and trims', async () => {
   await assert.rejects(svc.personalizeProbes({ prep, profile: {}, runModel: async () => '{}' }), { code: 'profile_empty' });
   await assert.rejects(svc.personalizeProbes({ prep, profile, runModel: async () => 'garbage' }), { code: 'personalize_failed' });
 });
+
+test('rounds the sources word differently collapse into one ordered timeline', () => {
+  const r = (name, sourceIds, extra = {}) => ({ name, format: '', notes: '', sourceIds, ...extra });
+  const merged = svc.mergeRounds([
+    r('Virtual Onsite - Coding Round', ['s3'], { format: 'Video call with coding problems' }),
+    r('Behavioral and Hiring Manager Interview', ['s1']),
+    r('Recruiter call', ['s2'], { notes: 'Initial screening conversation' }),
+    r('Technical Phone Screen', ['s4']),
+    r('Recruiter Screen', ['s1', 's5'], { format: 'Phone or video call with a recruiter' }),
+    r('Coding Interviews', ['s6'], { notes: 'Mostly medium difficulty, multi-part format' }),
+    r('System Design Interview', ['s1']),
+    r('Virtual Onsite - System Design Round', ['s7']),
+    r('Bar Raiser Interview', ['s8']),
+    r('Hiring Committee Review', ['s9']),
+    r('CodeSignal Online Assessment', ['s2']),
+    r('Mystery stage', ['s2']),
+  ]);
+  assert.deepEqual(merged.map((m) => m.name), [
+    'Recruiter screen', 'Online assessment', 'Technical phone screen', 'Coding rounds', 'System design',
+    'Behavioral and hiring manager', 'Final review',
+  ]); // seven stages fill the cap, so the unplaced one is left out
+  assert.deepEqual(svc.mergeRounds([{ name: 'Mystery stage', format: '', notes: '', sourceIds: ['s2'] }]).map((m) => m.name), ['Mystery stage']);
+  const recruiter = merged[0];
+  assert.deepEqual(recruiter.sourceIds.sort(), ['s1', 's2', 's5']);
+  assert.equal(recruiter.format, 'Phone or video call with a recruiter');
+  assert.equal(merged[3].sourceIds.length, 2);
+  assert.equal(merged.length, 7);
+});
+
+test('job postings and job boards are not sources; interview pages are', () => {
+  for (const u of [
+    'https://job-boards.greenhouse.io/glean/jobs/4545',
+    'https://jobs.generalcatalyst.com/companies/glean/jobs/123',
+    'https://www.theladders.com/job/glean-engineer',
+    'https://peerlist.io/company/glean/careers/software-engineer',
+    'https://talents.vaia.com/companies/glean/',
+    'https://www.indeed.com/viewjob?jk=1',
+  ]) assert.equal(svc.isJobPostingUrl(u), true, u);
+  for (const u of [
+    'https://www.reddit.com/r/cscareerquestions/comments/1/glean_interview/',
+    'https://www.teamblind.com/post/glean-onsite-xyz',
+    'https://www.glassdoor.com/Interview/Glean-Interview-Questions-EI_IE1.htm',
+    'https://leetcode.com/discuss/interview-experience/123/glean',
+    'https://www.indeed.com/cmp/Glean/interviews',
+    'https://discuss.frontendlead.com/t/stripe-senior-frontend-interview/2378',
+  ]) assert.equal(svc.isJobPostingUrl(u), false, u);
+});
