@@ -197,13 +197,23 @@ export const AuthProvider = ({ children }) => {
       if (event.data?.type !== 'PROFILEAI_AUTH_SUCCESS') return;
       const { token: newToken, user: newUser } = event.data;
       if (!newToken || !newUser) return;
-      // Ignore if we already have this token
-      if (newToken === token && user) return;
+      // Ignore a token we already have. This also covers the app's own broadcast after /auth/me:
+      // that message carries only six fields, and taking it for a late sign-in replaced the full
+      // user (hasProfile, plan) with them, which bounced candidates to profile creation.
+      if (newToken === token) return;
       try { localStorage.setItem('token', newToken); } catch { /* ignore */ }
       try { localStorage.setItem('user', JSON.stringify(newUser)); } catch { /* ignore */ }
       setToken(newToken);
       setUser(newUser);
       setLoading(false);
+      // The extension sends a partial user: load the full one so route guards see hasProfile and the plan.
+      authAPI.getMe().then((res) => {
+        const fresh = res.data;
+        if (!fresh || fresh.id !== newUser.id) return;
+        if (fresh.profilePicture) fresh.profilePicture = resolveImageUrl(fresh.profilePicture);
+        try { localStorage.setItem('user', JSON.stringify(fresh)); } catch { /* ignore */ }
+        setUser(fresh);
+      }).catch(() => { /* the partial user stays; the next load hydrates */ });
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
