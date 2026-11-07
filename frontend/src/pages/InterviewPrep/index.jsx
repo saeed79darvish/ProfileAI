@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { tailoredProfileAPI } from '@/services/api';
 import { interviewPrepAPI } from '@/services/interviewPrep';
+import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
   CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, POLL_MS,
@@ -186,6 +187,8 @@ export default function InterviewPrep() {
   const [topicOpen, setTopicOpen] = useState(null);
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
   const [sheet, setSheet] = useState(false);
+  const [storiesOpen, setStoriesOpen] = useState(false);
+  const [storiesSignal, setStoriesSignal] = useState(0);
   const run = useRef(0);
   const prepId = useRef(null);
   const typed = useRef('');
@@ -454,9 +457,11 @@ export default function InterviewPrep() {
               <p className="sub">Rehearse your answers before the interview.</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <Btn type="button" onClick={() => setSheet(true)}>Practice out loud</Btn>
-                <Btn type="button" $ghost onClick={() => setSheet(true)}>Build my stories</Btn>
+                <Btn type="button" $ghost onClick={() => { setStoriesOpen(true); setStoriesSignal((n) => n + 1); }}>Build my stories</Btn>
               </div>
             </Section>
+
+            <Stories prepId={prepId.current} tailoredId={tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={() => setSheet(true)} />
 
             {sources.length > 0 && (
               <Section>

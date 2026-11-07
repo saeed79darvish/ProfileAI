@@ -16,6 +16,16 @@ async function runModel({ system, prompt, maxTokens }) {
   return res.choices[0].message.content;
 }
 
+/** Sonnet call for stories (quality over cost). No temperature (Claude 5 rejects it). */
+async function runStoryModel({ system, prompt, maxTokens }) {
+  const { callAI } = require('./ai/core');
+  const res = await callAI({
+    messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+    max_tokens: maxTokens || 2000,
+  });
+  return res.choices[0].message.content;
+}
+
 /** Returns the research function for the configured provider; throws search_not_configured. */
 function getResearch(env = process.env) {
   const provider = resolveProviderName(env);
@@ -33,4 +43,4 @@ function getResearch(env = process.env) {
   };
 }
 
-module.exports = { runModel, getResearch };
+module.exports = { runModel, runStoryModel, getResearch };

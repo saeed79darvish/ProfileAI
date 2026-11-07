@@ -573,6 +573,14 @@ const startServer = async () => {
       console.warn('⚠️  InterviewPreps table ensure skipped:', err.message);
     }
 
+    // Interview stories (per-user prepared answers).
+    try {
+      const { up: ensureInterviewStoriesTable } = require('./scripts/migrations/ensureInterviewStoriesTable');
+      await ensureInterviewStoriesTable();
+    } catch (err) {
+      console.warn('⚠️  InterviewStories table ensure skipped:', err.message);
+    }
+
     // "Did you apply?" follow-up columns on ExternalApplications.
     try {
       const { up: ensureExternalApplicationFollowUp } = require('./scripts/migrations/ensureExternalApplicationFollowUp');

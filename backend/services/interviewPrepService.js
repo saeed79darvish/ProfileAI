@@ -17,7 +17,8 @@
 const DAY_MS = 86400000;
 const CACHE_DAYS = 21;
 const WINDOW_DAYS = 730;
-const MAX_RESULTS_KEPT = 12;
+const MAX_RESULTS_KEPT = 16;
+const FORUM_SLOTS = 2; // per forum site, when the post is clearly about this company
 const BATCH_SIZE = 4;
 const SEARCH_CONCURRENCY = 3;
 const EXCERPT_MAX = 300;
@@ -284,7 +285,9 @@ function fallbackSummary(questions, sources) {
 
 /* ---------- search + model pipeline ---------- */
 
-const GENERIC_DOMAINS_A = ['reddit.com', 'leetcode.com/discuss', 'teamblind.com', 'substack.com'];
+// Where candidates write about their interviews. Each gets its own search, so one busy site
+// cannot fill the results, and a couple of slots in the final list, so guides cannot push them out.
+const FORUM_DOMAINS = ['reddit.com', 'leetcode.com', 'teamblind.com', 'substack.com'];
 const GENERIC_DOMAINS_B = ['glassdoor.com', 'levels.fyi', 'interviewing.io'];
 
 function buildQueries(company, role) {
@@ -293,7 +296,7 @@ function buildQueries(company, role) {
     { query: `${cr} interview questions` },
     { query: `${cr} interview experience` },
     { query: `${company} interview process ${role}` },
-    { query: `${cr} interview`, includeDomains: GENERIC_DOMAINS_A },
+    ...FORUM_DOMAINS.map((d) => ({ query: d === 'leetcode.com' ? `${cr} interview experience` : `${cr} interview`, includeDomains: [d] })),
     { query: `${cr} interview`, includeDomains: GENERIC_DOMAINS_B },
     { query: `${company} interview guide how we hire ${role} careers blog` },
   ];
@@ -349,11 +352,18 @@ async function gatherResults({ company, jobTitle, search, now }) {
     if (prev && prev.content.length >= content.length) continue;
     seen.set(key, { title: clean(r.title, 200), url: r.url, site: r.site || '', publishedAt, content });
   }
-  return [...seen.values()]
+  const ranked = [...seen.values()]
     .map((r) => ({ r, score: rankResult(r, { company, role: jobTitle, now }) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_RESULTS_KEPT)
-    .map((x) => x.r);
+    .sort((a, b) => b.score - a.score);
+  const c = tokens(company)[0];
+  const hostIs = (r, d) => String(r.site || '').toLowerCase().replace(/^www\./, '').endsWith(d);
+  const chosen = new Set();
+  for (const d of FORUM_DOMAINS) {
+    ranked.filter((x) => hostIs(x.r, d) && (!c || `${x.r.title} ${x.r.url} ${x.r.content}`.toLowerCase().includes(c)))
+      .slice(0, FORUM_SLOTS).forEach((x) => chosen.add(x));
+  }
+  for (const x of ranked) { if (chosen.size >= MAX_RESULTS_KEPT) break; chosen.add(x); }
+  return [...chosen].sort((a, b) => b.score - a.score).map((x) => x.r);
 }
 
 const EXTRACT_SYSTEM = `You extract interview facts from web page text for job seekers. Strict rules:
