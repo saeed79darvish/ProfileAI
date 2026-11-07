@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, answersFor, cleanQuestions, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
 } from './storyLogic.js';
 
 const topics = [
@@ -102,4 +102,13 @@ test('answers to the coach\'s questions are sent only for the ones written', () 
   assert.deepEqual(a, [{ question: 'What was the real problem?', answer: 'Finance could not close the month' }]);
   assert.deepEqual(writePayload('tp1', topics, sel, a).answers, a);
   assert.equal('answers' in writePayload('tp1', topics, sel, answersFor(qs, {})), false);
+});
+
+test('the coach\'s questions from the API keep their text and hint', () => {
+  const api = [{ id: 'q1', question: 'What was the real problem?', hint: 'for example slow pages' }, { id: 'q2', question: 'Client or server rendering?', hint: '' }, { id: 'q3', question: '' }, null];
+  assert.deepEqual(cleanQuestions(api), [
+    { id: 'q1', question: 'What was the real problem?', hint: 'for example slow pages' },
+    { id: 'q2', question: 'Client or server rendering?', hint: '' },
+  ]);
+  assert.deepEqual(cleanQuestions(undefined), []);
 });

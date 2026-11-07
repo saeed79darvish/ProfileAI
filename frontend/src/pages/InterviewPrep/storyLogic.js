@@ -102,6 +102,13 @@ export function cleanStories(list) {
 export function safeList(v) {
   return (Array.isArray(v) ? v : []).map((x) => (typeof x === 'string' ? x : str(x?.text))).filter(Boolean);
 }
+// The coach's questions from the API: [{ id, question, hint }]. Objects with a question are kept; nothing else.
+export function cleanQuestions(v) {
+  return (Array.isArray(v) ? v : [])
+    .map((q, i) => ({ id: str(q?.id) || `q${i + 1}`, question: str(q?.question), hint: str(q?.hint) }))
+    .filter((q) => q.question)
+    .slice(0, 4);
+}
 export function safeBeats(v) {
   return (Array.isArray(v) ? v : [])
     .map((b) => ({ label: str(b?.label), text: str(b?.text) }))

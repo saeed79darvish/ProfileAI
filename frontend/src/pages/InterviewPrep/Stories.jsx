@@ -5,7 +5,7 @@ import { CircularProgress } from '@mui/material';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import NoteField from '@/components/flow/NoteField';
 import {
-  splitSpoken, firstLine, experienceLabel, canWrite, findSelection, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, canWrite, findSelection, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, cleanQuestions, safeList, safeBeats,
 } from './storyLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc' };
@@ -268,7 +268,7 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
         tailoredProfileId: tailoredId, theme: picked.topic.theme, title: picked.title.title, experienceRef: picked.title.experienceRef || {},
       });
       if (!alive.current) return;
-      const list = safeList(res.data?.questions).map((q, i) => ({ id: String(q?.id || `q${i + 1}`), question: String(q?.question || ''), hint: String(q?.hint || '') })).filter((q) => q.question);
+      const list = cleanQuestions(res.data?.questions);
       setQuestions(list); // none: the page falls back to one free box
     } catch (e) {
       if (!alive.current) return;
