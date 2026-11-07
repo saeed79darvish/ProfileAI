@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_description">Cue spike test: reads the focused text field and types a test answer into it when you press a button on the Cue bubble. For internal testing only.</string>
+</resources>
