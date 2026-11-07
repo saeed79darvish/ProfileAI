@@ -48,28 +48,50 @@ async function up() {
     WHERE "externalJobId" IS NOT NULL
   `);
 
-  // 4. Best-effort backfill: link existing rows to an active ExternalJob whose
-  //    applyUrl/sourceUrl matches the stored jobUrl after light normalization
-  //    (lowercase, strip trailing slash). Only fills NULLs; skips rows that
-  //    would violate the new unique index (a user already linked to that job).
-  const [, meta] = await sequelize.query(`
-    UPDATE "ExternalApplications" ea
-       SET "externalJobId" = ej.id
-      FROM "ExternalJobs" ej
-     WHERE ea."externalJobId" IS NULL
-       AND ea."jobUrl" IS NOT NULL
-       AND rtrim(lower(ea."jobUrl"), '/') IN (
-             rtrim(lower(ej."applyUrl"),  '/'),
-             rtrim(lower(ej."sourceUrl"), '/')
-           )
-       AND NOT EXISTS (
-             SELECT 1 FROM "ExternalApplications" e2
-              WHERE e2."userId" = ea."userId"
-                AND e2."externalJobId" = ej.id
-           )
+  // 4. Best-effort backfill, once. The URL comparison cannot use an index, so on
+  //    the real job table it takes longer than the startup statement limit and
+  //    used to time out (and rerun) on every boot. It now runs in the background
+  //    with its own limit, and a comment on the column records that it finished.
+  const [[marker]] = await sequelize.query(`
+    SELECT col_description('"ExternalApplications"'::regclass, a.attnum) AS note
+      FROM pg_attribute a
+     WHERE a.attrelid = '"ExternalApplications"'::regclass AND a.attname = 'externalJobId'
   `);
+  if (marker && marker.note === BACKFILL_MARKER) {
+    console.log('✅ addExternalApplicationJobLink: ExternalApplications.externalJobId ready (backfill already done).');
+    return;
+  }
+  console.log('✅ addExternalApplicationJobLink: ExternalApplications.externalJobId ready (backfill running in the background).');
+  backfill().catch((err) => console.warn('⚠️  ExternalApplications job-link backfill will retry next boot:', err.message));
+}
 
-  console.log(`✅ addExternalApplicationJobLink: ExternalApplications.externalJobId ready (+${meta?.rowCount ?? 0} backfilled).`);
+const BACKFILL_MARKER = 'backfilled';
+
+/** Links existing rows to an active ExternalJob whose applyUrl/sourceUrl matches the stored jobUrl
+ *  after light normalization (lowercase, strip trailing slash). Only fills NULLs; skips rows that
+ *  would violate the unique index. Marks the column when it completes. */
+async function backfill() {
+  await sequelize.transaction(async (transaction) => {
+    await sequelize.query("SET LOCAL statement_timeout = '180s'", { transaction });
+    const [, meta] = await sequelize.query(`
+      UPDATE "ExternalApplications" ea
+         SET "externalJobId" = ej.id
+        FROM "ExternalJobs" ej
+       WHERE ea."externalJobId" IS NULL
+         AND ea."jobUrl" IS NOT NULL
+         AND rtrim(lower(ea."jobUrl"), '/') IN (
+               rtrim(lower(ej."applyUrl"),  '/'),
+               rtrim(lower(ej."sourceUrl"), '/')
+             )
+         AND NOT EXISTS (
+               SELECT 1 FROM "ExternalApplications" e2
+                WHERE e2."userId" = ea."userId"
+                  AND e2."externalJobId" = ej.id
+             )
+    `, { transaction });
+    await sequelize.query(`COMMENT ON COLUMN "ExternalApplications"."externalJobId" IS '${BACKFILL_MARKER}'`, { transaction });
+    console.log(`✅ addExternalApplicationJobLink: backfill complete (+${meta?.rowCount ?? 0} linked).`);
+  });
 }
 
 if (require.main === module) {
@@ -81,4 +103,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { up };
+module.exports = { up, backfill };
