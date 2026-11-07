@@ -294,7 +294,9 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
       if (!alive.current) return;
       setProblem(storyError(e)); setPhase(topics.length ? 'details' : 'idle');
     }
-  }, [prepId, tailoredId, topics, sel]);
+    // questions, answerMap and details must be here: without them the memoized copy sends the story
+    // request with no answers at all, and a retry sends the same stale copy.
+  }, [prepId, tailoredId, topics, sel, questions, answerMap, details]);
 
   const retry = () => (lastAction === 'write' ? write() : findTopics());
 
