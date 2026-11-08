@@ -95,3 +95,11 @@ export function companyFromUrl(url) {
   if (!slug || /^(jobs?|careers?|embed|apply|j|v1)$/.test(slug)) return '';
   return slug.split('-').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
+
+/** Discussion links from the API: only objects with a title and a safe http link. */
+export function cleanDiscussions(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((d) => ({ title: String(d?.title || '').trim(), url: String(d?.url || ''), site: String(d?.site || ''), date: d?.date || null, href: safeUrl(d?.url) }))
+    .filter((d) => d.title && d.href)
+    .slice(0, 6);
+}

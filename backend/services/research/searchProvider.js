@@ -14,6 +14,7 @@
  */
 
 const TIMEOUT_MS = 20000;
+const FULL_TEXT_CHARS = 8000;
 
 const notConfigured = (message) => Object.assign(new Error(message), { status: 503, code: 'search_not_configured' });
 
@@ -69,7 +70,9 @@ function normalizeTavily(json) {
       url: String(r.url),
       site: hostOf(r.url),
       publishedAt: toIso(r.published_date || r.publishedDate),
-      content: cleanContent(r.content),
+      // A forum search asks for the whole page (the thread and its comments): a snippet of a Reddit
+      // post rarely holds the questions, and a source nobody can cite never reaches the list.
+      content: cleanContent(r.raw_content || r.content).slice(0, FULL_TEXT_CHARS),
     }));
 }
 
@@ -89,13 +92,13 @@ function normalizeExa(json) {
 function createTavily({ apiKey, fetchImpl = (...a) => fetch(...a), timeoutMs } = {}) {
   return {
     name: 'tavily',
-    async search({ query, includeDomains, days = 365, maxResults = 8 }) {
+    async search({ query, includeDomains, days = 365, maxResults = 8, fullText = false }) {
       const body = {
         api_key: apiKey,
         query,
         search_depth: 'advanced',
         max_results: maxResults,
-        include_raw_content: false,
+        include_raw_content: !!fullText,
         days,
       };
       if (Array.isArray(includeDomains) && includeDomains.length) body.include_domains = includeDomains;
@@ -107,13 +110,13 @@ function createTavily({ apiKey, fetchImpl = (...a) => fetch(...a), timeoutMs } =
 function createExa({ apiKey, fetchImpl = (...a) => fetch(...a), timeoutMs, now = () => Date.now() } = {}) {
   return {
     name: 'exa',
-    async search({ query, includeDomains, days = 365, maxResults = 8 }) {
+    async search({ query, includeDomains, days = 365, maxResults = 8, fullText = false }) {
       const body = {
         query,
         useAutoprompt: true,
         numResults: maxResults,
         startPublishedDate: new Date(now() - days * 86400000).toISOString(),
-        contents: { text: { maxCharacters: 2000 } },
+        contents: { text: { maxCharacters: fullText ? FULL_TEXT_CHARS : 2000 } },
       };
       if (Array.isArray(includeDomains) && includeDomains.length) body.includeDomains = includeDomains;
       return normalizeExa(await postJson(fetchImpl, 'https://api.exa.ai/search', { headers: { 'x-api-key': apiKey }, body }, timeoutMs));

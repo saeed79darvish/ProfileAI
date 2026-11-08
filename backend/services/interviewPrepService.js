@@ -18,6 +18,7 @@ const DAY_MS = 86400000;
 const CACHE_DAYS = 21;
 const WINDOW_DAYS = 730;
 const MAX_RESULTS_KEPT = 16;
+const FORUM_MIN_CHARS = 300;
 const FORUM_SLOTS = 2; // per forum site, when the post is clearly about this company
 const BATCH_SIZE = 4;
 const SEARCH_CONCURRENCY = 3;
@@ -216,7 +217,7 @@ function coverageOf(questions) {
  * questions: [{text, category, urls}]  rounds: [{name, format, notes, urls}]  tips: [{text, urls}]
  * topics: [{name, why, urls}]  timeline: {text, urls}|null
  */
-function assemblePayload({ company, role, now = new Date(), sources: allSources, questions, rounds = [], tips = [], topics = [], timeline = null, summary = '' }) {
+function assemblePayload({ company, role, now = new Date(), sources: allSources, questions, rounds = [], tips = [], topics = [], timeline = null, summary = '', discussions = [] }) {
   const sources = new Map([...allSources].filter(([u]) => !isJobPostingUrl(u)));
   const idByUrl = new Map();
   const order = [];
@@ -274,6 +275,8 @@ function assemblePayload({ company, role, now = new Date(), sources: allSources,
     questions: outQuestions,
     topics: outTopics,
     sources: outSources,
+    // Threads about this company that could not be read in full (Reddit gives only a title): shown as links, never used as evidence.
+    discussions: (Array.isArray(discussions) ? discussions : []).slice(0, 6).map((d) => ({ title: clean(d.title, 160), url: d.url, site: d.site || '', date: d.date || null })).filter((d) => d.title && d.url),
     disclaimer: DISCLAIMER,
   };
 }
@@ -296,7 +299,7 @@ function buildQueries(company, role) {
     { query: `${cr} interview questions` },
     { query: `${cr} interview experience` },
     { query: `${company} interview process ${role}` },
-    ...FORUM_DOMAINS.map((d) => ({ query: d === 'leetcode.com' ? `${cr} interview experience` : `${cr} interview`, includeDomains: [d] })),
+    ...FORUM_DOMAINS.map((d) => ({ query: d === 'leetcode.com' ? `${cr} interview experience` : `${cr} interview`, includeDomains: [d], fullText: true })),
     { query: `${cr} interview`, includeDomains: GENERIC_DOMAINS_B },
     { query: `${company} interview guide how we hire ${role} careers blog` },
   ];
@@ -326,13 +329,41 @@ function rankResult(r, { company, role, now }) {
   return score;
 }
 
+/* ---------- forum results: keep real posts, find their dates ---------- */
+
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+const MONTH_YEAR = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?,?\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(20\d{2})\b/i;
+const DAY_MONTH_YEAR = /\b\d{1,2}(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?,?\s+(20\d{2})\b/i;
+
+/** Search APIs often send no date. LeetCode titles say "Aug 2024"; posts say "Posted on ...". First 800 characters only. */
+function inferDate(title, content, now = new Date()) {
+  for (const text of [String(title || ''), String(content || '').slice(0, 800)]) {
+    const m = text.match(MONTH_YEAR) || text.match(DAY_MONTH_YEAR);
+    if (!m) continue;
+    const d = new Date(Date.UTC(Number(m[2]), MONTHS[m[1].toLowerCase()], 15));
+    if (!Number.isNaN(d.getTime()) && d.getTime() <= now.getTime()) return d.toISOString();
+  }
+  return null;
+}
+
+/** A listing, a search page or a stub is not a post: a Reddit page that is not a thread, or too little text. */
+function isUsableForumResult(r) {
+  const site = String(r.site || '').toLowerCase().replace(/^www\./, '');
+  const forum = FORUM_DOMAINS.some((d) => site.endsWith(d));
+  if (!forum) return true;
+  if (site.endsWith('reddit.com') && !/\/comments\//.test(r.url)) return false;
+  return String(r.content || '').length >= FORUM_MIN_CHARS;
+}
+
 async function gatherResults({ company, jobTitle, search, now }) {
   const queries = buildQueries(company, jobTitle);
   let firstError = null;
   let failures = 0;
   const lists = await mapLimit(queries, SEARCH_CONCURRENCY, async (q) => {
     try {
-      return await search({ query: q.query, includeDomains: q.includeDomains, days: WINDOW_DAYS, maxResults: 8 });
+      const found = await search({ query: q.query, includeDomains: q.includeDomains, days: WINDOW_DAYS, maxResults: 8, fullText: !!q.fullText });
+      if (q.includeDomains) console.log(`[interviewPrep] search ${q.includeDomains[0]}: ${(found || []).length} results`);
+      return found;
     } catch (err) {
       failures += 1; firstError = firstError || err; return [];
     }
@@ -341,17 +372,29 @@ async function gatherResults({ company, jobTitle, search, now }) {
 
   const cutoff = now.getTime() - WINDOW_DAYS * DAY_MS;
   const seen = new Map();
+  const dropped = { stub: 0, notPost: 0, old: 0 };
+  const discussions = new Map();
+  const companyToken = tokens(company)[0];
   for (const r of lists.flat()) {
     if (!r || !r.url) continue;
-    const publishedAt = isoOrNull(r.publishedAt);
-    if (publishedAt && new Date(publishedAt).getTime() < cutoff) continue; // older than 24 months
-    const content = clean(r.content, 20000);
+    const content = clean(r.content, 8000);
     if (content.length < 40) continue;
+    const notPost = String(r.site || '').endsWith('reddit.com') && !/\/comments\//.test(r.url);
+    const publishedAt = isoOrNull(r.publishedAt) || inferDate(r.title, content, now);
+    if (!isUsableForumResult({ ...r, content })) {
+      dropped[notPost ? 'notPost' : 'stub'] += 1;
+      const fresh = !publishedAt || new Date(publishedAt).getTime() >= cutoff;
+      const about = companyToken && `${r.title} ${r.url}`.toLowerCase().includes(companyToken);
+      if (!notPost && fresh && about && discussions.size < 6) discussions.set(normUrl(r.url), { title: clean(r.title, 160), url: r.url, site: r.site || '', date: publishedAt });
+      continue;
+    }
+    if (publishedAt && new Date(publishedAt).getTime() < cutoff) { dropped.old += 1; continue; } // older than 24 months
     const key = normUrl(r.url);
     const prev = seen.get(key);
     if (prev && prev.content.length >= content.length) continue;
     seen.set(key, { title: clean(r.title, 200), url: r.url, site: r.site || '', publishedAt, content });
   }
+  const droppedNote = Object.entries(dropped).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
   const ranked = [...seen.values()]
     .map((r) => ({ r, score: rankResult(r, { company, role: jobTitle, now }) }))
     .sort((a, b) => b.score - a.score);
@@ -363,12 +406,18 @@ async function gatherResults({ company, jobTitle, search, now }) {
       .slice(0, FORUM_SLOTS).forEach((x) => chosen.add(x));
   }
   for (const x of ranked) { if (chosen.size >= MAX_RESULTS_KEPT) break; chosen.add(x); }
-  return [...chosen].sort((a, b) => b.score - a.score).map((x) => x.r);
+  const bySite = {};
+  for (const x of chosen) bySite[x.r.site || '?'] = (bySite[x.r.site || '?'] || 0) + 1;
+  console.log(`[interviewPrep] sent to the model: ${chosen.size} results (${Object.entries(bySite).map(([k, v]) => `${k} ${v}`).join(', ')}); dropped before ranking: ${droppedNote.join(', ') || 'none'}`);
+  const out = [...chosen].sort((a, b) => b.score - a.score).map((x) => x.r);
+  out.discussions = [...discussions.values()];
+  return out;
 }
 
 const EXTRACT_SYSTEM = `You extract interview facts from web page text for job seekers. Strict rules:
 - Use ONLY what is explicitly written in the given sources. Never add, guess or generalize. If a source says nothing about interviews at the given company for the given role, return empty lists for it.
 - Ignore ads, unrelated companies and unrelated roles.
+- On a forum page (Reddit, LeetCode Discuss, Blind, a newsletter) the original post and the comments by candidates are reports: when someone says what they were asked, how many rounds there were or how it went, that counts. Skip replies that only give opinions or advice with no account of an interview.
 - Paraphrase every question and fact in your own words. Never copy more than 25 consecutive words from a source.
 - Every item must list the source indexes (the numbers in [Source N]) that state it.
 - category is one of: coding, system_design, behavioral, role_specific, other.
@@ -392,7 +441,8 @@ async function researchInterview({ company, jobTitle, level, search, runModel, n
   const results = await gatherResults({ company, jobTitle: role, search, now });
   const sources = new Map();
   const base = { company, role, now, sources };
-  if (!results.length) return assemblePayload({ ...base, questions: [] });
+  const discussions = results.discussions || [];
+  if (!results.length) return assemblePayload({ ...base, questions: [], discussions });
 
   const rawQuestions = []; const rounds = []; const tips = []; const topics = []; let timeline = null;
   let okBatches = 0; let tried = 0;
@@ -460,7 +510,7 @@ async function researchInterview({ company, jobTitle, level, search, runModel, n
   }
 
   return assemblePayload({
-    ...base, questions, rounds: [...roundMap.values()], tips: [...tipMap.values()], topics: [...topicMap.values()], timeline, summary,
+    ...base, questions, rounds: [...roundMap.values()], tips: [...tipMap.values()], topics: [...topicMap.values()], timeline, summary, discussions,
   });
 }
 
@@ -589,7 +639,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
 module.exports = {
   researchInterview, personalizeProbes, makeInterviewPrepService,
   // shared with the Claude web search path
-  assemblePayload, mergeRounds, isJobPostingUrl, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
+  assemblePayload, mergeRounds, isJobPostingUrl, inferDate, isUsableForumResult, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
   companyKeyOf, roleKeyOf, questionKey, profileSnapshot, buildQueries,
   CACHE_DAYS, WINDOW_DAYS, DISCLAIMER, NO_EVIDENCE_SUMMARY,
 };

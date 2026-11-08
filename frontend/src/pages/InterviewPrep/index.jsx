@@ -7,7 +7,7 @@ import { interviewPrepAPI } from '@/services/interviewPrep';
 import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
-  CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, POLL_MS,
+  CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
 } from './prepLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc', bg: '#f3f4f8' };
@@ -279,6 +279,7 @@ export default function InterviewPrep() {
     ? new Date(prep.generatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : generated;
   const rounds = prep?.process?.rounds || [];
   const sources = Array.isArray(prep?.sources) ? prep.sources : [];
+  const discussions = cleanDiscussions(prep?.discussions);
 
   return (
     <Page>
@@ -468,6 +469,19 @@ export default function InterviewPrep() {
                 <h2>Sources</h2>
                 <p className="sub">Public pages this research is based on.</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><SourceLinks list={sources} /></div>
+              </Section>
+            )}
+            {discussions.length > 0 && (
+              <Section>
+                <h2>Discussions to read</h2>
+                <p className="sub">Reddit, LeetCode and other threads where candidates talk about interviewing at this company. We could not read these in full, so nothing above is taken from them. Open them for the full stories.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {discussions.map((d) => (
+                    <Link key={d.url} href={d.href} target="_blank" rel="noopener noreferrer">
+                      {d.title}<span style={{ color: C.muted, fontWeight: 400 }}>{` (${[d.site, monthYear(d.date)].filter(Boolean).join(', ')})`}</span>
+                    </Link>
+                  ))}
+                </div>
               </Section>
             )}
             {prep.disclaimer && <Foot>{prep.disclaimer}</Foot>}

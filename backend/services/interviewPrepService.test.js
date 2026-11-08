@@ -6,8 +6,8 @@ const NOW = new Date('2026-11-06T00:00:00Z');
 const longText = (n) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ');
 
 const result = (i, extra = {}) => ({
-  title: `Acme interview ${i}`, url: `https://reddit.com/r/jobs/${i}`, site: 'reddit.com',
-  publishedAt: '2026-09-01T00:00:00.000Z', content: `Acme software engineer interview report ${i}. They asked about caching and design.`, ...extra,
+  title: `Acme interview ${i}`, url: `https://reddit.com/r/jobs/comments/${i}/acme`, site: 'reddit.com',
+  publishedAt: '2026-09-01T00:00:00.000Z', content: `Acme software engineer interview report ${i}. They asked about caching and design. `.repeat(6), ...extra,
 });
 
 /** Model mock: answers by purpose. extract returns a question per source it sees. */
@@ -35,8 +35,8 @@ test('dedupes urls, drops results older than 24 months, caps the list, counts fr
     seenQueries.push(query);
     const list = Array.from({ length: 8 }, (_, i) => result(i + 1));
     list.push(result(99, { publishedAt: '2024-01-01T00:00:00.000Z' })); // too old
-    list.push(result(1, { url: 'https://www.reddit.com/r/jobs/1/?utm_source=x' })); // dup
-    list.push(result(50, { publishedAt: null, url: 'https://x.com/undated' })); // undated kept
+    list.push(result(1, { url: 'https://www.reddit.com/r/jobs/comments/1/acme/?utm_source=x' })); // dup
+    list.push(result(50, { publishedAt: null, url: 'https://x.com/undated', site: 'x.com' })); // undated kept
     return list;
   };
   const seenBatches = [];
@@ -224,13 +224,15 @@ test('job postings and job boards are not sources; interview pages are', () => {
 
 test('each forum gets its own search and its own slots in the final list', async () => {
   const calls = [];
-  const search = async ({ query, includeDomains }) => {
+  const fullTextFor = [];
+  const search = async ({ query, includeDomains, fullText }) => {
     calls.push(includeDomains ? includeDomains[0] : 'open');
+    if (fullText) fullTextFor.push(includeDomains[0]);
     if (includeDomains && includeDomains[0] === 'reddit.com') {
-      return [{ title: 'Acme frontend interview experience', url: 'https://www.reddit.com/r/ExperiencedDevs/comments/a1', site: 'reddit.com', publishedAt: '2026-08-01T00:00:00.000Z', content: 'Acme interview: they asked about React state and a take home. '.repeat(3) }];
+      return [{ title: 'Acme frontend interview experience', url: 'https://www.reddit.com/r/ExperiencedDevs/comments/a1', site: 'reddit.com', publishedAt: '2026-08-01T00:00:00.000Z', content: 'Acme interview: they asked about React state and a take home. '.repeat(8) }];
     }
     if (includeDomains && includeDomains[0] === 'leetcode.com') {
-      return [{ title: 'Acme software engineer interview experience', url: 'https://leetcode.com/discuss/interview-experience/9/acme', site: 'leetcode.com', publishedAt: '2026-07-01T00:00:00.000Z', content: 'Acme interview experience: two coding rounds and a design round. '.repeat(3) }];
+      return [{ title: 'Acme software engineer interview experience', url: 'https://leetcode.com/discuss/interview-experience/9/acme', site: 'leetcode.com', publishedAt: '2026-07-01T00:00:00.000Z', content: 'Acme interview experience: two coding rounds and a design round. '.repeat(8) }];
     }
     // twenty strong open-web results that would fill the whole list on their own
     return Array.from({ length: 8 }, (_, i) => ({ title: `Acme software engineer interview guide ${query.length}-${i}`, url: `https://blog${i}-${query.length}.example.com/acme-interview`, site: `blog${i}.example.com`, publishedAt: '2026-10-01T00:00:00.000Z', content: 'Acme software engineer interview questions asked in each round and onsite. '.repeat(4) }));
@@ -239,7 +241,43 @@ test('each forum gets its own search and its own slots in the final list', async
   const runModel = mockModel({ extract: (call) => { seenBatches.push(call.prompt); return JSON.stringify({ questions: [] }); } });
   await svc.researchInterview({ company: 'Acme', jobTitle: 'Software Engineer', search, runModel, now: NOW });
   for (const d of ['reddit.com', 'leetcode.com', 'teamblind.com', 'substack.com']) assert.ok(calls.includes(d), `searched ${d}`);
+  assert.deepEqual(fullTextFor.sort(), ['leetcode.com', 'reddit.com', 'substack.com', 'teamblind.com']); // the forums ask for the whole page
   const sent = seenBatches.join('\n');
   assert.ok(sent.includes('reddit.com/r/ExperiencedDevs'), 'the Reddit thread reached the model');
   assert.ok(sent.includes('leetcode.com/discuss/interview-experience'), 'the LeetCode post reached the model');
+});
+
+test('forum listings and stubs are dropped, real posts kept, and dates are read from titles', () => {
+  const long = 'Stripe frontend onsite: they asked me to build a form with validation and discussed rendering. '.repeat(6);
+  assert.equal(svc.isUsableForumResult({ site: 'reddit.com', url: 'https://www.reddit.com/r/InterviewDB', content: long }), false);
+  assert.equal(svc.isUsableForumResult({ site: 'reddit.com', url: 'https://www.reddit.com/r/leetcode/best?after=abc', content: long }), false);
+  assert.equal(svc.isUsableForumResult({ site: 'reddit.com', url: 'https://www.reddit.com/r/webdev/comments/1cv/senior_fe', content: long }), true);
+  assert.equal(svc.isUsableForumResult({ site: 'leetcode.com', url: 'https://leetcode.com/discuss/post/4618551/x', content: 'Stripe | L2 | Bangalore | Accept - Discuss' }), false);
+  assert.equal(svc.isUsableForumResult({ site: 'leetcode.com', url: 'https://leetcode.com/discuss/post/1/x', content: long }), true);
+  assert.equal(svc.isUsableForumResult({ site: 'example.com', url: 'https://example.com/a', content: 'short but not a forum' }), true);
+
+  const now = new Date('2026-11-07T00:00:00Z');
+  assert.equal(svc.inferDate('Stripe | SDE2 | Aug 2024 | Horrible experience', '', now).slice(0, 7), '2024-08');
+  assert.equal(svc.inferDate('Stripe interview', 'Posted on 3rd March 2026 by someone', now).slice(0, 7), '2026-03');
+  assert.equal(svc.inferDate('Stripe interview', 'No date here, just text from 2019 maybe', now), null);
+  assert.equal(svc.inferDate('Offer in Dec 2030', '', now), null); // a future date is not trusted
+});
+
+test('a Reddit or LeetCode thread that cannot be read in full is listed as a discussion, never as evidence', async () => {
+  const search = async ({ includeDomains }) => {
+    const d = includeDomains && includeDomains[0];
+    if (d === 'reddit.com') return [
+      { title: 'SDE interview at Acme : r/leetcode', url: 'https://www.reddit.com/r/leetcode/comments/1d8/sde_interview_at_acme', site: 'reddit.com', publishedAt: null, content: 'Acme SDE interview, short snippet of the post only here' },
+      { title: 'r/InterviewDB', url: 'https://www.reddit.com/r/InterviewDB', site: 'reddit.com', publishedAt: null, content: 'listing page' + ' x'.repeat(5) },
+      { title: 'Unrelated company interview : r/jobs', url: 'https://www.reddit.com/r/jobs/comments/2/other', site: 'reddit.com', publishedAt: null, content: 'Other company short snippet text here for a post' },
+    ];
+    if (d === 'leetcode.com') return [{ title: 'Acme | L2 | Accept - Discuss', url: 'https://leetcode.com/discuss/post/4618551/acme', site: 'leetcode.com', publishedAt: null, content: 'Acme | L2 | Accept - Discuss - LeetCode. Acme L2 interview experience, discuss and share your interview experience.' }];
+    return [];
+  };
+  const runModel = mockModel({ extract: () => JSON.stringify({ questions: [] }) });
+  const p = await svc.researchInterview({ company: 'Acme', jobTitle: 'Software Engineer', search, runModel, now: NOW });
+  assert.deepEqual(p.discussions.map((x) => x.site).sort(), ['leetcode.com', 'reddit.com']);
+  assert.ok(p.discussions.every((x) => /acme/i.test(x.title)));
+  assert.equal(p.questions.length, 0);
+  assert.equal(p.sources.length, 0);
 });

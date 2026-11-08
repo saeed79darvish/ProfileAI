@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, sortGuard, pollExpired, progressStep, companyFromUrl } from './prepLogic.js';
+import { filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, sortGuard, pollExpired, progressStep, companyFromUrl, cleanDiscussions } from './prepLogic.js';
 
 const qs = [
   { id: 'a', text: 'Reverse a list', category: 'coding', mostRecent: '2026-03-10T00:00:00Z', sourceIds: ['s1', 's2'] },
@@ -60,4 +60,16 @@ test('a company name can be read from common job board links', () => {
   assert.equal(companyFromUrl('https://acme.wd5.myworkdayjobs.com/en-US/careers/job/x'), 'Acme');
   assert.equal(companyFromUrl('https://www.example.com/careers/engineer'), '');
   assert.equal(companyFromUrl('not a url'), '');
+});
+
+test('discussion links keep only titled, safe web links', () => {
+  const out = cleanDiscussions([
+    { title: 'SDE Interview at Stripe : r/leetcode', url: 'https://www.reddit.com/r/leetcode/comments/1d8/x', site: 'reddit.com', date: null },
+    { title: 'Bad link', url: 'javascript:alert(1)', site: 'x.com' },
+    { title: '', url: 'https://leetcode.com/discuss/post/1/x' },
+    null,
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].href, 'https://www.reddit.com/r/leetcode/comments/1d8/x');
+  assert.deepEqual(cleanDiscussions(undefined), []);
 });

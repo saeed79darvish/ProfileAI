@@ -75,3 +75,24 @@ test('provider selection and search_not_configured', () => {
   assert.equal(isSearchConfigured({ TAVILY_API_KEY: 't' }), true);
   assert.equal(isSearchConfigured({}), false);
 });
+
+test('forum searches ask for the whole page and use it instead of the snippet', async () => {
+  let seen;
+  const long = 'I was asked about rate limiters and a take home. '.repeat(400);
+  const fetchImpl = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return jsonRes(200, { results: [{ title: 'Acme interview', url: 'https://www.reddit.com/r/x/1', content: 'short snippet', raw_content: long }] });
+  };
+  const out = await createTavily({ apiKey: 'k', fetchImpl }).search({ query: 'q', includeDomains: ['reddit.com'], fullText: true });
+  assert.equal(seen.include_raw_content, true);
+  assert.match(out[0].content, /rate limiters/);
+  assert.ok(out[0].content.length <= 8000 && out[0].content.length > 2000);
+
+  const exaSeen = [];
+  const exaFetch = async (url, init) => { exaSeen.push(JSON.parse(init.body)); return jsonRes(200, { results: [] }); };
+  const exa = createExa({ apiKey: 'k', fetchImpl: exaFetch });
+  await exa.search({ query: 'q' });
+  await exa.search({ query: 'q', fullText: true });
+  assert.equal(exaSeen[0].contents.text.maxCharacters, 2000);
+  assert.equal(exaSeen[1].contents.text.maxCharacters, 8000);
+});
