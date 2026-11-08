@@ -68,9 +68,9 @@ const Tile = styled.button`
   .ico { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: ${(p) => (p.$on ? C.brand : C.soft)}; color: ${(p) => (p.$on ? '#fff' : C.brandText)}; flex: none; }
   .tt { font-size: 16px; font-weight: 700; }
   .tl { font-size: 13.5px; line-height: 1.4; color: ${C.body}; }
+  .txt { display: flex; flex-direction: column; gap: 2px; }
   @media (max-width: 699px) {
     flex-direction: row; align-items: center; gap: 12px;
-    .txt { display: flex; flex-direction: column; gap: 2px; }
   }
 `;
 const Panel = styled.div`

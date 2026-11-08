@@ -309,6 +309,27 @@ function QuestionRow({ q, sources }) {
 }
 
 /** The process as a numbered stepper (tabs). Wide: a horizontal line of circles. Narrow: a vertical timeline with the detail under the chosen step. */
+const TIPS_SHOWN = 5;
+function TipsList({ tips }) {
+  const [all, setAll] = useState(false);
+  const list = (Array.isArray(tips) ? tips : []).map((t) => (typeof t === 'string' ? t : String(t?.text || ''))).filter(Boolean);
+  if (!list.length) return null;
+  const shown = all ? list : list.slice(0, TIPS_SHOWN);
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Tips from candidates</div>
+      <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 15, lineHeight: 1.55 }}>
+        {shown.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
+      </ul>
+      {list.length > TIPS_SHOWN && (
+        <button type="button" onClick={() => setAll((v) => !v)} aria-expanded={all} style={{ marginTop: 8, minHeight: 44, padding: 0, border: 'none', background: 'none', font: 'inherit', fontSize: 15, fontWeight: 600, color: C.brandInk, cursor: 'pointer' }}>
+          {all ? 'Show fewer tips' : `Show ${list.length - TIPS_SHOWN} more tips`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProcessStepper({ rounds }) {
   const [sel, setSel] = useState(0);
   const narrow = useMedia('(max-width: 700px)');
@@ -338,6 +359,7 @@ function ProcessStepper({ rounds }) {
     );
   };
   const tabProps = (i) => ({
+    className: 'tab',
     ref: (el) => { refs.current[i] = el; },
     type: 'button',
     role: 'tab',
@@ -719,11 +741,7 @@ export default function InterviewPrep() {
                   <h2>How the process usually goes</h2>
                   <ProcessStepper key={String(prep.generatedAt || prepId.current || '')} rounds={rounds} />
                   {prep.process?.timeline && <p className="sub" style={{ marginTop: 16, marginBottom: 0 }}>{prep.process.timeline}</p>}
-                  {Array.isArray(prep.process?.tips) && prep.process.tips.length > 0 && (
-                    <ul style={{ margin: '12px 0 0', paddingLeft: 20, fontSize: 15, lineHeight: 1.5 }}>
-                      {prep.process.tips.map((t, i) => <li key={i}>{typeof t === 'string' ? t : t?.text}</li>)}
-                    </ul>
-                  )}
+                  <TipsList tips={prep.process?.tips} />
                 </Card>
               )}
 
