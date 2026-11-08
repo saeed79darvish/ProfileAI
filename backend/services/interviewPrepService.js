@@ -346,6 +346,15 @@ function inferDate(title, content, now = new Date()) {
   return null;
 }
 
+/** A thread that is about being interviewed, not a hiring announcement or a job-board bot post. */
+function isInterviewTalk(title, content) {
+  const t = String(title || '');
+  if (/\b(is|are) hiring\b|we.?re hiring|\bhiring:|\[hiring\]|job opening|apply (now|here)|\bnow hiring\b/i.test(t)) return false;
+  // The title says so, or the text keeps coming back to interviewing (an essay that mentions a recruiter once does not count).
+  if (/interview|on-?site|phone screen|\bOA\b|online assessment|behav|coding round|system design round|take.?home|rejected|\boffer\b|\bloop\b/i.test(t)) return true;
+  return (String(content || '').match(/interview/gi) || []).length >= 2;
+}
+
 /** A listing, a search page or a stub is not a post: a Reddit page that is not a thread, or too little text. */
 function isUsableForumResult(r) {
   const site = String(r.site || '').toLowerCase().replace(/^www\./, '');
@@ -385,7 +394,7 @@ async function gatherResults({ company, jobTitle, search, now }) {
       dropped[notPost ? 'notPost' : 'stub'] += 1;
       const fresh = !publishedAt || new Date(publishedAt).getTime() >= cutoff;
       const about = companyToken && `${r.title} ${r.url}`.toLowerCase().includes(companyToken);
-      if (!notPost && fresh && about && discussions.size < 6) discussions.set(normUrl(r.url), { title: clean(r.title, 160), url: r.url, site: r.site || '', date: publishedAt });
+      if (!notPost && fresh && about && isInterviewTalk(r.title, content) && discussions.size < 6) discussions.set(normUrl(r.url), { title: clean(r.title, 160), url: r.url, site: r.site || '', date: publishedAt });
       continue;
     }
     if (publishedAt && new Date(publishedAt).getTime() < cutoff) { dropped.old += 1; continue; } // older than 24 months
@@ -639,7 +648,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
 module.exports = {
   researchInterview, personalizeProbes, makeInterviewPrepService,
   // shared with the Claude web search path
-  assemblePayload, mergeRounds, isJobPostingUrl, inferDate, isUsableForumResult, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
+  assemblePayload, mergeRounds, isJobPostingUrl, inferDate, isUsableForumResult, isInterviewTalk, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
   companyKeyOf, roleKeyOf, questionKey, profileSnapshot, buildQueries,
   CACHE_DAYS, WINDOW_DAYS, DISCLAIMER, NO_EVIDENCE_SUMMARY,
 };

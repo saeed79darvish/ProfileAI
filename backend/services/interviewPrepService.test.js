@@ -281,3 +281,13 @@ test('a Reddit or LeetCode thread that cannot be read in full is listed as a dis
   assert.equal(p.questions.length, 0);
   assert.equal(p.sources.length, 0);
 });
+
+test('discussions must be about interviewing, not hiring announcements', () => {
+  assert.equal(svc.isInterviewTalk('Roblox is hiring Principal Software Engineer, GPU Compute', 'Roblox is hiring a principal engineer. Apply now. Interview process explained.'), false);
+  assert.equal(svc.isInterviewTalk('Principal Software Engineer at Roblox', 'Open role in San Mateo, remote friendly, great benefits and team.'), false);
+  assert.equal(svc.isInterviewTalk('Roblox SWE Intern Behavorial : r/csMajors', 'Just finished the behavioral round, here is what they asked'), true);
+  assert.equal(svc.isInterviewTalk('Stripe Onsite Interview (Hopeful pass) | Sharing exact questions', ''), true);
+  assert.equal(svc.isInterviewTalk('anyone here do a frontend interview for stripe?', ''), true);
+  assert.equal(svc.isInterviewTalk('Acme | L2 | Bangalore | Accept', 'My interview at Acme was long. The second interview round was harder.'), true);
+  assert.equal(svc.isInterviewTalk('The real deal on Roblox and kids - by Someone', 'An essay about Roblox, parents and kids, with a recruiter mentioned once and a loop of habits.'), false);
+});
