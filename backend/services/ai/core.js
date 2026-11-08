@@ -197,6 +197,8 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
       response = await createMessage(anthropic, request);
     }
     
+    logUsage('call', request, response);
+
     // Strip AI-tell characters (em/en dashes, non-breaking spaces) so all
     // downstream consumers get clean text without touching each caller.
     const rawText = extractText(response);
@@ -220,6 +222,24 @@ async function callAI({ messages, max_tokens = 1000, temperature = 0.7, model })
     baseDelay: 1000,
     maxDelay: 10000
   });
+}
+
+/**
+ * One line per model call with the token counts the API reports, so we can
+ * see which prompts repeat enough to be worth caching. `input` is only the
+ * part after the last cache breakpoint; with no caching it is the whole
+ * prompt, and the two cache fields are 0.
+ */
+function logUsage(kind, request, response) {
+  const u = response?.usage;
+  if (!u) return;
+  const sys = typeof request.system === 'string' ? request.system : JSON.stringify(request.system || '');
+  const tag = sys.replace(/\s+/g, ' ').trim().slice(0, 40);
+  console.log(
+    `[ai-usage] ${kind} model=${request.model} input=${u.input_tokens || 0}`
+    + ` cache_read=${u.cache_read_input_tokens || 0} cache_write=${u.cache_creation_input_tokens || 0}`
+    + ` output=${u.output_tokens || 0} system="${tag}"`
+  );
 }
 
 /**
@@ -249,6 +269,7 @@ async function callAgent({ system, messages, tools, runTool, max_tokens = 1000, 
       baseDelay: 1000,
       maxDelay: 10000,
     });
+    logUsage(`agent-round-${round}`, request, response);
     const asked = (response.content || []).filter((b) => b.type === 'tool_use');
     if (!asked.length || response.stop_reason !== 'tool_use') {
       return { text: stripAiTellChars(extractText(response)), calls };
