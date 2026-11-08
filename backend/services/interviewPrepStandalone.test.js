@@ -268,7 +268,7 @@ test('mine: own preps only, newest first, story counts, contract shape; opening 
   const r = await t.call('/mine');
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.preps.map((p) => p.id), [b.body.id, a.body.id]);
-  assert.deepEqual(Object.keys(r.body.preps[0]).sort(), ['company', 'generatedAt', 'id', 'lastOpenedAt', 'level', 'role', 'scope', 'status', 'storyCount', 'tailoredProfileId']);
+  assert.deepEqual(Object.keys(r.body.preps[0]).sort(), ['company', 'generatedAt', 'id', 'lastOpenedAt', 'level', 'practiceCount', 'role', 'scope', 'status', 'storyCount', 'tailoredProfileId']);
   assert.equal(r.body.preps[0].scope, 'role');
   assert.equal(r.body.preps[0].company, '');
   assert.equal(r.body.preps[1].scope, 'company');

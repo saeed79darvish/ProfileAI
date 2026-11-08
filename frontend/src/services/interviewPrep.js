@@ -19,6 +19,9 @@ export const interviewPrepAPI = {
   writeStory: (id, body) => api.post(`${base(id)}/stories`, body),
   listStories: (id) => api.get(`${base(id)}/stories`),
   updateStory: (id, storyId, spoken) => api.patch(`${base(id)}/stories/${encodeURIComponent(storyId)}`, { spoken }),
+  startPractice: (id, body = {}) => api.post(`${base(id)}/practice/session`, body),
+  savePractice: (id, body) => api.post(`${base(id)}/practice/sessions`, body),
+  listPractice: (id) => api.get(`${base(id)}/practice/sessions`),
   deleteStory: (id, storyId) => api.delete(`${base(id)}/stories/${encodeURIComponent(storyId)}`),
 };
 

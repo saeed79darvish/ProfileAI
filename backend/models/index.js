@@ -50,6 +50,7 @@ const Company = require('./Company');
 const BlockedCompany = require('./BlockedCompany');
 const InterviewPrep = require('./InterviewPrep');
 const InterviewStory = require('./InterviewStory');
+const InterviewPracticeSession = require('./InterviewPracticeSession');
 const UserInterviewPrep = require('./UserInterviewPrep');
 
 // Recruiter ATS Integrations (Greenhouse Harvest)
@@ -1088,6 +1089,7 @@ module.exports = {
   BlockedCompany,
   InterviewPrep,
   InterviewStory,
+  InterviewPracticeSession,
   UserInterviewPrep,
   // Recruiter ATS Integrations
   RecruiterATSIntegration,

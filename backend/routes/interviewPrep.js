@@ -3,6 +3,9 @@ const { personalizeProbes, makeInterviewPrepService } = require('../services/int
 const { parseJob } = require('../services/interviewJobParseService');
 const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = require('../services/interviewStoriesService');
 
+const { profileSnapshot } = require('../services/interviewPrepService');
+const { pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS } = require('../services/interviewPracticeService');
+
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 const STORY_FEATURE = 'career_suggestions'; // stories share the existing allowance, never a second bucket
 const PAID_TIERS = new Set(['pro', 'pro_plus']);
@@ -50,7 +53,7 @@ const labelOf = ({ company, jobTitle, level }) => {
   return `${String(level || '').trim()} ${role}`.trim().slice(0, 255);
 };
 
-function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob }) {
+function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob, realtime, voiceLimiter, recordVoice }) {
   const router = express.Router();
 
   /** Best effort: remember that this user opened this prep. Never throws. */
@@ -91,10 +94,15 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       const history = await models.UserInterviewPrep.findAll({ where: { userId }, order: [['lastOpenedAt', 'DESC']], limit: 30 });
       const ids = history.map((h) => h.prepId);
       if (!ids.length) return res.json({ success: true, preps: [] });
-      const [rows, stories] = await Promise.all([
+      const [rows, stories, practices] = await Promise.all([
         models.InterviewPrep.findAll({ where: { id: ids } }),
         models.InterviewStory.findAll({ where: { userId, prepId: ids }, attributes: ['prepId'] }),
+        models.InterviewPracticeSession
+          ? models.InterviewPracticeSession.findAll({ where: { userId, prepId: ids }, attributes: ['prepId'] })
+          : Promise.resolve([]),
       ]);
+      const practiceCounts = new Map();
+      for (const ps of practices) practiceCounts.set(ps.prepId, (practiceCounts.get(ps.prepId) || 0) + 1);
       const byId = new Map(rows.map((r) => [r.id, r]));
       const counts = new Map();
       for (const st of stories) counts.set(st.prepId, (counts.get(st.prepId) || 0) + 1);
@@ -112,6 +120,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
           generatedAt: row.generatedAt || null,
           lastOpenedAt: h.lastOpenedAt || null,
           storyCount: counts.get(h.prepId) || 0,
+          practiceCount: practiceCounts.get(h.prepId) || 0,
           tailoredProfileId: h.tailoredProfileId || null,
         };
       });
@@ -281,18 +290,103 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
     } catch (err) { return sendError(res, err); }
   });
 
+  /* ---------- Practice out loud ---------- */
+
+  const practiceView = (r) => ({
+    id: r.id, startedAt: r.startedAt || null, seconds: r.seconds == null ? 0 : r.seconds,
+    summary: r.summary || '', topTip: r.topTip || '', notes: Array.isArray(r.notes) ? r.notes : [], createdAt: r.createdAt,
+  });
+
+  // Open a realtime voice session for the interview coach. Paid plan, then the voice minutes allowance.
+  router.post('/:id/practice/session', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const prepRow = await service.get(req.params.id);
+      if (!prepRow) return notFound(res);
+      if (prepRow.status !== 'ready' || !prepRow.prep) {
+        return res.status(409).json({ success: false, code: 'not_ready', message: 'The research is not ready yet.' });
+      }
+      const { tailoredProfileId, questions: requested } = req.body || {};
+      let source = null;
+      if (tailoredProfileId) {
+        if (!isUuid(tailoredProfileId)) return res.status(400).json({ success: false, code: 'invalid_request', message: 'Invalid tailoredProfileId' });
+        const tp = await models.TailoredProfile.findOne({ where: { id: tailoredProfileId, userId: req.user.id } });
+        if (!tp) return res.status(404).json({ success: false, code: 'not_found', message: 'Tailored profile not found' });
+        const data = tp.tailoredData && typeof tp.tailoredData === 'object' ? tp.tailoredData : {};
+        source = { title: tp.jobTitle, ...data };
+      } else {
+        const row = await models.Profile.findOne({ where: { userId: req.user.id } });
+        source = row ? row.toJSON() : null;
+      }
+
+      // The allowance the existing coach voice session uses; it answers 429 itself.
+      if (!(await runMiddleware(voiceLimiter, req, res))) return undefined;
+      if (!realtime.isConfigured()) return res.status(503).json({ error: 'Voice is not configured on this server' });
+
+      const prep = prepRow.prep;
+      const stories = await models.InterviewStory.findAll({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']] });
+      // No model call here: the caller's own list (which may carry resume probes) or the reported questions.
+      const questions = pickQuestions({ prep, requested });
+      if (!questions.length) return res.status(422).json({ success: false, code: 'no_questions', message: 'There are no questions to practice yet.' });
+
+      const maxSessionMinutes = req.voiceAllowance?.maxSessionMinutes || null;
+      const instructions = practiceInstructions({
+        firstName: req.user.firstName, prep, questions, stories,
+        profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes,
+      });
+      const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes });
+
+      if (req.voiceAllowance) await recordVoice(req.user.id, maxSessionMinutes, { feature: 'interview_practice', prepId: req.params.id });
+      return res.json({ success: true, ...session, maxSessionMinutes, questions });
+    } catch (err) {
+      console.error('[interviewPrep] practice session failed:', (err && (err.detail || err.message)) || err);
+      return res.status(500).json({ success: false, code: 'error', message: 'Could not start the practice session.' });
+    }
+  });
+
+  router.post('/:id/practice/sessions', authMiddleware, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const prepRow = await service.get(req.params.id);
+      if (!prepRow) return notFound(res);
+      const body = req.body || {};
+      const notes = cleanNotes(body.notes);
+      const { summary, topTip } = cleanSummary({ summary: body.summary, topTip: body.topTip });
+      if (!notes.length && !summary) return res.status(400).json({ success: false, code: 'invalid_request', message: 'Nothing to save.' });
+      const started = new Date(body.startedAt);
+      const secs = Math.round(Number(body.seconds));
+      const row = await models.InterviewPracticeSession.create({
+        userId: req.user.id, prepId: req.params.id,
+        startedAt: Number.isNaN(started.getTime()) ? new Date() : started,
+        seconds: Number.isFinite(secs) ? Math.min(3600, Math.max(0, secs)) : 0,
+        notes, summary, topTip,
+      });
+      return res.json({ success: true, id: row.id });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  router.get('/:id/practice/sessions', authMiddleware, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      if (!(await service.get(req.params.id))) return notFound(res);
+      const rows = await models.InterviewPracticeSession.findAll({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']], limit: 20 });
+      return res.json({ success: true, sessions: rows.slice(0, 20).map(practiceView) });
+    } catch (err) { return sendError(res, err); }
+  });
+
   return router;
 }
 
 function defaultRouter() {
   const authMiddleware = require('../middleware/auth');
-  const { aiRateLimiter, recordAIUsage } = require('../middleware/aiRateLimiter');
+  const { aiRateLimiter, recordAIUsage, coachVoiceSessionLimiter, recordVoiceSession } = require('../middleware/aiRateLimiter');
+  const coachRealtimeService = require('../services/coachRealtimeService');
   const models = require('../models');
   const { getResearch, runModel, runStoryModel } = require('../services/interviewPrepRuntime');
   const service = makeInterviewPrepService({ InterviewPrep: models.InterviewPrep, getResearch });
   const { createCoachTailorService } = require('../services/coachTailorService');
   const { resolveJob } = createCoachTailorService();
-  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob });
+  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob, realtime: coachRealtimeService, voiceLimiter: coachVoiceSessionLimiter, recordVoice: recordVoiceSession });
 }
 
 const router = defaultRouter();

@@ -52,14 +52,28 @@ const isConfigured = () => !!process.env.OPENAI_API_KEY;
  * API key never would be.
  */
 async function createVoiceSession({ firstName, profile = {}, missing = [], maxMinutes = null } = {}) {
+  return createRealtimeSession({
+    instructions: coachVoiceInstructions({ firstName, profile, missing, maxMinutes }),
+    tools: COACH_VOICE_TOOLS,
+    maxMinutes,
+  });
+}
+
+/**
+ * The generic half: mint an ephemeral client secret for a realtime session
+ * with the given instructions and tools. The coach and interview practice
+ * both go through here so the audio, turn detection and model settings stay
+ * identical.
+ */
+async function createRealtimeSession({ instructions, tools = [] } = {}) {
   if (!isConfigured()) throw new Error('OPENAI_API_KEY is not configured');
 
   const body = {
     session: {
       type: 'realtime',
       model: REALTIME_MODEL,
-      instructions: coachVoiceInstructions({ firstName, profile, missing, maxMinutes }),
-      tools: COACH_VOICE_TOOLS,
+      instructions,
+      tools,
       tool_choice: 'auto',
       audio: {
         input: {
@@ -160,6 +174,7 @@ function filterLearned(fields = {}) {
 
 module.exports = {
   createVoiceSession,
+  createRealtimeSession,
   filterLearned,
   isConfigured,
   REALTIME_MODEL,

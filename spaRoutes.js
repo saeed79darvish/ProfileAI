@@ -22,7 +22,7 @@ export const SPA_ROUTES = [
   '/forgot-password',
   '/help',
   '/integrations/claude',
-  '/interview-prep', '/interview-prep/prep/:prepId', '/interview-prep/:tailoredId',
+  '/interview-prep', '/interview-prep/prep/:prepId', '/interview-prep/practice/:prepId', '/interview-prep/:tailoredId',
   '/interviews',
   '/invite/:token',
   '/jobs', '/jobs/:id', '/jobs/:id/apply',

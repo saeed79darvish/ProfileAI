@@ -12,6 +12,7 @@ import {
   isGapProbe, gapDetail, discussionBadge, planProgress, storyRows,
 } from './prepLogic';
 import { isPrepIdMode, prepHeading, refreshBody, apiErrorState } from './startLogic';
+import { practiceSummary, sessionsLabel } from './practiceLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', brandInk: '#4b4fc4', soft: '#f0f0fc', bg: '#f4f5fa', success: '#1f8f55' };
 const STEPS = ['Searching recent interview reports', 'Reading the sources', 'Grouping the questions', 'Checking dates'];
@@ -222,13 +223,6 @@ const Steps = styled.ul`
   @keyframes prepSpin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { li[data-state='now'] .dot { animation: none; border-top-color: ${C.brand}; } }
 `;
-const Sheet = styled.div`
-  position: fixed; inset: 0; z-index: 1300; background: rgba(19, 21, 42, 0.45); display: flex; align-items: flex-end; justify-content: center;
-  .panel { width: 100%; max-width: 520px; background: #fff; border-radius: 20px 20px 0 0; padding: 22px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
-  .panel h3 { margin: 0 0 6px; font-size: 18px; }
-  .panel p { margin: 0 0 16px; font-size: 15.5px; line-height: 1.45; color: #4a4d63; }
-  @media (min-width: 700px) { align-items: center; .panel { border-radius: 20px; } }
-`;
 const Foot = styled.p`
   margin: 0; font-size: 13.5px; line-height: 1.5; color: ${C.muted};
 `;
@@ -415,7 +409,7 @@ function Progress({ elapsed }) {
   );
 }
 
-function PlanCard({ plan, onStories, onPractice }) {
+function PlanCard({ plan, practice, onStories, onPractice }) {
   return (
     <Plan aria-label="Your plan">
       <div className="top"><h2>Your plan</h2><span className="count">{plan.doneCount} of {plan.total} done</span></div>
@@ -430,7 +424,12 @@ function PlanCard({ plan, onStories, onPractice }) {
               <span className="dot" data-s={state}>{s.done ? <CheckIcon /> : i + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="t">{s.title}</div>
-                {s.detail && <div className="d">{s.detail}</div>}
+                {s.id === 'practice' && practice.count > 0 ? (
+                  <>
+                    <div className="d">{sessionsLabel(practice.count)}</div>
+                    {practice.line && <div className="d" style={{ marginTop: 2 }}>{practice.line}</div>}
+                  </>
+                ) : (s.detail && <div className="d">{s.detail}</div>)}
                 {s.id === 'stories' && <button type="button" className="act out" onClick={onStories}>Build my stories</button>}
                 {s.id === 'practice' && <button type="button" className="act solid" onClick={onPractice}><MicIcon />Practice out loud</button>}
               </div>
@@ -456,7 +455,7 @@ export default function InterviewPrep() {
   const [cat, setCat] = useState('all');
   const [topicOpen, setTopicOpen] = useState(null);
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
-  const [sheet, setSheet] = useState(false);
+  const [practice, setPractice] = useState({ count: 0, line: '' });
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [storiesSignal, setStoriesSignal] = useState(0);
   const [headPrep, setHeadPrep] = useState(null); // prep id mode: company, role and scope for the heading
@@ -620,6 +619,17 @@ export default function InterviewPrep() {
 
   useEffect(() => { setShowAll(false); }, [prep]);
 
+  // Past practice sessions, for the plan. Failures show nothing.
+  useEffect(() => {
+    setPractice({ count: 0, line: '' });
+    if (phase !== 'ready' || !prepId.current) return undefined;
+    let alive = true;
+    interviewPrepAPI.listPractice(prepId.current)
+      .then((res) => { if (alive) setPractice(practiceSummary(res.data?.sessions)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [phase, prep]);
+
   const hasCompany = byId ? !idHead.acrossCompanies && Boolean(headPrep) : Boolean(tp && companyOf(tp));
   const name = byId ? (idHead.acrossCompanies ? idHead.title : String(headPrep?.company || '')) : (company ? company : 'Interview prep');
   const goBack = () => (byId ? navigate('/interview-prep') : navigate(-1));
@@ -634,6 +644,7 @@ export default function InterviewPrep() {
     storyCount: Array.isArray(stories) ? stories.length : null,
   });
   const storyList = storyRows(stories);
+  const goPractice = () => { if (prepId.current) navigate(`/interview-prep/practice/${prepId.current}`); };
   const openStories = () => { setStoriesOpen(true); setStoriesSignal((n) => n + 1); };
 
   return (
@@ -817,7 +828,7 @@ export default function InterviewPrep() {
                 </Card>
               )}
 
-              <Stories prepId={prepId.current} tailoredId={byId ? undefined : tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={() => setSheet(true)} onStoriesChange={handleStories} />
+              <Stories prepId={prepId.current} tailoredId={byId ? undefined : tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={goPractice} onStoriesChange={handleStories} />
 
               {discussions.length > 0 && (
                 <Card>
@@ -850,7 +861,7 @@ export default function InterviewPrep() {
             </div>
 
             <aside className="rail" aria-label="Your plan">
-              <PlanCard plan={plan} onStories={openStories} onPractice={() => setSheet(true)} />
+              <PlanCard plan={plan} practice={practice} onStories={openStories} onPractice={goPractice} />
               {storyList.length > 0 && (
                 <Mini aria-label="Your stories">
                   <h2>Your stories</h2>
@@ -873,15 +884,6 @@ export default function InterviewPrep() {
         )}
       </div>
 
-      {sheet && (
-        <Sheet role="dialog" aria-modal="true" aria-label="Coming next" onClick={() => setSheet(false)}>
-          <div className="panel" onClick={(e) => e.stopPropagation()}>
-            <h3>Coming next: practice with the voice coach</h3>
-            <p>We are still building this part. Your research and questions stay here for now.</p>
-            <Btn type="button" onClick={() => setSheet(false)} style={{ width: '100%' }}>Got it</Btn>
-          </div>
-        </Sheet>
-      )}
     </Page>
   );
 }
