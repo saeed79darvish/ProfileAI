@@ -12,9 +12,21 @@ export const CATEGORIES = [
 
 const KNOWN = new Set(CATEGORIES.map((c) => c.id).filter((id) => id !== 'all'));
 
+const ASKS = /^(what|why|how|when|where|which|who|whose|can|could|do|does|did|is|are|was|were|would|should|will|have|has|tell|describe|explain|walk|design|implement|write|build|create|given|define|compare|discuss|diagnose|debug|optimi[sz]e|architect|give|talk|show|solve|find|reverse|merge|sort|add|remove|convert|identify|list|name|detail|outline|suppose|imagine|you)\b/i;
+const TOPIC_WORDS = /\b(questions?|topics?|concepts?|fundamentals|overview|interviews?|rounds?)\b/i;
+
+/** True for something a person could be asked. A heading like "System design questions for full stack roles" is not one. */
+export function isRealQuestion(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length < 12) return false;
+  if (/\?\s*$/.test(t) || ASKS.test(t)) return true;
+  if (TOPIC_WORDS.test(t)) return false;
+  return t.split(' ').length >= 6;
+}
+
 /** Questions in the given category; 'all' keeps everything. Order is the server's. */
 export function filterQuestions(questions, category) {
-  const list = Array.isArray(questions) ? questions.filter((q) => q && q.text) : [];
+  const list = Array.isArray(questions) ? questions.filter((q) => q && q.text && isRealQuestion(q.text)) : [];
   if (!category || category === 'all') return list;
   return list.filter((q) => (KNOWN.has(q.category) ? q.category : 'other') === category);
 }
@@ -232,4 +244,33 @@ export function storyRows(stories) {
   return stories
     .filter((s) => s && typeof s === 'object')
     .map((s, i) => ({ key: String(s.id ?? i), title: typeof s.title === 'string' && s.title.trim() ? s.title.trim() : 'Your story', theme: typeof s.theme === 'string' ? s.theme : '' }));
+}
+
+const TOPIC_STOP = new Set(['and', 'the', 'of', 'for', 'in', 'to', 'a', 'on', 'with', 'including', 'concepts', 'fundamentals', 'basics', 'knowledge', 'skills', 'general', 'overview']);
+const topicTokens = (name) => new Set(String(name || '').toLowerCase().replace(/[^a-z0-9+#.\s]/g, ' ').split(/\s+/).filter((w) => w && !TOPIC_STOP.has(w)));
+
+/** Review topics without near-duplicates: one that says the same thing as an earlier one, in more or fewer words, is dropped. At most 10. */
+export function cleanTopics(topics, max = 10) {
+  const kept = [];
+  for (const t of Array.isArray(topics) ? topics : []) {
+    if (!t || typeof t.name !== 'string' || !t.name.trim()) continue;
+    const tokens = topicTokens(t.name);
+    if (!tokens.size) continue;
+    const dup = kept.some((k) => {
+      const [small, big] = k.tokens.size <= tokens.size ? [k.tokens, tokens] : [tokens, k.tokens];
+      return [...small].every((w) => big.has(w));
+    });
+    if (!dup) kept.push({ topic: t, tokens });
+    if (kept.length >= max) break;
+  }
+  return kept.map((k) => k.topic);
+}
+
+const SPECIFIC_ROUNDS = /^(coding rounds|system design|behavioral and hiring manager|ai and ml focus)$/i;
+
+/** The process steps, without an "Onsite loop" step when the rounds it contains are already listed on their own. */
+export function cleanRounds(rounds) {
+  const list = Array.isArray(rounds) ? rounds.filter((r) => r && r.name) : [];
+  const specific = list.filter((r) => SPECIFIC_ROUNDS.test(String(r.name).trim())).length;
+  return specific >= 2 ? list.filter((r) => !/^onsite loop$/i.test(String(r.name).trim())) : list;
 }

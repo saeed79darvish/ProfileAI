@@ -305,3 +305,14 @@ test('an older forum thread is not evidence but is still listed as a discussion,
   assert.equal(p.discussions[0].date.slice(0, 7), '2024-08');
   assert.equal(p.sources.length, 0);
 });
+
+test('an onsite loop is not listed beside the rounds it contains', () => {
+  const rounds = svc.mergeRounds([
+    { name: 'Onsite loop', format: '', notes: '', sourceIds: ['s1'] },
+    { name: 'Coding round', format: '', notes: '', sourceIds: ['s2'] },
+    { name: 'System design', format: '', notes: '', sourceIds: ['s3'] },
+  ]);
+  assert.deepEqual(rounds.map((m) => m.name), ['Coding rounds', 'System design']);
+  const alone = svc.mergeRounds([{ name: 'Onsite loop', format: '', notes: '', sourceIds: ['s1'] }]);
+  assert.deepEqual(alone.map((m) => m.name), ['Onsite loop']);
+});

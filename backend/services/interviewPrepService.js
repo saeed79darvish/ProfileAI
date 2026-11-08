@@ -204,6 +204,8 @@ function mergeRounds(rounds) {
     if ((r.notes || '').length > (cur.notes || '').length) cur.notes = r.notes;
   }
   const label = (key) => STAGES.find((st) => st.key === key).label;
+  // An onsite loop is the coding, design and behavioral rounds together; listed beside them it is the same thing twice.
+  if (['coding', 'design', 'behavioral', 'ai'].filter((k) => byKey.has(k)).length >= 2) byKey.delete('onsite');
   const merged = STAGE_ORDER.filter((k) => byKey.has(k)).map((k) => ({ ...byKey.get(k), name: label(k) }));
   return [...merged, ...other].slice(0, MAX_ROUNDS);
 }

@@ -445,6 +445,21 @@ const VOICE_FEATURE = 'coach_voice_session';
  * Returns { allowed, maxSessionMinutes, remainingMinutes, reason, tier }.
  * remainingMinutes is -1 when there is no monthly minute budget.
  */
+/* A session reserves its full allowance the moment it starts, and nothing
+   reports back how long the call really ran. Left alone, one five-minute call
+   used up thirty minutes and a Pro plan (60) ended after two calls. Once a
+   reservation is old enough that its call must be over, it counts for what a
+   call typically takes instead. A practice session that saves its notes is
+   settled to its real length (see the practice route). */
+const TYPICAL_CALL_MINUTES = 10;
+const voiceMinutesCounted = (row, now = Date.now()) => {
+  const granted = Number(row.metadata?.minutes) || 0;
+  if (row.metadata?.settled === true) return granted;
+  const started = row.usedAt ? new Date(row.usedAt).getTime() : now;
+  const over = now - started > (granted + 2) * 60 * 1000;
+  return over ? Math.min(granted, TYPICAL_CALL_MINUTES) : granted;
+};
+
 const getVoiceAllowance = async (user) => {
   const role = user.role || 'candidate';
   // Admins test the voice coach far more than a plan allows; never capped.
@@ -476,9 +491,9 @@ const getVoiceAllowance = async (user) => {
     monthStart.setHours(0, 0, 0, 0);
     const rows = await AIUsage.findAll({
       where: { userId: user.id, featureType: VOICE_FEATURE, usedAt: { [Op.gte]: monthStart } },
-      attributes: ['metadata'],
+      attributes: ['metadata', 'usedAt'],
     });
-    const used = rows.reduce((sum, r) => sum + (Number(r.metadata?.minutes) || 0), 0);
+    const used = rows.reduce((sum, r) => sum + voiceMinutesCounted(r), 0);
     remainingMinutes = Math.max(0, limits.monthlyMinutes - used);
     // Under a minute left is not a call worth starting.
     if (remainingMinutes < 1) {
@@ -680,6 +695,7 @@ module.exports = {
   aiRateLimiter,
   aiRateLimiterIfSignedIn,
   getVoiceAllowance,
+  voiceMinutesCounted,
   coachVoiceSessionLimiter,
   recordVoiceSession,
   settleVoiceSession,

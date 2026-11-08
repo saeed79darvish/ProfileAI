@@ -49,10 +49,22 @@ function cleanRequested(requested) {
   return out;
 }
 
+const ASKS = /^(what|why|how|when|where|which|who|whose|can|could|do|does|did|is|are|was|were|would|should|will|have|has|tell|describe|explain|walk|design|implement|write|build|create|given|define|compare|discuss|diagnose|debug|optimi[sz]e|architect|give|talk|show|solve|find|reverse|merge|sort|add|remove|convert|identify|list|name|detail|outline|suppose|imagine|you)\b/i;
+const TOPIC_WORDS = /\b(questions?|topics?|concepts?|fundamentals|overview|interviews?|rounds?)\b/i;
+
+/** Something a person could be asked. "System design questions for full stack roles" is a heading, not a question. */
+function isRealQuestion(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length < 12) return false;
+  if (/\?\s*$/.test(t) || ASKS.test(t)) return true;
+  if (TOPIC_WORDS.test(t)) return false;
+  return t.split(' ').length >= 6;
+}
+
 /** Most reported first, a mix of categories, a behavioral one if the research has any. */
 function pickReported(questions, limit) {
   const list = (Array.isArray(questions) ? questions : [])
-    .filter((q) => q && typeof q.text === 'string' && q.text.trim())
+    .filter((q) => q && typeof q.text === 'string' && isRealQuestion(q.text))
     .map((q, i) => ({ q, i, freq: Number(q.frequency) || 0 }))
     .sort((a, b) => b.freq - a.freq || a.i - b.i);
   if (!list.length || limit <= 0) return [];
@@ -208,5 +220,5 @@ function cleanSummary({ summary, topTip } = {}) {
 }
 
 module.exports = {
-  pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS, plain, profileSnapshot,
+  isRealQuestion, pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS, plain, profileSnapshot,
 };

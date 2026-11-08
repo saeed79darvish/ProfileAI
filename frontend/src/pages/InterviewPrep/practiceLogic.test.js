@@ -107,3 +107,8 @@ test('practiceSummary picks the latest session', () => {
   assert.equal(sessionsLabel(1), '1 session');
   assert.equal(sessionsLabel(3), '3 sessions');
 });
+
+test('a used-up monthly allowance is a limit, not an upgrade prompt, even when the server also asks for an upgrade', () => {
+  const e = { response: { status: 429, data: { reason: 'minutes_used', upgradeRequired: true, featureType: 'coach_voice_session', message: "You've used this month's voice coach minutes." } } };
+  assert.deepEqual(sessionErrorState(e), { kind: 'limit', message: "You've used this month's voice coach minutes." });
+});

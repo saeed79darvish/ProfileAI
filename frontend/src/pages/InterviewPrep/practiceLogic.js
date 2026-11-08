@@ -31,6 +31,7 @@ export function sessionErrorState(e) {
   const status = e?.response?.status;
   const d = e?.response?.data || {};
   if (status === 403 && (d.code === 'upgrade_required' || d.upgradeRequired)) return { kind: 'upgrade', message: '' };
+  if (status === 429 && d.reason === 'minutes_used') return { kind: 'limit', message: str(d.message) };
   if (status === 429 && (d.upgradeRequired || d.featureType)) return { kind: d.upgradeRequired ? 'upgrade' : 'limit', message: str(d.message) };
   if (status === 429) return { kind: 'limit', message: str(d.message) };
   if (status === 409 && d.code === 'not_ready') return { kind: 'not_ready', message: '' };

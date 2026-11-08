@@ -258,3 +258,26 @@ test('mine carries practiceCount per prep', async () => {
     assert.equal(r.body.preps[0].practiceCount, 2);
   } finally { t.close(); }
 });
+
+test('isRealQuestion keeps questions and drops headings about questions', () => {
+  for (const t of [
+    'What is lazy loading and how does it improve application performance?',
+    'Describe how you would architect a content delivery solution for static assets.',
+    'Design a scalable system for processing audio with AI.',
+  ]) assert.equal(svc.isRealQuestion(t), true, t);
+  for (const t of [
+    'System design questions for full stack roles',
+    'Frontend development coding and architecture questions',
+    'React, CSS, and JavaScript implementation questions',
+    'Hooks',
+  ]) assert.equal(svc.isRealQuestion(t), false, t);
+});
+
+test('pickQuestions never picks a heading', () => {
+  const prep = { questions: [
+    { text: 'System design questions for full stack roles', category: 'system_design', frequency: 5 },
+    { text: 'How would you handle slow API responses in your frontend?', category: 'system_design', frequency: 2 },
+  ] };
+  const picked = svc.pickQuestions({ prep });
+  assert.deepEqual(picked.map((q) => q.text), ['How would you handle slow API responses in your frontend?']);
+});

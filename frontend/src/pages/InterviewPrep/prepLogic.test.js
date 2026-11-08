@@ -5,7 +5,7 @@ import { filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, saf
 const qs = [
   { id: 'a', text: 'Reverse a list', category: 'coding', mostRecent: '2026-03-10T00:00:00Z', sourceIds: ['s1', 's2'] },
   { id: 'b', text: 'Design a feed', category: 'system_design', mostRecent: null, sourceIds: ['s1'] },
-  { id: 'c', text: 'Odd one', category: 'other', mostRecent: '2026-05-01T00:00:00Z', sourceIds: [] },
+  { id: 'c', text: 'Tell me about a time you worked with an odd constraint', category: 'other', mostRecent: '2026-05-01T00:00:00Z', sourceIds: [] },
   { id: 'd', text: '', category: 'coding' },
 ];
 
@@ -168,4 +168,29 @@ test('story rows only keep objects', () => {
   assert.equal(rows.length, 2);
   assert.equal(rows[0].theme, 'Perf');
   assert.equal(rows[1].title, 'Your story');
+});
+
+import { isRealQuestion, cleanTopics, cleanRounds } from './prepLogic.js';
+
+test('headings are not questions, real questions stay', () => {
+  assert.equal(isRealQuestion('System design questions for full stack roles'), false);
+  assert.equal(isRealQuestion('React, CSS, and JavaScript implementation questions'), false);
+  assert.equal(isRealQuestion('What is lazy loading and how does it help performance?'), true);
+  assert.equal(isRealQuestion('Design a scalable system for processing audio with AI (reported for a technical phone screen).'), true);
+  assert.equal(filterQuestions([{ text: 'Frontend development coding and architecture questions', category: 'coding' }, { text: 'How do you debounce a search box?', category: 'coding' }], 'all').length, 1);
+});
+
+test('review topics: near-duplicates are merged and the list is capped', () => {
+  const names = ['System Design', 'Frontend Development', 'System design and architecture', 'Frontend fundamentals', 'Performance optimization', 'Performance optimization and bundle analysis', 'System design and scalability', 'Accessibility and UX'];
+  const out = cleanTopics(names.map((name) => ({ name, why: 'x' }))).map((t) => t.name);
+  assert.deepEqual(out, ['System Design', 'Frontend Development', 'Performance optimization', 'Accessibility and UX']);
+  assert.equal(cleanTopics(Array.from({ length: 30 }, (_, i) => ({ name: `Topic${i} unique${i}` }))).length, 10);
+  assert.deepEqual(cleanTopics(null), []);
+});
+
+test('the onsite loop step hides when the rounds inside it are listed', () => {
+  const r = (name) => ({ name });
+  assert.deepEqual(cleanRounds([r('Online assessment'), r('Onsite loop'), r('Coding rounds'), r('System design')]).map((x) => x.name), ['Online assessment', 'Coding rounds', 'System design']);
+  assert.deepEqual(cleanRounds([r('Onsite loop'), r('Coding rounds')]).map((x) => x.name), ['Onsite loop', 'Coding rounds']);
+  assert.deepEqual(cleanRounds(undefined), []);
 });

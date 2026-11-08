@@ -53,7 +53,7 @@ const labelOf = ({ company, jobTitle, level }) => {
   return `${String(level || '').trim()} ${role}`.trim().slice(0, 255);
 };
 
-function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob, realtime, voiceLimiter, recordVoice }) {
+function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob, realtime, voiceLimiter, recordVoice, settleVoice }) {
   const router = express.Router();
 
   /** Best effort: remember that this user opened this prep. Never throws. */
@@ -361,6 +361,14 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         seconds: Number.isFinite(secs) ? Math.min(3600, Math.max(0, secs)) : 0,
         notes, summary, topTip,
       });
+      // The session reserved its full allowance when it started; now the real length is known.
+      if (settleVoice && models.AIUsage && row.seconds > 0) {
+        try {
+          const recent = await models.AIUsage.findAll({ where: { userId: req.user.id, featureType: 'coach_voice_session' }, order: [['usedAt', 'DESC']], limit: 5 });
+          const open = recent.find((u) => u.metadata && u.metadata.prepId === req.params.id && u.metadata.settled !== true);
+          if (open) await settleVoice(open.id, req.user.id, Math.ceil(row.seconds / 60));
+        } catch (e) { console.error('[interviewPrep] settle voice minutes failed:', e.message); }
+      }
       return res.json({ success: true, id: row.id });
     } catch (err) { return sendError(res, err); }
   });
@@ -379,14 +387,14 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
 
 function defaultRouter() {
   const authMiddleware = require('../middleware/auth');
-  const { aiRateLimiter, recordAIUsage, coachVoiceSessionLimiter, recordVoiceSession } = require('../middleware/aiRateLimiter');
+  const { aiRateLimiter, recordAIUsage, coachVoiceSessionLimiter, recordVoiceSession, settleVoiceSession } = require('../middleware/aiRateLimiter');
   const coachRealtimeService = require('../services/coachRealtimeService');
   const models = require('../models');
   const { getResearch, runModel, runStoryModel } = require('../services/interviewPrepRuntime');
   const service = makeInterviewPrepService({ InterviewPrep: models.InterviewPrep, getResearch });
   const { createCoachTailorService } = require('../services/coachTailorService');
   const { resolveJob } = createCoachTailorService();
-  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob, realtime: coachRealtimeService, voiceLimiter: coachVoiceSessionLimiter, recordVoice: recordVoiceSession });
+  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob, realtime: coachRealtimeService, voiceLimiter: coachVoiceSessionLimiter, recordVoice: recordVoiceSession, settleVoice: settleVoiceSession });
 }
 
 const router = defaultRouter();

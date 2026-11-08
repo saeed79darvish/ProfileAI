@@ -7,7 +7,7 @@ import { interviewPrepAPI } from '@/services/interviewPrep';
 import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
-  CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
+  CATEGORIES, filterQuestions, cleanTopics, cleanRounds, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
   categoryTag, sourcePillLabel, coverageChip, companyInitial, logoColor, selectStep, stepKeyTarget, visibleQuestions, showMoreLabel,
   isGapProbe, gapDetail, discussionBadge, planProgress, storyRows,
 } from './prepLogic';
@@ -612,7 +612,7 @@ export default function InterviewPrep() {
   const generated = prep?.generatedAt ? monthYear(prep.generatedAt) : '';
   const generatedFull = prep?.generatedAt && Number.isFinite(Date.parse(prep.generatedAt))
     ? new Date(prep.generatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : generated;
-  const rounds = prep?.process?.rounds || [];
+  const rounds = cleanRounds(prep?.process?.rounds);
   const sources = Array.isArray(prep?.sources) ? prep.sources : [];
   const discussions = cleanDiscussions(prep?.discussions);
 
@@ -636,6 +636,7 @@ export default function InterviewPrep() {
   const chip = coverageChip(coverage);
   const shown = visibleQuestions(questions, showAll, 6);
   const moreLabel = showMoreLabel(questions.length, shown.length);
+  const topicList = cleanTopics(prep?.topics);
   const probeList = probes.state === 'done' ? probes.list : [];
   const plan = planProgress({
     sourceCount: sources.length,
@@ -787,7 +788,7 @@ export default function InterviewPrep() {
               <Card>
                 <h2>What they may ask about your resume</h2>
                 <p className="sub">Based on your own resume, not on public reports.</p>
-                {probes.state === 'loading' && <div style={{ padding: '8px 0' }}><CircularProgress size={22} /></div>}
+                {probes.state === 'loading' && <div style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: 12 }}><CircularProgress size={22} /><span className="sub" style={{ margin: 0 }}>Reading your resume</span></div>}
                 {probes.state === 'error' && (
                   <>
                     <p className="sub">We could not build these just now.</p>
@@ -813,17 +814,17 @@ export default function InterviewPrep() {
                 )}
               </Card>
 
-              {coverage !== 'none' && Array.isArray(prep.topics) && prep.topics.length > 0 && (
+              {coverage !== 'none' && topicList.length > 0 && (
                 <Card>
                   <h2>Topics to review</h2>
                   <p className="sub">Tap a topic to see why it matters.</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {prep.topics.map((t, i) => (
+                    {topicList.map((t, i) => (
                       <Topic key={`${t.name}-${i}`} type="button" $on={topicOpen === i} aria-expanded={topicOpen === i} onClick={() => setTopicOpen(topicOpen === i ? null : i)}>{t.name}</Topic>
                     ))}
                   </div>
-                  {topicOpen != null && prep.topics[topicOpen]?.why && (
-                    <Note style={{ background: C.soft, color: C.ink }}>{prep.topics[topicOpen].why}</Note>
+                  {topicOpen != null && topicList[topicOpen]?.why && (
+                    <Note style={{ background: C.soft, color: C.ink }}>{topicList[topicOpen].why}</Note>
                   )}
                 </Card>
               )}

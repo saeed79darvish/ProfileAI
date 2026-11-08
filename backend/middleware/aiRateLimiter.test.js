@@ -187,3 +187,16 @@ test('voice: Pro is metered in minutes and the last session is shortened', async
   assert.equal(spent.allowed, false);
   assert.equal(spent.reason, 'minutes_used');
 });
+
+test('a voice reservation whose call is over counts for a typical call, not the full grant', () => {
+  const { voiceMinutesCounted } = require('./aiRateLimiter');
+  const now = Date.now();
+  const ago = (min) => new Date(now - min * 60 * 1000);
+  // still inside its window: held in full so two calls cannot run at once
+  assert.equal(voiceMinutesCounted({ metadata: { minutes: 30 }, usedAt: ago(5) }, now), 30);
+  // long over and never settled: a typical call
+  assert.equal(voiceMinutesCounted({ metadata: { minutes: 30 }, usedAt: ago(90) }, now), 10);
+  assert.equal(voiceMinutesCounted({ metadata: { minutes: 5 }, usedAt: ago(90) }, now), 5);
+  // settled: exactly what was settled
+  assert.equal(voiceMinutesCounted({ metadata: { minutes: 3, settled: true }, usedAt: ago(90) }, now), 3);
+});
