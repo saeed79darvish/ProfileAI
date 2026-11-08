@@ -29,7 +29,9 @@ const { countOpenings } = require('./coachMarket');
 // Free-text answers are short and the extraction target is tiny, so Haiku
 // is the right tier here — a conversation is ~10 of these calls and using
 // Sonnet would make the builder cost more than parsing a whole resume.
-const TURN_MODEL = HAIKU_MODEL;
+// COACH_TURN_MODEL lets the coach move to a newer, cheaper model on its own,
+// after coachAgentEval.js passes, without moving every other Haiku feature.
+const TURN_MODEL = process.env.COACH_TURN_MODEL || HAIKU_MODEL;
 const { gapCheckPrompt, suggestPrompt, SUGGEST_KINDS } = require('./ai/prompts/coachStage');
 
 // Hard cap on what we'll accept as one chat answer. Voice transcripts run
