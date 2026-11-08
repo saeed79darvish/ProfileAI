@@ -419,15 +419,19 @@ function createCoachTailorService(deps = {}) {
     if (!hasProfileContent(adapted)) {
       throw new CoachTailorError(400, 'profile_required', 'Build your profile first, then try a job.');
     }
+    return { profile: adapted, job: await resolveJob({ jobUrl, jobDescription }) };
+  }
 
+  /**
+   * Resolves a pasted description or a job link (SSRF-guarded fetch) to
+   * { jobDescription, jobTitle, company, source: 'text'|'link' }. No profile, no AI.
+   */
+  async function resolveJob({ jobUrl, jobDescription } = {}) {
     const pasted = typeof jobDescription === 'string' ? jobDescription.trim() : '';
     const link = typeof jobUrl === 'string' ? jobUrl.trim() : '';
 
     if (pasted.length >= MIN_JOB_DESCRIPTION_CHARS) {
-      return {
-        profile: adapted,
-        job: { jobDescription: pasted.slice(0, MAX_JOB_DESCRIPTION_CHARS), jobTitle: '', company: link ? companyFromJobUrl(link) : '' },
-      };
+      return { jobDescription: pasted.slice(0, MAX_JOB_DESCRIPTION_CHARS), jobTitle: '', company: link ? companyFromJobUrl(link) : '', source: 'text' };
     }
     if (!link) {
       if (pasted) {
@@ -449,12 +453,10 @@ function createCoachTailorService(deps = {}) {
       throw new CoachTailorError(422, 'job_url_unreadable', URL_UNREADABLE_MESSAGE);
     }
     return {
-      profile: adapted,
-      job: {
-        jobDescription: text.slice(0, MAX_JOB_DESCRIPTION_CHARS),
-        jobTitle: str(posting.jobTitle, 200),
-        company: str(posting.company, 200) || companyFromJobUrl(link),
-      },
+      jobDescription: text.slice(0, MAX_JOB_DESCRIPTION_CHARS),
+      jobTitle: str(posting.jobTitle, 200),
+      company: str(posting.company, 200) || companyFromJobUrl(link),
+      source: 'link',
     };
   }
 
@@ -520,7 +522,7 @@ function createCoachTailorService(deps = {}) {
     return runPreview(await resolveInput(input));
   }
 
-  return { resolveInput, runPreview, tailorPreview };
+  return { resolveInput, resolveJob, runPreview, tailorPreview };
 }
 
 module.exports = {

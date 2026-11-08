@@ -83,6 +83,7 @@ const AdminSupport = lazyWithReload(() => import('./pages/AdminSupport'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
 const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const InterviewPrep = lazyWithReload(() => import('./pages/InterviewPrep'));
+const InterviewPrepStart = lazyWithReload(() => import('./pages/InterviewPrep/Start'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
 const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
 const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
@@ -344,6 +345,16 @@ function AppContent() {
             <Route path="/my-jobs" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <MyJobs />
+              </PrivateRoute>
+            } />
+            <Route path="/interview-prep" element={
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <InterviewPrepStart />
+              </PrivateRoute>
+            } />
+            <Route path="/interview-prep/prep/:prepId" element={
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <InterviewPrep />
               </PrivateRoute>
             } />
             <Route path="/interview-prep/:tailoredId" element={

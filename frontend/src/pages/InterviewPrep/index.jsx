@@ -9,6 +9,7 @@ import { companyOf } from '@/components/tailored/tailoredModel';
 import {
   CATEGORIES, filterQuestions, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
 } from './prepLogic';
+import { isPrepIdMode, prepHeading, refreshBody, apiErrorState } from './startLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc', bg: '#f3f4f8' };
 const STEPS = ['Searching recent interview reports', 'Reading the sources', 'Grouping the questions', 'Checking dates'];
@@ -30,6 +31,7 @@ const Back = styled.button`
 const Head = styled.header`
   h1 { margin: 0; font-size: 24px; line-height: 1.2; }
   .role { margin-top: 4px; font-size: 16px; color: #4a4d63; }
+  .across { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: ${C.soft}; color: ${C.brand}; font-size: 13px; font-weight: 600; }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 8px; font-size: 14px; color: ${C.muted}; }
 `;
 const TextBtn = styled.button`
@@ -175,7 +177,9 @@ function Progress({ elapsed }) {
 }
 
 export default function InterviewPrep() {
-  const { tailoredId } = useParams();
+  const params = useParams();
+  const { tailoredId, prepId: routePrepId } = params;
+  const byId = isPrepIdMode(params);
   const navigate = useNavigate();
   const [tp, setTp] = useState(null);
   const [phase, setPhase] = useState('loading'); // loading | researching | ready | failed | timeout | unavailable | missing
@@ -189,6 +193,7 @@ export default function InterviewPrep() {
   const [sheet, setSheet] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [storiesSignal, setStoriesSignal] = useState(0);
+  const [headPrep, setHeadPrep] = useState(null); // prep id mode: company, role and scope for the heading
   const run = useRef(0);
   const prepId = useRef(null);
   const typed = useRef('');
@@ -247,6 +252,56 @@ export default function InterviewPrep() {
     } catch (e) { fail(e); }
   }, [personalize]);
 
+  // Prep id mode: open a prep by its id (no tailored resume), or run it again when `again` is the prep to refresh.
+  const runById = useCallback(async (again) => {
+    const runId = ++run.current;
+    setErrMsg(''); setProbes({ state: 'idle', list: [] });
+    if (again) { setPhase('researching'); setElapsed(0); } else setPhase('loading');
+    const began = Date.now();
+    const fail = (e) => {
+      if (run.current !== runId) return;
+      if (e?.response?.status === 404) { setPhase('missing'); return; }
+      const st = apiErrorState(e);
+      if (st.kind === 'unavailable') { setPhase('unavailable'); return; }
+      if (st.kind === 'upgrade' || st.kind === 'limit') { setErrMsg(st.kind); setPhase('locked'); return; }
+      setErrMsg(st.message); setPhase('failed');
+    };
+    const finish = (id, p) => {
+      if (run.current !== runId) return;
+      prepId.current = id; setPrep(p); setHeadPrep(p); setPhase('ready'); personalize(id, runId);
+    };
+    try {
+      let id = routePrepId;
+      let d;
+      if (again) {
+        const res = await interviewPrepAPI.start(again.company, again.jobTitle, true, { level: again.level, source: again.source });
+        if (run.current !== runId) return;
+        d = res.data || {};
+        id = d.id;
+      } else {
+        const res = await interviewPrepAPI.get(id);
+        if (run.current !== runId) return;
+        d = res.data || {};
+      }
+      for (;;) {
+        if (d.prep && (d.prep.company || d.prep.role)) setHeadPrep(d.prep);
+        if (d.status === 'ready' && d.prep) return finish(id, d.prep);
+        if (d.status === 'failed') { setErrMsg(typeof d.error === 'string' ? d.error : ''); setPhase('failed'); return; }
+        if (!id) { setPhase('failed'); return; }
+        setPhase('researching');
+        // Poll every 3 seconds, give up after four minutes.
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        if (run.current !== runId) return;
+        setElapsed(Date.now() - began);
+        if (pollExpired(began)) { setPhase('timeout'); return; }
+        let r;
+        try { r = await interviewPrepAPI.get(id); } catch (e) { fail(e); return; }
+        if (run.current !== runId) return;
+        d = r.data || {};
+      }
+    } catch (e) { fail(e); }
+  }, [routePrepId, personalize]);
+
   // Tick the progress lines while waiting.
   useEffect(() => {
     if (phase !== 'researching') return undefined;
@@ -257,6 +312,7 @@ export default function InterviewPrep() {
   }, [phase]);
 
   useEffect(() => {
+    if (byId) return undefined;
     let alive = true;
     setPhase('loading'); setPrep(null);
     tailoredProfileAPI.getById(tailoredId).then((res) => {
@@ -267,10 +323,21 @@ export default function InterviewPrep() {
       start(profile, false);
     }).catch(() => { if (alive) setPhase('missing'); });
     return () => { alive = false; run.current += 1; };
-  }, [tailoredId, start]);
+  }, [tailoredId, start, byId]);
 
-  const company = tp ? companyOf(tp) || tp.jobTitle : '';
-  const role = tp && companyOf(tp) ? tp.jobTitle : '';
+  useEffect(() => {
+    if (!byId) return undefined;
+    setPrep(null); setHeadPrep(null);
+    runById(null);
+    return () => { run.current += 1; };
+  }, [byId, runById]);
+
+  const idHead = byId ? prepHeading(headPrep) : null;
+  const refreshPrep = () => { if (byId) runById(refreshBody(headPrep)); else start(tp, true); };
+  const retryPrep = (refresh) => { if (byId) runById(refresh && headPrep ? refreshBody(headPrep) : null); else start(tp, refresh); };
+
+  const company = byId ? '' : tp ? companyOf(tp) || tp.jobTitle : '';
+  const role = byId ? idHead.role : tp && companyOf(tp) ? tp.jobTitle : '';
   const questions = prep ? filterQuestions(prep.questions, cat) : [];
   const counts = prep ? categoryCounts(prep.questions) : {};
   const coverage = prep?.coverage;
@@ -284,14 +351,15 @@ export default function InterviewPrep() {
   return (
     <Page>
       <div className="wrap">
-        <Back type="button" onClick={() => navigate(-1)}>Back to resumes</Back>
+        <Back type="button" onClick={() => (byId ? navigate('/interview-prep') : navigate(-1))}>{byId ? 'Back to interview prep' : 'Back to resumes'}</Back>
         <Head>
-          <h1>{company ? `Interview prep: ${company}` : 'Interview prep'}</h1>
+          <h1>{byId ? idHead.title : company ? `Interview prep: ${company}` : 'Interview prep'}</h1>
+          {byId && idHead.acrossCompanies && headPrep && <div className="across">Across companies</div>}
           {role && <div className="role">{role}</div>}
           {phase === 'ready' && (
             <div className="row">
               {generatedFull && <span>Last researched {generatedFull}</span>}
-              <TextBtn type="button" onClick={() => start(tp, true)}>Refresh research</TextBtn>
+              <TextBtn type="button" onClick={refreshPrep}>Refresh research</TextBtn>
             </div>
           )}
         </Head>
@@ -299,16 +367,16 @@ export default function InterviewPrep() {
         {phase === 'loading' && <Center><CircularProgress size={26} /></Center>}
         {phase === 'missing' && (
           <Center>
-            <h2>We could not find that resume</h2>
+            <h2>{byId ? 'We could not find that prep' : 'We could not find that resume'}</h2>
             <p>It may have been deleted. Go back and pick another one.</p>
-            <Btn type="button" onClick={() => navigate(-1)}>Go back</Btn>
+            <Btn type="button" onClick={() => (byId ? navigate('/interview-prep') : navigate(-1))}>Go back</Btn>
           </Center>
         )}
         {phase === 'unavailable' && (
           <Center>
             <h2>Interview research is not available yet</h2>
             <p>We will turn it on soon.</p>
-            <Btn type="button" $ghost onClick={() => navigate(-1)}>Go back</Btn>
+            <Btn type="button" $ghost onClick={() => (byId ? navigate('/interview-prep') : navigate(-1))}>Go back</Btn>
           </Center>
         )}
         {phase === 'needsCompany' && (
@@ -333,7 +401,7 @@ export default function InterviewPrep() {
               ? 'Pro and Pro Plus read what candidates recently shared about this role at this company, and show you the likely questions with their sources and dates.'
               : 'Your allowance renews next month. Pro Plus includes more research each month.'}</p>
             <Btn type="button" onClick={() => navigate('/pricing')}>See plans</Btn>
-            <Btn type="button" $ghost onClick={() => navigate(-1)}>Go back</Btn>
+            <Btn type="button" $ghost onClick={() => (byId ? navigate('/interview-prep') : navigate(-1))}>Go back</Btn>
           </Center>
         )}
         {phase === 'researching' && <Progress elapsed={elapsed} />}
@@ -341,14 +409,14 @@ export default function InterviewPrep() {
           <Center>
             <h2>This is taking longer than expected</h2>
             <p>The research did not finish in time. Please try again in a moment.</p>
-            <Btn type="button" onClick={() => start(tp, false)}>Try again</Btn>
+            <Btn type="button" onClick={() => retryPrep(false)}>Try again</Btn>
           </Center>
         )}
         {phase === 'failed' && (
           <Center>
             <h2>We could not finish the research</h2>
             <p>{errMsg || 'Something went wrong on our side. Please try again.'}</p>
-            <Btn type="button" onClick={() => start(tp, true)}>Retry</Btn>
+            <Btn type="button" onClick={() => retryPrep(true)}>Retry</Btn>
           </Center>
         )}
 
@@ -462,7 +530,7 @@ export default function InterviewPrep() {
               </div>
             </Section>
 
-            <Stories prepId={prepId.current} tailoredId={tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={() => setSheet(true)} />
+            <Stories prepId={prepId.current} tailoredId={byId ? undefined : tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={() => setSheet(true)} />
 
             {sources.length > 0 && (
               <Section>

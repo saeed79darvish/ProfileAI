@@ -93,7 +93,7 @@ function collectSources(blocks, now) {
 async function runPass({ company, role, level, client, model, now, log, domains: wantedDomains = null, maxUses = MAX_USES }) {
   let domains = wantedDomains ? [...wantedDomains] : null;
   const { createMessage } = require('../ai/core');
-  const userPrompt = `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 24 months of what candidates report about interviewing for this role at this company, then answer with the JSON.${domains ? ` Search only these sites: ${domains.join(', ')}.` : ''}`;
+  const userPrompt = `${company ? `Company: ${company}` : 'Company: none (general research across companies)'}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nResearch the last 24 months of what candidates report about interviewing for this role${company ? ' at this company' : ' and level across companies'}, then answer with the JSON.${domains ? ` Search only these sites: ${domains.join(', ')}.` : ''}`;
   const messages = [{ role: 'user', content: userPrompt }];
   let toolIdx = 0;
   const allBlocks = [];

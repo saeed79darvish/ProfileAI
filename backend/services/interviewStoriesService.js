@@ -22,6 +22,12 @@ function plain(text) {
     .trim();
 }
 const oneLine = (v, max) => clean(plain(v), max);
+/** "Role at Company", or just "Role" when the prep is for a role and level with no company. */
+const roleAtCompany = (prep) => {
+  const role = clean(prep && prep.role, 120);
+  const company = clean(prep && prep.company, 120);
+  return company ? `${role} at ${company}` : role;
+};
 const strOrEmpty = (v) => (typeof v === 'string' ? v : '');
 
 function cleanRef(ref) {
@@ -129,7 +135,7 @@ async function storyQuestions({ prep, profile, theme, title, experienceRef, runM
   if (!t) throw Object.assign(new Error('A story title is required.'), { status: 400, code: 'invalid_request' });
   const raw = await runModel({
     system: QUESTIONS_SYSTEM,
-    prompt: `Preparing for: ${clean(prep.role, 120)} at ${clean(prep.company, 120)}\nTheme: ${oneLine(theme, 120)}\nStory title: ${t}\nGrounded in: ${JSON.stringify(cleanRef(experienceRef))}\n\nCandidate profile:\n${snapshot}`,
+    prompt: `Preparing for: ${roleAtCompany(prep)}\nTheme: ${oneLine(theme, 120)}\nStory title: ${t}\nGrounded in: ${JSON.stringify(cleanRef(experienceRef))}\n\nCandidate profile:\n${snapshot}`,
     maxTokens: 900, purpose: 'story_questions',
   });
   const questions = cleanQuestions(parseModelJson(raw));
@@ -198,7 +204,7 @@ async function writeStory({ prep, profile, theme, title, experienceRef, details,
   const own = clean([answersToDetails(answers), plain(strOrEmpty(details))].filter(Boolean).join('\n\n'), 2600);
   const raw = await runModel({
     system: STORY_SYSTEM,
-    prompt: `Interview: ${clean(prep.role, 120)} at ${clean(prep.company, 120)}\nTheme: ${oneLine(theme, 120)}\nStory title: ${t}\nGrounded in: ${JSON.stringify(ref)}${own ? `\n\nThe candidate's own words (their real account, in their voice):\n${own}` : ''}\n\nResearch:\n${JSON.stringify(researchOf(prep))}\n\nCandidate profile:\n${snapshot}`,
+    prompt: `Interview: ${roleAtCompany(prep)}\nTheme: ${oneLine(theme, 120)}\nStory title: ${t}\nGrounded in: ${JSON.stringify(ref)}${own ? `\n\nThe candidate's own words (their real account, in their voice):\n${own}` : ''}\n\nResearch:\n${JSON.stringify(researchOf(prep))}\n\nCandidate profile:\n${snapshot}`,
     maxTokens: 1800, purpose: 'story_write',
   });
   const story = cleanStory(parseModelJson(raw));

@@ -25,6 +25,7 @@ import {
   LocalOffer as PromoIcon,
   PrivacyTip as PrivacyIcon,
   HelpOutline as HelpIcon,
+  RecordVoiceOver as PrepIcon,
 } from '@mui/icons-material';
 import { Badge } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -571,6 +572,7 @@ const ADMIN_ITEMS = [
 
 const CANDIDATE_ITEMS = [
   { label: 'My Jobs',    path: '/jobs',       Icon: WorkIcon },
+  { label: 'Interview prep', path: '/interview-prep', Icon: PrepIcon },
   { label: 'ApplyPilot', path: '/applypilot', Icon: RocketIcon },
   { label: 'Extension',  path: '/extension',  Icon: ExtensionIcon },
   { label: 'Claude',     path: '/integrations/claude', Icon: ClaudeIcon },

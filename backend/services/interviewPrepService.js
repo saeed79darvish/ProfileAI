@@ -39,6 +39,12 @@ const tokens = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9+#. ]
 
 const companyKeyOf = (company) => tokens(company).filter((t) => !COMPANY_SUFFIX.has(t)).join(' ').slice(0, 120);
 const roleKeyOf = (role) => tokens(role).sort().join(' ').slice(0, 160);
+const LEVEL_IDS = ['intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'manager'];
+/** Lowercase level id, or '' for empty, "unknown" and anything not recognized. */
+const levelIdOf = (level) => { const l = String(level || '').trim().toLowerCase(); return LEVEL_IDS.includes(l) ? l : ''; };
+const GENERAL_KEY = 'general'; // company key shared by every role-and-level prep (no company)
+/** Role-scope key: the level is part of it so "senior" and "junior" never share research. */
+const roleLevelKeyOf = (role, level) => [...new Set(tokens(`${role} ${level || ''}`))].sort().join(' ').slice(0, 160);
 
 /** Order-free, filler-free key so "Design a URL shortener" equals "URL shortener design". */
 function questionKey(text) {
@@ -263,6 +269,7 @@ function assemblePayload({ company, role, now = new Date(), sources: allSources,
 
   return {
     company, role,
+    scope: company ? 'company' : 'role',
     generatedAt: now.toISOString(),
     coverage,
     summary: coverage === 'none' ? NO_EVIDENCE_SUMMARY : guard(clean(summary, 1200)) || fallbackSummary(outQuestions, outSources),
@@ -293,7 +300,18 @@ function fallbackSummary(questions, sources) {
 const FORUM_DOMAINS = ['reddit.com', 'leetcode.com', 'teamblind.com', 'substack.com'];
 const GENERIC_DOMAINS_B = ['glassdoor.com', 'levels.fyi', 'interviewing.io'];
 
-function buildQueries(company, role) {
+function buildQueries(company, role, level) {
+  if (!company) {
+    const lr = `${level ? `${level} ` : ''}${role}`;
+    return [
+      { query: `${lr} interview questions` },
+      { query: `${role}${level ? ` ${level}` : ''} interview experience` },
+      { query: `${lr} interview process` },
+      ...FORUM_DOMAINS.map((d) => ({ query: d === 'leetcode.com' ? `${role}${level ? ` ${level}` : ''} interview experience` : `${lr} interview`, includeDomains: [d], fullText: true })),
+      { query: `${lr} interview`, includeDomains: GENERIC_DOMAINS_B },
+      { query: `how to prepare ${lr} interview what to expect` },
+    ];
+  }
   const cr = `${company} ${role}`;
   return [
     { query: `${cr} interview questions` },
@@ -364,8 +382,8 @@ function isUsableForumResult(r) {
   return String(r.content || '').length >= FORUM_MIN_CHARS;
 }
 
-async function gatherResults({ company, jobTitle, search, now }) {
-  const queries = buildQueries(company, jobTitle);
+async function gatherResults({ company, jobTitle, level, search, now }) {
+  const queries = buildQueries(company, jobTitle, level);
   let firstError = null;
   let failures = 0;
   const lists = await mapLimit(queries, SEARCH_CONCURRENCY, async (q) => {
@@ -397,7 +415,13 @@ async function gatherResults({ company, jobTitle, search, now }) {
       if (!notPost && fresh && about && isInterviewTalk(r.title, content) && discussions.size < 6) discussions.set(normUrl(r.url), { title: clean(r.title, 160), url: r.url, site: r.site || '', date: publishedAt });
       continue;
     }
-    if (publishedAt && new Date(publishedAt).getTime() < cutoff) { dropped.old += 1; continue; } // older than 24 months
+    if (publishedAt && new Date(publishedAt).getTime() < cutoff) {
+      dropped.old += 1; // older than 24 months: not evidence, but a forum thread is still worth a link, with its date
+      const forumHost = FORUM_DOMAINS.some((d) => String(r.site || '').toLowerCase().replace(/^www\./, '').endsWith(d));
+      const about = companyToken && `${r.title} ${r.url}`.toLowerCase().includes(companyToken);
+      if (forumHost && about && isInterviewTalk(r.title, content) && discussions.size < 6) discussions.set(normUrl(r.url), { title: clean(r.title, 160), url: r.url, site: r.site || '', date: publishedAt });
+      continue;
+    }
     const key = normUrl(r.url);
     const prev = seen.get(key);
     if (prev && prev.content.length >= content.length) continue;
@@ -424,7 +448,7 @@ async function gatherResults({ company, jobTitle, search, now }) {
 }
 
 const EXTRACT_SYSTEM = `You extract interview facts from web page text for job seekers. Strict rules:
-- Use ONLY what is explicitly written in the given sources. Never add, guess or generalize. If a source says nothing about interviews at the given company for the given role, return empty lists for it.
+- Use ONLY what is explicitly written in the given sources. Never add, guess or generalize. If a source says nothing about interviews at the given company for the given role, return empty lists for it. When no company is given, the research is general: it covers the given role and level across companies, so keep reports about that role and level from any company and ignore other roles.
 - Ignore ads, unrelated companies and unrelated roles.
 - On a forum page (Reddit, LeetCode Discuss, Blind, a newsletter) the original post and the comments by candidates are reports: when someone says what they were asked, how many rounds there were or how it went, that counts. Skip replies that only give opinions or advice with no account of an interview.
 - Paraphrase every question and fact in your own words. Never copy more than 25 consecutive words from a source.
@@ -434,7 +458,7 @@ Return ONLY JSON: {"questions":[{"text":"","category":"","sources":[0]}],"rounds
 
 function extractPrompt({ company, role, level, batch }) {
   const blocks = batch.map((s, i) => `[Source ${i}] ${s.title}\nURL: ${s.url}\nDate: ${s.publishedAt || 'unknown'}\n${s.content.slice(0, SOURCE_TEXT_FOR_MODEL)}`).join('\n\n---\n\n');
-  return `Company: ${company}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nSources:\n\n${blocks}`;
+  return `${company ? `Company: ${company}` : 'Company: none (general research for this role and level across companies)'}\nRole: ${role}${level ? `\nLevel: ${level}` : ''}\n\nSources:\n\n${blocks}`;
 }
 
 const validIdx = (arr, max) => [...new Set((Array.isArray(arr) ? arr : []).map(Number))].filter((i) => Number.isInteger(i) && i >= 0 && i < max);
@@ -447,7 +471,7 @@ const validIdx = (arr, max) => [...new Set((Array.isArray(arr) ? arr : []).map(N
  */
 async function researchInterview({ company, jobTitle, level, search, runModel, now = new Date() }) {
   const role = clean(jobTitle, 160);
-  const results = await gatherResults({ company, jobTitle: role, search, now });
+  const results = await gatherResults({ company, jobTitle: role, level, search, now });
   const sources = new Map();
   const base = { company, role, now, sources };
   const discussions = results.discussions || [];
@@ -511,8 +535,8 @@ async function researchInterview({ company, jobTitle, level, search, runModel, n
         timeline: timeline && timeline.text, tips: [...tipMap.values()].map((t) => t.text),
       };
       const parsed = parseModelJson(await runModel({
-        system: 'Write a 3 to 5 sentence summary of how interviewing for this role at this company goes, for a candidate. Use ONLY the facts given; add nothing, and say plainly when the facts are thin. No more than 25 consecutive words from any source. Return ONLY JSON: {"summary":""}',
-        prompt: `Company: ${company}\nRole: ${role}\nFacts (from public candidate reports):\n${JSON.stringify(facts)}`, maxTokens: 600, purpose: 'summary',
+        system: `Write a 3 to 5 sentence summary of how interviewing for this role ${company ? 'at this company ' : 'and level across companies '}goes, for a candidate. Use ONLY the facts given; add nothing, and say plainly when the facts are thin. No more than 25 consecutive words from any source. Return ONLY JSON: {"summary":""}`,
+        prompt: `${company ? `Company: ${company}\n` : ''}Role: ${role}\nFacts (from public candidate reports):\n${JSON.stringify(facts)}`, maxTokens: 600, purpose: 'summary',
       }));
       summary = parsed && typeof parsed.summary === 'string' ? parsed.summary : '';
     } catch { summary = ''; }
@@ -562,6 +586,7 @@ async function personalizeProbes({ prep, profile, runModel }) {
 
 const PENDING_STALE_MS = 10 * 60 * 1000;
 const REFRESH_MIN_AGE_MS = 24 * 3600 * 1000;
+const withScope = (p) => (p && typeof p === 'object' ? { ...p, scope: p.scope || (p.company ? 'company' : 'role'), level: p.level || '' } : p);
 const badRequest = (message, code = 'invalid_request') => Object.assign(new Error(message), { status: 400, code });
 
 /**
@@ -577,7 +602,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
     const task = (async () => {
       try {
         const research = getResearch();
-        const payload = await research(input);
+        const payload = { ...(await research(input)), level: input.company ? '' : levelIdOf(input.level) };
         const t = now();
         // An empty result may be a bad run, not a fact about the company: retry after a day.
         const keepDays = payload.coverage === 'none' ? 1 : CACHE_DAYS;
@@ -597,9 +622,11 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
    * gate: async () => boolean, called right before a NEW research run starts (rate limit hook).
    */
   async function start({ company, jobTitle, level, refresh = false, gate }) {
-    const c = clean(company, 120); const r = clean(jobTitle, 160);
-    if (!c || !r) throw badRequest('company and jobTitle are required');
-    const companyKey = companyKeyOf(c); const roleKey = roleKeyOf(r);
+    const c = clean(company, 120); const r = clean(jobTitle, 160); const lv = c ? clean(level, 40) : levelIdOf(level);
+    // Without a company the research is about the role and level across companies.
+    if (!r || (!c && !lv)) throw badRequest(c || !r ? 'company and jobTitle are required' : 'level is required when there is no company');
+    const companyKey = c ? companyKeyOf(c) : GENERAL_KEY;
+    const roleKey = c ? roleKeyOf(r) : roleLevelKeyOf(r, lv);
     if (!companyKey || !roleKey) throw badRequest('company and jobTitle are required');
     const key = `${companyKey}|${roleKey}`;
     const t = now();
@@ -607,7 +634,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
     let row = await InterviewPrep.findOne({ where: { companyKey, roleKey } });
     if (row && row.status === 'ready' && row.payload && row.expiresAt && new Date(row.expiresAt) > t) {
       const age = t - new Date(row.generatedAt || row.updatedAt || 0);
-      if (!refresh || age < REFRESH_MIN_AGE_MS) return { id: row.id, status: 'ready', prep: row.payload };
+      if (!refresh || age < REFRESH_MIN_AGE_MS) return { id: row.id, status: 'ready', prep: withScope(row.payload) };
     }
     if (row && row.status === 'pending') {
       if (inFlight.has(key)) return { id: row.id, status: 'pending' };
@@ -630,14 +657,14 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
         } else throw err;
       }
     }
-    await runInBackground(row, { company: c, jobTitle: r, level });
+    await runInBackground(row, { company: c, jobTitle: r, level: lv || level });
     return { id: row.id, status: 'pending', started: true };
   }
 
   async function get(id) {
     const row = await InterviewPrep.findByPk(id);
     if (!row) return null;
-    return { id: row.id, status: row.status, prep: row.status === 'ready' ? row.payload : null, error: row.status === 'failed' ? row.error : null };
+    return { id: row.id, status: row.status, prep: row.status === 'ready' ? withScope(row.payload) : null, error: row.status === 'failed' ? row.error : null };
   }
 
   const whenIdle = () => Promise.all([...inFlight.values()]);
@@ -649,6 +676,6 @@ module.exports = {
   researchInterview, personalizeProbes, makeInterviewPrepService,
   // shared with the Claude web search path
   assemblePayload, mergeRounds, isJobPostingUrl, inferDate, isUsableForumResult, isInterviewTalk, dedupeQuestions, mergeGroups, coverageOf, makeQuoteGuard, parseModelJson, excerptOf, normUrl, isoOrNull, clean,
-  companyKeyOf, roleKeyOf, questionKey, profileSnapshot, buildQueries,
+  companyKeyOf, roleKeyOf, roleLevelKeyOf, levelIdOf, GENERAL_KEY, questionKey, profileSnapshot, buildQueries,
   CACHE_DAYS, WINDOW_DAYS, DISCLAIMER, NO_EVIDENCE_SUMMARY,
 };

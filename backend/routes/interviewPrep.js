@@ -1,10 +1,12 @@
 const express = require('express');
 const { personalizeProbes, makeInterviewPrepService } = require('../services/interviewPrepService');
+const { parseJob } = require('../services/interviewJobParseService');
 const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = require('../services/interviewStoriesService');
 
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 const STORY_FEATURE = 'career_suggestions'; // stories share the existing allowance, never a second bucket
 const PAID_TIERS = new Set(['pro', 'pro_plus']);
+const SOURCES = ['tailored', 'link', 'text', 'role'];
 const FEATURE = 'interview_prep'; // paid allowance (Pro and above); cache hits and shared research cost nothing
 
 function sendError(res, err) {
@@ -41,8 +43,81 @@ const storyView = (r) => ({
   createdAt: r.createdAt,
 });
 
-function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel }) {
+const labelOf = ({ company, jobTitle, level }) => {
+  const role = String(jobTitle || '').replace(/\s+/g, ' ').trim();
+  const c = String(company || '').replace(/\s+/g, ' ').trim();
+  if (c) return `${role} at ${c}`.slice(0, 255);
+  return `${String(level || '').trim()} ${role}`.trim().slice(0, 255);
+};
+
+function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob }) {
   const router = express.Router();
+
+  /** Best effort: remember that this user opened this prep. Never throws. */
+  async function recordHistory(userId, prepId, { body, label }) {
+    try {
+      if (!models.UserInterviewPrep || !prepId) return;
+      let tailoredProfileId = isUuid(body.tailoredProfileId) ? body.tailoredProfileId : null;
+      if (tailoredProfileId) {
+        const tp = await models.TailoredProfile.findOne({ where: { id: tailoredProfileId, userId } });
+        if (!tp) tailoredProfileId = null;
+      }
+      const source = SOURCES.includes(body.source) ? body.source : (tailoredProfileId ? 'tailored' : 'link');
+      const now = new Date();
+      const existing = await models.UserInterviewPrep.findOne({ where: { userId, prepId } });
+      if (existing) {
+        const explicit = SOURCES.includes(body.source) || tailoredProfileId;
+        await existing.update({ lastOpenedAt: now, label, ...(explicit ? { source } : {}), ...(tailoredProfileId ? { tailoredProfileId } : {}) });
+      } else {
+        await models.UserInterviewPrep.create({ userId, prepId, tailoredProfileId, source, label, lastOpenedAt: now });
+      }
+    } catch (e) {
+      console.warn('[interviewPrep] history not recorded:', e && e.message);
+    }
+  }
+
+  // Read a job link or pasted posting into company, title and level. A small read: no allowance used.
+  router.post('/parse-job', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      const { url, text } = req.body || {};
+      const job = await parseJob({ url, text }, { resolveJob, runModel });
+      return res.json({ success: true, job });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  router.get('/mine', authMiddleware, async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const history = await models.UserInterviewPrep.findAll({ where: { userId }, order: [['lastOpenedAt', 'DESC']], limit: 30 });
+      const ids = history.map((h) => h.prepId);
+      if (!ids.length) return res.json({ success: true, preps: [] });
+      const [rows, stories] = await Promise.all([
+        models.InterviewPrep.findAll({ where: { id: ids } }),
+        models.InterviewStory.findAll({ where: { userId, prepId: ids }, attributes: ['prepId'] }),
+      ]);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const counts = new Map();
+      for (const st of stories) counts.set(st.prepId, (counts.get(st.prepId) || 0) + 1);
+      const preps = history.filter((h) => byId.has(h.prepId)).map((h) => {
+        const row = byId.get(h.prepId);
+        const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
+        const scope = row.companyKey === 'general' ? 'role' : 'company';
+        return {
+          id: h.prepId,
+          company: scope === 'role' ? '' : (payload.company || ''),
+          role: payload.role || h.label || '',
+          scope,
+          level: scope === 'role' ? (payload.level || '') : '',
+          status: row.status,
+          generatedAt: row.generatedAt || null,
+          lastOpenedAt: h.lastOpenedAt || null,
+          storyCount: counts.get(h.prepId) || 0,
+          tailoredProfileId: h.tailoredProfileId || null,
+        };
+      });
+      return res.json({ success: true, preps });
+    } catch (err) { return sendError(res, err); }
+  });
 
   router.post('/', authMiddleware, async (req, res) => {
     try {
@@ -53,6 +128,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       });
       if (out.blocked) return undefined; // the rate limiter already answered
       if (out.started) await recordUsage(req.user.id, FEATURE).catch(() => {});
+      await recordHistory(req.user.id, out.id, { body: req.body || {}, label: labelOf({ company, jobTitle, level }) });
       return res.json({ success: true, id: out.id, status: out.status, ...(out.prep ? { prep: out.prep } : {}) });
     } catch (err) { return sendError(res, err); }
   });
@@ -62,6 +138,9 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       if (!isUuid(req.params.id)) return res.status(404).json({ success: false, code: 'not_found', message: 'Not found' });
       const out = await service.get(req.params.id);
       if (!out) return res.status(404).json({ success: false, code: 'not_found', message: 'Not found' });
+      if (models.UserInterviewPrep) {
+        Promise.resolve(models.UserInterviewPrep.update({ lastOpenedAt: new Date() }, { where: { userId: req.user.id, prepId: req.params.id } })).catch(() => {});
+      }
       return res.json({ success: true, status: out.status, prep: out.prep, error: out.error });
     } catch (err) { return sendError(res, err); }
   });
@@ -211,7 +290,9 @@ function defaultRouter() {
   const models = require('../models');
   const { getResearch, runModel, runStoryModel } = require('../services/interviewPrepRuntime');
   const service = makeInterviewPrepService({ InterviewPrep: models.InterviewPrep, getResearch });
-  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel });
+  const { createCoachTailorService } = require('../services/coachTailorService');
+  const { resolveJob } = createCoachTailorService();
+  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob });
 }
 
 const router = defaultRouter();

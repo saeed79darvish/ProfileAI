@@ -291,3 +291,17 @@ test('discussions must be about interviewing, not hiring announcements', () => {
   assert.equal(svc.isInterviewTalk('Acme | L2 | Bangalore | Accept', 'My interview at Acme was long. The second interview round was harder.'), true);
   assert.equal(svc.isInterviewTalk('The real deal on Roblox and kids - by Someone', 'An essay about Roblox, parents and kids, with a recruiter mentioned once and a loop of habits.'), false);
 });
+
+test('an older forum thread is not evidence but is still listed as a discussion, with its date', async () => {
+  const body = 'Acme onsite: coding round then system design. '.repeat(20);
+  const search = async ({ includeDomains }) => (includeDomains && includeDomains[0] === 'leetcode.com'
+    ? [{ title: 'Acme | SDE2 | Aug 2024 | Onsite experience', url: 'https://leetcode.com/discuss/post/5740522/acme-sde2-aug-2024', site: 'leetcode.com', publishedAt: null, content: body }]
+    : []);
+  const sent = [];
+  const runModel = mockModel({ extract: (call) => { sent.push(call.prompt); return JSON.stringify({ questions: [] }); } });
+  const p = await svc.researchInterview({ company: 'Acme', jobTitle: 'Software Engineer', search, runModel, now: NOW });
+  assert.equal(sent.length, 0); // too old to send to the model
+  assert.equal(p.discussions.length, 1);
+  assert.equal(p.discussions[0].date.slice(0, 7), '2024-08');
+  assert.equal(p.sources.length, 0);
+});

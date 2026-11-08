@@ -4,7 +4,14 @@ const base = (id) => `/interview-prep/${encodeURIComponent(id)}`;
 
 // Interview prep endpoints. Auth comes from the shared axios instance.
 export const interviewPrepAPI = {
-  start: (company, jobTitle, refresh = false) => api.post('/interview-prep', { company, jobTitle, refresh }),
+  // extra may carry level, tailoredProfileId and source ('link' | 'text' | 'role' | 'tailored').
+  start: (company, jobTitle, refresh = false, extra = {}) => {
+    const body = { company, jobTitle, refresh };
+    for (const k of ['level', 'tailoredProfileId', 'source']) if (extra && extra[k]) body[k] = extra[k];
+    return api.post('/interview-prep', body);
+  },
+  parseJob: ({ url, text }) => api.post('/interview-prep/parse-job', url ? { url } : { text }),
+  mine: () => api.get('/interview-prep/mine'),
   get: (id) => api.get(base(id)),
   personalize: (id, tailoredProfileId) => api.post(`${base(id)}/personalize`, { tailoredProfileId }),
   storyTopics: (id, tailoredProfileId) => api.post(`${base(id)}/stories/topics`, { tailoredProfileId }),
