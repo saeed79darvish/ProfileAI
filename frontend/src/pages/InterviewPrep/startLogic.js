@@ -113,6 +113,22 @@ export function tailoredRows(list) {
     .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
 }
 
+const AVATAR_COLORS = ['#635bff', '#7c3aed', '#0f766e', '#c2410c', '#be185d', '#1d4ed8', '#4d7c0f', '#b45309'];
+
+/** First letter of a name, upper-cased; '' when there is none. */
+export function initialOf(name) {
+  const m = str(name).match(/[\p{L}\p{N}]/u);
+  return m ? m[0].toUpperCase() : '';
+}
+
+/** A stable avatar colour for a name, so the same company always gets the same square. */
+export function avatarColor(name) {
+  const t = str(name).toLowerCase();
+  let h = 0;
+  for (let i = 0; i < t.length; i += 1) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
 /** One "Your preps" row. */
 export function prepRow(p) {
   const scopeRole = p?.scope === 'role';
@@ -130,6 +146,9 @@ export function prepRow(p) {
   const n = Number.isFinite(Number(p?.storyCount)) ? Number(p.storyCount) : 0;
   return {
     id: p?.id,
+    isRole: scopeRole || !company,
+    initial: initialOf(title),
+    color: avatarColor(title),
     title,
     sub: sub.join(', '),
     researched: when ? `Researched ${when}` : '',

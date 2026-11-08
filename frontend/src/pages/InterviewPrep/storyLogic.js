@@ -114,3 +114,15 @@ export function safeBeats(v) {
     .map((b) => ({ label: str(b?.label), text: str(b?.text) }))
     .filter((b) => b.text);
 }
+
+// Which of the three steps is current (0 based): pick a story, make it yours, your story.
+// The flow phases win; with no flow running, an open saved story is step three.
+export function storyStep(phase, hasOpenStory) {
+  if (phase === 'details' || phase === 'writing') return 1;
+  if (phase === 'topics' || phase === 'findingTopics') return 0;
+  return hasOpenStory ? 2 : 0;
+}
+// 'done' | 'current' | 'todo' for each of the three steps.
+export function stepStates(current) {
+  return [0, 1, 2].map((i) => (i < current ? 'done' : i === current ? 'current' : 'todo'));
+}

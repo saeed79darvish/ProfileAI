@@ -5,69 +5,112 @@ import { CircularProgress } from '@mui/material';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import NoteField from '@/components/flow/NoteField';
 import {
-  splitSpoken, firstLine, experienceLabel, canWrite, findSelection, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, cleanQuestions, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, canWrite, findSelection, writePayload, answersFor, nextRadioIndex, storyError, cleanStories, cleanQuestions, safeList, safeBeats, storyStep, stepStates,
 } from './storyLogic';
 
-const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc' };
+const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', soft: '#f0f0fc', ok: '#1f8f55', rule: '#d9dbe5' };
 
 const Wrap = styled.section`
-  background: #fff; border: 1px solid ${C.line}; border-radius: 18px; padding: 16px; scroll-margin-top: 12px;
-  h2 { margin: 0 0 4px; font-size: 18px; }
+  container-type: inline-size;
+  background: #fff; border: 1px solid ${C.line}; border-radius: 20px; padding: 18px; scroll-margin-top: 12px; color: ${C.ink};
+  @container (min-width: 560px) { & { padding: 26px; } }
+  h2 { margin: 0 0 4px; font-size: 20px; font-weight: 700; }
   h3 { margin: 0; font-size: 16px; }
-  .sub { margin: 0 0 12px; font-size: 14.5px; color: ${C.muted}; line-height: 1.45; }
-  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .sub { margin: 0 0 14px; font-size: 15px; color: #4a4d63; line-height: 1.5; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
   .busy { display: flex; align-items: center; gap: 12px; padding: 14px 0; font-size: 16px; color: ${C.ink}; }
   .err { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: #fdf1e4; color: #8a4a08; font-size: 14.5px; line-height: 1.45; }
   .center { text-align: center; padding: 8px 0; }
   .center p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.45; color: #4a4d63; }
-  .divider { margin: 18px 0 10px; font-size: 14px; font-weight: 700; color: ${C.muted}; }
+  .divider { display: flex; align-items: baseline; justify-content: space-between; margin: 24px 0 12px; font-size: 18px; font-weight: 700; color: ${C.ink}; }
+  .divider span { font-size: 13.5px; font-weight: 400; color: ${C.muted}; }
+  .eyebrow { margin-bottom: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: ${C.muted}; }
+  .picked { margin: 0 0 18px; padding: 18px; border: 1px solid ${C.line}; border-radius: 16px; }
+  .picked .pt { font-size: 18px; font-weight: 700; line-height: 1.35; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { padding: 3px 10px; border-radius: 999px; background: ${C.soft}; color: #3b3f9e; font-size: 12.5px; font-weight: 600; }
+  .chip.grey { background: #ecedf3; color: #3b3e52; }
+  .q { margin-top: 22px; }
+  .q:first-of-type { margin-top: 0; }
+  .qt { font-size: 15.5px; font-weight: 700; line-height: 1.4; }
+  .qh { margin-top: 2px; font-size: 13.5px; color: ${C.muted}; line-height: 1.4; }
+  .qs { display: flex; flex-direction: column; gap: 22px; }
+  .row { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+  @container (min-width: 480px) { .row { flex-direction: row; flex-wrap: wrap; } }
 `;
 const B = styled.button`
-  min-height: 48px; padding: 0 20px; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
-  border: ${(p) => (p.$ghost ? '1.5px solid #e2e4ec' : 'none')};
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: ${(p) => (p.$sm ? '44px' : '48px')}; padding: 0 ${(p) => (p.$sm ? '18px' : '24px')}; border-radius: 12px; font: inherit; font-size: ${(p) => (p.$sm ? '15px' : '16px')}; font-weight: 700; cursor: pointer;
+  border: ${(p) => (p.$ghost ? `1.5px solid ${C.rule}` : 'none')};
   background: ${(p) => (p.$ghost ? '#fff' : C.brand)};
-  color: ${(p) => (p.$danger ? '#b3261e' : p.$ghost ? C.ink : '#fff')};
+  color: ${(p) => (p.$danger ? '#b42318' : p.$ghost ? C.ink : '#fff')};
   width: 100%;
   &:disabled { opacity: 0.5; cursor: default; }
-  @media (min-width: 600px) { width: ${(p) => (p.$auto ? 'auto' : '100%')}; }
+  &:focus-visible { outline: 3px solid rgba(91, 95, 214, 0.4); outline-offset: 2px; }
+  @container (min-width: 480px) { & { width: ${(p) => (p.$auto ? 'auto' : '100%')}; } }
 `;
 const Link = styled.button`
   border: none; background: none; padding: 10px 0; min-height: 44px; font: inherit; font-size: 14.5px; font-weight: 700; color: ${C.brand}; cursor: pointer;
 `;
+const Steps = styled.ol`
+  list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  li { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: ${C.muted}; }
+  li[data-state='current'] { color: #4b4fc4; font-weight: 700; }
+  li[data-state='done'] { color: ${C.ink}; }
+  .dot { flex: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; border: 2px solid ${C.rule}; color: ${C.muted}; box-sizing: border-box; }
+  li[data-state='current'] .dot { background: ${C.brand}; border-color: ${C.brand}; color: #fff; }
+  li[data-state='done'] .dot { background: ${C.ok}; border-color: ${C.ok}; color: #fff; }
+  .bar { flex: none; width: 24px; height: 2px; background: ${C.line}; }
+  .bar.on { background: #c9cbe6; }
+  @container (max-width: 420px) { .bar { display: none; } }
+`;
 const TopicCard = styled.div`
-  border: 1px solid ${C.line}; border-radius: 16px; padding: 14px; margin-top: 12px;
-  .why { margin: 4px 0 12px; font-size: 14.5px; line-height: 1.45; color: #3b3e52; }
+  margin-top: 22px;
+  &:first-of-type { margin-top: 0; }
+  .why { margin: 4px 0 12px; font-size: 14.5px; line-height: 1.45; color: #4a4d63; }
 `;
 const Radio = styled.div`
-  display: block; text-align: left; min-height: 64px; padding: 12px 14px; border-radius: 14px; cursor: pointer; outline: none;
-  border: 2px solid ${(p) => (p.$on ? C.brand : '#e2e4ec')}; background: ${(p) => (p.$on ? C.soft : '#fff')};
+  display: block; text-align: left; min-height: 64px; padding: 16px 18px; border-radius: 16px; cursor: pointer; outline: none;
+  border: 2px solid ${(p) => (p.$on ? C.brand : C.line)}; background: ${(p) => (p.$on ? C.soft : '#fff')};
   &:focus-visible { box-shadow: 0 0 0 3px rgba(91, 95, 214, 0.35); }
-  .t { font-size: 16px; font-weight: 700; line-height: 1.3; color: ${C.ink}; }
-  .a { margin-top: 4px; font-size: 14.5px; line-height: 1.4; color: #3b3e52; }
-  .f { margin-top: 6px; font-size: 13px; color: ${C.muted}; }
+  .t { font-size: 16px; font-weight: 700; line-height: 1.35; color: ${C.ink}; }
+  .a { margin-top: 6px; font-size: 14.5px; line-height: 1.5; color: #4a4d63; }
+  .f { display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 999px; background: #ecedf3; color: #3b3e52; font-size: 12.5px; font-weight: 600; }
 `;
 const Compact = styled.button`
-  display: block; width: 100%; text-align: left; min-height: 56px; padding: 12px 14px; border-radius: 14px; border: 1px solid ${C.line}; background: #fff; cursor: pointer; font: inherit;
-  .t { font-size: 16px; font-weight: 700; color: ${C.ink}; line-height: 1.3; }
-  .th { margin-top: 2px; font-size: 13px; font-weight: 600; color: ${C.brand}; }
-  .l { margin-top: 4px; font-size: 14.5px; color: #3b3e52; line-height: 1.4; }
+  display: block; width: 100%; text-align: left; min-height: 56px; padding: 16px; border-radius: 14px; border: 1px solid ${C.line}; background: #fff; cursor: pointer; font: inherit; color: ${C.ink};
+  &:focus-visible { outline: 3px solid rgba(91, 95, 214, 0.4); outline-offset: 2px; }
+  .t { font-size: 15.5px; font-weight: 700; line-height: 1.4; }
+  .th { margin-top: 4px; font-size: 13.5px; color: ${C.muted}; }
+  .l { margin-top: 6px; font-size: 14.5px; color: #4a4d63; line-height: 1.45; }
 `;
 const Card = styled.article`
-  border: 1px solid ${C.line}; border-radius: 16px; padding: 14px; background: #fff;
-  .theme { font-size: 13px; font-weight: 700; color: ${C.brand}; }
-  .title { margin: 2px 0 10px; font-size: 18px; line-height: 1.3; }
-  .spoken { font-size: 17px; line-height: 1.7; color: ${C.ink}; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 14px; background: #fafaff; border: 1px solid ${C.line}; }
-  .ph { background: #fff1b8; border-radius: 4px; padding: 0 3px; font-weight: 600; }
-  textarea { width: 100%; box-sizing: border-box; min-height: 260px; padding: 12px 14px; font: inherit; font-size: 17px; line-height: 1.6; border: 1.5px solid #d5d8e3; border-radius: 12px; resize: vertical; }
-  .needs { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: #fdf1e4; color: #8a4a08; font-size: 14.5px; line-height: 1.45; }
-  .needs strong { display: block; margin-bottom: 4px; }
-  .needs ul, .tips ul { margin: 0; padding-left: 20px; }
-  .tips { margin-top: 12px; font-size: 15px; line-height: 1.5; }
-  .tips strong { display: block; margin-bottom: 4px; }
-  .beat { margin-top: 10px; font-size: 15px; line-height: 1.5; }
-  .beat b { display: block; font-size: 13px; color: ${C.brand}; text-transform: uppercase; letter-spacing: 0.03em; }
-  .acts { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
-  @media (min-width: 600px) { .acts { flex-direction: row; flex-wrap: wrap; } }
+  .head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: #4b4fc4; }
+  .saved { padding: 3px 10px; border-radius: 999px; background: #e5f6ec; color: #1f7a49; font-size: 12px; font-weight: 700; }
+  .title { margin: 0 0 14px; font-size: 20px; font-weight: 700; line-height: 1.35; }
+  .spoken { font-size: 17.5px; line-height: 1.75; color: ${C.ink}; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ph { background: #fdecc8; color: #8a4a08; border-radius: 6px; padding: 1px 6px; font-weight: 600; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 260px; padding: 12px 14px; font: inherit; font-size: 17px; line-height: 1.6; border: 1.5px solid ${C.rule}; border-radius: 12px; resize: vertical; }
+  .needs { margin: 18px 0 0; padding: 14px 16px; border-radius: 12px; background: #fff7e8; border: 1px solid #f1d9b8; color: #5e3a0a; font-size: 14px; line-height: 1.5; }
+  .needs strong { display: block; margin-bottom: 4px; font-size: 13px; color: #8a4a08; }
+  .needs ul { margin: 0; padding-left: 18px; }
+  .acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .acts > * { flex: 1 1 140px; }
+  .acts .full { flex-basis: 100%; font-size: 15px; }
+  @container (min-width: 560px) { .acts > * { flex: 0 0 auto; } }
+  .panel { margin-top: 20px; padding: 20px; border: 1px solid ${C.line}; border-radius: 16px; }
+  .panel h4 { margin: 0 0 14px; font-size: 17px; font-weight: 700; }
+  .tip { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; font-size: 15px; line-height: 1.5; }
+  .tip:first-of-type { margin-top: 0; }
+  .num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: ${C.soft}; color: #4b4fc4; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .built { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eef0f5; }
+  .built.alone { margin-top: 0; padding-top: 0; border-top: none; }
+  .built h5 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  @container (min-width: 560px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .beat { padding: 10px; border-radius: 10px; background: #f8f9fc; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+  .beat b { display: block; margin-bottom: 2px; }
 `;
 
 function Spoken({ text }) {
@@ -82,7 +125,6 @@ function StoryCard({ story, prepId, onChanged, onDeleted, onPractice, onError })
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(story.spoken);
   const [saving, setSaving] = useState(false);
-  const [beatsOpen, setBeatsOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -115,14 +157,17 @@ function StoryCard({ story, prepId, onChanged, onDeleted, onPractice, onError })
 
   return (
     <Card aria-label={`Story: ${story.title || 'Untitled'}`}>
-      {story.theme && <div className="theme">{story.theme}</div>}
+      <div className="head">
+        <div className="label">YOUR STORY, ABOUT A MINUTE OUT LOUD</div>
+        <span className="saved">Saved</span>
+      </div>
       <h3 className="title">{story.title || 'Your story'}</h3>
       {editing ? (
         <>
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Edit your story" />
           <div className="acts">
-            <B type="button" $auto disabled={saving || !draft.trim()} onClick={save}>{saving ? 'Saving...' : 'Save'}</B>
-            <B type="button" $ghost $auto disabled={saving} onClick={() => { setEditing(false); setDraft(story.spoken); setMsg(''); }}>Cancel</B>
+            <B type="button" $sm $auto disabled={saving || !draft.trim()} onClick={save}>{saving ? 'Saving...' : 'Save'}</B>
+            <B type="button" $sm $ghost $auto disabled={saving} onClick={() => { setEditing(false); setDraft(story.spoken); setMsg(''); }}>Cancel</B>
           </div>
         </>
       ) : (
@@ -134,34 +179,45 @@ function StoryCard({ story, prepId, onChanged, onDeleted, onPractice, onError })
               <ul>{needs.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>
           )}
-          {beats.length > 0 && (
-            <>
-              <Link type="button" aria-expanded={beatsOpen} onClick={() => setBeatsOpen((v) => !v)}>
-                {beatsOpen ? 'Hide how it is built' : 'How it is built'}
-              </Link>
-              {beatsOpen && beats.map((b, i) => (
-                <div className="beat" key={i}>{b.label && <b>{b.label}</b>}{b.text}</div>
-              ))}
-            </>
-          )}
-          {tips.length > 0 && (
-            <div className="tips">
-              <strong>How to say it</strong>
-              <ul>{tips.map((t, i) => <li key={i}>{t}</li>)}</ul>
-            </div>
-          )}
           {confirmDel ? (
             <div className="acts" role="alertdialog" aria-label="Confirm delete">
-              <div style={{ fontSize: 15, width: '100%' }}>Delete this story? This cannot be undone.</div>
-              <B type="button" $danger $ghost $auto disabled={busy} onClick={remove}>{busy ? 'Deleting...' : 'Yes, delete'}</B>
-              <B type="button" $ghost $auto disabled={busy} onClick={() => setConfirmDel(false)}>Keep it</B>
+              <div className="full">Delete this story? This cannot be undone.</div>
+              <B type="button" $sm $danger $ghost $auto disabled={busy} onClick={remove}>{busy ? 'Deleting...' : 'Yes, delete'}</B>
+              <B type="button" $sm $ghost $auto disabled={busy} onClick={() => setConfirmDel(false)}>Keep it</B>
             </div>
           ) : (
             <div className="acts">
-              <B type="button" $ghost $auto onClick={() => { setDraft(story.spoken); setEditing(true); }}>Edit</B>
-              <B type="button" $ghost $auto onClick={copy}>{copied ? 'Copied' : 'Copy'}</B>
-              <B type="button" $auto onClick={onPractice}>Practice out loud</B>
-              <B type="button" $ghost $danger $auto onClick={() => setConfirmDel(true)}>Delete</B>
+              <B type="button" $sm $ghost $auto onClick={() => { setDraft(story.spoken); setEditing(true); }}>Edit</B>
+              <B type="button" $sm $ghost $auto onClick={copy}>{copied ? 'Copied' : 'Copy'}</B>
+              <B type="button" $sm $auto onClick={onPractice}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+                Practice out loud
+              </B>
+              <B type="button" $sm $ghost $danger $auto onClick={() => setConfirmDel(true)}>Delete</B>
+            </div>
+          )}
+          {(tips.length > 0 || beats.length > 0) && (
+            <div className="panel">
+              {tips.length > 0 && (
+                <>
+                  <h4>How to say it</h4>
+                  <div>
+                    {tips.map((t, i) => (
+                      <div className="tip" key={i}><span className="num" aria-hidden="true">{i + 1}</span><span>{t}</span></div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {beats.length > 0 && (
+                <div className={tips.length ? 'built' : 'built alone'}>
+                  <h5>How it is built</h5>
+                  <div className="grid">
+                    {beats.map((b, i) => (
+                      <div className="beat" key={i}>{b.label && <b>{b.label}</b>}{b.text}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -212,11 +268,13 @@ function TopicPicker({ topics, sel, onSelect }) {
 }
 
 // open: user tapped "Build my stories". Saved stories always show once loaded.
-export default function Stories({ prepId, tailoredId, open, openSignal, onPractice }) {
+export default function Stories({ prepId, tailoredId, open, openSignal, onPractice, onStoriesChange }) {
   const navigate = useNavigate();
   const rootRef = useRef(null);
   const alive = useRef(true);
   const [stories, setStories] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const changeRef = useRef(onStoriesChange);
   const [expanded, setExpanded] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | findingTopics | topics | details | writing
   const [details, setDetails] = useState('');
@@ -228,16 +286,22 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
   const [problem, setProblem] = useState(null); // { kind, message }
   const [lastAction, setLastAction] = useState('topics');
 
+  changeRef.current = onStoriesChange;
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   useEffect(() => {
     if (!prepId) return;
     let live = true;
     interviewPrepAPI.listStories(prepId)
-      .then((res) => { if (live) setStories(cleanStories(res.data?.stories)); })
+      .then((res) => { if (live) { setStories(cleanStories(res.data?.stories)); setLoaded(true); } })
       .catch(() => {});
     return () => { live = false; };
   }, [prepId]);
+
+  // Tell the page about the saved stories after the first load and after every add, edit or delete.
+  useEffect(() => {
+    if (loaded && typeof changeRef.current === 'function') changeRef.current(stories);
+  }, [stories, loaded]);
 
   useEffect(() => {
     if (openSignal && rootRef.current) rootRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -326,15 +390,29 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
   }
   const planBlocked = problem && (problem.kind === 'upgrade' || problem.kind === 'limit');
 
+  const stepStatesNow = stepStates(storyStep(phase, expanded != null && stories.some((x) => x.id === expanded)));
+  const stepNames = ['Pick a story', 'Make it yours', 'Your story'];
+  const check = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l4.5 4.5L19 7" /></svg>;
+
   return (
     <Wrap ref={rootRef} aria-labelledby="stories-h">
       <h2 id="stories-h">Your stories</h2>
+      <p className="sub">A story is the best answer to most experience questions. We build each one from your real work, in words you would actually say.</p>
+
+      <Steps aria-label="Story steps">
+        {stepNames.map((n, i) => (
+          <React.Fragment key={n}>
+            {i > 0 && <li className={`bar${stepStatesNow[i] !== 'todo' ? ' on' : ''}`} aria-hidden="true" role="presentation" />}
+            <li data-state={stepStatesNow[i]} aria-current={stepStatesNow[i] === 'current' ? 'step' : undefined}>
+              <span className="dot">{stepStatesNow[i] === 'done' ? check : i + 1}</span>
+              <span>{n}{stepStatesNow[i] === 'done' ? ' (done)' : ''}</span>
+            </li>
+          </React.Fragment>
+        ))}
+      </Steps>
 
       {showFlow && !planBlocked && phase === 'idle' && (
-        <>
-          <p className="sub">A story is the best answer to most behavioral and experience questions. We will find the ones this interviewer cares about, using your real work.</p>
-          <B type="button" onClick={findTopics}>{stories.length ? 'Write another' : 'Find my stories'}</B>
-        </>
+        <B type="button" $auto onClick={findTopics}>{stories.length ? 'Write another story' : 'Find my stories'}</B>
       )}
 
       <div aria-live="polite">
@@ -346,8 +424,8 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
         <>
           <p className="sub">Pick the story you want to tell. You can write more afterwards.</p>
           <TopicPicker topics={topics} sel={sel} onSelect={setSel} />
-          <div className="stack" style={{ marginTop: 14 }}>
-            <B type="button" disabled={!canWrite(topics, sel)} onClick={askQuestions}>Continue</B>
+          <div className="row">
+            <B type="button" $auto disabled={!canWrite(topics, sel)} onClick={askQuestions}>Continue</B>
           </div>
         </>
       )}
@@ -355,30 +433,44 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
       {phase === 'details' && (() => {
         const picked = findSelection(topics, sel);
         const title = picked ? picked.title.title : '';
+        const from = picked ? experienceLabel(picked.title.experienceRef) : '';
         const answered = questions.length ? answersFor(questions, answerMap).length : details.trim() ? 1 : 0;
         return (
           <>
-            <p className="sub">{title ? `You picked: ${title}` : 'Almost there.'}</p>
-            <h3>Make it yours</h3>
+            {picked && (
+              <div className="picked">
+                <div className="eyebrow">YOU PICKED</div>
+                <div className="pt">{title}</div>
+                <div className="chips">
+                  {picked.topic.theme && <span className="chip">{picked.topic.theme}</span>}
+                  {from && <span className="chip grey">{from}</span>}
+                </div>
+              </div>
+            )}
+            <h3 style={{ fontSize: 20 }}>Make it yours</h3>
             <p className="sub" style={{ marginTop: 6 }}>
               A few questions so the story is really yours. Answer the ones you can, the way you would tell a friend, or tap the mic and talk. Skip any you like.
             </p>
             {askingQuestions && <div className="busy" aria-live="polite"><CircularProgress size={22} />Thinking about what to ask you</div>}
-            {!askingQuestions && questions.length > 0 && questions.map((q, i) => (
-              <div key={q.id} style={{ marginTop: i ? 14 : 6 }}>
-                <div style={{ fontWeight: 650, fontSize: 15.5, lineHeight: 1.4 }}>{q.question}</div>
-                {q.hint && <div className="sub" style={{ margin: '2px 0 0', fontSize: 13.5 }}>{q.hint}</div>}
-                <NoteField
-                  multiline
-                  value={answerMap[q.id] || ''}
-                  onChange={(v) => setAnswerMap((m) => ({ ...m, [q.id]: v }))}
-                  maxLength={600}
-                  hints={`${title}. ${q.question}`}
-                  label={q.question}
-                  placeholder="Type or tap the mic"
-                />
+            {!askingQuestions && questions.length > 0 && (
+              <div className="qs">
+                {questions.map((q) => (
+                  <div key={q.id}>
+                    <div className="qt">{q.question}</div>
+                    {q.hint && <div className="qh">{q.hint}</div>}
+                    <NoteField
+                      multiline
+                      value={answerMap[q.id] || ''}
+                      onChange={(v) => setAnswerMap((m) => ({ ...m, [q.id]: v }))}
+                      maxLength={600}
+                      hints={`${title}. ${q.question}`}
+                      label={q.question}
+                      placeholder="Type or tap the mic"
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
             {!askingQuestions && questions.length === 0 && (
               <NoteField
                 multiline
@@ -390,9 +482,9 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
                 placeholder="What was the real problem, what did you do, and what changed? Numbers help."
               />
             )}
-            <div className="stack" style={{ marginTop: 16 }}>
-              <B type="button" disabled={askingQuestions} onClick={write}>{answered ? 'Write my story' : 'Write it without extra details'}</B>
-              <B type="button" $ghost onClick={() => { setProblem(null); setPhase('topics'); }}>Back to titles</B>
+            <div className="row">
+              <B type="button" $auto disabled={askingQuestions} onClick={write}>{answered ? 'Write my story' : 'Write it without extra details'}</B>
+              <B type="button" $auto $ghost onClick={() => { setProblem(null); setPhase('topics'); }}>Back to titles</B>
             </div>
           </>
         );
@@ -402,7 +494,7 @@ export default function Stories({ prepId, tailoredId, open, openSignal, onPracti
 
       {stories.length > 0 && (
         <>
-          <div className="divider">Saved stories ({stories.length})</div>
+          <div className="divider">Saved stories<span>{stories.length} for this prep</span></div>
           <div className="stack">
             {stories.map((s) => (expanded === s.id ? (
               <div key={s.id}>

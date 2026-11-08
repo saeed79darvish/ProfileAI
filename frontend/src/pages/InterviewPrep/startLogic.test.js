@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LEVELS, levelLabel, normalizeLevel, isPaidUser, validateJobInput, parseJobBody, normalizeJob, validateConfirm, jobStartBody,
-  validateRoleForm, roleStartBody, tailoredRows, prepRow, prepRows, apiErrorState, isPrepIdMode, prepHeading, refreshBody,
+  validateRoleForm, roleStartBody, tailoredRows, prepRow, prepRows, initialOf, avatarColor, apiErrorState, isPrepIdMode, prepHeading, refreshBody,
 } from './startLogic.js';
 
 test('levels and labels', () => {
@@ -103,4 +103,18 @@ test('prepHeading', () => {
 test('refreshBody', () => {
   assert.deepEqual(refreshBody({ company: 'Glean', role: 'FE', scope: 'company', level: 'Senior' }), { company: 'Glean', jobTitle: 'FE', refresh: true, level: 'senior' });
   assert.equal(refreshBody({ company: '', role: 'FE', scope: 'role', level: 'staff' }).source, 'role');
+});
+test('initialOf and avatarColor are stable', () => {
+  assert.equal(initialOf(' stripe'), 'S');
+  assert.equal(initialOf(''), '');
+  assert.equal(initialOf(null), '');
+  assert.equal(avatarColor('Stripe'), avatarColor('stripe'));
+  assert.match(avatarColor('x'), /^#[0-9a-f]{6}$/);
+});
+test('prepRow carries avatar fields', () => {
+  const c = prepRow({ id: 'a', company: 'Glean', role: 'Frontend', scope: 'company' });
+  assert.equal(c.isRole, false);
+  assert.equal(c.initial, 'G');
+  const r = prepRow({ id: 'b', role: 'Dev', scope: 'role' });
+  assert.equal(r.isRole, true);
 });

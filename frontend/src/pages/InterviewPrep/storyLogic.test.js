@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, answersFor, cleanQuestions, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
+  splitSpoken, firstLine, experienceLabel, findSelection, canWrite, writePayload, answersFor, cleanQuestions, storyStep, stepStates, nextRadioIndex, storyError, cleanStories, safeList, safeBeats,
 } from './storyLogic.js';
 
 const topics = [
@@ -111,4 +111,16 @@ test('the coach\'s questions from the API keep their text and hint', () => {
     { id: 'q2', question: 'Client or server rendering?', hint: '' },
   ]);
   assert.deepEqual(cleanQuestions(undefined), []);
+});
+
+test('the step indicator follows the phase and the open story', () => {
+  assert.equal(storyStep('idle', false), 0);
+  assert.equal(storyStep('findingTopics', false), 0);
+  assert.equal(storyStep('topics', true), 0);
+  assert.equal(storyStep('details', false), 1);
+  assert.equal(storyStep('writing', false), 1);
+  assert.equal(storyStep('idle', true), 2);
+  assert.deepEqual(stepStates(0), ['current', 'todo', 'todo']);
+  assert.deepEqual(stepStates(1), ['done', 'current', 'todo']);
+  assert.deepEqual(stepStates(2), ['done', 'done', 'current']);
 });

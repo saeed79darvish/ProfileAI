@@ -73,3 +73,99 @@ test('discussion links keep only titled, safe web links', () => {
   assert.equal(out[0].href, 'https://www.reddit.com/r/leetcode/comments/1d8/x');
   assert.deepEqual(cleanDiscussions(undefined), []);
 });
+
+import {
+  categoryTag, shortMonthYear, sourcePillLabel, coverageChip, companyInitial, logoColor, selectStep, stepKeyTarget,
+  visibleQuestions, showMoreLabel, isGapProbe, gapDetail, discussionBadge, planProgress, storyRows,
+} from './prepLogic.js';
+
+test('category tags map known categories and fall back to Other', () => {
+  assert.equal(categoryTag('coding').label, 'Coding');
+  assert.equal(categoryTag('role_specific').fg, '#8a4a08');
+  assert.equal(categoryTag('weird').label, 'Other');
+  assert.equal(categoryTag(undefined).label, 'Other');
+});
+
+test('short dates and source pill labels', () => {
+  assert.equal(shortMonthYear('2026-10-05T00:00:00Z'), 'Oct 2026');
+  assert.equal(shortMonthYear('x'), '');
+  assert.equal(sourcePillLabel({ site: 'teamblind.com', date: '2026-10-05T00:00:00Z' }), 'teamblind.com · Oct 2026');
+  assert.equal(sourcePillLabel({ title: 'Guide' }), 'Guide');
+  assert.equal(sourcePillLabel(null), '');
+});
+
+test('coverage chip', () => {
+  assert.equal(coverageChip('thin').label, 'Limited coverage');
+  assert.equal(coverageChip('none').label, 'Limited coverage');
+  assert.equal(coverageChip('good').label, 'Good coverage');
+  assert.equal(coverageChip(undefined).label, 'Good coverage');
+});
+
+test('company initial and logo color are stable', () => {
+  assert.equal(companyInitial('  stripe'), 'S');
+  assert.equal(companyInitial(''), '?');
+  assert.equal(logoColor('Stripe'), logoColor('Stripe'));
+  assert.match(logoColor('x'), /^#[0-9a-f]{6}$/);
+});
+
+test('stepper selection and keyboard targets', () => {
+  const rounds = [{}, {}, {}];
+  assert.equal(selectStep(rounds, 2), 2);
+  assert.equal(selectStep(rounds, 9), 0);
+  assert.equal(selectStep(rounds, -1), 0);
+  assert.equal(selectStep(undefined, 1), 0);
+  assert.equal(stepKeyTarget('ArrowRight', 2, 3), 0);
+  assert.equal(stepKeyTarget('ArrowLeft', 0, 3), 2);
+  assert.equal(stepKeyTarget('Home', 2, 3), 0);
+  assert.equal(stepKeyTarget('End', 0, 3), 2);
+  assert.equal(stepKeyTarget('a', 0, 3), null);
+  assert.equal(stepKeyTarget('ArrowRight', 0, 0), null);
+});
+
+test('show more for questions', () => {
+  const list = [1, 2, 3, 4, 5, 6, 7, 8];
+  assert.equal(visibleQuestions(list, false, 6).length, 6);
+  assert.equal(visibleQuestions(list, true, 6).length, 8);
+  assert.equal(visibleQuestions([1, 2], false, 6).length, 2);
+  assert.equal(showMoreLabel(8, 6), 'Show 2 more questions');
+  assert.equal(showMoreLabel(7, 6), 'Show 1 more question');
+  assert.equal(showMoreLabel(6, 6), '');
+});
+
+test('gap probes are found by the marker', () => {
+  assert.equal(isGapProbe({ basedOn: 'Not in your profile: payments failure cases' }), true);
+  assert.equal(isGapProbe({ basedOn: 'not in your profile: x' }), true);
+  assert.equal(isGapProbe({ basedOn: 'Senior Architect, Equinix' }), false);
+  assert.equal(isGapProbe({}), false);
+  assert.equal(gapDetail('Not in your profile: payments'), 'payments');
+  assert.equal(gapDetail('Equinix'), 'Equinix');
+});
+
+test('discussion badge comes from the host', () => {
+  assert.equal(discussionBadge({ href: 'https://www.reddit.com/r/x/comments/1' }).label, 'Reddit');
+  assert.equal(discussionBadge({ href: 'https://leetcode.com/discuss/post/1' }).label, 'LeetCode');
+  assert.equal(discussionBadge({ href: 'https://www.teamblind.com/post/x' }).label, 'Blind');
+  assert.equal(discussionBadge({ href: 'https://news.example.org/a' }).label, 'Example');
+  assert.equal(discussionBadge({ site: 'reddit.com' }).label, 'Reddit');
+  assert.equal(discussionBadge({}).label, 'Web');
+});
+
+test('plan progress shows research done and hides unknown story counts', () => {
+  const p = planProgress({ sourceCount: 11, questionCount: 19, probeCount: 2, storyCount: null });
+  assert.equal(p.doneCount, 1);
+  assert.equal(p.percent, 25);
+  assert.equal(p.steps[0].detail, '11 sources read');
+  assert.equal(p.steps[1].detail, '19 reported, 2 about your resume');
+  assert.equal(p.steps[2].detail, '');
+  assert.equal(planProgress({ sourceCount: 1, storyCount: 2 }).steps[2].detail, '2 saved so far');
+  assert.equal(planProgress({ sourceCount: 1, storyCount: 0 }).steps[2].detail, 'None saved yet');
+  assert.equal(planProgress({ sourceCount: 1 }).steps[0].detail, '1 source read');
+});
+
+test('story rows only keep objects', () => {
+  assert.deepEqual(storyRows(null), []);
+  const rows = storyRows([{ id: 'a', title: 'T', theme: 'Perf' }, null, 'x', { title: { bad: 1 } }]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].theme, 'Perf');
+  assert.equal(rows[1].title, 'Your story');
+});
