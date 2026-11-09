@@ -6,6 +6,7 @@ const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = req
 const { profileSnapshot } = require('../services/interviewPrepService');
 const { cleanFocus } = require('../services/interviewFocus');
 const { prepareQuestion } = require('../services/interviewQuestionPrepService');
+const { TYPES: SUGGEST_TYPES, jobSignal, suggestQuestions, cacheKey, allSuggested } = require('../services/interviewSuggestService');
 const { reviewCode } = require('../services/interviewCodeService');
 const { pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS } = require('../services/interviewPracticeService');
 
@@ -393,6 +394,33 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
     } catch (err) { return sendError(res, err); }
   });
 
+  // "Common for this role": suggested questions of one kind. Written once per prep, kind and job, kept on the shared prep.
+  router.post('/:id/suggested', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const { type, tailoredProfileId } = req.body || {};
+      if (!SUGGEST_TYPES.includes(type)) return res.status(400).json({ success: false, code: 'invalid_request', message: 'Unknown kind of question.' });
+      const row = await models.InterviewPrep.findByPk(req.params.id);
+      const payload = row && row.status === 'ready' && row.payload && typeof row.payload === 'object' ? row.payload : null;
+      if (!payload) return notFound(res);
+      let signal = null;
+      if (tailoredProfileId) {
+        if (!isUuid(tailoredProfileId)) return res.status(400).json({ success: false, code: 'invalid_request', message: 'Invalid tailoredProfileId' });
+        const tp = await models.TailoredProfile.findOne({ where: { id: tailoredProfileId, userId: req.user.id } });
+        if (tp) signal = jobSignal(tp.tailoredData);
+      }
+      const key = cacheKey(type, signal);
+      const cached = payload.suggested && Array.isArray(payload.suggested[key]) ? payload.suggested[key] : null;
+      if (cached && cached.length) return res.json({ success: true, questions: cached, cached: true });
+      const questions = await suggestQuestions({ prep: payload, type, signal, runModel });
+      if (!questions.length) return res.status(422).json({ success: false, code: 'suggest_failed', message: 'We could not suggest questions just now. Please try again.' });
+      const fresh = (await models.InterviewPrep.findByPk(req.params.id)) || row;
+      const base = fresh.payload && typeof fresh.payload === 'object' ? fresh.payload : payload;
+      await fresh.update({ payload: { ...base, suggested: { ...(base.suggested || {}), [key]: questions } } });
+      return res.json({ success: true, questions, cached: false });
+    } catch (err) { return sendError(res, err); }
+  });
+
   // "How to prepare" for one reported question. Written once, kept on the shared prep, so it costs one small call per question.
   router.post('/:id/questions/:qid/prepare', authMiddleware, requirePaidPlan, async (req, res) => {
     try {
@@ -400,7 +428,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       const row = await models.InterviewPrep.findByPk(req.params.id);
       const payload = row && row.status === 'ready' && row.payload && typeof row.payload === 'object' ? row.payload : null;
       if (!payload) return notFound(res);
-      const q = (Array.isArray(payload.questions) ? payload.questions : []).find((x) => x && x.id === req.params.qid);
+      const q = [...(Array.isArray(payload.questions) ? payload.questions : []), ...allSuggested(payload)].find((x) => x && x.id === req.params.qid);
       if (!q) return notFound(res);
       const cached = payload.preparation && Array.isArray(payload.preparation[q.id]) ? payload.preparation[q.id] : null;
       if (cached && cached.length) return res.json({ success: true, prepare: cached, cached: true });

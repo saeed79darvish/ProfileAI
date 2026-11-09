@@ -170,7 +170,7 @@ test('story rows only keep objects', () => {
   assert.equal(rows[1].title, 'Your story');
 });
 
-import { isRealQuestion, cleanTopics, cleanRounds } from './prepLogic.js';
+import { isRealQuestion, cleanTopics, cleanRounds, roundLine } from './prepLogic.js';
 
 test('headings are not questions, real questions stay', () => {
   assert.equal(isRealQuestion('System design questions for full stack roles'), false);
@@ -193,4 +193,20 @@ test('the onsite loop step hides when the rounds inside it are listed', () => {
   assert.deepEqual(cleanRounds([r('Online assessment'), r('Onsite loop'), r('Coding rounds'), r('System design')]).map((x) => x.name), ['Online assessment', 'Coding rounds', 'System design']);
   assert.deepEqual(cleanRounds([r('Onsite loop'), r('Coding rounds')]).map((x) => x.name), ['Onsite loop', 'Coding rounds']);
   assert.deepEqual(cleanRounds(undefined), []);
+});
+
+test('roundLine: what candidates said when it says something, a plain default when it is weak or repeated', () => {
+  const rounds = [
+    { name: 'Online assessment', format: 'HackerRank', notes: '' },
+    { name: 'Coding rounds', format: 'Technical interview', notes: '' },
+    { name: 'System design', format: 'Technical interview', notes: '' },
+    { name: 'Full-stack developer interview', format: 'Technical conversation simulating real engineering problems', notes: '' },
+    { name: 'Mystery stage', format: '', notes: '' },
+  ];
+  assert.equal(roundLine(rounds[0], rounds), 'A timed online screening, often coding.');
+  assert.equal(roundLine(rounds[1], rounds), 'Write and explain code live.');
+  assert.equal(roundLine(rounds[2], rounds), 'Design a system and talk through the trade-offs.');
+  assert.equal(roundLine(rounds[3], rounds), 'Technical conversation simulating real engineering problems');
+  assert.equal(roundLine(rounds[4], rounds), '');
+  assert.equal(roundLine({ name: 'Coding rounds', notes: 'You solve two problems live. Then a debrief.' }, []), 'You solve two problems live.');
 });

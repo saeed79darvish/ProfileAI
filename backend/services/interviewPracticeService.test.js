@@ -421,3 +421,32 @@ test('how to prepare: paid only, only for a real question, written once and kept
     assert.equal(r.body.code, 'prepare_failed');
   } finally { bad.close(); }
 });
+
+test('suggested questions: paid only, a known kind, written once and reused, notes work for them, a job changes the cache', async () => {
+  let calls = 0;
+  const runModel = async () => {
+    calls += 1;
+    return JSON.stringify({ questions: [
+      { text: 'What is a closure in JavaScript and when would you use one?', area: 'JavaScript', kind: 'spoken' },
+      { text: 'Implement a debounce function', area: 'JavaScript', kind: 'code' },
+    ] });
+  };
+  const free = await setup({ user: { id: 'u1', role: 'candidate', subscriptionTier: 'free' }, runModel });
+  try { assert.equal((await free.call(`/${PREP_ID}/suggested`, { type: 'technical' })).status, 403); } finally { free.close(); }
+  const t = await setup({ runModel });
+  try {
+    assert.equal((await t.call(`/${PREP_ID}/suggested`, { type: 'nope' })).status, 400);
+    const first = await t.call(`/${PREP_ID}/suggested`, { type: 'technical' });
+    assert.equal(first.status, 200);
+    assert.equal(first.body.questions.length, 2);
+    assert.equal(first.body.cached, false);
+    const again = await t.call(`/${PREP_ID}/suggested`, { type: 'technical' });
+    assert.equal(again.body.cached, true);
+    assert.deepEqual(again.body.questions, first.body.questions);
+    assert.equal(calls, 1);
+    // a suggested question can get its how-to-prepare note
+    const id = first.body.questions[0].id;
+    const note = await t.call(`/${PREP_ID}/questions/${id}/prepare`, {});
+    assert.notEqual(note.status, 404);
+  } finally { t.close(); }
+});

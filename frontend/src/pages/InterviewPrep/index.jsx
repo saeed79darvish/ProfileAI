@@ -11,7 +11,7 @@ import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
   filterQuestions, cleanRounds, monthYear, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
-  sourcePillLabel, coverageChip, companyInitial, logoColor, discussionBadge,
+  sourcePillLabel, coverageChip, companyInitial, logoColor, discussionBadge, roundLine,
 } from './prepLogic';
 import { isPrepIdMode, prepHeading, refreshBody, apiErrorState } from './startLogic';
 import { practiceSummary, sessionsLabel } from './practiceLogic';
@@ -291,14 +291,6 @@ const Rounds = styled.ol`
   .t { margin-top: 4px; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
   .d { margin-top: 6px; font-size: 14px; line-height: 1.45; color: #4a4d63; overflow-wrap: anywhere; }
 `;
-
-/** One short line for a round: its format, else the start of its notes. */
-function roundLine(r) {
-  const t = String((r && (r.format || r.notes)) || '').replace(/\s+/g, ' ').trim();
-  if (!t) return '';
-  const first = t.split(/(?<=[.!?])\s/)[0];
-  return first.length > 120 ? `${first.slice(0, 117).trim()}...` : first;
-}
 
 function SourcesDisclosure({ sources, discussions, disclaimer }) {
   const [open, setOpen] = useState(false);
@@ -656,7 +648,7 @@ export default function InterviewPrep() {
                 <li>
                   <span className="n">1</span>
                   <div className="t">See the questions</div>
-                  <div className="d">{coverage === 'none' ? 'Questions based on your own resume.' : `${questionCount} ${questionCount === 1 ? 'question' : 'questions'} people reported, newest first, with a short note on how to prepare for each.`}</div>
+                  <div className="d">{coverage === 'none' ? 'Questions based on your own resume.' : `${questionCount} ${questionCount === 1 ? 'question' : 'questions'} candidates reported, plus common ones for this role, each with a short note on how to prepare.`}</div>
                   <Btn type="button" onClick={goQuestions}>Open the questions</Btn>
                 </li>
                 <li>
@@ -687,7 +679,7 @@ export default function InterviewPrep() {
                     <li key={r.name + i}>
                       <div className="k">ROUND {i + 1}</div>
                       <div className="t">{r.name}</div>
-                      {roundLine(r) && <div className="d">{roundLine(r)}</div>}
+                      {roundLine(r, rounds) && <div className="d">{roundLine(r, rounds)}</div>}
                     </li>
                   ))}
                 </Rounds>

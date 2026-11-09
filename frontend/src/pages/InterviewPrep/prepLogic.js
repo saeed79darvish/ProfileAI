@@ -274,3 +274,27 @@ export function cleanRounds(rounds) {
   const specific = list.filter((r) => SPECIFIC_ROUNDS.test(String(r.name).trim())).length;
   return specific >= 2 ? list.filter((r) => !/^onsite loop$/i.test(String(r.name).trim())) : list;
 }
+
+const STAGE_LINE = {
+  'recruiter screen': 'A short call about your background and the role.',
+  'online assessment': 'A timed online screening, often coding.',
+  'technical phone screen': 'A first technical conversation, sometimes live coding.',
+  'coding rounds': 'Write and explain code live.',
+  'system design': 'Design a system and talk through the trade-offs.',
+  'ai and ml focus': 'Questions on AI and machine learning.',
+  'behavioral and hiring manager': 'Stories about how you work with people.',
+  'final review': 'The last step before a decision.',
+  'onsite loop': 'A series of interviews back to back.',
+};
+const WEAK_LINE = /^(technical( interview| round| conversation)?|interview|screening( phase)?|round)\.?$/i;
+
+/** One short line for a round: what candidates said when it says something, else a plain default for that kind of round. */
+export function roundLine(r, all = []) {
+  const t = String((r && (r.format || r.notes)) || '').replace(/\s+/g, ' ').trim();
+  const first = t ? t.split(/(?<=[.!?])\s/)[0] : '';
+  const dup = all.filter((x) => x !== r && String((x && (x.format || x.notes)) || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] === first).length > 0;
+  const weak = !first || first.length < 14 || WEAK_LINE.test(first) || dup || first.toLowerCase() === String(r && r.name || '').toLowerCase();
+  const line = weak ? (STAGE_LINE[String(r && r.name || '').toLowerCase()] || '') : first;
+  return line.length > 120 ? `${line.slice(0, 117).trim()}...` : line;
+}
+

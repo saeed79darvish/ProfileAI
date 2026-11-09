@@ -6,7 +6,7 @@ import { interviewPrepAPI } from '@/services/interviewPrep';
 import { sourcesFor, safeUrl, sourcePillLabel } from './prepLogic';
 import { cleanFocus, focusSummary } from './targeting';
 import {
-  TABS, KINDS, recentQuestions, commonQuestions, defaultTab, tabCounts, questionMeta, practiceRoute, savedNotes, probeCards,
+  TABS, TYPE_TABS, reportedByType, reportedCounts, defaultTypeTab, suggestedCards, areasOf, inArea, questionMeta, practiceRoute, savedNotes, probeCards,
 } from './questionsLogic';
 
 const C = { ink: '#13152a', muted: '#6b7280', line: '#e8e9f0', brand: '#5b5fd6', brandInk: '#4b4fc4', soft: '#f0f0fc', bg: '#f4f5fa' };
@@ -87,6 +87,15 @@ const Center = styled.div`
   h2 { margin: 0 0 8px; font-size: 19px; }
   p { margin: 0 0 16px; font-size: 15.5px; line-height: 1.45; color: #4a4d63; }
 `;
+const Section = styled.section`
+  display: flex; flex-direction: column; gap: 12px;
+  h2 { margin: 0; font-size: 20px; font-weight: 700; }
+  .sub { margin: 0; font-size: 14.5px; line-height: 1.5; color: #4a4d63; }
+  .areas { display: flex; gap: 8px; flex-wrap: wrap; }
+  .areas button { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1.5px solid #d9dbe5; background: #fff; color: #13152a; font: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer; }
+  .areas button[aria-pressed='true'] { border-color: #5b5fd6; background: #f0f0fc; color: #4b4fc4; }
+  .areas button:focus-visible { outline: 2px solid #5b5fd6; outline-offset: 2px; }
+`;
 const Empty = styled.p`
   margin: 0; padding: 20px; border-radius: 16px; background: #fff; border: 1px dashed #d9dbe5; font-size: 15px; line-height: 1.5; color: ${C.muted};
 `;
@@ -122,7 +131,7 @@ function QuestionItem({ q, prepId, prep, sources, notes, onNeedNotes, onPractice
           <span className="text" style={{ display: 'block' }}>{q.text}</span>
           <span className="meta">
             <span className="tag" style={{ background: tag.bg, color: tag.fg }}>{tag.label}</span>
-            {q.fromResume ? <span>From your resume</span> : <span>{questionMeta(q)}</span>}
+            {q.fromResume ? <span>From your resume</span> : q.suggested ? <span>{q.area}</span> : <span>{questionMeta(q)}</span>}
           </span>
         </span>
         <span className="sign" aria-hidden="true">{open ? '−' : '+'}</span>
@@ -150,7 +159,7 @@ function QuestionItem({ q, prepId, prep, sources, notes, onNeedNotes, onPractice
           )}
           <div className="actions">
             <Btn type="button" onClick={() => onPractice(route)}>{route.label}</Btn>
-            {!q.fromResume && links.length > 0 && (
+            {!q.fromResume && !q.suggested && links.length > 0 && (
               <TextBtn type="button" aria-expanded={showSrc} onClick={() => setShowSrc((v) => !v)}>
                 {showSrc ? 'Hide where it was reported' : `Where it was reported (${links.length} ${links.length === 1 ? 'source' : 'sources'})`}
               </TextBtn>
@@ -179,22 +188,38 @@ export default function Questions() {
   const [phase, setPhase] = useState('loading'); // loading | missing | failed | pending | ready
   const [prep, setPrep] = useState(null);
   const [focus, setFocus] = useState(null);
-  const [tab, setTab] = useState('recent');
-  const [kind, setKind] = useState('all');
+  const [tab, setTab] = useState('technical');
+  const [area, setArea] = useState('');
   const [notes, setNotes] = useState({}); // question id -> { state, list }
+  const [suggested, setSuggested] = useState({}); // type -> { state, list }
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
 
   useEffect(() => {
     let alive = true;
-    setPhase('loading'); setPrep(null); setNotes({}); setProbes({ state: 'idle', list: [] });
+    setPhase('loading'); setPrep(null); setNotes({}); setSuggested({}); setProbes({ state: 'idle', list: [] });
     interviewPrepAPI.get(prepId).then((res) => {
       if (!alive) return;
       const d = res.data || {};
-      if (d.status === 'ready' && d.prep) { setPrep(d.prep); setTab(defaultTab(d.prep)); setPhase('ready'); } else if (d.status === 'failed') setPhase('failed'); else setPhase('pending');
+      if (d.status === 'ready' && d.prep) { setPrep(d.prep); setTab(defaultTypeTab(d.prep)); setPhase('ready'); } else if (d.status === 'failed') setPhase('failed'); else setPhase('pending');
     }).catch((e) => { if (alive) setPhase(e?.response?.status === 404 ? 'missing' : 'failed'); });
     interviewPrepAPI.getFocus(prepId).then((res) => { if (alive) setFocus(cleanFocus(res.data?.focus)); }).catch(() => {});
     return () => { alive = false; };
   }, [prepId]);
+
+  useEffect(() => { setArea(''); }, [tab]);
+
+  // Suggestions for a kind cost a model call the first time, so they are only asked for when that tab is opened.
+  const loadSuggested = (type) => {
+    setSuggested((m) => ({ ...m, [type]: { state: 'loading', list: [] } }));
+    interviewPrepAPI.suggestedQuestions(prepId, type, tailoredId)
+      .then((res) => setSuggested((m) => ({ ...m, [type]: { state: 'done', list: suggestedCards(res.data?.questions) } })))
+      .catch(() => setSuggested((m) => ({ ...m, [type]: { state: 'error', list: [] } })));
+  };
+  const isType = TYPE_TABS.some((t) => t.id === tab);
+  useEffect(() => {
+    if (phase === 'ready' && isType && !suggested[tab]) loadSuggested(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, tab, isType]);
 
   // The resume questions cost a model call, so they are only built when that tab is opened.
   useEffect(() => {
@@ -206,13 +231,13 @@ export default function Questions() {
   }, [tab, probes.state, phase, prepId, tailoredId]);
 
   const sources = Array.isArray(prep?.sources) ? prep.sources : [];
-  const counts = useMemo(() => tabCounts(prep), [prep]);
-  const list = useMemo(() => {
-    if (!prep) return [];
-    if (tab === 'recent') return recentQuestions(prep, kind);
-    if (tab === 'common') return commonQuestions(prep, focus, kind);
-    return probes.list.filter((q) => kind === 'all' || q.kind === kind);
-  }, [prep, tab, kind, focus, probes.list]);
+  const counts = useMemo(() => reportedCounts(prep), [prep]);
+  const reported = useMemo(() => (isType && prep ? reportedByType(prep, tab) : { list: [], order: 'most' }), [prep, tab, isType]);
+  const sug = suggested[tab] || { state: 'idle', list: [] };
+  const areas = useMemo(() => areasOf(sug.list), [sug.list]);
+  const sugList = useMemo(() => inArea(sug.list, area), [sug.list, area]);
+  const tabInfo = TYPE_TABS.find((t) => t.id === tab);
+  const roleText = prep ? [prep.role, prep.company && prep.scope !== 'role' ? `at ${prep.company}` : ''].filter(Boolean).join(' ') : 'this role';
 
   const heading = prep ? [prep.scope === 'role' ? '' : prep.company, prep.role].filter((x) => typeof x === 'string' && x).join(', ') : '';
   const goPrep = () => navigate(`/interview-prep/prep/${prepId}`);
@@ -226,6 +251,13 @@ export default function Questions() {
   };
 
   const aim = focusSummary(focus);
+  const renderItems = (items, keyPrefix) => (
+    <ul style={{ margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {items.map((q) => (
+        <QuestionItem key={`${keyPrefix}-${q.id}`} q={q} prepId={prepId} prep={prep} sources={sources} notes={notes} onNeedNotes={needNotes} onPractice={goPractice} />
+      ))}
+    </ul>
+  );
 
   return (
     <Page>
@@ -233,7 +265,7 @@ export default function Questions() {
         <Back type="button" onClick={goPrep}><ChevronLeft />{heading ? `Back to ${heading}` : 'Back to your prep'}</Back>
         <Title>
           <h1>Interview questions</h1>
-          <p className="sub">What people reported being asked, and how to prepare for each one.</p>
+          <p className="sub">What people reported being asked, plus common questions for the role, and how to prepare for each one.</p>
         </Title>
 
         {phase === 'loading' && <Center role="status" aria-label="Loading"><CircularProgress size={26} /></Center>}
@@ -250,7 +282,7 @@ export default function Questions() {
         {phase === 'ready' && (
           <div className="layout">
             <div className="main">
-              <Tabs role="tablist" aria-label="Question lists">
+              <Tabs role="tablist" aria-label="Kind of question">
                 {TABS.map((t) => (
                   <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
                     {t.label}{counts[t.id] != null && <span className="n">{counts[t.id]}</span>}
@@ -258,31 +290,44 @@ export default function Questions() {
                 ))}
               </Tabs>
 
-              <Filters role="group" aria-label="Kind of question">
-                <span className="lbl">SHOW</span>
-                {KINDS.map((k) => <button key={k.id} type="button" aria-pressed={kind === k.id} onClick={() => setKind(k.id)}>{k.label}</button>)}
-              </Filters>
+              {isType && (
+                <>
+                  <Section aria-labelledby="rep-h">
+                    <h2 id="rep-h">Reported for this role</h2>
+                    <p className="sub">
+                      {tabInfo.about} {reported.list.length > 0 ? (reported.order === 'newest' ? 'Newest first.' : 'Most reported first.') : ''}
+                    </p>
+                    {reported.list.length === 0
+                      ? <Empty>No {tabInfo.label.toLowerCase()} questions were reported for this role yet. See the common ones below.</Empty>
+                      : renderItems(reported.list, 'rep')}
+                  </Section>
 
-              {tab === 'resume' && probes.state === 'loading' && (
-                <Center role="status"><CircularProgress size={24} /><p style={{ margin: '12px 0 0' }}>Reading your resume</p></Center>
+                  <Section aria-labelledby="com-h">
+                    <h2 id="com-h">Common for this role</h2>
+                    <p className="sub">Suggested for {roleText}{tailoredId ? ', using the job you tailored your resume for' : ''}. Candidates did not report these, so use them to practice. Open one for a note on how to prepare.</p>
+                    {sug.state === 'loading' && <Center role="status"><CircularProgress size={24} /><p style={{ margin: '12px 0 0' }}>Finding common questions</p></Center>}
+                    {sug.state === 'error' && (
+                      <Center><h2>We could not suggest questions just now</h2><Btn type="button" onClick={() => loadSuggested(tab)}>Try again</Btn></Center>
+                    )}
+                    {sug.state === 'done' && areas.length > 1 && (
+                      <div className="areas" role="group" aria-label="Area">
+                        <button type="button" aria-pressed={!area} onClick={() => setArea('')}>All</button>
+                        {areas.map((a) => <button key={a} type="button" aria-pressed={area === a} onClick={() => setArea(area === a ? '' : a)}>{a}</button>)}
+                      </div>
+                    )}
+                    {sug.state === 'done' && (sugList.length === 0 ? <Empty>No suggestions came back this time.</Empty> : renderItems(sugList, 'sug'))}
+                  </Section>
+                </>
               )}
-              {tab === 'resume' && probes.state === 'error' && (
-                <Center><h2>We could not build these just now</h2><Btn type="button" onClick={() => setProbes({ state: 'idle', list: [] })}>Try again</Btn></Center>
-              )}
-              {!(tab === 'resume' && (probes.state === 'loading' || probes.state === 'error')) && (
-                list.length === 0 ? (
-                  <Empty>
-                    {tab === 'recent' && 'No dated questions for this role yet. Try the other tab.'}
-                    {tab === 'common' && 'No questions of this kind were reported for this role.'}
-                    {tab === 'resume' && 'No resume questions came back this time.'}
-                  </Empty>
-                ) : (
-                  <ul style={{ margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {list.map((q) => (
-                      <QuestionItem key={`${tab}-${q.id}`} q={q} prepId={prepId} prep={prep} sources={sources} notes={notes} onNeedNotes={needNotes} onPractice={goPractice} />
-                    ))}
-                  </ul>
-                )
+
+              {tab === 'resume' && (
+                <Section aria-labelledby="res-h">
+                  <h2 id="res-h">About your resume</h2>
+                  <p className="sub">Questions an interviewer may ask about your own experience, and the gaps they may probe.</p>
+                  {probes.state === 'loading' && <Center role="status"><CircularProgress size={24} /><p style={{ margin: '12px 0 0' }}>Reading your resume</p></Center>}
+                  {probes.state === 'error' && <Center><h2>We could not build these just now</h2><Btn type="button" onClick={() => setProbes({ state: 'idle', list: [] })}>Try again</Btn></Center>}
+                  {probes.state === 'done' && (probes.list.length === 0 ? <Empty>No resume questions came back this time.</Empty> : renderItems(probes.list, 'res'))}
+                </Section>
               )}
             </div>
 
