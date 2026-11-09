@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import {
@@ -107,11 +107,12 @@ const when = (iso) => {
 
 export default function CodePractice() {
   const { prepId } = useParams();
+  const [search] = useSearchParams();
   const navigate = useNavigate();
   const [phase, setPhase] = useState('loading'); // loading | missing | failed | pending | ready
   const [prep, setPrep] = useState(null);
   const [attempts, setAttempts] = useState([]);
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(() => (search.get('question') || '').slice(0, 400)); // sent from the Questions page
   const [language, setLanguage] = useState('javascript');
   const [code, setCode] = useState('');
   const [current, setCurrent] = useState(null); // the attempt whose review is on screen

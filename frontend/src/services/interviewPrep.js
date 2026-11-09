@@ -22,6 +22,7 @@ export const interviewPrepAPI = {
   startPractice: (id, body = {}) => api.post(`${base(id)}/practice/session`, body),
   savePractice: (id, body) => api.post(`${base(id)}/practice/sessions`, body),
   listPractice: (id) => api.get(`${base(id)}/practice/sessions`),
+  prepareQuestion: (id, qid) => api.post(`${base(id)}/questions/${encodeURIComponent(qid)}/prepare`, {}),
   getFocus: (id) => api.get(`${base(id)}/focus`),
   saveFocus: (id, focus) => api.put(`${base(id)}/focus`, focus),
   reviewCode: (id, body) => api.post(`${base(id)}/code/review`, body),

@@ -5,14 +5,13 @@ import { CircularProgress } from '@mui/material';
 import { tailoredProfileAPI } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import FocusCard from './FocusCard';
-import { rankByFocus, cleanFocus as cleanFocusLogic } from './targeting';
+import { cleanFocus as cleanFocusLogic } from './targeting';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
 import {
-  CATEGORIES, filterQuestions, cleanTopics, cleanRounds, categoryCounts, monthYear, reportedBy, sourcesFor, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
-  categoryTag, sourcePillLabel, coverageChip, companyInitial, logoColor, selectStep, stepKeyTarget, visibleQuestions, showMoreLabel,
-  isGapProbe, gapDetail, discussionBadge, planProgress, storyRows,
+  filterQuestions, cleanRounds, monthYear, safeUrl, pollExpired, progressStep, companyFromUrl, cleanDiscussions, POLL_MS,
+  sourcePillLabel, coverageChip, companyInitial, logoColor, discussionBadge,
 } from './prepLogic';
 import { isPrepIdMode, prepHeading, refreshBody, apiErrorState } from './startLogic';
 import { practiceSummary, sessionsLabel } from './practiceLogic';
@@ -274,39 +273,78 @@ function SourceLinks({ list }) {
   });
 }
 
-function QuestionRow({ q, sources }) {
+const StepCards = styled.ol`
+  list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;
+  @media (max-width: 860px) { grid-template-columns: 1fr; }
+  li { background: #fff; border: 1px solid ${C.line}; border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .n { width: 32px; height: 32px; border-radius: 50%; background: ${C.soft}; color: ${C.brandInk}; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .t { font-size: 18px; font-weight: 700; }
+  .d { flex-grow: 1; font-size: 14.5px; line-height: 1.5; color: #4a4d63; overflow-wrap: anywhere; }
+  .two { display: flex; gap: 8px; flex-wrap: wrap; }
+  .two button { flex: 1 1 120px; padding: 0 12px; }
+  button { width: 100%; }
+`;
+const Rounds = styled.ol`
+  list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;
+  li { padding: 16px; border-radius: 14px; background: #f8f9fc; min-width: 0; }
+  .k { font-size: 12px; font-weight: 700; color: ${C.brandInk}; }
+  .t { margin-top: 4px; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+  .d { margin-top: 6px; font-size: 14px; line-height: 1.45; color: #4a4d63; overflow-wrap: anywhere; }
+`;
+
+/** One short line for a round: its format, else the start of its notes. */
+function roundLine(r) {
+  const t = String((r && (r.format || r.notes)) || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const first = t.split(/(?<=[.!?])\s/)[0];
+  return first.length > 120 ? `${first.slice(0, 117).trim()}...` : first;
+}
+
+function SourcesDisclosure({ sources, discussions, disclaimer }) {
   const [open, setOpen] = useState(false);
-  const list = sourcesFor(q.sourceIds, sources);
-  const latest = monthYear(q.mostRecent);
-  const tag = categoryTag(q.category);
-  const panelId = useId();
+  if (!sources.length && !discussions.length) return disclaimer ? <Foot>{disclaimer}</Foot> : null;
   return (
-    <Q>
-      <button type="button" className="head" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
-        <span className="body">
-          <span className="tag" style={{ background: tag.bg, color: tag.fg }}>{tag.label}</span>
-          <span className="text" style={{ display: 'block' }}>{q.text}</span>
-          <span className="meta">
-            <span className="by">{reportedBy(q)}</span>
-            {latest && <span>Latest: {latest}</span>}
-          </span>
-        </span>
-        <span className="chev"><ChevronDown /></span>
-      </button>
+    <div>
+      <Foot>
+        {sources.length > 0 ? `Built from ${sources.length} public ${sources.length === 1 ? 'page' : 'pages'}, each with its date and link. ` : ''}
+        {disclaimer || 'Questions change, so use this as a guide, not a promise.'}{' '}
+        <TextBtn type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? 'Hide the sources' : 'See the sources'}</TextBtn>
+      </Foot>
       {open && (
-        <div className="src" id={panelId}>
-          <div className="srclabel">WHERE IT WAS REPORTED</div>
-          <div className="pills">
-            {list.length ? <SourceLinks list={list} /> : <span style={{ fontSize: 14, color: C.muted }}>No source links for this question.</span>}
-          </div>
-        </div>
+        <Card style={{ marginTop: 12 }}>
+          {sources.length > 0 && (
+            <>
+              <h2>Sources</h2>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: discussions.length ? 20 : 0 }}><SourceLinks list={sources} /></div>
+            </>
+          )}
+          {discussions.length > 0 && (
+            <>
+              <h2>Discussions to read</h2>
+              <p className="sub">Reddit, LeetCode and other threads where candidates talk about interviewing. We could not read these in full, so nothing above is taken from them.</p>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {discussions.map((d) => {
+                  const b = discussionBadge(d);
+                  const meta = [d.site, monthYear(d.date)].filter(Boolean).join(', ');
+                  return (
+                    <Disc key={d.url} href={d.href} target="_blank" rel="noopener noreferrer">
+                      <span className="badge" style={{ background: b.bg, color: b.fg }}>{b.label}</span>
+                      <span className="t">{d.title}</span>
+                      {meta && <span className="site">{meta}</span>}
+                    </Disc>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </Card>
       )}
-    </Q>
+    </div>
   );
 }
 
-/** The process as a numbered stepper (tabs). Wide: a horizontal line of circles. Narrow: a vertical timeline with the detail under the chosen step. */
-const TIPS_SHOWN = 5;
+const TIPS_SHOWN = 3;
+
 function TipsList({ tips }) {
   const [all, setAll] = useState(false);
   const list = (Array.isArray(tips) ? tips : []).map((t) => (typeof t === 'string' ? t : String(t?.text || ''))).filter(Boolean);
@@ -327,124 +365,6 @@ function TipsList({ tips }) {
   );
 }
 
-function ProcessStepper({ rounds }) {
-  const [sel, setSel] = useState(0);
-  const narrow = useMedia('(max-width: 700px)');
-  const base = useId();
-  const refs = useRef([]);
-  const idx = selectStep(rounds, sel);
-  const r = rounds[idx];
-  const n = rounds.length;
-  const onKey = (e) => {
-    const next = stepKeyTarget(e.key, idx, n);
-    if (next == null) return;
-    e.preventDefault();
-    setSel(next);
-    const el = refs.current[next];
-    if (el) el.focus();
-  };
-  const detail = (round, i) => {
-    return (
-      <Detail role="tabpanel" id={`${base}-panel-${i}`} aria-labelledby={`${base}-tab-${i}`}>
-        <div className="top">
-          <span className="name">{round.name}</span>
-          <span className="by">{reportedBy(round)}</span>
-        </div>
-        {round.format && <div className="fmt">{round.format}</div>}
-        {round.notes && <div className="notes">{round.notes}</div>}
-      </Detail>
-    );
-  };
-  const tabProps = (i) => ({
-    className: 'tab',
-    ref: (el) => { refs.current[i] = el; },
-    type: 'button',
-    role: 'tab',
-    id: `${base}-tab-${i}`,
-    'aria-selected': i === idx,
-    'aria-controls': i === idx ? `${base}-panel-${i}` : undefined,
-    tabIndex: i === idx ? 0 : -1,
-    onClick: () => setSel(i),
-    onKeyDown: onKey,
-  });
-  if (narrow) {
-    return (
-      <Timeline role="tablist" aria-label="Interview steps" aria-orientation="vertical">
-        <div className="line" aria-hidden="true" />
-        {rounds.map((round, i) => (
-          <div key={`${round.name}-${i}`} role="presentation">
-            <button {...tabProps(i)}><span className="dot">{i + 1}</span><span className="lbl">{round.name}</span></button>
-            {i === idx && <div className="inline">{detail(round, i)}</div>}
-          </div>
-        ))}
-      </Timeline>
-    );
-  }
-  return (
-    <>
-      <StepWrap>
-        <div className="track" role="tablist" aria-label="Interview steps" style={{ gridTemplateColumns: `repeat(${n}, minmax(88px, 1fr))` }}>
-          <div className="line" aria-hidden="true" style={{ left: `calc(100% / ${n * 2})`, right: `calc(100% / ${n * 2})` }} />
-          {rounds.map((round, i) => (
-            <button key={`${round.name}-${i}`} {...tabProps(i)}><span className="dot">{i + 1}</span><span className="lbl">{round.name}</span></button>
-          ))}
-        </div>
-      </StepWrap>
-      {r && detail(r, idx)}
-    </>
-  );
-}
-
-function Progress({ elapsed }) {
-  const now = progressStep(elapsed);
-  return (
-    <Card aria-live="polite">
-      <h2>Researching</h2>
-      <p className="sub">This can take one to three minutes the first time for a company. You can leave this page, the research keeps going and will be here when you come back. {Math.floor(elapsed / 1000)}s so far.</p>
-      <Steps>
-        {STEPS.map((s, i) => (
-          <li key={s} data-state={i < now ? 'done' : i === now ? 'now' : 'todo'}>
-            <span className="dot">{i < now ? '✓' : ''}</span>{s}
-          </li>
-        ))}
-      </Steps>
-    </Card>
-  );
-}
-
-function PlanCard({ plan, practice, onStories, onPractice, onCode }) {
-  return (
-    <Plan aria-label="Your plan">
-      <div className="top"><h2>Your plan</h2><span className="count">{plan.doneCount} of {plan.total} done</span></div>
-      <div className="bar" role="progressbar" aria-label="Plan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={plan.percent}>
-        <div className="fill" style={{ width: `${plan.percent}%` }} />
-      </div>
-      <ol>
-        {plan.steps.map((s, i) => {
-          const state = s.done ? 'done' : s.id === 'practice' ? 'later' : 'todo';
-          return (
-            <li key={s.id}>
-              <span className="dot" data-s={state}>{s.done ? <CheckIcon /> : i + 1}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="t">{s.title}</div>
-                {s.id === 'practice' && practice.count > 0 ? (
-                  <>
-                    <div className="d">{sessionsLabel(practice.count)}</div>
-                    {practice.line && <div className="d" style={{ marginTop: 2 }}>{practice.line}</div>}
-                  </>
-                ) : (s.detail && <div className="d">{s.detail}</div>)}
-                {s.id === 'stories' && <button type="button" className="act out" onClick={onStories}>Build my stories</button>}
-                {s.id === 'practice' && <button type="button" className="act solid" onClick={onPractice}><MicIcon />Practice out loud</button>}
-                {s.id === 'practice' && <button type="button" className="act out" onClick={onCode} style={{ marginLeft: 8 }}>Practice coding</button>}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </Plan>
-  );
-}
-
 export default function InterviewPrep() {
   const params = useParams();
   const { tailoredId, prepId: routePrepId } = params;
@@ -456,9 +376,6 @@ export default function InterviewPrep() {
   const [errMsg, setErrMsg] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [companyInput, setCompanyInput] = useState('');
-  const [cat, setCat] = useState('all');
-  const [topicOpen, setTopicOpen] = useState(null);
-  const [probes, setProbes] = useState({ state: 'idle', list: [] });
   const [practice, setPractice] = useState({ count: 0, line: '' });
   const [focus, setFocus] = useState(null);
   const { user: me } = useAuth();
@@ -469,20 +386,8 @@ export default function InterviewPrep() {
   const run = useRef(0);
   const prepId = useRef(null);
   const typed = useRef('');
-  const [showAll, setShowAll] = useState(false);
   const [stories, setStories] = useState(null); // null until the stories section reports its saved list
   const handleStories = useCallback((list) => { setStories(Array.isArray(list) ? list : null); }, []);
-
-  const personalize = useCallback(async (id, runId) => {
-    setProbes({ state: 'loading', list: [] });
-    try {
-      const res = await interviewPrepAPI.personalize(id, tailoredId);
-      if (run.current !== runId) return;
-      setProbes({ state: 'done', list: Array.isArray(res.data?.probes) ? res.data.probes : [] });
-    } catch {
-      if (run.current === runId) setProbes({ state: 'error', list: [] });
-    }
-  }, [tailoredId]);
 
   const start = useCallback(async (profile, refresh, typedCompany) => {
     const runId = ++run.current;
@@ -490,7 +395,7 @@ export default function InterviewPrep() {
     const company = String(typed.current || companyOf(profile)).trim();
     if (!company) { setCompanyInput(companyFromUrl(profile.jobUrl)); setPhase('needsCompany'); return; }
     const jobTitle = String(profile.jobTitle || '').trim();
-    setPhase('researching'); setElapsed(0); setErrMsg(''); setProbes({ state: 'idle', list: [] });
+    setPhase('researching'); setElapsed(0); setErrMsg('');
     const began = Date.now();
     const fail = (e) => {
       if (run.current !== runId) return true;
@@ -503,7 +408,7 @@ export default function InterviewPrep() {
     };
     const finish = (id, p) => {
       if (run.current !== runId) return;
-      prepId.current = id; setPrep(p); setPhase('ready'); personalize(id, runId);
+      prepId.current = id; setPrep(p); setPhase('ready');
     };
     try {
       const res = await interviewPrepAPI.start(company, jobTitle, refresh);
@@ -525,12 +430,12 @@ export default function InterviewPrep() {
         if (d.status === 'failed') { setErrMsg(d.error || ''); setPhase('failed'); return; }
       }
     } catch (e) { fail(e); }
-  }, [personalize]);
+  }, []);
 
   // Prep id mode: open a prep by its id (no tailored resume), or run it again when `again` is the prep to refresh.
   const runById = useCallback(async (again) => {
     const runId = ++run.current;
-    setErrMsg(''); setProbes({ state: 'idle', list: [] });
+    setErrMsg('');
     if (again) { setPhase('researching'); setElapsed(0); } else setPhase('loading');
     const began = Date.now();
     const fail = (e) => {
@@ -543,7 +448,7 @@ export default function InterviewPrep() {
     };
     const finish = (id, p) => {
       if (run.current !== runId) return;
-      prepId.current = id; setPrep(p); setHeadPrep(p); setPhase('ready'); personalize(id, runId);
+      prepId.current = id; setPrep(p); setHeadPrep(p); setPhase('ready');
     };
     try {
       let id = routePrepId;
@@ -575,7 +480,7 @@ export default function InterviewPrep() {
         d = r.data || {};
       }
     } catch (e) { fail(e); }
-  }, [routePrepId, personalize]);
+  }, [routePrepId]);
 
   // Tick the progress lines while waiting.
   useEffect(() => {
@@ -613,8 +518,7 @@ export default function InterviewPrep() {
 
   const company = byId ? '' : tp ? companyOf(tp) || tp.jobTitle : '';
   const role = byId ? idHead.role : tp && companyOf(tp) ? tp.jobTitle : '';
-  const questions = prep ? rankByFocus(filterQuestions(prep.questions, cat), focus) : [];
-  const counts = prep ? categoryCounts(prep.questions) : {};
+  const questionCount = prep ? filterQuestions(prep.questions, 'all').length : 0;
   const coverage = prep?.coverage;
   const generated = prep?.generatedAt ? monthYear(prep.generatedAt) : '';
   const generatedFull = prep?.generatedAt && Number.isFinite(Date.parse(prep.generatedAt))
@@ -623,8 +527,6 @@ export default function InterviewPrep() {
   const sources = Array.isArray(prep?.sources) ? prep.sources : [];
   const discussions = cleanDiscussions(prep?.discussions);
 
-
-  useEffect(() => { setShowAll(false); }, [prep]);
 
   // What this person said they are aiming at. Failures show nothing.
   useEffect(() => {
@@ -650,20 +552,10 @@ export default function InterviewPrep() {
   const name = byId ? (idHead.acrossCompanies ? idHead.title : String(headPrep?.company || '')) : (company ? company : 'Interview prep');
   const goBack = () => (byId && standalone ? navigate('/interview-prep') : navigate(-1));
   const chip = coverageChip(coverage);
-  const shown = visibleQuestions(questions, showAll, 6);
-  const moreLabel = showMoreLabel(questions.length, shown.length);
-  const topicList = rankByFocus(cleanTopics(prep?.topics), focus);
-  const probeList = probes.state === 'done' ? probes.list : [];
-  const plan = planProgress({
-    sourceCount: sources.length,
-    questionCount: (prep?.questions || []).length,
-    probeCount: probeList.length,
-    storyCount: Array.isArray(stories) ? stories.length : null,
-  });
-  const storyList = storyRows(stories);
   const goPractice = () => { if (prepId.current) navigate(`/interview-prep/practice/${prepId.current}`); };
   const goCode = () => { if (prepId.current) navigate(`/interview-prep/code/${prepId.current}`); };
   const openStories = () => { setStoriesOpen(true); setStoriesSignal((n) => n + 1); };
+  const goQuestions = () => { if (prepId.current) navigate(`/interview-prep/questions/${prepId.current}${!byId && tailoredId ? `?tailored=${encodeURIComponent(tailoredId)}` : ''}`); };
 
   return (
     <Page>
@@ -745,165 +637,79 @@ export default function InterviewPrep() {
         )}
 
         {phase === 'ready' && prep && (
-          <div className="layout">
-            <div className="main">
-              <Card>
-                <div className="eyebrow">The short version</div>
-                {prep.summary ? <p className="lead">{prep.summary}</p> : <p className="sub">No summary was written for this role.</p>}
-                {coverage === 'thin' && <Note>We found limited public information for this role, so treat this as a starting point.</Note>}
-                {coverage === 'none' && (
-                  <Note>
-                    We did not find public interview reports for this company and role, so the general role questions are not available.
-                    The questions based on your own resume are below.
-                  </Note>
-                )}
-                {coverage !== 'none' && sources.length > 0 && (
-                  <InfoNote>
-                    <InfoIcon />
-                    <span>Built from {sources.length} public {sources.length === 1 ? 'page' : 'pages'}, with the date and link for each. Questions change, so use this as a guide, not a promise.</span>
-                  </InfoNote>
-                )}
-              </Card>
-
-              {coverage !== 'none' && prepId.current && (
-                <FocusCard prepId={prepId.current} role={prep?.role} level={prep?.level} focus={focus} onSaved={setFocus} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%', maxWidth: 1040, margin: '0 auto' }}>
+            <Card>
+              <div className="eyebrow">The short version</div>
+              {prep.summary ? <p className="lead">{prep.summary}</p> : <p className="sub">No summary was written for this role.</p>}
+              {coverage === 'thin' && <Note>We found limited public information for this role, so treat this as a starting point.</Note>}
+              {coverage === 'none' && (
+                <Note>
+                  We did not find public interview reports for this company and role, so the general role questions are not available.
+                  You can still practice with questions based on your own resume.
+                </Note>
               )}
+            </Card>
 
-              {coverage !== 'none' && rounds.length > 0 && (
-                <Card>
-                  <h2>How the process usually goes</h2>
-                  <ProcessStepper key={String(prep.generatedAt || prepId.current || '')} rounds={rounds} />
-                  {prep.process?.timeline && <p className="sub" style={{ marginTop: 16, marginBottom: 0 }}>{prep.process.timeline}</p>}
-                  <TipsList tips={prep.process?.tips} />
-                </Card>
-              )}
-
-              {coverage !== 'none' && (
-                <Card>
-                  <div className="titlerow"><h2>Questions candidates reported</h2></div>
-                  {(prep.questions || []).length === 0 ? (
-                    <p className="sub" style={{ marginBottom: 0 }}>No specific questions were reported for this role yet.</p>
-                  ) : (
-                    <>
-                      <p className="sub" style={{ marginBottom: 0 }}>Tap a question to see where it was reported.</p>
-                      <Chips role="group" aria-label="Filter by category">
-                        {CATEGORIES.map((c) => (
-                          <Chip key={c.id} type="button" $on={cat === c.id} aria-pressed={cat === c.id} onClick={() => { setCat(c.id); setShowAll(false); }}>
-                            {c.label} {counts[c.id] || 0}
-                          </Chip>
-                        ))}
-                      </Chips>
-                      {questions.length === 0 ? (
-                        <p className="sub" style={{ marginBottom: 0, marginTop: 12 }}>No questions in this category.</p>
-                      ) : (
-                        <ul style={{ margin: '4px 0 0', padding: 0 }}>
-                          {shown.map((q, i) => <QuestionRow key={q.id || i} q={q} sources={sources} />)}
-                        </ul>
-                      )}
-                      {moreLabel && <MoreBtn type="button" onClick={() => setShowAll(true)}>{moreLabel}</MoreBtn>}
-                    </>
-                  )}
-                </Card>
-              )}
-
-              <Card>
-                <h2>What they may ask about your resume</h2>
-                <p className="sub">Based on your own resume, not on public reports.</p>
-                {probes.state === 'loading' && <div style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: 12 }}><CircularProgress size={22} /><span className="sub" style={{ margin: 0 }}>Reading your resume</span></div>}
-                {probes.state === 'error' && (
-                  <>
-                    <p className="sub">We could not build these just now.</p>
-                    <TextBtn type="button" onClick={() => personalize(prepId.current, run.current)}>Try again</TextBtn>
-                  </>
-                )}
-                {probes.state === 'done' && probes.list.length === 0 && <p className="sub" style={{ marginBottom: 0 }}>No resume questions came back this time.</p>}
-                {probes.state === 'done' && probes.list.length > 0 && (
-                  <Probes>
-                    {probes.list.map((p, i) => {
-                      const gap = isGapProbe(p);
-                      const detailText = gap ? gapDetail(p.basedOn) : p.basedOn;
-                      return (
-                        <li key={i} data-gap={gap ? 'true' : 'false'}>
-                          <div className="q">{typeof p.question === 'string' ? p.question : ''}</div>
-                          {typeof p.why === 'string' && p.why && <div className="why">{p.why}</div>}
-                          {gap && <div className="based">{`A gap: not in your profile yet${detailText ? `. ${detailText}` : ''}`}</div>}
-                          {!gap && typeof p.basedOn === 'string' && p.basedOn && <div className="based">From your resume: {p.basedOn}</div>}
-                        </li>
-                      );
-                    })}
-                  </Probes>
-                )}
-              </Card>
-
-              {coverage !== 'none' && topicList.length > 0 && (
-                <Card>
-                  <h2>Topics to review</h2>
-                  <p className="sub">Tap a topic to see why it matters.</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {topicList.map((t, i) => (
-                      <Topic key={`${t.name}-${i}`} type="button" $on={topicOpen === i} aria-expanded={topicOpen === i} onClick={() => setTopicOpen(topicOpen === i ? null : i)}>{t.name}</Topic>
-                    ))}
+            <section aria-labelledby="steps-h" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <h2 id="steps-h" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Get ready in three steps</h2>
+              <StepCards>
+                <li>
+                  <span className="n">1</span>
+                  <div className="t">See the questions</div>
+                  <div className="d">{coverage === 'none' ? 'Questions based on your own resume.' : `${questionCount} ${questionCount === 1 ? 'question' : 'questions'} people reported, newest first, with a short note on how to prepare for each.`}</div>
+                  <Btn type="button" onClick={goQuestions}>Open the questions</Btn>
+                </li>
+                <li>
+                  <span className="n">2</span>
+                  <div className="t">Build your stories</div>
+                  <div className="d">{Array.isArray(stories) && stories.length > 0 ? `Real examples from your work. ${stories.length} saved so far.` : 'Real examples from your work, written in your own voice. None saved yet.'}</div>
+                  <Btn type="button" $ghost onClick={openStories}>Build my stories</Btn>
+                </li>
+                <li>
+                  <span className="n">3</span>
+                  <div className="t">Practice</div>
+                  <div className="d">{practice.count > 0 ? `${sessionsLabel(practice.count)}. ${practice.line || ''}`.trim() : 'Talk through answers with a voice coach, or write code and get a review.'}</div>
+                  <div className="two">
+                    <Btn type="button" $ghost onClick={goPractice}>Out loud</Btn>
+                    <Btn type="button" $ghost onClick={goCode}>Write code</Btn>
                   </div>
-                  {topicOpen != null && topicList[topicOpen]?.why && (
-                    <Note style={{ background: C.soft, color: C.ink }}>{topicList[topicOpen].why}</Note>
-                  )}
-                </Card>
-              )}
+                </li>
+              </StepCards>
+            </section>
 
-              <Stories prepId={prepId.current} tailoredId={byId ? undefined : tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={goPractice} onStoriesChange={handleStories} />
+            <Stories prepId={prepId.current} tailoredId={byId ? undefined : tailoredId} open={storiesOpen} openSignal={storiesSignal} onPractice={goPractice} onStoriesChange={handleStories} />
 
-              {discussions.length > 0 && (
-                <Card>
-                  <h2>Discussions to read</h2>
-                  <p className="sub">Reddit, LeetCode and other threads where candidates talk about interviewing at this company. We could not read these in full, so nothing above is taken from them. Open them for the full stories.</p>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    {discussions.map((d) => {
-                      const b = discussionBadge(d);
-                      const meta = [d.site, monthYear(d.date)].filter(Boolean).join(', ');
-                      return (
-                        <Disc key={d.url} href={d.href} target="_blank" rel="noopener noreferrer">
-                          <span className="badge" style={{ background: b.bg, color: b.fg }}>{b.label}</span>
-                          <span className="t">{d.title}</span>
-                          {meta && <span className="site">{meta}</span>}
-                        </Disc>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
+            {coverage !== 'none' && rounds.length > 0 && (
+              <Card>
+                <h2>How the interview usually goes</h2>
+                <Rounds>
+                  {rounds.slice(0, 6).map((r, i) => (
+                    <li key={r.name + i}>
+                      <div className="k">ROUND {i + 1}</div>
+                      <div className="t">{r.name}</div>
+                      {roundLine(r) && <div className="d">{roundLine(r)}</div>}
+                    </li>
+                  ))}
+                </Rounds>
+                {prep.process?.timeline && <p className="sub" style={{ marginTop: 16, marginBottom: 0 }}>{prep.process.timeline}</p>}
+              </Card>
+            )}
 
-              {sources.length > 0 && (
-                <Card>
-                  <h2>Sources</h2>
-                  <p className="sub">Public pages this research is based on.</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><SourceLinks list={sources} /></div>
-                </Card>
-              )}
-              {prep.disclaimer && <Foot>{prep.disclaimer}</Foot>}
-            </div>
+            {coverage !== 'none' && (Array.isArray(prep.process?.tips) && prep.process.tips.length > 0) && (
+              <Card><TipsList tips={prep.process.tips} /></Card>
+            )}
 
-            <aside className="rail" aria-label="Your plan">
-              <PlanCard plan={plan} practice={practice} onStories={openStories} onPractice={goPractice} onCode={goCode} />
-              {storyList.length > 0 && (
-                <Mini aria-label="Your stories">
-                  <h2>Your stories</h2>
-                  <ul>
-                    {storyList.map((s) => (
-                      <li key={s.key}>
-                        <div className="t">{s.title}</div>
-                        {s.theme && <div className="th">{s.theme}</div>}
-                      </li>
-                    ))}
-                  </ul>
-                </Mini>
-              )}
-              {standalone && (
-                <Another>
-                  Another interview coming up?{' '}
-                  <a href="/interview-prep" onClick={(e) => { e.preventDefault(); navigate('/interview-prep'); }}>Prepare for another one</a>
-                </Another>
-              )}
-            </aside>
+            {coverage !== 'none' && prepId.current && (
+              <FocusCard prepId={prepId.current} role={prep?.role} level={prep?.level} focus={focus} onSaved={setFocus} />
+            )}
+
+            <SourcesDisclosure sources={sources} discussions={discussions} disclaimer={prep.disclaimer} />
+            {standalone && (
+              <Another>
+                Another interview coming up?{' '}
+                <a href="/interview-prep" onClick={(e) => { e.preventDefault(); navigate('/interview-prep'); }}>Prepare for another one</a>
+              </Another>
+            )}
           </div>
         )}
       </div>

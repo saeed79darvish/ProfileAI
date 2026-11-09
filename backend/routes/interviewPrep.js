@@ -5,6 +5,7 @@ const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = req
 
 const { profileSnapshot } = require('../services/interviewPrepService');
 const { cleanFocus } = require('../services/interviewFocus');
+const { prepareQuestion } = require('../services/interviewQuestionPrepService');
 const { reviewCode } = require('../services/interviewCodeService');
 const { pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS } = require('../services/interviewPracticeService');
 
@@ -389,6 +390,27 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         } catch (e) { console.error('[interviewPrep] settle voice minutes failed:', e.message); }
       }
       return res.json({ success: true, id: row.id });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  // "How to prepare" for one reported question. Written once, kept on the shared prep, so it costs one small call per question.
+  router.post('/:id/questions/:qid/prepare', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const row = await models.InterviewPrep.findByPk(req.params.id);
+      const payload = row && row.status === 'ready' && row.payload && typeof row.payload === 'object' ? row.payload : null;
+      if (!payload) return notFound(res);
+      const q = (Array.isArray(payload.questions) ? payload.questions : []).find((x) => x && x.id === req.params.qid);
+      if (!q) return notFound(res);
+      const cached = payload.preparation && Array.isArray(payload.preparation[q.id]) ? payload.preparation[q.id] : null;
+      if (cached && cached.length) return res.json({ success: true, prepare: cached, cached: true });
+      const prepare = await prepareQuestion({ prep: payload, question: q, runModel });
+      if (!prepare.length) return res.status(422).json({ success: false, code: 'prepare_failed', message: 'We could not write that just now. Please try again.' });
+      // Re-read so two people opening different questions at once do not overwrite each other.
+      const fresh = (await models.InterviewPrep.findByPk(req.params.id)) || row;
+      const base = fresh.payload && typeof fresh.payload === 'object' ? fresh.payload : payload;
+      await fresh.update({ payload: { ...base, preparation: { ...(base.preparation || {}), [q.id]: prepare } } });
+      return res.json({ success: true, prepare, cached: false });
     } catch (err) { return sendError(res, err); }
   });
 

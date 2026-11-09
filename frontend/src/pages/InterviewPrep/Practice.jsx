@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import { cleanStories } from './storyLogic';
@@ -166,6 +166,9 @@ function NoteBlock({ note }) {
 export default function Practice() {
   const { prepId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Sent from the Questions page to practice one question on its own.
+  const only = location.state && location.state.only && typeof location.state.only.text === 'string' ? location.state.only : null;
   const call = usePracticeCall();
   const { ended, notes, finished, start: startCall, stop: stopCall } = call;
 
@@ -213,7 +216,7 @@ export default function Practice() {
       .catch(() => setSaveState('failed'));
   }, [ended, notes, finished, prepId]);
 
-  const top = useMemo(() => pickTopQuestions(prep, 5), [prep]);
+  const top = useMemo(() => (only ? [{ text: only.text.trim(), kind: only.kind === 'resume' ? 'resume' : 'reported' }] : pickTopQuestions(prep, 5)), [prep, only]);
   const running = call.state !== PRACTICE_STATES.idle;
   const goPrep = useCallback(() => navigate(`/interview-prep/prep/${prepId}`), [navigate, prepId]);
   const begin = useCallback(() => {
@@ -270,7 +273,7 @@ export default function Practice() {
         {phase === 'ready' && !running && screen === 'ready' && (
           <Card aria-labelledby="ready-h">
             <h2 id="ready-h">Before you start</h2>
-            <p className="sub">{top.length ? 'You will be asked these questions, one at a time.' : 'We will pick the questions from your resume and this role.'}</p>
+            <p className="sub">{only ? 'You will practice this one question.' : top.length ? 'You will be asked these questions, one at a time.' : 'We will pick the questions from your resume and this role.'}</p>
             {top.length > 0 && (
               <QList>
                 {top.map((q, i) => <li key={q.text}><span className="n">{i + 1}</span><span className="t">{q.text}</span></li>)}

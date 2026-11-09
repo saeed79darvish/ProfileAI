@@ -86,6 +86,7 @@ const InterviewPrep = lazyWithReload(() => import('./pages/InterviewPrep'));
 const InterviewPrepStart = lazyWithReload(() => import('./pages/InterviewPrep/Start'));
 const InterviewPrepPractice = lazyWithReload(() => import('./pages/InterviewPrep/Practice'));
 const InterviewPrepCode = lazyWithReload(() => import('./pages/InterviewPrep/CodePractice'));
+const InterviewPrepQuestions = lazyWithReload(() => import('./pages/InterviewPrep/Questions'));
 const MyJobs = lazyWithReload(() => import('./pages/MyJobs'));
 const CheckEmail = lazyWithReload(() => import('./pages/CheckEmail'));
 const VerifyEmail = lazyWithReload(() => import('./pages/VerifyEmail'));
@@ -372,6 +373,11 @@ function AppContent() {
             <Route path="/interview-prep/practice/:prepId" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
                 <InterviewPrepPractice />
+              </PrivateRoute>
+            } />
+            <Route path="/interview-prep/questions/:prepId" element={
+              <PrivateRoute allowedRoles={['candidate', 'admin']}>
+                <InterviewPrepQuestions />
               </PrivateRoute>
             } />
             <Route path="/interview-prep/code/:prepId" element={

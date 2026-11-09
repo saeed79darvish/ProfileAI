@@ -45,7 +45,7 @@ export default function FocusCard({ prepId, role, level, focus, onSaved }) {
 
   const options = areaOptions(role, level);
   const has = Boolean(cleanFocus(focus));
-  const editing = open || !has;
+  const editing = open;
 
   const save = async () => {
     setBusy(true); setErr('');
@@ -64,8 +64,10 @@ export default function FocusCard({ prepId, role, level, focus, onSaved }) {
     return (
       <Box aria-label="What you are aiming at">
         <div className="now">
-          <div className="t"><span className="l">YOU ARE AIMING AT</span>{focusSummary(focus) || 'Your answers are saved'}</div>
-          <button type="button" className="link" onClick={() => setOpen(true)}>Change</button>
+          <div className="t">{has
+            ? <><span className="l">YOU ARE AIMING AT</span>{focusSummary(focus) || 'Your answers are saved'}</>
+            : <><span className="l">YOUR TARGET</span>Tell us what you are aiming at and the questions that match come first.</>}</div>
+          <button type="button" className="link" onClick={() => setOpen(true)}>{has ? 'Change' : 'Set my target'}</button>
         </div>
       </Box>
     );

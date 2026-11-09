@@ -23,6 +23,8 @@ const PREP = {
   topics: [{ name: 'React state management and hooks' }, { name: 'Communication and explanation skills' }, { name: 'Web performance' }],
 };
 
+PREP.questions.forEach((q, i) => { q.id = `q${i + 1}`; });
+
 test('pickQuestions: frequency first, mixed categories, includes a behavioral', () => {
   const qs = svc.pickQuestions({ prep: PREP });
   assert.equal(qs.length, 5);
@@ -125,8 +127,8 @@ function fakeModel(extra = {}) {
   };
 }
 
-async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter, storyModel, canUseStandalone } = {}) {
-  const prepRow = { id: PREP_ID, companyKey: 'acme', roleKey: 'engineer', status: ready ? 'ready' : 'pending', payload: PREP, update: async () => {} };
+async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter, storyModel, canUseStandalone, runModel } = {}) {
+  const prepRow = { id: PREP_ID, companyKey: 'acme', roleKey: 'engineer', status: ready ? 'ready' : 'pending', payload: PREP, update: async function (p) { Object.assign(this, p); return this; } };
   const service = makeInterviewPrepService({ InterviewPrep: { findByPk: async (id) => (id === PREP_ID ? prepRow : null), findAll: async () => [prepRow] }, getResearch: () => async () => PREP });
   const InterviewStory = fakeModel();
   const InterviewPracticeSession = fakeModel();
@@ -139,7 +141,7 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   };
   const models = {
     InterviewStory, InterviewPracticeSession, InterviewCodeAttempt, UserInterviewPrep,
-    InterviewPrep: { findAll: async () => [prepRow] },
+    InterviewPrep: { findAll: async () => [prepRow], findByPk: async (id) => (id === PREP_ID ? prepRow : null) },
     TailoredProfile: { findOne: async () => null },
     Profile: { findOne: async () => ({ toJSON: () => ({ title: 'Engineer', skills: ['Go'] }) }) },
   };
@@ -154,7 +156,7 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   const auth = (req, res, next) => { const id = req.headers['x-user'] || user.id; req.user = { ...user, id }; next(); };
   app.use('/api/interview-prep', buildRouter({
     service, authMiddleware: auth, limiter: (q, r, n) => n(), storyLimiter: (q, r, n) => n(),
-    recordUsage: async () => {}, runModel: async () => '{}', storyModel: storyModel || (async () => '{}'), models,
+    recordUsage: async () => {}, runModel: runModel || (async () => '{}'), storyModel: storyModel || (async () => '{}'), models,
     realtime, recordVoice: async (...a) => { recorded.push(a); }, ...(canUseStandalone ? { canUseStandalone } : {}),
     voiceLimiter: limiter || ((req, res, next) => { req.voiceAllowance = { allowed: true, maxSessionMinutes: 10 }; next(); }),
   }));
@@ -393,4 +395,29 @@ test('standalone interview prep: closed to people without access, tailored and c
   try {
     assert.equal((await open.call('/mine')).status, 200);
   } finally { open.close(); }
+});
+
+test('how to prepare: paid only, only for a real question, written once and kept on the shared prep', async () => {
+  let calls = 0;
+  const runModel = async () => { calls += 1; return JSON.stringify({ prepare: ['Know when React re-renders: state, props, parent.', 'Name memo and useCallback and when they do not help.', 'Say you would measure with the profiler first.'] }); };
+  const free = await setup({ user: { id: 'u1', role: 'candidate', subscriptionTier: 'free' }, runModel });
+  try { assert.equal((await free.call(`/${PREP_ID}/questions/q1/prepare`, {})).status, 403); } finally { free.close(); }
+  const t = await setup({ runModel });
+  try {
+    assert.equal((await t.call(`/${PREP_ID}/questions/nope/prepare`, {})).status, 404);
+    const first = await t.call(`/${PREP_ID}/questions/q1/prepare`, {});
+    assert.equal(first.status, 200);
+    assert.equal(first.body.prepare.length, 3);
+    assert.equal(first.body.cached, false);
+    const second = await t.call(`/${PREP_ID}/questions/q1/prepare`, {});
+    assert.equal(second.body.cached, true);
+    assert.deepEqual(second.body.prepare, first.body.prepare);
+    assert.equal(calls, 1);
+  } finally { t.close(); }
+  const bad = await setup({ runModel: async () => 'nothing useful' });
+  try {
+    const r = await bad.call(`/${PREP_ID}/questions/q2/prepare`, {});
+    assert.equal(r.status, 422);
+    assert.equal(r.body.code, 'prepare_failed');
+  } finally { bad.close(); }
 });
