@@ -23,6 +23,7 @@ async function up() {
     CREATE UNIQUE INDEX IF NOT EXISTS "user_interview_preps_user_prep_unique"
     ON "UserInterviewPreps" ("userId", "prepId")
   `);
+  await sequelize.query('ALTER TABLE "UserInterviewPreps" ADD COLUMN IF NOT EXISTS "focus" jsonb');
   console.log('[UserInterviewPreps] table ensured');
 }
 

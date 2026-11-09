@@ -8,6 +8,7 @@
  */
 
 const { profileSnapshot } = require('./interviewPrepService');
+const { focusScore, focusSentence } = require('./interviewFocus');
 
 const MAX_PICKED = 5;
 const MAX_REQUESTED = 8;
@@ -91,15 +92,16 @@ function conceptQuestion(topic) {
 const stripReported = (t) => String(t || '').replace(/\s*\((?:reported|asked|seen|mentioned)[^)]*\)\s*\.?\s*$/i, '').trim();
 
 /** Most reported first, a mix of categories, a behavioral one if the research has any. */
-function pickReported(questions, limit) {
+function pickReported(questions, limit, focus = null) {
   const list = (Array.isArray(questions) ? questions : [])
     .filter((q) => q && typeof q.text === 'string' && isRealQuestion(q.text) && questionKind(q) === 'spoken')
-    .map((q, i) => ({ q, i, freq: Number(q.frequency) || 0 }))
-    .sort((a, b) => b.freq - a.freq || a.i - b.i);
+    .map((q, i) => ({ q, i, freq: Number(q.frequency) || 0, hit: focusScore(q.text, focus) }))
+    .sort((a, b) => b.hit - a.hit || b.freq - a.freq || a.i - b.i);
   if (!list.length || limit <= 0) return [];
   const chosen = [];
   const take = (entry) => { if (entry && !chosen.includes(entry)) chosen.push(entry); };
   take(list.find((e) => e.q.category === 'behavioral'));
+  take(list.find((e) => e.hit > 0)); // what they said they are aiming at gets a place first
   const byCat = new Map();
   for (const e of list) {
     const c = e.q.category || 'other';
@@ -123,7 +125,7 @@ function pickReported(questions, limit) {
  * Up to five questions to practice. Never invents one: each comes from the
  * research, a resume probe the caller supplied, or the caller's own list.
  */
-function pickQuestions({ prep, resumeProbes, requested } = {}) {
+function pickQuestions({ prep, resumeProbes, requested, focus = null } = {}) {
   const asked = cleanRequested(requested);
   const source = asked.length ? asked : (() => {
     const probes = [];
@@ -135,12 +137,13 @@ function pickQuestions({ prep, resumeProbes, requested } = {}) {
       probes.push({ text, kind: 'resume' });
       if (probes.length >= MAX_PROBES) break;
     }
-    const reported = pickReported(prep && prep.questions, MAX_PICKED - probes.length)
+    const reported = pickReported(prep && prep.questions, MAX_PICKED - probes.length, focus)
       .map((text) => ({ text, kind: 'reported' }));
     const picked = [...reported, ...probes];
     // Research can be thin for a role: fill with knowledge questions from the review topics.
     const have = new Set(picked.map((x) => normKey(x.text)));
-    for (const t of Array.isArray(prep && prep.topics) ? prep.topics : []) {
+    const topics = (Array.isArray(prep && prep.topics) ? prep.topics : []).map((t, i) => ({ t, i, hit: focusScore(t && t.name, focus) })).sort((a, b) => b.hit - a.hit || a.i - b.i).map((x) => x.t);
+    for (const t of topics) {
       if (picked.length >= MAX_PICKED) break;
       const text = conceptQuestion(t);
       if (text && !have.has(normKey(text))) { have.add(normKey(text)); picked.push({ text, kind: 'reported' }); }
@@ -186,7 +189,7 @@ const PRACTICE_TOOLS = [
   },
 ];
 
-function practiceInstructions({ firstName, prep = {}, questions = [], stories = [], profileSnapshot: snapshot = '', maxMinutes = null, lastTime = null } = {}) {
+function practiceInstructions({ firstName, prep = {}, questions = [], stories = [], profileSnapshot: snapshot = '', maxMinutes = null, lastTime = null, focus = null } = {}) {
   const role = plain(prep.role, 120) || 'this role';
   const company = plain(prep.company, 120);
   const target = company ? `${role} at ${company}` : role;
@@ -204,6 +207,7 @@ function practiceInstructions({ firstName, prep = {}, questions = [], stories = 
   const lastBlock = last && (last.summary || last.topTip)
     ? `${plain(last.summary, 400)}${last.topTip ? ` The tip they were given: ${plain(last.topTip, 300)}` : ''} Mention it once, in one short sentence in your greeting, then carry on. Never read it back in full.`
     : '';
+  const aim = focusSentence(focus);
   const profile = String(snapshot || '').replace(DASH_RE, ',').replace(ARROW_RE, '').slice(0, SNAPSHOT_CHARS).trim();
 
   return [
@@ -225,6 +229,7 @@ function practiceInstructions({ firstName, prep = {}, questions = [], stories = 
     '- To end: first SAY out loud a two sentence summary, the single most useful tip and a brief goodbye. Only then, as the very last thing in that same turn, CALL the tool finish_session with that summary and tip. Never speak after calling finish_session.',
     '',
     ...(lastBlock ? ['LAST TIME THEY PRACTICED THIS', lastBlock, ''] : []),
+    ...(aim ? ['WHAT THEY ARE AIMING AT', `${aim} Let it shape which follow-up you lean on and how you word your feedback. Never ask a question that is not in the list below.`, ''] : []),
     'QUESTIONS, IN ORDER',
     numbered || '(none)',
     '',

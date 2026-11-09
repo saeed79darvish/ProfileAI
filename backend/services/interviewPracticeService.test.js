@@ -131,7 +131,12 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   const InterviewStory = fakeModel();
   const InterviewPracticeSession = fakeModel();
   const InterviewCodeAttempt = fakeModel();
-  const UserInterviewPrep = { findAll: async () => [{ prepId: PREP_ID, lastOpenedAt: new Date(), tailoredProfileId: null }] };
+  const userPreps = [];
+  const UserInterviewPrep = {
+    findAll: async () => [{ prepId: PREP_ID, lastOpenedAt: new Date(), tailoredProfileId: null }],
+    findOne: async ({ where }) => userPreps.find((r) => r.userId === where.userId && r.prepId === where.prepId) || null,
+    create: async (v) => { const row = { ...v, update: async (p) => Object.assign(row, p) }; userPreps.push(row); return row; },
+  };
   const models = {
     InterviewStory, InterviewPracticeSession, InterviewCodeAttempt, UserInterviewPrep,
     InterviewPrep: { findAll: async () => [prepRow] },
@@ -353,5 +358,18 @@ test('code review: too little code or no question is a 400, an unusable reply is
     assert.equal(r.status, 422);
     assert.equal(r.body.code, 'review_failed');
     assert.equal((await t.call(`/${PREP_ID}/code/attempts`)).body.attempts.length, 0);
+  } finally { t.close(); }
+});
+
+test('focus: saved per user, cleaned, and used to steer the practice questions and the coach', async () => {
+  const t = await setup();
+  try {
+    assert.equal((await t.call(`/${PREP_ID}/focus`)).body.focus, null);
+    const put = await t.call(`/${PREP_ID}/focus`, { areas: ['performance', 'nonsense', 'performance'], companyType: 'startup', worry: 'bogus' }, 'PUT');
+    assert.equal(put.status, 200);
+    assert.deepEqual(put.body.focus, { areas: ['performance'], companyType: 'startup', worry: '' });
+    assert.deepEqual((await t.call(`/${PREP_ID}/focus`)).body.focus, put.body.focus);
+    assert.equal((await t.call(`/${PREP_ID}/focus`, null, 'GET', 'someone-else')).body.focus, null);
+    assert.equal((await t.call(`/${PREP_ID}/focus`, { areas: ['nope'] }, 'PUT')).body.focus, null);
   } finally { t.close(); }
 });

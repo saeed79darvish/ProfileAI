@@ -3,6 +3,8 @@ import styled from 'styled-components';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { tailoredProfileAPI } from '@/services/api';
+import FocusCard from './FocusCard';
+import { rankByFocus, cleanFocus as cleanFocusLogic } from './targeting';
 import { interviewPrepAPI } from '@/services/interviewPrep';
 import Stories from './Stories';
 import { companyOf } from '@/components/tailored/tailoredModel';
@@ -457,6 +459,7 @@ export default function InterviewPrep() {
   const [topicOpen, setTopicOpen] = useState(null);
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
   const [practice, setPractice] = useState({ count: 0, line: '' });
+  const [focus, setFocus] = useState(null);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [storiesSignal, setStoriesSignal] = useState(0);
   const [headPrep, setHeadPrep] = useState(null); // prep id mode: company, role and scope for the heading
@@ -607,7 +610,7 @@ export default function InterviewPrep() {
 
   const company = byId ? '' : tp ? companyOf(tp) || tp.jobTitle : '';
   const role = byId ? idHead.role : tp && companyOf(tp) ? tp.jobTitle : '';
-  const questions = prep ? filterQuestions(prep.questions, cat) : [];
+  const questions = prep ? rankByFocus(filterQuestions(prep.questions, cat), focus) : [];
   const counts = prep ? categoryCounts(prep.questions) : {};
   const coverage = prep?.coverage;
   const generated = prep?.generatedAt ? monthYear(prep.generatedAt) : '';
@@ -619,6 +622,15 @@ export default function InterviewPrep() {
 
 
   useEffect(() => { setShowAll(false); }, [prep]);
+
+  // What this person said they are aiming at. Failures show nothing.
+  useEffect(() => {
+    setFocus(null);
+    if (phase !== 'ready' || !prepId.current) return undefined;
+    let alive = true;
+    interviewPrepAPI.getFocus(prepId.current).then((res) => { if (alive) setFocus(cleanFocusLogic(res.data?.focus)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [phase, prep]);
 
   // Past practice sessions, for the plan. Failures show nothing.
   useEffect(() => {
@@ -637,7 +649,7 @@ export default function InterviewPrep() {
   const chip = coverageChip(coverage);
   const shown = visibleQuestions(questions, showAll, 6);
   const moreLabel = showMoreLabel(questions.length, shown.length);
-  const topicList = cleanTopics(prep?.topics);
+  const topicList = rankByFocus(cleanTopics(prep?.topics), focus);
   const probeList = probes.state === 'done' ? probes.list : [];
   const plan = planProgress({
     sourceCount: sources.length,
@@ -749,6 +761,10 @@ export default function InterviewPrep() {
                   </InfoNote>
                 )}
               </Card>
+
+              {coverage !== 'none' && prepId.current && (
+                <FocusCard prepId={prepId.current} role={prep?.role} level={prep?.level} focus={focus} onSaved={setFocus} />
+              )}
 
               {coverage !== 'none' && rounds.length > 0 && (
                 <Card>

@@ -4,6 +4,7 @@ const { parseJob } = require('../services/interviewJobParseService');
 const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = require('../services/interviewStoriesService');
 
 const { profileSnapshot } = require('../services/interviewPrepService');
+const { cleanFocus } = require('../services/interviewFocus');
 const { reviewCode } = require('../services/interviewCodeService');
 const { pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS } = require('../services/interviewPracticeService');
 
@@ -329,7 +330,12 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       const prep = prepRow.prep;
       const stories = await models.InterviewStory.findAll({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']] });
       // No model call here: the caller's own list (which may carry resume probes) or the reported questions.
-      const questions = pickQuestions({ prep, requested });
+      let focus = null;
+      try {
+        const mine = await models.UserInterviewPrep.findOne({ where: { userId: req.user.id, prepId: req.params.id } });
+        focus = cleanFocus(mine && mine.focus);
+      } catch { /* practice just is not steered */ }
+      const questions = pickQuestions({ prep, requested, focus });
       let lastTime = null;
       try {
         const last = await models.InterviewPracticeSession.findOne({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']] });
@@ -340,7 +346,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       const maxSessionMinutes = req.voiceAllowance?.maxSessionMinutes || null;
       const instructions = practiceInstructions({
         firstName: req.user.firstName, prep, questions, stories,
-        profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes, lastTime,
+        profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes, lastTime, focus,
       });
       const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes });
 
@@ -378,6 +384,28 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         } catch (e) { console.error('[interviewPrep] settle voice minutes failed:', e.message); }
       }
       return res.json({ success: true, id: row.id });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  // What this user is aiming at on this prep. Private to them; the shared research is never changed.
+  router.get('/:id/focus', authMiddleware, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const row = await models.UserInterviewPrep.findOne({ where: { userId: req.user.id, prepId: req.params.id } });
+      return res.json({ success: true, focus: cleanFocus(row && row.focus) });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  router.put('/:id/focus', authMiddleware, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const prepRow = await service.get(req.params.id);
+      if (!prepRow) return notFound(res);
+      const focus = cleanFocus(req.body);
+      const row = await models.UserInterviewPrep.findOne({ where: { userId: req.user.id, prepId: req.params.id } });
+      if (row) await row.update({ focus });
+      else await models.UserInterviewPrep.create({ userId: req.user.id, prepId: req.params.id, source: 'role', lastOpenedAt: new Date(), focus });
+      return res.json({ success: true, focus });
     } catch (err) { return sendError(res, err); }
   });
 

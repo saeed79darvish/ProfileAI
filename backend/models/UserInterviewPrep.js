@@ -10,6 +10,7 @@ const UserInterviewPrep = sequelize.define('UserInterviewPrep', {
   source: { type: DataTypes.STRING, allowNull: true }, // tailored | link | text | role
   label: { type: DataTypes.STRING, allowNull: true },
   lastOpenedAt: { type: DataTypes.DATE, allowNull: true },
+  focus: { type: DataTypes.JSONB, allowNull: true }, // { areas, companyType, worry }: what they are aiming at on this prep
 }, {
   tableName: 'UserInterviewPreps',
   timestamps: true,
