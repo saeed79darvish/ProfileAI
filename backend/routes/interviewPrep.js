@@ -4,6 +4,7 @@ const { parseJob } = require('../services/interviewJobParseService');
 const { suggestTopics, writeStory, cleanRef, cleanSpoken, storyQuestions } = require('../services/interviewStoriesService');
 
 const { profileSnapshot } = require('../services/interviewPrepService');
+const { reviewCode } = require('../services/interviewCodeService');
 const { pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS } = require('../services/interviewPracticeService');
 
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
@@ -292,6 +293,8 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
 
   /* ---------- Practice out loud ---------- */
 
+  const attemptView = (r) => ({ id: r.id, question: r.question, language: r.language, code: r.code, review: r.review || null, createdAt: r.createdAt });
+
   const practiceView = (r) => ({
     id: r.id, startedAt: r.startedAt || null, seconds: r.seconds == null ? 0 : r.seconds,
     summary: r.summary || '', topTip: r.topTip || '', notes: Array.isArray(r.notes) ? r.notes : [], createdAt: r.createdAt,
@@ -327,12 +330,17 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       const stories = await models.InterviewStory.findAll({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']] });
       // No model call here: the caller's own list (which may carry resume probes) or the reported questions.
       const questions = pickQuestions({ prep, requested });
+      let lastTime = null;
+      try {
+        const last = await models.InterviewPracticeSession.findOne({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']] });
+        if (last && (last.summary || last.topTip)) lastTime = { summary: last.summary, topTip: last.topTip };
+      } catch { /* the greeting just will not mention it */ }
       if (!questions.length) return res.status(422).json({ success: false, code: 'no_questions', message: 'There are no questions to practice yet.' });
 
       const maxSessionMinutes = req.voiceAllowance?.maxSessionMinutes || null;
       const instructions = practiceInstructions({
         firstName: req.user.firstName, prep, questions, stories,
-        profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes,
+        profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes, lastTime,
       });
       const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes });
 
@@ -370,6 +378,31 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         } catch (e) { console.error('[interviewPrep] settle voice minutes failed:', e.message); }
       }
       return res.json({ success: true, id: row.id });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  // Code practice: review one typed answer. Nothing is run. Uses the same allowance as the stories.
+  router.post('/:id/code/review', authMiddleware, requirePaidPlan, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const prepRow = await service.get(req.params.id);
+      if (!prepRow || !prepRow.prep) return notFound(res);
+      const { question, language, code } = req.body || {};
+      if (!(await runMiddleware(storyLimiter, req, res))) return undefined;
+      const out = await reviewCode({ prep: prepRow.prep, question, language, code, runModel: storyModel });
+      const row = await models.InterviewCodeAttempt.create({
+        userId: req.user.id, prepId: req.params.id, question: out.question, language: out.language, code: out.code, review: out.review,
+      });
+      await recordUsage(req.user.id, STORY_FEATURE).catch(() => {});
+      return res.json({ success: true, attempt: attemptView(row) });
+    } catch (err) { return sendError(res, err); }
+  });
+
+  router.get('/:id/code/attempts', authMiddleware, async (req, res) => {
+    try {
+      if (!isUuid(req.params.id)) return notFound(res);
+      const rows = await models.InterviewCodeAttempt.findAll({ where: { userId: req.user.id, prepId: req.params.id }, order: [['createdAt', 'DESC']], limit: 30 });
+      return res.json({ success: true, attempts: rows.map(attemptView) });
     } catch (err) { return sendError(res, err); }
   });
 

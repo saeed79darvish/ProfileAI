@@ -285,6 +285,11 @@ export default function Practice() {
                 <>{' '}<a href={`/interview-prep/prep/${prepId}`} onClick={(e) => { e.preventDefault(); goPrep(); }} style={{ color: C.brandInk, fontWeight: 600 }}>Build my stories</a></>
               )}
             </Note>
+            <Note $info>
+              Coding questions are not asked out loud. Practice those in the{' '}
+              <a href={`/interview-prep/code/${prepId}`} onClick={(e) => { e.preventDefault(); navigate(`/interview-prep/code/${prepId}`); }} style={{ color: C.brandInk, fontWeight: 600 }}>code editor</a>
+              , where you get a review and your attempts are saved.
+            </Note>
             <Note $info>Your browser will ask to use the microphone. Find a quiet spot and allow it so the coach can hear you.</Note>
             {notice && <Note role="status">{notice}</Note>}
             {errBox && (

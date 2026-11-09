@@ -17,7 +17,10 @@ const PREP = {
     { text: 'Why Acme?', category: 'other', frequency: 3 },
     { text: 'Explain our stack choices', category: 'role_specific', frequency: 2 },
     { text: 'Count the islands in a grid', category: 'coding', frequency: 2 },
+    { text: 'What is the virtual DOM and why does it help?', category: 'role_specific', frequency: 4 },
+    { text: 'How does the event loop work?', category: 'coding', frequency: 2 },
   ],
+  topics: [{ name: 'React state management and hooks' }, { name: 'Communication and explanation skills' }, { name: 'Web performance' }],
 };
 
 test('pickQuestions: frequency first, mixed categories, includes a behavioral', () => {
@@ -122,14 +125,15 @@ function fakeModel(extra = {}) {
   };
 }
 
-async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter } = {}) {
+async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter, storyModel } = {}) {
   const prepRow = { id: PREP_ID, companyKey: 'acme', roleKey: 'engineer', status: ready ? 'ready' : 'pending', payload: PREP, update: async () => {} };
   const service = makeInterviewPrepService({ InterviewPrep: { findByPk: async (id) => (id === PREP_ID ? prepRow : null), findAll: async () => [prepRow] }, getResearch: () => async () => PREP });
   const InterviewStory = fakeModel();
   const InterviewPracticeSession = fakeModel();
+  const InterviewCodeAttempt = fakeModel();
   const UserInterviewPrep = { findAll: async () => [{ prepId: PREP_ID, lastOpenedAt: new Date(), tailoredProfileId: null }] };
   const models = {
-    InterviewStory, InterviewPracticeSession, UserInterviewPrep,
+    InterviewStory, InterviewPracticeSession, InterviewCodeAttempt, UserInterviewPrep,
     InterviewPrep: { findAll: async () => [prepRow] },
     TailoredProfile: { findOne: async () => null },
     Profile: { findOne: async () => ({ toJSON: () => ({ title: 'Engineer', skills: ['Go'] }) }) },
@@ -145,7 +149,7 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   const auth = (req, res, next) => { const id = req.headers['x-user'] || user.id; req.user = { ...user, id }; next(); };
   app.use('/api/interview-prep', buildRouter({
     service, authMiddleware: auth, limiter: (q, r, n) => n(), storyLimiter: (q, r, n) => n(),
-    recordUsage: async () => {}, runModel: async () => '{}', storyModel: async () => '{}', models,
+    recordUsage: async () => {}, runModel: async () => '{}', storyModel: storyModel || (async () => '{}'), models,
     realtime, recordVoice: async (...a) => { recorded.push(a); },
     voiceLimiter: limiter || ((req, res, next) => { req.voiceAllowance = { allowed: true, maxSessionMinutes: 10 }; next(); }),
   }));
@@ -280,4 +284,74 @@ test('pickQuestions never picks a heading', () => {
   ] };
   const picked = svc.pickQuestions({ prep });
   assert.deepEqual(picked.map((q) => q.text), ['How would you handle slow API responses in your frontend?']);
+});
+
+test('voice practice asks spoken questions only; code questions stay in the editor', () => {
+  const qs = svc.pickQuestions({ prep: PREP });
+  assert.ok(!qs.some((q) => /linked list|islands/.test(q.text)));
+  assert.ok(qs.some((q) => /virtual DOM/.test(q.text)));
+  assert.equal(svc.questionKind({ text: 'Implement a debounce function', category: 'coding' }), 'code');
+  assert.equal(svc.questionKind({ text: 'How does the event loop work?', category: 'coding' }), 'spoken');
+  assert.equal(svc.questionKind({ text: 'Design a feed', category: 'system_design' }), 'spoken');
+});
+
+test('thin research is filled with knowledge questions from the review topics, never from soft skills', () => {
+  const prep = { role: 'Staff frontend engineer', questions: [{ text: 'Tell me about a conflict with a teammate', category: 'behavioral', frequency: 1 }], topics: [{ name: 'React state management and hooks' }, { name: 'Communication and explanation skills' }, { name: 'Web performance' }] };
+  const qs = svc.pickQuestions({ prep });
+  assert.deepEqual(qs.map((q) => q.text), [
+    'Tell me about a conflict with a teammate',
+    'Explain React state management and hooks in your own words, and say when you have used it or would reach for it.',
+    'Explain Web performance in your own words, and say when you have used it or would reach for it.',
+  ]);
+});
+
+test('the reported-for tail is not spoken aloud', () => {
+  assert.equal(svc.stripReported('Design a scalable system for processing audio with AI (reported for a technical phone screen).'), 'Design a scalable system for processing audio with AI');
+  assert.equal(svc.stripReported('How do you use useMemo (and when not to)?'), 'How do you use useMemo (and when not to)?');
+});
+
+test('practiceInstructions mentions last time once, only when there is one', () => {
+  const withLast = svc.practiceInstructions({ prep: PREP, questions: [{ text: 'Why Acme?' }], lastTime: { summary: 'You answered clearly but skipped numbers.', topTip: 'Add one number.' } });
+  assert.match(withLast, /LAST TIME THEY PRACTICED THIS/);
+  assert.match(withLast, /skipped numbers/);
+  assert.doesNotMatch(svc.practiceInstructions({ prep: PREP, questions: [{ text: 'Why Acme?' }] }), /LAST TIME/);
+});
+
+const GOOD_REVIEW = JSON.stringify({
+  verdict: 'good', summary: 'It solves the question — and reads clearly.', worked: ['Clear names'], issues: [{ what: 'Empty input returns undefined', fix: 'Return [] early' }],
+  complexity: 'O(n) time, O(1) space', tips: ['Say the edge cases out loud'], improved: 'const f = (xs) => xs.map((x) => x * 2);',
+});
+
+test('code review: free tier is refused, a paid user gets a saved review, history is own only', async () => {
+  const free = await setup({ user: { id: 'u1', role: 'candidate', subscriptionTier: 'free' } });
+  try {
+    const r = await free.call(`/${PREP_ID}/code/review`, { question: 'Double a list', code: 'const f = (xs) => xs;' });
+    assert.equal(r.status, 403);
+  } finally { free.close(); }
+
+  const t = await setup({ storyModel: async () => GOOD_REVIEW });
+  try {
+    const r = await t.call(`/${PREP_ID}/code/review`, { question: 'Double a list', language: 'typescript', code: 'const f = (xs: number[]) => xs.map((x) => x);' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.attempt.review.verdict, 'good');
+    assert.equal(r.body.attempt.language, 'typescript');
+    assert.ok(!/[—–]/.test(r.body.attempt.review.summary));
+    assert.equal(r.body.attempt.review.improved, 'const f = (xs) => xs.map((x) => x * 2);');
+    const mine = await t.call(`/${PREP_ID}/code/attempts`);
+    assert.equal(mine.body.attempts.length, 1);
+    const other = await t.call(`/${PREP_ID}/code/attempts`, null, 'GET', 'someone-else');
+    assert.equal(other.body.attempts.length, 0);
+  } finally { t.close(); }
+});
+
+test('code review: too little code or no question is a 400, an unusable reply is a 422 and nothing is saved', async () => {
+  const t = await setup({ storyModel: async () => 'not json at all' });
+  try {
+    assert.equal((await t.call(`/${PREP_ID}/code/review`, { question: 'Q', code: 'x' })).status, 400);
+    assert.equal((await t.call(`/${PREP_ID}/code/review`, { code: 'const a = 1; const b = 2;' })).status, 400);
+    const r = await t.call(`/${PREP_ID}/code/review`, { question: 'Double a list', code: 'const f = (xs) => xs;' });
+    assert.equal(r.status, 422);
+    assert.equal(r.body.code, 'review_failed');
+    assert.equal((await t.call(`/${PREP_ID}/code/attempts`)).body.attempts.length, 0);
+  } finally { t.close(); }
 });

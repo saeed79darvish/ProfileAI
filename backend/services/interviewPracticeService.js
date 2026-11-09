@@ -61,10 +61,39 @@ function isRealQuestion(text) {
   return t.split(' ').length >= 6;
 }
 
+const CODE_VERBS = /^(write|implement|code|build|create|reverse|merge|sort|given|find|solve|convert|flatten|debounce|throttle|parse|validate|compute|count|remove|add|detect|check|return|fix|refactor|optimi[sz]e)\b/i;
+const EXPLAIN = /^(what|why|how|when|where|which|who|can you explain|explain|describe|tell|walk|compare|difference|do you|have you|talk)\b/i;
+
+/**
+ * 'code' for a question that is answered by writing code, 'spoken' for everything you can
+ * answer out loud: behavioral, design talk, and knowledge questions like "What is the virtual DOM?".
+ * Code questions are practiced in the code editor, not on the voice call.
+ */
+function questionKind(q) {
+  const text = String((q && q.text) || '').replace(/\s+/g, ' ').trim();
+  const category = q && q.category;
+  if (category === 'behavioral' || category === 'system_design') return 'spoken';
+  if (CODE_VERBS.test(text)) return 'code';
+  if (EXPLAIN.test(text)) return 'spoken';
+  return category === 'coding' ? 'code' : 'spoken';
+}
+
+const SOFT_TOPIC = /\b(skills?|communication|collaboration|teamwork|leadership|mindset|soft)\b/i;
+
+/** A knowledge question built from a review topic: "Explain React state management and hooks..." Never invented, always one of the research topics. */
+function conceptQuestion(topic) {
+  const name = plain(topic && topic.name, 80).replace(/[.?!]+$/, '');
+  if (name.length < 4 || SOFT_TOPIC.test(name)) return null;
+  return `Explain ${name} in your own words, and say when you have used it or would reach for it.`;
+}
+
+/** The research sometimes ends a question with where it was reported, "(reported for a technical phone screen)". Spoken aloud that reads oddly. */
+const stripReported = (t) => String(t || '').replace(/\s*\((?:reported|asked|seen|mentioned)[^)]*\)\s*\.?\s*$/i, '').trim();
+
 /** Most reported first, a mix of categories, a behavioral one if the research has any. */
 function pickReported(questions, limit) {
   const list = (Array.isArray(questions) ? questions : [])
-    .filter((q) => q && typeof q.text === 'string' && isRealQuestion(q.text))
+    .filter((q) => q && typeof q.text === 'string' && isRealQuestion(q.text) && questionKind(q) === 'spoken')
     .map((q, i) => ({ q, i, freq: Number(q.frequency) || 0 }))
     .sort((a, b) => b.freq - a.freq || a.i - b.i);
   if (!list.length || limit <= 0) return [];
@@ -87,7 +116,7 @@ function pickReported(questions, limit) {
     }
     if (!progressed) break;
   }
-  return chosen.slice(0, limit).sort((a, b) => b.freq - a.freq || a.i - b.i).map((e) => plain(e.q.text, 300));
+  return chosen.slice(0, limit).sort((a, b) => b.freq - a.freq || a.i - b.i).map((e) => plain(stripReported(e.q.text), 300));
 }
 
 /**
@@ -108,7 +137,15 @@ function pickQuestions({ prep, resumeProbes, requested } = {}) {
     }
     const reported = pickReported(prep && prep.questions, MAX_PICKED - probes.length)
       .map((text) => ({ text, kind: 'reported' }));
-    return [...reported, ...probes];
+    const picked = [...reported, ...probes];
+    // Research can be thin for a role: fill with knowledge questions from the review topics.
+    const have = new Set(picked.map((x) => normKey(x.text)));
+    for (const t of Array.isArray(prep && prep.topics) ? prep.topics : []) {
+      if (picked.length >= MAX_PICKED) break;
+      const text = conceptQuestion(t);
+      if (text && !have.has(normKey(text))) { have.add(normKey(text)); picked.push({ text, kind: 'reported' }); }
+    }
+    return picked;
   })();
   return source.slice(0, asked.length ? MAX_REQUESTED : MAX_PICKED).map((q, i) => ({ id: `p${i + 1}`, text: q.text, kind: q.kind }));
 }
@@ -149,7 +186,7 @@ const PRACTICE_TOOLS = [
   },
 ];
 
-function practiceInstructions({ firstName, prep = {}, questions = [], stories = [], profileSnapshot: snapshot = '', maxMinutes = null } = {}) {
+function practiceInstructions({ firstName, prep = {}, questions = [], stories = [], profileSnapshot: snapshot = '', maxMinutes = null, lastTime = null } = {}) {
   const role = plain(prep.role, 120) || 'this role';
   const company = plain(prep.company, 120);
   const target = company ? `${role} at ${company}` : role;
@@ -163,6 +200,10 @@ function practiceInstructions({ firstName, prep = {}, questions = [], stories = 
     const theme = plain(s && s.theme, 120);
     return `- ${title}${theme ? ` (theme: ${theme})` : ''}: ${plain(s && s.spoken, STORY_CHARS)}`;
   }).join('\n');
+  const last = lastTime && typeof lastTime === 'object' ? lastTime : null;
+  const lastBlock = last && (last.summary || last.topTip)
+    ? `${plain(last.summary, 400)}${last.topTip ? ` The tip they were given: ${plain(last.topTip, 300)}` : ''} Mention it once, in one short sentence in your greeting, then carry on. Never read it back in full.`
+    : '';
   const profile = String(snapshot || '').replace(DASH_RE, ',').replace(ARROW_RE, '').slice(0, SNAPSHOT_CHARS).trim();
 
   return [
@@ -174,6 +215,7 @@ function practiceInstructions({ firstName, prep = {}, questions = [], stories = 
     '- Keep every turn short and spoken. No lists, no markdown, no reading out symbols.',
     '- After each answer, give at most two sentences: one specific thing that worked and one specific thing to improve (structure, a missing number, length, or naming the decision they made). Speak the feedback first, then CALL the tool record_feedback with what you just said. Do not ask the next question in the same turn as the tool call; the next question comes in your next turn.',
     '- If they ask you to repeat a question or skip it, do it. A skipped question still gets a record_feedback call that says it was skipped.',
+    '- Some questions test knowledge, like "Explain the virtual DOM". For those, say whether the answer was accurate, correct any mistake in one plain sentence, and name the one thing a stronger answer would add. Do not give a long lecture.',
     '- If the candidate has a saved story for the theme of a question, notice whether they used it and say so. Never read the story aloud and never put words in their mouth.',
     '- Never invent facts about the candidate. Use only the profile snapshot and saved stories below.',
     '- Stay on interview practice and politely decline anything else. Give no legal, HR or salary advice.',
@@ -182,6 +224,7 @@ function practiceInstructions({ firstName, prep = {}, questions = [], stories = 
       : '- Watch the clock. If the session has gone long, or with about a minute left, wrap up.',
     '- To end: first SAY out loud a two sentence summary, the single most useful tip and a brief goodbye. Only then, as the very last thing in that same turn, CALL the tool finish_session with that summary and tip. Never speak after calling finish_session.',
     '',
+    ...(lastBlock ? ['LAST TIME THEY PRACTICED THIS', lastBlock, ''] : []),
     'QUESTIONS, IN ORDER',
     numbered || '(none)',
     '',
@@ -220,5 +263,5 @@ function cleanSummary({ summary, topTip } = {}) {
 }
 
 module.exports = {
-  isRealQuestion, pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS, plain, profileSnapshot,
+  isRealQuestion, questionKind, conceptQuestion, stripReported, pickQuestions, practiceInstructions, cleanNotes, cleanSummary, PRACTICE_TOOLS, plain, profileSnapshot,
 };

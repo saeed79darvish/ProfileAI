@@ -409,7 +409,7 @@ function Progress({ elapsed }) {
   );
 }
 
-function PlanCard({ plan, practice, onStories, onPractice }) {
+function PlanCard({ plan, practice, onStories, onPractice, onCode }) {
   return (
     <Plan aria-label="Your plan">
       <div className="top"><h2>Your plan</h2><span className="count">{plan.doneCount} of {plan.total} done</span></div>
@@ -432,6 +432,7 @@ function PlanCard({ plan, practice, onStories, onPractice }) {
                 ) : (s.detail && <div className="d">{s.detail}</div>)}
                 {s.id === 'stories' && <button type="button" className="act out" onClick={onStories}>Build my stories</button>}
                 {s.id === 'practice' && <button type="button" className="act solid" onClick={onPractice}><MicIcon />Practice out loud</button>}
+                {s.id === 'practice' && <button type="button" className="act out" onClick={onCode} style={{ marginLeft: 8 }}>Practice coding</button>}
               </div>
             </li>
           );
@@ -646,6 +647,7 @@ export default function InterviewPrep() {
   });
   const storyList = storyRows(stories);
   const goPractice = () => { if (prepId.current) navigate(`/interview-prep/practice/${prepId.current}`); };
+  const goCode = () => { if (prepId.current) navigate(`/interview-prep/code/${prepId.current}`); };
   const openStories = () => { setStoriesOpen(true); setStoriesSignal((n) => n + 1); };
 
   return (
@@ -862,7 +864,7 @@ export default function InterviewPrep() {
             </div>
 
             <aside className="rail" aria-label="Your plan">
-              <PlanCard plan={plan} practice={practice} onStories={openStories} onPractice={goPractice} />
+              <PlanCard plan={plan} practice={practice} onStories={openStories} onPractice={goPractice} onCode={goCode} />
               {storyList.length > 0 && (
                 <Mini aria-label="Your stories">
                   <h2>Your stories</h2>
