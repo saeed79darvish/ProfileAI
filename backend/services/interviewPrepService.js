@@ -607,7 +607,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
         const payload = { ...(await research(input)), level: input.company ? '' : levelIdOf(input.level) };
         const t = now();
         // An empty result may be a bad run, not a fact about the company: retry after a day.
-        const keepDays = payload.coverage === 'none' ? 1 : CACHE_DAYS;
+        const keepDays = payload.coverage === 'none' ? 1 : (input.library ? require('./interviewLibrary').KEEP_DAYS : CACHE_DAYS);
         await row.update({ status: 'ready', payload, error: null, generatedAt: t, expiresAt: new Date(t.getTime() + keepDays * DAY_MS) });
       } catch (err) {
         console.error('[interviewPrep] research failed:', err && err.message);
@@ -624,7 +624,10 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
    * gate: async () => boolean, called right before a NEW research run starts (rate limit hook).
    */
   async function start({ company, jobTitle, level, refresh = false, gate }) {
-    const c = clean(company, 120); const r = clean(jobTitle, 160); const lv = c ? clean(level, 40) : levelIdOf(level);
+    let c = clean(company, 120); let r = clean(jobTitle, 160); const lv = c ? clean(level, 40) : levelIdOf(level);
+    // With the library on (INTERVIEW_LIBRARY_AUTO=true), a well-known company and a general software title use the library entry, built ahead of time.
+    const lib = c && process.env.INTERVIEW_LIBRARY_AUTO === 'true' ? require('./interviewLibrary').libraryMatch(c, r) : null;
+    if (lib) { c = lib.company; r = lib.jobTitle; }
     // Without a company the research is about the role and level across companies.
     if (!r || (!c && !lv)) throw badRequest(c || !r ? 'company and jobTitle are required' : 'level is required when there is no company');
     const companyKey = c ? companyKeyOf(c) : GENERAL_KEY;
@@ -659,7 +662,7 @@ function makeInterviewPrepService({ InterviewPrep, getResearch, now = () => new 
         } else throw err;
       }
     }
-    await runInBackground(row, { company: c, jobTitle: r, level: lv || level });
+    await runInBackground(row, { company: c, jobTitle: r, level: lv || level, library: Boolean(lib) });
     return { id: row.id, status: 'pending', started: true };
   }
 

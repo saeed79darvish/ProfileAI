@@ -212,6 +212,16 @@ function ApplyPilotAccessGate({ children }) {
   return children;
 }
 
+// The standalone Interview prep start page is behind a flag (per /auth/me
+// canUseInterviewPrep). Interview prep for a tailored resume, and the prep,
+// practice and code pages reached from it, stay open to every candidate.
+function InterviewPrepStartGate({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return LazyFallback;
+  if (!user?.canUseInterviewPrep) return <Navigate to="/jobs" replace />;
+  return children;
+}
+
 // Legacy /agent-arena/* → /applypilot/* redirect. Preserves sub-paths
 // so notifications linking to /agent-arena/review/:id still land on
 // the right row. Bare `/agent-arena` goes straight to
@@ -351,7 +361,7 @@ function AppContent() {
             } />
             <Route path="/interview-prep" element={
               <PrivateRoute allowedRoles={['candidate', 'admin']}>
-                <InterviewPrepStart />
+                <InterviewPrepStartGate><InterviewPrepStart /></InterviewPrepStartGate>
               </PrivateRoute>
             } />
             <Route path="/interview-prep/prep/:prepId" element={

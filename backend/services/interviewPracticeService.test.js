@@ -125,7 +125,7 @@ function fakeModel(extra = {}) {
   };
 }
 
-async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter, storyModel } = {}) {
+async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: 'pro', firstName: 'Sam' }, ready = true, configured = true, limiter, storyModel, canUseStandalone } = {}) {
   const prepRow = { id: PREP_ID, companyKey: 'acme', roleKey: 'engineer', status: ready ? 'ready' : 'pending', payload: PREP, update: async () => {} };
   const service = makeInterviewPrepService({ InterviewPrep: { findByPk: async (id) => (id === PREP_ID ? prepRow : null), findAll: async () => [prepRow] }, getResearch: () => async () => PREP });
   const InterviewStory = fakeModel();
@@ -155,7 +155,7 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   app.use('/api/interview-prep', buildRouter({
     service, authMiddleware: auth, limiter: (q, r, n) => n(), storyLimiter: (q, r, n) => n(),
     recordUsage: async () => {}, runModel: async () => '{}', storyModel: storyModel || (async () => '{}'), models,
-    realtime, recordVoice: async (...a) => { recorded.push(a); },
+    realtime, recordVoice: async (...a) => { recorded.push(a); }, ...(canUseStandalone ? { canUseStandalone } : {}),
     voiceLimiter: limiter || ((req, res, next) => { req.voiceAllowance = { allowed: true, maxSessionMinutes: 10 }; next(); }),
   }));
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
@@ -372,4 +372,25 @@ test('focus: saved per user, cleaned, and used to steer the practice questions a
     assert.equal((await t.call(`/${PREP_ID}/focus`, null, 'GET', 'someone-else')).body.focus, null);
     assert.equal((await t.call(`/${PREP_ID}/focus`, { areas: ['nope'] }, 'PUT')).body.focus, null);
   } finally { t.close(); }
+});
+
+test('standalone interview prep: closed to people without access, tailored and company preps keep working', async () => {
+  const closed = await setup({ canUseStandalone: () => false });
+  try {
+    assert.equal((await closed.call('/mine')).status, 404);
+    assert.equal((await closed.call('/parse-job', { text: 'Senior engineer at Acme' })).status, 404);
+    const role = await closed.call('/', { company: '', jobTitle: 'Staff frontend engineer', level: 'staff' });
+    assert.equal(role.status, 404);
+    assert.equal(role.body.code, 'not_available');
+    // a company prep (what Tailored profiles uses) is not part of the standalone section
+    const company = await closed.call('/', { company: 'Acme', jobTitle: 'Engineer' });
+    assert.notEqual(company.status, 404);
+    // pages reached from a tailored resume keep working
+    assert.equal((await closed.call(`/${PREP_ID}/focus`)).status, 200);
+    assert.equal((await closed.call(`/${PREP_ID}/code/attempts`)).status, 200);
+  } finally { closed.close(); }
+  const open = await setup({ canUseStandalone: () => true });
+  try {
+    assert.equal((await open.call('/mine')).status, 200);
+  } finally { open.close(); }
 });

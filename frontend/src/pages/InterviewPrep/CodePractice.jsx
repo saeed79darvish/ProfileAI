@@ -191,7 +191,7 @@ export default function CodePractice() {
           <Center>
             <h2>We could not find that prep</h2>
             <p>It may have been deleted. Go back and pick another one.</p>
-            <Btn type="button" onClick={() => navigate('/interview-prep')}>Go back</Btn>
+            <Btn type="button" onClick={() => navigate(-1)}>Go back</Btn>
           </Center>
         )}
         {phase === 'failed' && (

@@ -43,4 +43,14 @@ function getResearch(env = process.env) {
   };
 }
 
-module.exports = { runModel, runStoryModel, getResearch };
+let shared = null;
+/** One service for the whole process, so the routes and the library refresh share in-flight research and never run the same entry twice. */
+function getSharedService() {
+  if (!shared) {
+    const { makeInterviewPrepService } = require('./interviewPrepService');
+    shared = makeInterviewPrepService({ InterviewPrep: require('../models').InterviewPrep, getResearch });
+  }
+  return shared;
+}
+
+module.exports = { runModel, runStoryModel, getResearch, getSharedService };

@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CircularProgress } from '@mui/material';
 import { tailoredProfileAPI } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
 import FocusCard from './FocusCard';
 import { rankByFocus, cleanFocus as cleanFocusLogic } from './targeting';
 import { interviewPrepAPI } from '@/services/interviewPrep';
@@ -460,6 +461,8 @@ export default function InterviewPrep() {
   const [probes, setProbes] = useState({ state: 'idle', list: [] });
   const [practice, setPractice] = useState({ count: 0, line: '' });
   const [focus, setFocus] = useState(null);
+  const { user: me } = useAuth();
+  const standalone = Boolean(me?.canUseInterviewPrep); // the standalone section is behind a flag
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [storiesSignal, setStoriesSignal] = useState(0);
   const [headPrep, setHeadPrep] = useState(null); // prep id mode: company, role and scope for the heading
@@ -645,7 +648,7 @@ export default function InterviewPrep() {
 
   const hasCompany = byId ? !idHead.acrossCompanies && Boolean(headPrep) : Boolean(tp && companyOf(tp));
   const name = byId ? (idHead.acrossCompanies ? idHead.title : String(headPrep?.company || '')) : (company ? company : 'Interview prep');
-  const goBack = () => (byId ? navigate('/interview-prep') : navigate(-1));
+  const goBack = () => (byId && standalone ? navigate('/interview-prep') : navigate(-1));
   const chip = coverageChip(coverage);
   const shown = visibleQuestions(questions, showAll, 6);
   const moreLabel = showMoreLabel(questions.length, shown.length);
@@ -894,10 +897,12 @@ export default function InterviewPrep() {
                   </ul>
                 </Mini>
               )}
-              <Another>
-                Another interview coming up?{' '}
-                <a href="/interview-prep" onClick={(e) => { e.preventDefault(); navigate('/interview-prep'); }}>Prepare for another one</a>
-              </Another>
+              {standalone && (
+                <Another>
+                  Another interview coming up?{' '}
+                  <a href="/interview-prep" onClick={(e) => { e.preventDefault(); navigate('/interview-prep'); }}>Prepare for another one</a>
+                </Another>
+              )}
             </aside>
           </div>
         )}

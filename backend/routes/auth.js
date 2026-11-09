@@ -413,6 +413,8 @@ router.get('/me', auth, async (req, res) => {
       // emails → true, otherwise the global ENABLE_APPLYPILOT flag.
       // See backend/config/featureFlags.js userCanAccessApplyPilot.
       canUseApplyPilot: featureFlags.userCanAccessApplyPilot(user),
+      // Gates the standalone Interview prep navbar item and start page.
+      canUseInterviewPrep: featureFlags.userCanAccessInterviewPrepStandalone(user),
     });
   } catch (error) {
     console.error('Get user error:', error);

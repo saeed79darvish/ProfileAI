@@ -882,6 +882,7 @@ const startServer = async () => {
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running on 0.0.0.0:${PORT}`);
       console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
+      try { require('./services/interviewLibrary').startLibraryScheduler(); } catch (e) { console.warn('interview library scheduler not started:', e.message); }
       // Operational banner — makes it obvious in logs which surfaces are
       // live for the current deployment, especially after a flag flip.
       console.log('✓ Feature flags:'

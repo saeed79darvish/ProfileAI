@@ -651,12 +651,14 @@ const Navbar = () => {
     // when the user can't access it so it doesn't lead to a dead 404.
     const candidateItems = CANDIDATE_ITEMS
       .filter((item) => item.path !== '/applypilot' || user?.canUseApplyPilot)
+      // Standalone Interview prep is behind a flag; admins and allowlisted users see it.
+      .filter((item) => item.path !== '/interview-prep' || user?.canUseInterviewPrep)
       .map((item) =>
         item.path === '/profile' ? { ...item, path: candidateProfilePath } : item
       );
     // Admins without the recruiter surface flag still need access to admin pages.
     return isAdmin ? [...ADMIN_ITEMS, ...candidateItems] : candidateItems;
-  }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath, user?.canUseApplyPilot]);
+  }, [isAuthenticated, isRecruiter, isAdmin, candidateProfilePath, user?.canUseApplyPilot, user?.canUseInterviewPrep]);
 
   const isActive = (path) =>
     location.pathname === path || location.pathname.startsWith(path + '/');

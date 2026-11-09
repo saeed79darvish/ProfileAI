@@ -33,6 +33,9 @@ function runMiddleware(mw, req, res) {
   });
 }
 
+/** Standalone-only endpoints answer like a missing page for anyone without access. */
+const standaloneOnly = (can) => (req, res, next) => (can(req.user) ? next() : res.status(404).json({ success: false, code: 'not_available', message: 'Not found' }));
+
 const notFound = (res) => res.status(404).json({ success: false, code: 'not_found', message: 'Not found' });
 
 function requirePaidPlan(req, res, next) {
@@ -55,7 +58,7 @@ const labelOf = ({ company, jobTitle, level }) => {
   return `${String(level || '').trim()} ${role}`.trim().slice(0, 255);
 };
 
-function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob, realtime, voiceLimiter, recordVoice, settleVoice }) {
+function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, models, storyLimiter, storyModel, resolveJob, realtime, voiceLimiter, recordVoice, settleVoice, canUseStandalone = () => true }) {
   const router = express.Router();
 
   /** Best effort: remember that this user opened this prep. Never throws. */
@@ -82,7 +85,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
   }
 
   // Read a job link or pasted posting into company, title and level. A small read: no allowance used.
-  router.post('/parse-job', authMiddleware, requirePaidPlan, async (req, res) => {
+  router.post('/parse-job', authMiddleware, standaloneOnly(canUseStandalone), requirePaidPlan, async (req, res) => {
     try {
       const { url, text } = req.body || {};
       const job = await parseJob({ url, text }, { resolveJob, runModel });
@@ -90,7 +93,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
     } catch (err) { return sendError(res, err); }
   });
 
-  router.get('/mine', authMiddleware, async (req, res) => {
+  router.get('/mine', authMiddleware, standaloneOnly(canUseStandalone), async (req, res) => {
     try {
       const userId = req.user.id;
       const history = await models.UserInterviewPrep.findAll({ where: { userId }, order: [['lastOpenedAt', 'DESC']], limit: 30 });
@@ -133,6 +136,8 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
   router.post('/', authMiddleware, async (req, res) => {
     try {
       const { company, jobTitle, level, refresh } = req.body || {};
+      // Role-and-level prep (no company) belongs to the standalone section.
+      if (!String(company || '').trim() && !canUseStandalone(req.user)) return res.status(404).json({ success: false, code: 'not_available', message: 'Not found' });
       const out = await service.start({
         company, jobTitle, level, refresh: refresh === true,
         gate: () => runMiddleware(limiter, req, res),
@@ -451,11 +456,11 @@ function defaultRouter() {
   const { aiRateLimiter, recordAIUsage, coachVoiceSessionLimiter, recordVoiceSession, settleVoiceSession } = require('../middleware/aiRateLimiter');
   const coachRealtimeService = require('../services/coachRealtimeService');
   const models = require('../models');
-  const { getResearch, runModel, runStoryModel } = require('../services/interviewPrepRuntime');
-  const service = makeInterviewPrepService({ InterviewPrep: models.InterviewPrep, getResearch });
+  const { runModel, runStoryModel, getSharedService } = require('../services/interviewPrepRuntime');
+  const service = getSharedService();
   const { createCoachTailorService } = require('../services/coachTailorService');
   const { resolveJob } = createCoachTailorService();
-  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob, realtime: coachRealtimeService, voiceLimiter: coachVoiceSessionLimiter, recordVoice: recordVoiceSession, settleVoice: settleVoiceSession });
+  return buildRouter({ service, authMiddleware, limiter: aiRateLimiter(FEATURE), recordUsage: recordAIUsage, runModel, models, storyLimiter: aiRateLimiter(STORY_FEATURE), storyModel: runStoryModel, resolveJob, realtime: coachRealtimeService, voiceLimiter: coachVoiceSessionLimiter, recordVoice: recordVoiceSession, settleVoice: settleVoiceSession, canUseStandalone: require('../config/featureFlags').userCanAccessInterviewPrepStandalone });
 }
 
 const router = defaultRouter();

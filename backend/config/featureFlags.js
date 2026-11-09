@@ -40,6 +40,13 @@ module.exports = {
   // ProfilleAI can be added as a Custom Connector in Claude.ai. Off by
   // default; enable per environment once the connector is ready to use.
   claudeConnector: parseBool(process.env.ENABLE_CLAUDE_CONNECTOR, false),
+  // Standalone Interview prep: the navbar section, its start page (paste a
+  // job link, prepare for a role and level, "your preps") and the endpoints
+  // behind them. Off for everyone but admins until it is ready to launch.
+  // Interview prep for a tailored resume (Tailored profiles) is NOT behind
+  // this flag. Per-user allowlist works like ApplyPilot's.
+  interviewPrepStandalone: parseBool(process.env.ENABLE_INTERVIEW_PREP_STANDALONE, false),
+  interviewPrepAllowedUsers: parseEmailList(process.env.INTERVIEW_PREP_ALLOWED_USERS),
 };
 
 /**
@@ -67,4 +74,18 @@ module.exports.userCanAccessApplyPilot = function userCanAccessApplyPilot(user) 
   const email = String(user.email || user.dataValues?.email || '').toLowerCase();
   if (!email) return false;
   return module.exports.applyPilotAllowedUsers.includes(email);
+};
+
+/**
+ * userCanAccessInterviewPrepStandalone(user): admins always, then the global
+ * flag, then the email allowlist. Candidates only otherwise.
+ */
+module.exports.userCanAccessInterviewPrepStandalone = function userCanAccessInterviewPrepStandalone(user) {
+  if (!user) return false;
+  const role = user.role || user.dataValues?.role;
+  if (role === 'admin') return true;
+  if (role !== 'candidate') return false;
+  if (module.exports.interviewPrepStandalone) return true;
+  const email = String(user.email || user.dataValues?.email || '').toLowerCase();
+  return Boolean(email) && module.exports.interviewPrepAllowedUsers.includes(email);
 };
