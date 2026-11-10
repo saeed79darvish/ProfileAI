@@ -238,7 +238,7 @@ function tagFetchError(err, { status, source } = {}) {
   // 402 = out of API credits. Also a spend condition, not a broken board.
   if (status === 402) err.isRateLimit = true;
   // Only per-company ATS platforms can meaningfully 404 a whole board.
-  if (status === 404 && ['greenhouse', 'lever', 'ashby'].includes(source)) err.isGone = true;
+  if (status === 404 && ['greenhouse', 'lever', 'ashby', 'workday'].includes(source)) err.isGone = true;
   return err;
 }
 
@@ -1634,7 +1634,7 @@ async function syncBoard(atsBoard) {
   // Aggregator platforms (jsearch/adzuna/theirstack/remoteok/wwr) span many
   // companies per board and can't be checked here — those are filtered
   // per-job further down instead.
-  if (['greenhouse', 'lever', 'ashby'].includes(atsBoard.platform)) {
+  if (['greenhouse', 'lever', 'ashby', 'workday'].includes(atsBoard.platform)) {
     const blocked = await isCompanyBlocked(atsBoard.name);
     if (blocked) {
       console.log(`[ExternalJobs] Skipping blocked board: ${atsBoard.name}`);
@@ -1664,7 +1664,7 @@ async function syncBoard(atsBoard) {
     let blockedFiltered = 0;
     let scamFiltered = 0;
 
-    const isPerCompanyBoard = ['greenhouse', 'lever', 'ashby'].includes(atsBoard.platform);
+    const isPerCompanyBoard = ['greenhouse', 'lever', 'ashby', 'workday'].includes(atsBoard.platform);
     // Admin moderation for aggregator sources: unlike greenhouse/lever/ashby
     // (checked whole-board above), one aggregator board (jsearch/adzuna/
     // theirstack/remoteok/wwr) spans many companies, so blocked companies are
@@ -1870,6 +1870,16 @@ async function syncBoard(atsBoard) {
       await fetchLeverJobs(atsBoard.boardToken, { onBatch: ingestBatch });
     } else if (atsBoard.platform === 'ashby') {
       await fetchAshbyJobs(atsBoard.boardToken, { onBatch: ingestBatch });
+    } else if (atsBoard.platform === 'workday') {
+      // boardToken is "tenant|wdN|site". Jobs we already store reuse their text; only new US jobs get a detail request.
+      const rows = await ExternalJob.findAll({
+        where: { source: 'workday', boardToken: atsBoard.boardToken },
+        attributes: ['externalId', 'description', 'descriptionHtml', 'requirements', 'postedAt', 'employmentType', 'department'],
+        raw: true,
+      });
+      const read = await getWorkday().fetchWorkdayJobs(atsBoard.boardToken, { existing: new Map(rows.map((r) => [r.externalId, r])) });
+      console.log(`[ExternalJobs] workday/${atsBoard.boardToken}: ${read.listed} listed, ${read.usCandidates} US, ${read.newDetails} new details, ${read.deferred} deferred`);
+      await ingestAll(read.jobs);
     } else if (atsBoard.platform === 'remoteok') {
       await ingestAll(await fetchRemoteOKJobs());
     } else if (atsBoard.platform === 'adzuna') {
@@ -2482,6 +2492,8 @@ async function validateBoard(platform, boardToken) {
       jobs = await fetchLeverJobs(boardToken);
     } else if (platform === 'ashby') {
       jobs = await fetchAshbyJobs(boardToken);
+    } else if (platform === 'workday') {
+      jobs = (await getWorkday().fetchWorkdayJobs(boardToken, { maxNewDetails: 5 })).jobs;
     } else if (platform === 'remoteok') {
       jobs = await fetchRemoteOKJobs();
     } else if (platform === 'adzuna') {
@@ -2583,6 +2595,15 @@ function inferLocationType(location, title) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** The Workday reader, built once with this file's text helpers. */
+let _workday = null;
+function getWorkday() {
+  if (!_workday) {
+    _workday = require('./workdayJobs').createWorkday({ stripHtml, inferLocationType, normalizeEmploymentType, inferExperienceLevel, sanitizeExternalUrl });
+  }
+  return _workday;
 }
 
 /**

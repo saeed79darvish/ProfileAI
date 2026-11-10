@@ -13,7 +13,7 @@ const ATSBoard = sequelize.define('ATSBoard', {
     comment: 'Friendly display name (e.g., "Google", "Stripe")'
   },
   platform: {
-    type: DataTypes.ENUM('greenhouse', 'lever', 'ashby', 'remoteok', 'adzuna', 'jsearch', 'theirstack', 'wwr', 'amazon'),
+    type: DataTypes.ENUM('greenhouse', 'lever', 'ashby', 'remoteok', 'adzuna', 'jsearch', 'theirstack', 'wwr', 'amazon', 'workday'),
     allowNull: false
   },
   boardToken: {

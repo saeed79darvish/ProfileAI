@@ -716,6 +716,9 @@ const startServer = async () => {
     // BACKGROUND (not awaited) so it never delays readiness or blocks boot.
     (async () => {
       try {
+        // The 'workday' value must exist in the database enums before any workday board is created.
+        const { up: ensureWorkdayPlatform } = require('./scripts/migrations/ensureWorkdayPlatform');
+        await ensureWorkdayPlatform();
         const { up: ensureSeedBoards } = require('./scripts/migrations/ensureSeedBoards');
         await ensureSeedBoards();
       } catch (err) {

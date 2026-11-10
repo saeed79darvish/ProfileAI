@@ -172,6 +172,27 @@ const SEED_BOARDS = [
   { name: 'TheirStack: ML Engineer', platform: 'theirstack', boardToken: 'machine learning engineer,ai engineer' },
   { name: 'TheirStack: Mobile Developer', platform: 'theirstack', boardToken: 'mobile developer,ios developer,android developer' },
 
+  // ─── Workday (large employers; public career-page feed, no key) ───
+  // boardToken is "tenant|wdN|site". Each was checked live against the employer's own feed on 2026-11-09
+  // (see services/workdayJobs.js). Only US jobs are kept; full text is fetched for new jobs a few hundred per sync.
+  { name: 'NVIDIA', platform: 'workday', boardToken: 'nvidia|wd5|NVIDIAExternalCareerSite' },
+  { name: 'Salesforce', platform: 'workday', boardToken: 'salesforce|wd12|External_Career_Site' },
+  { name: 'Cisco', platform: 'workday', boardToken: 'cisco|wd5|Cisco_Careers' },
+  { name: 'Hewlett Packard Enterprise', platform: 'workday', boardToken: 'hpe|wd5|Jobsathpe' },
+  { name: 'Micron', platform: 'workday', boardToken: 'micron|wd1|External' },
+  { name: 'Applied Materials', platform: 'workday', boardToken: 'amat|wd1|External' },
+  { name: 'KLA', platform: 'workday', boardToken: 'kla|wd1|Search' },
+  { name: 'Intel', platform: 'workday', boardToken: 'intel|wd1|External' },
+  { name: 'Visa', platform: 'workday', boardToken: 'visa|wd5|Visa' },
+  { name: 'PayPal', platform: 'workday', boardToken: 'paypal|wd1|jobs' },
+  { name: 'CrowdStrike', platform: 'workday', boardToken: 'crowdstrike|wd5|crowdstrikecareers' },
+  { name: 'Broadcom', platform: 'workday', boardToken: 'broadcom|wd1|External_Career' },
+  { name: 'Workday', platform: 'workday', boardToken: 'workday|wd5|Workday' },
+  { name: 'eBay', platform: 'workday', boardToken: 'ebay|wd5|apply' },
+  { name: 'Adobe', platform: 'workday', boardToken: 'adobe|wd5|external_experienced' },
+  { name: 'Zoom', platform: 'workday', boardToken: 'zoom|wd5|Zoom' },
+  { name: 'BlackRock', platform: 'workday', boardToken: 'blackrock|wd1|BlackRock_Professional' },
+
   // ─── Hacker News "Who's Hiring" (free, public Algolia API) ───
   // Posted by user `whoishiring` on the first weekday of every month.
   // boardToken: "monthly" auto-detects the latest thread; "thread:<itemId>"

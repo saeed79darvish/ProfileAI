@@ -29,6 +29,7 @@ const FREE_PLATFORMS = new Set([
   'greenhouse',
   'lever',
   'ashby',
+  'workday',
   'remoteok',
   'wwr',
   'hn_hiring',

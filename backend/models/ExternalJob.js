@@ -13,7 +13,7 @@ const ExternalJob = sequelize.define('ExternalJob', {
     comment: 'Unique ID from the source ATS (e.g., Greenhouse job ID, Lever posting ID)'
   },
   source: {
-    type: DataTypes.ENUM('greenhouse', 'lever', 'ashby', 'remoteok', 'adzuna', 'jsearch', 'theirstack', 'wwr', 'manual', 'amazon', 'hn_hiring'),
+    type: DataTypes.ENUM('greenhouse', 'lever', 'ashby', 'remoteok', 'adzuna', 'jsearch', 'theirstack', 'wwr', 'manual', 'amazon', 'hn_hiring', 'workday'),
     allowNull: false
   },
   boardToken: {
