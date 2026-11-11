@@ -7,6 +7,7 @@ import { jobAPI } from '@/services/api';
 import { Dialog, DialogContent, Skeleton, useMediaQuery } from '@mui/material';
 import MobileJobsView from './mobile/MobileJobsView';
 import MobileJobDetail from './mobile/MobileJobDetail';
+import JobDescription from './mobile/JobDescription';
 import SearchIcon from '@mui/icons-material/Search';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
@@ -450,6 +451,19 @@ const CandidateJobs = () => {
   const toast = useToast();
   const [jobs, setJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
+  // The desktop job page reads the posting in the same sections as the phone, and
+  // marks each requirement from the candidate's match, so it loads that match too.
+  const detailScrollRef = useRef(null);
+  const [deskMatch, setDeskMatch] = useState(null);
+  useEffect(() => {
+    if (!isAuthenticated || !selectedJob?._isExternal || !selectedJob?.id) { setDeskMatch(null); return undefined; }
+    let live = true;
+    setDeskMatch(null);
+    externalJobAPI.getMatch(selectedJob.id)
+      .then(({ data }) => { if (live) setDeskMatch(data?.match || null); })
+      .catch(() => { if (live) setDeskMatch(null); });
+    return () => { live = false; };
+  }, [selectedJob?.id, selectedJob?._isExternal, isAuthenticated]);
   // Phones get their own list and detail (./mobile); tablets and desktop keep
   // the split view.
   const isPhone = useMediaQuery('(max-width:768px)', { noSsr: true });
@@ -2168,7 +2182,7 @@ const CandidateJobs = () => {
     if (!selectedJob?._isExternal) return null;
     const companyInfo = getCompanyInfo(selectedJob);
     return (
-      <div className="job-detail-scroll">
+      <div className="job-detail-scroll" ref={detailScrollRef}>
         {/* Breadcrumb */}
         <div className="job-detail-breadcrumb">
           <div className="breadcrumb-links">
@@ -2472,29 +2486,18 @@ const CandidateJobs = () => {
 
         {/* Description */}
         <div className="job-detail-body">
-          {/* About section card */}
+          {/* The posting in sections (./mobile/JobDescription), the same on every screen */}
           <div className="job-detail-section-card">
-            <h3 className="job-detail-section-title">
-              <span className="section-icon">🏢</span> About {selectedJob.company}
-            </h3>
-            <div
-              className="external-job-description"
-              dangerouslySetInnerHTML={{ __html: getDescriptionHtml(selectedJob) }}
+            <JobDescription
+              job={selectedJob}
+              structured={selectedJob.descriptionStructured || null}
+              descriptionHtml={getDescriptionHtml(selectedJob)}
+              match={deskMatch}
+              scrollRef={detailScrollRef}
+              canTailor={isAuthenticated}
+              onTailor={() => runJobAI('trigger-tailor-resume', selectedJob)}
             />
           </div>
-
-          {/* Requirements card */}
-          {selectedJob.requirements && (
-            <div className="job-detail-section-card">
-              <h3 className="job-detail-section-title sub">
-                <span className="section-icon">📋</span> What you'll do
-              </h3>
-              <div
-                className="external-job-description"
-                dangerouslySetInnerHTML={{ __html: markdownToHtml(selectedJob.requirements) }}
-              />
-            </div>
-          )}
 
           {/* Skills card */}
           {selectedJob.skills?.length > 0 && (
