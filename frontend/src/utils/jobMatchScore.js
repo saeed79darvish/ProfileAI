@@ -37,10 +37,23 @@ export const KNOWN_GOOD_SCORE = 50;
  * directions, and nothing unscored is pushed up or down by a number it
  * doesn't have.
  */
-export function orderByMatch(jobs, scores) {
+export function orderByMatch(jobs, scores, now = Date.now()) {
   const scoreOf = (job) => {
     const s = scores?.[job?.id]?.score;
     return typeof s === 'number' ? s : null;
+  };
+  const postedOf = (job) => {
+    const t = Date.parse(job?.effectivePostedAt || job?.postedAt || job?.createdAt || '');
+    return Number.isFinite(t) ? t : 0;
+  };
+  // Age counts against a score, so a fresh good match leads an old strong one:
+  // 2 points a day past a week, up to 30. Scores are then grouped in bands of 10
+  // and the newest leads within a band (the server's ranking does the same).
+  const bandOf = (job) => {
+    const posted = postedOf(job);
+    const ageDays = posted ? Math.max(0, (now - posted) / 86400000) : 365;
+    const penalty = Math.min(30, Math.max(0, ageDays - 7) * 2);
+    return Math.floor((scoreOf(job) - penalty) / 10);
   };
   const good = [];
   const unscored = [];
@@ -51,8 +64,9 @@ export function orderByMatch(jobs, scores) {
     else if (s >= KNOWN_GOOD_SCORE) good.push(job);
     else poor.push(job);
   }
+  const byBand = (a, b) => (bandOf(b) - bandOf(a)) || (postedOf(b) - postedOf(a));
   const byScore = (a, b) => scoreOf(b) - scoreOf(a);
-  return [...good.sort(byScore), ...unscored, ...poor.sort(byScore)];
+  return [...good.sort(byBand), ...unscored, ...poor.sort(byScore)];
 }
 
 /**

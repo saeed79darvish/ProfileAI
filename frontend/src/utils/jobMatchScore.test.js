@@ -40,3 +40,17 @@ test('matchLists: splits requirements and keeps knockouts out of the gap list', 
   assert.deepEqual(lists.gaps.map((r) => r.requirement), ['Webpack']);
   assert.equal(lists.knockouts.length, 1);
 });
+
+test('orderByMatch: a fresh good match leads an older stronger one, newest first within a band', () => {
+  const now = Date.parse('2026-11-11T12:00:00Z');
+  const day = 86400000;
+  const jobs = [
+    { id: 'old80', effectivePostedAt: new Date(now - 14 * day).toISOString() },
+    { id: 'new64', effectivePostedAt: new Date(now - 1 * day).toISOString() },
+    { id: 'new78', effectivePostedAt: new Date(now - 2 * day).toISOString() },
+    { id: 'newer75', effectivePostedAt: new Date(now - 1 * day).toISOString() },
+    { id: 'old78', effectivePostedAt: new Date(now - 28 * day).toISOString() },
+  ];
+  const scores = { old80: { score: 80 }, new64: { score: 64 }, new78: { score: 78 }, newer75: { score: 75 }, old78: { score: 78 } };
+  assert.deepEqual(orderByMatch(jobs, scores, now).map((j) => j.id), ['newer75', 'new78', 'new64', 'old80', 'old78']);
+});

@@ -60,10 +60,26 @@ async function attachMatches(userId, payload, { sortByMatch = false } = {}) {
     });
     queueRead(rows.filter((r) => !r.requirementsReadAt).map((r) => r.id).slice(0, QUEUE_PER_PAGE));
     if (sortByMatch) {
-      // Stable: scored jobs best first, unscored keep their ranked order after.
+      // Scored jobs lead, unscored keep their ranked order after. Scores are
+      // grouped in bands of 10 after an age penalty (2 points a day past a week,
+      // up to 30) and the newest leads within a band, so a fresh good match is not
+      // buried under a weeks-old strong one. Same rule as the page's own sort.
+      const now = Date.now();
+      const postedOf = (j) => {
+        const t = Date.parse(j.effectivePostedAt || j.postedAt || j.createdAt || '');
+        return Number.isFinite(t) ? t : 0;
+      };
+      const bandOf = (j) => {
+        const posted = postedOf(j);
+        const ageDays = posted ? Math.max(0, (now - posted) / 86400000) : 365;
+        return Math.floor((j.match.score - Math.min(30, Math.max(0, ageDays - 7) * 2)) / 10);
+      };
       jobs = jobs
         .map((j, i) => ({ j, i }))
-        .sort((a, b) => ((b.j.match ? b.j.match.score : -1) - (a.j.match ? a.j.match.score : -1)) || a.i - b.i)
+        .sort((a, b) => {
+          if (!a.j.match || !b.j.match) return (a.j.match ? -1 : b.j.match ? 1 : 0) || a.i - b.i;
+          return (bandOf(b.j) - bandOf(a.j)) || (postedOf(b.j) - postedOf(a.j)) || a.i - b.i;
+        })
         .map((x) => x.j);
     }
     return { ...payload, jobs };
