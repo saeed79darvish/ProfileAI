@@ -1325,8 +1325,19 @@ async function searchSimilarJobs(profileEmbedding, options = {}) {
   // cosine (whose useful spread is only ~0.2 raw) and finer than the gap between
   // a real role match and a generic one.
   const BAND_WIDTH = parseFloat(process.env.JOBS_RANK_BAND_WIDTH || '0.1');
+  // Age counts against the band. Banding alone let a 3-week-old strong match sit
+  // above a 2-day-old good one, so the top of the feed read as stale. A posting
+  // loses AGE_PER_DAY of rank per day past AGE_FREE_DAYS (up to AGE_MAX), about
+  // one band every five days, so a fresh good match outranks an old strong one
+  // while a great match still beats a weak fresh one. Undated rows count as old.
+  const AGE_FREE_DAYS = Math.max(0, parseFloat(process.env.JOBS_AGE_FREE_DAYS || '7') || 0);
+  const AGE_PER_DAY = Math.max(0, parseFloat(process.env.JOBS_AGE_PENALTY_PER_DAY || '0.02') || 0);
+  const AGE_MAX = Math.max(0, parseFloat(process.env.JOBS_AGE_PENALTY_MAX || '0.3') || 0);
+  const agePenaltyExpr = AGE_PER_DAY > 0 && AGE_MAX > 0
+    ? `LEAST(${AGE_MAX}, GREATEST(0.0, COALESCE(EXTRACT(EPOCH FROM (NOW() - ej."effectivePostedAt")) / 86400.0, 365.0) - ${AGE_FREE_DAYS}) * ${AGE_PER_DAY})`
+    : '0';
   const bandExpr = BAND_WIDTH > 0
-    ? `FLOOR(GREATEST(0.0, ${REL_WEIGHT} * ej._rel${levelTermExpr} - ${ghostPenaltyExpr}) / ${BAND_WIDTH})`
+    ? `FLOOR(GREATEST(0.0, ${REL_WEIGHT} * ej._rel${levelTermExpr} - ${ghostPenaltyExpr} - ${agePenaltyExpr}) / ${BAND_WIDTH})`
     : null;
   // Materialised as `_band` in the scored CTE so the ORDER BY and the company
   // interleave below can both reference it without recomputing the cosine.
