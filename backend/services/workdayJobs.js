@@ -37,6 +37,8 @@ const publicUrl = (b, externalPath) => `https://${hostOf(b)}/${encodeURIComponen
 const US_STATE = /(?:^|[\s,/-])(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)(?:$|[\s,/-])/;
 const STATE_NAMES = 'alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia';
 const US_WORDS = new RegExp(`\\b(united states|usa|u\\.s\\.|us remote|remote[ ,-]+us)\\b|^us\\b|\\(us\\)|,\\s*(${STATE_NAMES})\\b`, 'i');
+const COUNTRIES = 'india|germany|united kingdom|uk|canada|france|ireland|poland|spain|italy|netherlands|japan|china|singapore|australia|mexico|brazil|israel|romania|czech republic|czechia|sweden|switzerland|belgium|austria|denmark|norway|finland|portugal|hungary|bulgaria|greece|turkey|south korea|korea|taiwan|hong kong|malaysia|philippines|thailand|vietnam|indonesia|argentina|chile|colombia|costa rica|peru|south africa|nigeria|egypt|saudi arabia|united arab emirates|uae|new zealand|ukraine|serbia|croatia|lithuania|latvia|estonia|slovakia|slovenia|luxembourg|pakistan|bangladesh|sri lanka';
+const OTHER_PLACE = new RegExp(`\\b(${COUNTRIES})\\b|,\\s*(ON|BC|AB|QC|MB|NS|NB|SK|NL|PE)\\b`, 'i');
 const MULTI = /^\d+\s+locations?$/i;
 
 /**
@@ -48,7 +50,28 @@ function usOf(locationsText) {
   if (!t) return 'unknown';
   if (MULTI.test(t)) return 'unknown';
   if (US_WORDS.test(t) || /^US\b/.test(t) || US_STATE.test(t)) return 'us';
-  return 'other';
+  // A bare city ("Austin", "Dublin") says nothing either way; only a named other country or province is a clear no.
+  return OTHER_PLACE.test(t) ? 'other' : 'unknown';
+}
+
+/**
+ * The first place in a job's own address: "/job/India---Bangalore/Title_JR1" gives "India - Bangalore". Workday puts
+ * the main location there even when the list row only says "2 Locations".
+ */
+function placeFromPath(externalPath) {
+  const seg = String(externalPath || '').split('/')[2];
+  return seg ? seg.split('---').map((part) => part.replace(/-/g, ' ').trim()).join(' - ') : '';
+}
+
+const NON_US_PLACE = new RegExp(`^(${COUNTRIES})\\b`, 'i');
+
+/** What the first place in a job's address says: 'us', 'other' (clearly another country), or 'unknown'. */
+function usFromPath(externalPath) {
+  const place = placeFromPath(externalPath);
+  if (!place) return 'unknown';
+  if (/^(us|usa|united states)\b/i.test(place) || /^remote\b.*\b(us|usa)\b/i.test(place)) return 'us';
+  if (NON_US_PLACE.test(place)) return 'other';
+  return 'unknown';
 }
 
 /** The posting date from Workday's wording ("Posted Today", "Posted 3 Days Ago", "Posted 30+ Days Ago"), or null. */
@@ -71,6 +94,8 @@ function idOf(posting) {
 }
 
 function createWorkday(helpers) {
+  // Jobs a detail showed to be outside the US, remembered while this process runs so they are not asked about every sync.
+  const notUs = new Map();
   const { stripHtml, inferLocationType, normalizeEmploymentType, inferExperienceLevel, sanitizeExternalUrl } = helpers;
 
   /** One job record in our schema, from a list row plus (when we have it) the job's detail. */
@@ -163,8 +188,11 @@ function createWorkday(helpers) {
       const id = idOf(p);
       if (!id || seen.has(id)) continue;
       seen.add(id);
-      const where = usOf(p.locationsText);
+      let where = usOf(p.locationsText);
+      // "4 Locations": the job's address names its main place; a job whose main place is outside the US is dropped without a request.
+      if (where === 'unknown') where = usFromPath(p.externalPath);
       if (where === 'other') continue;
+      if (notUs.get(token) && notUs.get(token).has(id)) continue;
       candidates.push({ posting: p, id, where });
     }
 
@@ -189,7 +217,7 @@ function createWorkday(helpers) {
           const country = String((info && info.country && info.country.descriptor) || '').toLowerCase();
           const places = [info && info.location, ...((info && info.additionalLocations) || [])].join(' ');
           const isUs = /united states|usa/.test(country) || usOf(places) === 'us' || US_STATE.test(places);
-          if (!isUs) continue;
+          if (!isUs) { if (!notUs.has(token)) notUs.set(token, new Set()); notUs.get(token).add(c.id); continue; }
         }
         if (!info) continue; // no text yet; it will be picked up on a later sync
         out.push(normalize(board, token, c.posting, detail, null, now));
@@ -204,4 +232,4 @@ function createWorkday(helpers) {
   return { fetchWorkdayJobs, normalize };
 }
 
-module.exports = { createWorkday, parseToken, usOf, postedAtFromText, idOf, listUrl, detailUrl, publicUrl, PAGE, MAX_LIST };
+module.exports = { createWorkday, parseToken, usOf, placeFromPath, usFromPath, postedAtFromText, idOf, listUrl, detailUrl, publicUrl, PAGE, MAX_LIST };

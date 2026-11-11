@@ -91,4 +91,50 @@ function summarizeBoard(platform, payload) {
 /** Name for a Greenhouse board from its feed, when the feed carries one; else the slug. */
 const displayName = (slug) => slug.replace(/[-_.]+/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
-module.exports = { PLATFORMS, RESERVED, cleanSlug, slugFromUrl, slugsFromUrls, isBayArea, isUs, locationsOf, summarizeBoard, displayName };
+/* Boards that are not real employers: vendors' own demo and test accounts. */
+const isDemoSlug = (slug) => /(^|[-_.])(test|demo|sandbox|example|sample|staging|qa|dummy|trial)([-_.0-9]|$)|^(lever|ashby|greenhouse)(test|demo|sandbox)/i.test(String(slug || ''));
+
+/* Recruiting and staffing agencies post other companies' jobs under their own name. */
+const AGENCY = /\b(staffing|recruit(?:ing|ment|ers?)?|talent\s+(?:solutions|partners|acquisition|stack|group|search)|executive\s+search|search\s+(?:firm|partners)|headhunt\w*|workforce\s+solutions|personnel|placement|resourcing|manpower|randstad|adecco|robert\s+half|kforce|insight\s+global|harnham|haystack|berkley\s+hunt|dynamism)\b/i;
+const isAgencyName = (nameOrSlug) => AGENCY.test(String(nameOrSlug || '').replace(/[-_.]+/g, ' '));
+
+/** 'A' Bay Area jobs, 'B' meaningful US presence, else null (not wanted yet). */
+function tierOf(board) {
+  if (!board || board.us <= 0) return null;
+  if (board.bayArea > 0) return 'A';
+  return board.us >= 5 ? 'B' : null;
+}
+
+/** The company name a board page gives itself: "Wayve Jobs" becomes "Wayve", "Zoox" stays. */
+function nameFromTitle(title) {
+  const t = String(title || '').replace(/\s+/g, ' ').trim()
+    .replace(/^(jobs|careers|work)\s+(at|with)\s+/i, '')
+    .replace(/\s*[|\-\u2013\u2014:]\s*(jobs|careers|open positions|job board).*$/i, '')
+    .replace(/\s+(jobs|careers|job board)$/i, '')
+    .trim();
+  return t && t.length <= 60 ? t : null;
+}
+
+/** Title and place of each job in a board's feed, from each system's shape. */
+function jobsOf(platform, payload) {
+  if (platform === 'greenhouse') return (payload && Array.isArray(payload.jobs) ? payload.jobs : []).map((j) => ({ title: j.title || '', location: (j.location && j.location.name) || '' }));
+  if (platform === 'lever') return (Array.isArray(payload) ? payload : []).map((j) => ({ title: j.text || '', location: (j.categories && j.categories.location) || '' }));
+  if (platform === 'ashby') return (payload && Array.isArray(payload.jobs) ? payload.jobs : []).map((j) => ({ title: j.title || '', location: [j.location, ...(Array.isArray(j.secondaryLocations) ? j.secondaryLocations.map((l) => l && l.location) : [])].filter(Boolean).join(' | ') }));
+  return [];
+}
+
+/* Titles of tech-industry work: engineering and research, data and AI, security, infrastructure, product, design and technical sales. */
+const TECH_TITLE = /\b(engineer(?:ing)?|developer|software|swe|sde|devops|sre|site reliability|data (?:scientist|engineer|analyst|platform|science)|machine learning|ml|ai|artificial intelligence|research scientist|research engineer|applied scientist|security|infrastructure|platform|backend|back-end|frontend|front-end|full[- ]?stack|mobile|ios|android|qa|test automation|firmware|embedded|hardware|silicon|asic|fpga|robotics|autonomy|perception|computer vision|nlp|product manager|technical program|product designer|ux|ui designer|solutions architect|sales engineer|forward deployed|cloud|database|network|architect|analytics|technical writer|developer advocate|information technology|it support)\b/i;
+const isTechTitle = (title) => TECH_TITLE.test(String(title || ''));
+
+/** How much of a board is tech work, overall, in the Bay Area and in the US. */
+function techCounts(platform, payload) {
+  const jobs = jobsOf(platform, payload);
+  const tech = jobs.filter((j) => isTechTitle(j.title));
+  return { jobs: jobs.length, tech: tech.length, techBay: tech.filter((j) => isBayArea(j.location)).length, techUs: tech.filter((j) => isUs(j.location)).length };
+}
+
+/** A board worth adding for a tech job search: real tech volume in the US. */
+const isTechBoard = (c) => Boolean(c) && c.techUs >= 3 && (c.tech >= 5 || (c.jobs > 0 && c.tech / c.jobs >= 0.25));
+
+module.exports = { jobsOf, isTechTitle, techCounts, isTechBoard, isDemoSlug, isAgencyName, tierOf, nameFromTitle, PLATFORMS, RESERVED, cleanSlug, slugFromUrl, slugsFromUrls, isBayArea, isUs, locationsOf, summarizeBoard, displayName };

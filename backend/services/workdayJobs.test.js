@@ -41,7 +41,8 @@ test('parseToken accepts tenant|wdN|site and nothing else', () => {
 
 test('usOf: US places, other countries, and the unclear "4 Locations"', () => {
   for (const t of ['US, CA, Santa Clara', 'Santa Clara, California', 'San Jose, CA', 'Remote, US', 'United States of America', 'New York, NY, US']) assert.equal(w.usOf(t), 'us', t);
-  for (const t of ['India, Pune', 'Germany, Munich', 'London, United Kingdom', 'Toronto, ON']) assert.equal(w.usOf(t), 'other', t);
+  for (const t of ['India, Pune', 'Germany, Munich', 'London, United Kingdom', 'Toronto, ON', 'Remote Ireland']) assert.equal(w.usOf(t), 'other', t);
+  for (const t of ['Austin', 'San Jose', 'Shanghai', 'Dublin']) assert.equal(w.usOf(t), 'unknown', t); // a bare city: the detail settles it
   assert.equal(w.usOf('4 Locations'), 'unknown');
   assert.equal(w.usOf(''), 'unknown');
 });
@@ -137,4 +138,37 @@ test('every Workday board in the seed list has a valid token and a unique name',
   assert.ok(boards.length >= 10);
   for (const b of boards) assert.ok(w.parseToken(b.boardToken), b.boardToken);
   assert.equal(new Set(boards.map((b) => b.boardToken)).size, boards.length);
+});
+
+test('a "2 Locations" job is classified by the main place in its own address, without a detail request', async () => {
+  assert.equal(w.placeFromPath('/job/India---Bangalore/Software-Engineer_JR1'), 'India - Bangalore');
+  assert.equal(w.placeFromPath('/job/US-CA-San-Francisco/Engineer_JR2'), 'US CA San Francisco');
+  assert.equal(w.usFromPath('/job/Germany---Munich/x'), 'other');
+  assert.equal(w.usFromPath('/job/US-CA-Santa-Clara/x'), 'us');
+  assert.equal(w.usFromPath('/job/USA---Remote/x'), 'us');
+  assert.equal(w.usFromPath('/job/California---San-Francisco/x'), 'unknown'); // unclear: settled by the detail, never dropped on a guess
+  assert.equal(w.usFromPath('/job/x/y'), 'unknown');
+  const list = [
+    posting(1, '2 Locations', { externalPath: '/job/India---Bangalore/Engineer-1_JR1001' }),
+    posting(2, '2 Locations', { externalPath: '/job/Germany---Munich/Engineer-2_JR1002' }),
+    posting(3, '2 Locations', { externalPath: '/job/US-CA-San-Francisco/Engineer-3_JR1003' }),
+  ];
+  const fake = fakeWorkday({ list, details: { [list[2].externalPath]: info(3) } });
+  const out = await run(fake);
+  assert.deepEqual(out.jobs.map((j) => j.externalId), ['JR1003']);
+  assert.equal(fake.calls.detail, 1);
+});
+
+test('bare-city jobs are settled by their detail, and a non-US one is not asked about again by the same process', async () => {
+  const list = [posting(1, 'Austin'), posting(2, 'Shanghai')];
+  const details = { [list[0].externalPath]: info(1), [list[1].externalPath]: info(2, { location: 'Shanghai', country: { descriptor: 'China' } }) };
+  const fake = fakeWorkday({ list, details });
+  const wd = w.createWorkday(helpers);
+  const opts = { fetchImpl: fake.fetchImpl, pauseMs: 0, sleep: async () => {}, now: NOW };
+  const first = await wd.fetchWorkdayJobs(TOKEN, opts);
+  assert.deepEqual(first.jobs.map((j) => j.externalId), ['JR1001']);
+  assert.equal(fake.calls.detail, 2);
+  const second = await wd.fetchWorkdayJobs(TOKEN, opts);
+  assert.equal(fake.calls.detail, 3); // only the stored-less US job is asked again; Shanghai is remembered
+  assert.deepEqual(second.jobs.map((j) => j.externalId), ['JR1001']);
 });

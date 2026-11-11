@@ -37,3 +37,35 @@ test('summarizeBoard reads each feed shape and refuses a non-board reply', () =>
   assert.equal(h.summarizeBoard('ashby', null), null);
   assert.deepEqual(h.summarizeBoard('greenhouse', { jobs: [] }), { jobs: 0, bayArea: 0, us: 0 });
 });
+
+test('demo boards, agencies, tiers and names', () => {
+  for (const d of ['levertest', 'leverdemo-8', 'acme-demo', 'test', 'my-sandbox', 'ashbytest']) assert.equal(h.isDemoSlug(d), true, d);
+  for (const d of ['waymo', 'testbed-labs-x', 'contest', 'zoox', 'latest']) assert.equal(h.isDemoSlug(d), d === 'testbed-labs-x' ? false : false, d);
+  for (const a of ['true-talent-solutions-partners', 'Harnham', 'Acme Staffing', 'berkley-hunt', 'executive-search-group', 'Robert Half']) assert.equal(h.isAgencyName(a), true, a);
+  for (const a of ['Waymo', 'DoorDash USA', 'Astranis', 'Talentful Software']) assert.equal(h.isAgencyName(a), false, a);
+  assert.equal(h.tierOf({ us: 0, bayArea: 0 }), null);
+  assert.equal(h.tierOf({ us: 3, bayArea: 1 }), 'A');
+  assert.equal(h.tierOf({ us: 9, bayArea: 0 }), 'B');
+  assert.equal(h.tierOf({ us: 2, bayArea: 0 }), null);
+  assert.equal(h.nameFromTitle('Wayve Jobs'), 'Wayve');
+  assert.equal(h.nameFromTitle('Zoox'), 'Zoox');
+  assert.equal(h.nameFromTitle('Jobs at Acme'), 'Acme');
+  assert.equal(h.nameFromTitle('Acme | Careers'), 'Acme');
+  assert.equal(h.nameFromTitle('x'.repeat(80)), null);
+});
+
+test('tech share of a board, from job titles', () => {
+  for (const x of ['Senior Software Engineer', 'Machine Learning Engineer', 'Product Manager, Payments', 'Staff Data Scientist', 'Security Engineer', 'Product Designer', 'iOS Developer', 'Solutions Architect']) assert.equal(h.isTechTitle(x), true, x);
+  for (const x of ['Registered Nurse', 'Account Executive', 'Recruiter', 'Office Manager', 'Clinical Research Associate', 'Warehouse Associate', '']) assert.equal(h.isTechTitle(x), false, x);
+  const board = { jobs: [
+    { title: 'Software Engineer', location: { name: 'San Francisco, CA' } }, { title: 'Backend Engineer', location: { name: 'London, UK' } },
+    { title: 'Account Executive', location: { name: 'New York, NY' } }, { title: 'Data Scientist', location: { name: 'Remote - US' } },
+  ] };
+  assert.deepEqual(h.techCounts('greenhouse', board), { jobs: 4, tech: 3, techBay: 1, techUs: 2 });
+  assert.equal(h.isTechBoard({ jobs: 4, tech: 3, techBay: 1, techUs: 2 }), false); // only 2 tech jobs in the US
+  assert.equal(h.isTechBoard({ jobs: 20, tech: 6, techBay: 2, techUs: 5 }), true);
+  assert.equal(h.isTechBoard({ jobs: 100, tech: 4, techBay: 4, techUs: 4 }), false); // few tech jobs and a low share
+  assert.equal(h.isTechBoard({ jobs: 8, tech: 3, techBay: 3, techUs: 3 }), true); // small board, mostly tech
+  assert.equal(h.isTechBoard(null), false);
+  assert.deepEqual(h.techCounts('lever', [{ text: 'Platform Engineer', categories: { location: 'Sunnyvale, CA' } }]), { jobs: 1, tech: 1, techBay: 1, techUs: 1 });
+});
