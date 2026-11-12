@@ -384,7 +384,7 @@ ${JSON.stringify({
 ${JSON.stringify(focus ? [focus.finding] : ((review && review.fix) || []), null, 2)}
 ${focus ? `
 ═══ THIS ONE POINT ONLY ═══
-The person picked this single point to fix now. Fix only what it is about and return the other fields empty ("" or []).
+The person picked this single point to fix now. Fix only what it is about and return the other fields empty ("" or []). Touch only the roles, summary or headline the point itself names or clearly concerns; never rewrite a role's bullets just because it is a role on their profile. A point about gaps, short stays or dates is fixed by adding one short, plain context bullet to the role it names (using their words if they gave any), not by rewriting that role or others. Your "bullets" for a role replace its whole description, so return that role's complete list: every existing bullet word for word, plus your addition, unless the point is about the bullets' wording.
 ${focus.detail ? `They added this, in their own words. It is true and it is the best material you have; use it, keeping their numbers and claims exactly, and do not go beyond it. Add no claim they did not make (never "not due to performance", never what a team gained). Put work they did into bullets. A reason for leaving (layoff, contract end, relocation) is not a bullet: if the point is about a short stay, put it as one plain final bullet at most, worded exactly as they said it, or leave it out:
 <their_words>${focus.detail}</their_words>
 ` : 'They gave no extra detail, so make the simplest honest fix from what is already on their profile. Do not invent anything to fill a gap, and do not add outcomes or effects they never stated; if the fix needs a fact only they have, return nothing for it.\n'}` : ''}
