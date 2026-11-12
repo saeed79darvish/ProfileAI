@@ -584,8 +584,11 @@ company and dates again. Never fill in a month, a job type or a number they
 did not say: "2021" stays "2021".
   title, seniority, field (the field they work in or want to work in: never one
     they said they do not want, and never only what they studied), company, startDate, endDate, bullets (array),
-  skills (array: tools and abilities they already have, never what they want to
-    do or learn next), previousCompany, school, degree, location, roleType,
+  skills (array: tools, languages, platforms and methods they already have, never
+    what they want to do or learn next. Never a task, a deliverable or a duty
+    ("weekly sales reports", "dashboards for managers"), and never a single
+    keyword that is part of a bigger skill ("joins" is part of SQL); name the
+    skill itself, one to three words), previousCompany, school, degree, location, roleType,
   workStyle, target (the role they want next), yearsExperience,
   graduationYear (the year they finished the school or degree, as said),
   project: { "name", "description", "technologies": [], "url" } for something

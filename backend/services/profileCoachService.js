@@ -734,7 +734,8 @@ async function planFixes({ profile = {}, review = null, target = '', motivation 
   const have = new Set((profile.skills || []).map((s) => String(s?.name || s).toLowerCase().trim()));
   const sameText = (a, b) => clip(a, 2000).toLowerCase() === clip(b, 2000).toLowerCase();
 
-  const headline = clip(parsed.headline, 90);
+  // A headline is a title, not a tagline: the model still sends pipes now and then.
+  const headline = clip(String(parsed.headline || '').replace(/\s*[|•·]\s*/g, ', '), 90);
   const summary = clip(parsed.summary, 700);
   const seen = new Set();
   const roles = (Array.isArray(parsed.roles) ? parsed.roles : [])

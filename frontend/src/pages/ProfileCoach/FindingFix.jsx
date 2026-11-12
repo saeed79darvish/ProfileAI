@@ -99,7 +99,7 @@ export default function FindingFix({ finding, onPlan, onApply }) {
             onChange={setDetail}
             maxLength={1000}
             label="Add detail for this fix"
-            placeholder="Say what happened, in your own words. For example why you left, or the number you moved."
+            placeholder="Tell me what is true, in your own words"
             hints={`${finding.what || ''}`.slice(0, 120)}
           />
           <Row>

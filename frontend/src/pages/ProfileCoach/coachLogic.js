@@ -2858,7 +2858,8 @@ export const resumeSections = (draft = {}) => {
       kind: 'entries',
       items: education.map((e) => ({
         heading: [e.degree, e.fieldOfStudy].filter(Boolean).join(', ') || e.institution,
-        meta: [e.institution, e.endDate].filter(Boolean).join(' · '),
+        // A parsed resume gives "2021-01-01"; a school line wants the year.
+        meta: [e.institution, String(e.endDate || '').match(/\b(19|20)\d{2}\b/)?.[0] || e.endDate].filter(Boolean).join(' · '),
         lines: [],
       })),
     });
