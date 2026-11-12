@@ -234,6 +234,23 @@ const Center = styled.div`
   p { margin: 0 0 16px; font-size: 15.5px; line-height: 1.45; color: #4a4d63; }
 `;
 
+function Progress({ elapsed }) {
+  const now = progressStep(elapsed);
+  return (
+    <Card aria-live="polite">
+      <h2>Researching</h2>
+      <p className="sub">This can take one to three minutes the first time for a company. You can leave this page, the research keeps going and will be here when you come back. {Math.floor(elapsed / 1000)}s so far.</p>
+      <Steps>
+        {STEPS.map((s, i) => (
+          <li key={s} data-state={i < now ? 'done' : i === now ? 'now' : 'todo'}>
+            <span className="dot">{i < now ? '✓' : ''}</span>{s}
+          </li>
+        ))}
+      </Steps>
+    </Card>
+  );
+}
+
 function Svg({ children, size = 16, stroke = 'currentColor', width = 2.2 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
