@@ -150,9 +150,10 @@ function carries(t, o) {
  * and the original it rewrites is already being kept, so it is dropped rather
  * than printed twice. A role the model dropped comes back whole.
  *
+ * @param {{ skipRoles?: string[] }} [opts] role labels already verified by the polish pass
  * @returns {{ restored: string[] }}
  */
-function enforceFoundationBullets(draft, originalExperience) {
+function enforceFoundationBullets(draft, originalExperience, { skipRoles = [] } = {}) {
   const restored = [];
   const src = Array.isArray(originalExperience) ? originalExperience : [];
   if (!src.length) return { restored };
@@ -162,6 +163,8 @@ function enforceFoundationBullets(draft, originalExperience) {
   for (let i = 0; i < src.length; i++) {
     const o = src[i] || {};
     const label = o.company || o.title || `role ${i + 1}`;
+    // A role whose rewrite was verified elsewhere (polish.js) is left as it is.
+    if (skipRoles.includes(label) && out[i] && typeof out[i] === 'object') continue;
     const origUnits = splitUnits(o.description);
     const entry = out[i] && typeof out[i] === 'object' ? out[i] : null;
     if (!entry) {
@@ -238,3 +241,5 @@ function mergeEducation(recordEntries, draftEntries) {
 module.exports.enforceFoundationBullets = enforceFoundationBullets;
 module.exports.mergeEducation = mergeEducation;
 module.exports.bulletsOf = bulletsOf;
+module.exports.splitUnitsOf = splitUnits;
+module.exports.coverage = coverage;

@@ -26,6 +26,7 @@ const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./r
 const { auditProfile } = require('./resume/profileAudit');
 const { normalizeTitleForCompare, compareTitles, headlineFromPostingTitle } = require('./resume/titleMatch');
 const { buildTailoredSummary, enforceFoundationBullets, mergeEducation } = require('./resume/foundation');
+const polish = require('./resume/polish');
 const {
   isValidRequirement,
   reconcileRequirementCoverage,
@@ -2766,6 +2767,35 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       }
 
       // ═══════════════════════════════════════════════════════════════
+      // STEP 3c: POLISH — wording only, started now so it runs alongside the
+      // review rounds below and adds no wall-clock time. It needs only the
+      // candidate's own profile and the posting, not the draft. Its answer is
+      // verified in code before use (see resume/polish.js); on any failure the
+      // foundation guard below keeps the candidate's original bullets.
+      // ═══════════════════════════════════════════════════════════════
+      const polishEnabled = process.env.TAILOR_POLISH !== 'off' && !(tailorSettings && tailorSettings.polish === false);
+      const polishPromise = polishEnabled
+        ? (async () => {
+            try {
+              const cfg = polish.buildPolishPrompt({
+                profile: profileData,
+                jobDescription,
+                targetTitle,
+                company: targetCompany,
+                keywords: extractedKeywords,
+                selected: tailorSettings && tailorSettings.experienceLines,
+              });
+              const raw = await callAI({ system: cfg.system, prompt: cfg.prompt, max_tokens: cfg.max_tokens, retries: 1 });
+              const parsed = polish.parsePolish(raw, repairTruncatedJSON);
+              if (!parsed) return { error: 'unparseable answer' };
+              return { verdict: polish.verifyPolish({ polished: parsed, profile: profileData, jobDescription, targetTitle, selected: tailorSettings && tailorSettings.experienceLines }) };
+            } catch (err) {
+              return { error: err.message };
+            }
+          })()
+        : Promise.resolve(null);
+
+      // ═══════════════════════════════════════════════════════════════
       // STEP 4: REVIEW PASS — a separate call on the finished draft
       // ═══════════════════════════════════════════════════════════════
       // The tailoring prompt's own STEP 6/7/8 checks are self-assessment: the
@@ -3180,15 +3210,53 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
         tailoredData.changelog.push({ section: 'summary', action: 'tenure_corrected', detail: `Removed a year count the model added that the dates do not support (${tenureAdded.inflated.map((c) => c.raw).join(', ')})` });
       }
 
+      // ── Polish: verified rewording replaces the foundation text it came from ──
+      // Applied BEFORE the foundation guard. A role or summary that failed
+      // verification is left as the draft has it, so the guard below restores
+      // the candidate's original bullets there. Nothing unverified ships.
+      let polishReport = null;
+      {
+        const result = await polishPromise;
+        if (result && result.verdict) {
+          const applied = polish.applyPolish(tailoredData, profileData, result.verdict);
+          polishReport = { appliedRoles: applied.appliedRoles, appliedIndexes: applied.appliedIndexes, rejected: applied.rejected, summaryApplied: applied.summaryApplied };
+          console.log(`[ProfilleAI] Polish: ${applied.appliedRoles.length}/${(profileData.experience || []).length} role(s) reworded, summary ${applied.summaryApplied ? 'rewritten' : 'kept'}${applied.rejected.length ? `; rejected: ${applied.rejected.join(' | ')}` : ''}`);
+          tailoredData.changelog.push({
+            section: 'experience, summary',
+            action: 'polished',
+            detail: `Reworded ${applied.appliedRoles.length} role(s)${applied.summaryApplied ? ' and the summary' : ''}; every number, tool and title was checked against your resume.${applied.rejected.length ? ` Kept your original wording where a rewrite added something new: ${applied.rejected.map((r) => r.split(':')[0]).join(', ')}.` : ''}`,
+          });
+        } else if (result && result.error) {
+          console.warn('[ProfilleAI] Polish skipped:', result.error);
+          polishReport = { skipped: result.error };
+        }
+      }
+
       // ── Experience: every original bullet survives; skills: nothing lost ──
       {
-        const { restored } = enforceFoundationBullets(tailoredData, profileData.experience);
-        const additive = enforceAdditive(tailoredData, toAIProfile(profileData));
+        const { restored } = polishReport && polishReport.appliedRoles && polishReport.appliedRoles.length
+          ? enforceFoundationBullets(tailoredData, profileData.experience, { skipRoles: polishReport.appliedRoles })
+          : enforceFoundationBullets(tailoredData, profileData.experience);
+        // Roles the polish pass rewrote (and verified) may reword and trim; the
+        // additive guard still restores any other role that lost a figure.
+        const additive = enforceAdditive(tailoredData, toAIProfile(profileData), { trimmableRoles: (polishReport && polishReport.appliedIndexes) || [] });
         const all = [...restored, ...additive.restored];
         if (all.length) {
           console.log('[ProfilleAI] Tailoring altered the foundation; restored:', all);
           tailoredData.changelog.push({ section: 'experience, skills', action: 'foundation_restored', detail: all.join('; ') });
           tailoredData.restoredContent = all;
+        }
+      }
+
+      // Skills: one spelling per skill, grouped, capped at 15, the ones the
+      // posting names or the bullets show first. Nothing is added here; the
+      // stored profile keeps the full list for the next application.
+      {
+        const bulletText = [tailoredData.summary, ...(tailoredData.experience || []).map((e) => e && e.description)].filter(Boolean).join(' ');
+        const grouped = polish.tidySkills(tailoredData.skills, { jobDescription, bulletText, cap: 15 });
+        if (Object.keys(grouped).length) {
+          tailoredData.skillsGrouped = grouped;
+          tailoredData.skills = Object.values(grouped).flat();
         }
       }
 
