@@ -156,6 +156,38 @@ const NoteInput: React.FC<{
   />
 );
 
+
+/**
+ * First-run coaching for each step of the tailor flow: one short note at the top of
+ * the step, shown until it is dismissed, and remembered per step.
+ */
+const COACH: Record<string, string> = {
+  fit: "Step 1, Fit. For each requirement your resume does not show, answer \"I have this\" or \"I don't\". Required ones count most. Only what you confirm is added, so nothing is invented, and your score updates as you answer.",
+  plan: 'Step 2, Plan. ProfilleAI picked changes for your title, summary, skills and experience. Tap a change to turn it on or off, add a note in the box if you want something specific, and choose 1 or 2 pages. Then click Tailor resume.',
+  tailoring: 'Tailoring runs in the background. You can hide this window or close the panel: it keeps going and tells you when your resume is ready.',
+  review: 'Step 3, Review. Each changed section shows before and after. Keep it, skip it, or refine it with Ask AI. Nothing changes in your resume until you keep it.',
+  apply: 'Step 4, Apply. Download your tailored resume as PDF or Word, then apply on the company site. ProfilleAI records the application when you confirm you sent it.',
+};
+
+const TailorCoach: React.FC<{ step: string }> = ({ step }) => {
+  const [seen, setSeen] = useState<Record<string, boolean> | null>(null);
+  useEffect(() => {
+    chrome.storage.local.get('tailorCoachSeen').then((v) => setSeen(v.tailorCoachSeen || {})).catch(() => setSeen({}));
+  }, []);
+  if (!seen || seen[step] || !COACH[step]) return null;
+  const dismiss = () => {
+    const next = { ...seen, [step]: true };
+    setSeen(next);
+    chrome.storage.local.set({ tailorCoachSeen: next }).catch(() => {});
+  };
+  return (
+    <div className="tf-coach" role="note">
+      <p>{COACH[step]}</p>
+      <button type="button" onClick={dismiss}>Got it</button>
+    </div>
+  );
+};
+
 export const TailorFlow: React.FC<TailorFlowProps> = ({
   open, onClose, job, jobUrl, profile, initialCopy, restore, onStatus, onNotify, onOpStart, onOpEnd,
 }) => {
@@ -905,6 +937,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
       </header>
 
       <div className="tf-body" ref={bodyRef}>
+        {!limit && <TailorCoach step={step} />}
         {limit ? renderLimit(limit) : (
           <>
             {step === 'fit' && renderFit()}

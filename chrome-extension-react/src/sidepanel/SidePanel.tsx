@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { SignedOut } from './components/SignedOut';
+import { PanelTour, type TourMode } from './components/PanelTour';
 import { ProfileSetupGuide } from './components/ProfileSetupGuide';
 import { ProfileSection } from './components/ProfileSection';
 import { JobMatchSection } from './components/JobMatchSection';
@@ -862,6 +863,24 @@ export const SidePanel: React.FC = () => {
     };
   }, [applyTaskRecord, shouldApplyTask, taskMatchesTab, ownsOp]);
 
+  // First-run tour: once for a signed-out person, once for a signed-in one with a profile.
+  // The footer's Tour link replays it.
+  const [tour, setTour] = useState<TourMode | null>(null);
+  const tourReady = !loading && (authState.isAuthenticated ? computeProfileProgress(profile).hasMinimumProfile : true);
+  useEffect(() => {
+    if (!tourReady) return;
+    const mode: TourMode = authState.isAuthenticated ? 'signedIn' : 'signedOut';
+    const key = mode === 'signedIn' ? 'panelTourDone' : 'panelTourSignedOutSeen';
+    chrome.storage.local.get(key).then((v) => { if (!v[key]) setTour(mode); }).catch(() => {});
+  }, [tourReady, authState.isAuthenticated]);
+  const closeTour = (finished: boolean) => {
+    const mode: TourMode = authState.isAuthenticated ? 'signedIn' : 'signedOut';
+    chrome.storage.local.set({ [mode === 'signedIn' ? 'panelTourDone' : 'panelTourSignedOutSeen']: true }).catch(() => {});
+    chrome.storage.local.set({ onboardingComplete: true }).catch(() => {});
+    void finished;
+    setTour(null);
+  };
+
   if (loading) {
     return (
       <div className="app loading-state">
@@ -898,7 +917,7 @@ export const SidePanel: React.FC = () => {
             currentJob={currentJob}
             progress={profileProgress}
           />
-          <Footer onLogout={handleLogout} />
+          <Footer onLogout={handleLogout} onTour={() => setTour('signedIn')} />
         </>
       ) : (
         <>
@@ -945,7 +964,7 @@ export const SidePanel: React.FC = () => {
             />
           </div>
           
-          <Footer onLogout={handleLogout} />
+          <Footer onLogout={handleLogout} onTour={() => setTour('signedIn')} />
         </>
       )}
       
@@ -1028,6 +1047,8 @@ export const SidePanel: React.FC = () => {
           type={notification.type}
         />
       )}
+
+      {tour && <PanelTour key={tour} mode={tour} onClose={closeTour} />}
     </div>
   );
 };

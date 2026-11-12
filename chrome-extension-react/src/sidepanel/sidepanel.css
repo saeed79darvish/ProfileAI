@@ -4164,7 +4164,7 @@ html, body, #root {
   font-weight: 500;
   cursor: pointer;
   padding: 4px 0;
-  margin-bottom: 4px;
+  margin-bottom: 20px;
 }
 .auth-back:hover { color: var(--text-primary); }
 .auth-back svg { width: 16px; height: 16px; }
@@ -5325,3 +5325,29 @@ html, body, #root {
 .aq-group-title:first-child { margin-top: 2px; }
 .aq-card.aq-reused { border-color: rgba(56, 189, 248, 0.3); }
 .aq-suggest { width: 100%; margin-bottom: 8px; }
+
+/* ---- First-run tour (components/PanelTour.tsx) ---- */
+.ptour { position: fixed; inset: 0; z-index: 9999; pointer-events: none; }
+.ptour-shade { position: absolute; inset: 0; background: rgba(6, 6, 12, 0.66); pointer-events: auto; }
+.ptour-spot {
+  position: absolute; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(6, 6, 12, 0.66), 0 0 0 2px #8b5cf6, 0 0 22px rgba(139, 92, 246, 0.55);
+  transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
+}
+.ptour-card {
+  position: absolute; left: 12px; right: 12px; pointer-events: auto; box-sizing: border-box;
+  background: #1a1a24; border: 1px solid #34344a; border-radius: 14px; padding: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6); color: var(--text-primary);
+}
+.ptour-card.centered { top: 50%; transform: translateY(-50%); }
+.ptour-count { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.ptour-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.ptour-card p { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+.ptour-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.ptour-dots { flex: 1; display: flex; gap: 4px; justify-content: center; }
+.ptour-dots span { width: 5px; height: 5px; border-radius: 50%; background: #34344a; }
+.ptour-dots span.on { background: #8b5cf6; } .ptour-dots span.done { background: #5b45b0; }
+.ptour-primary { border: 0; border-radius: 9px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; color: #fff; background: var(--accent-gradient); }
+.ptour-ghost, .ptour-skip { background: none; border: 0; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; padding: 8px 4px; }
+.ptour-ghost:hover, .ptour-skip:hover { color: var(--text-primary); }
+.ptour-skip { display: block; margin: 6px auto 0; font-size: 12px; }

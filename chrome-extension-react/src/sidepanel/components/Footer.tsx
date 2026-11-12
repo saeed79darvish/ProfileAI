@@ -2,9 +2,11 @@ import React from 'react';
 
 interface FooterProps {
   onLogout: () => void;
+  /** Replays the first-run tour. */
+  onTour?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onLogout }) => {
+export const Footer: React.FC<FooterProps> = ({ onLogout, onTour }) => {
   const openPersonalization = () => {
     chrome.runtime.sendMessage({ type: 'OPEN_ONBOARDING' });
   };
@@ -19,6 +21,7 @@ export const Footer: React.FC<FooterProps> = ({ onLogout }) => {
       <button onClick={openPersonalization} className="footer-link" title="Edit your AI personalization settings">
         AI Settings
       </button>
+      {onTour && <button onClick={onTour} className="footer-link" title="Take the tour of this panel again">Tour</button>}
       <a href="https://www.profilleai.com/extension" target="_blank" rel="noopener noreferrer">
         Help
       </a>
