@@ -3356,24 +3356,21 @@ router.post('/job-match', authMiddleware, withServerProfile, resolveJobMatchInpu
     });
 
     const raw = await aiService.generateText(`${JOB_MATCH_SYSTEM}\n\n${prompt}`, {
-      // Every requirement carries its evidence citation, so a JD with 15
-      // requirements needs real room. Truncation here loses the tail of the
-      // list, which is exactly where the blockers tend to sit.
-      maxTokens: 4000,
+      // Every requirement carries its evidence citation, so a JD with 25 requirements
+      // needs real room. 4000 cut a 24-bullet posting off before its fit numbers
+      // (which come last), and the candidate was told it could not be read.
+      maxTokens: 8000,
       temperature: 0.2,
     });
 
-    let read;
-    try {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      read = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    } catch (e) {
-      read = null;
-    }
+    const { parseJobMatchRead } = require('../services/resume/jobMatchParse');
+    const { read, repaired } = parseJobMatchRead(raw);
 
-    if (!read || !Array.isArray(read.requirements) || read.requirements.length === 0) {
+    if (!read) {
+      console.warn('[job-match] unreadable answer user=%s answerChars=%d jdChars=%d', req.user.id, String(raw || '').length, jobDescription.length);
       return res.status(502).json({ error: 'Could not read requirements from this posting' });
     }
+    if (repaired) console.warn('[job-match] answer was cut off and repaired user=%s answerChars=%d', req.user.id, String(raw || '').length);
 
     // The profile goes in so seniority can be computed from real dates against
     // the posting's stated years, instead of taken from the model's guess.
