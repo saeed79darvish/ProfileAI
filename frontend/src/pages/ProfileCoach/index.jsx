@@ -34,6 +34,7 @@ import LinkedInImportModal from '../ProfileCreation/LinkedInImportModal';
 import { useDictation } from './useDictation';
 import CoachMark from './CoachMark';
 import DictationWave from './DictationWave';
+import FindingFix from './FindingFix';
 import ProgressModal from '../../components/ProgressModal';
 import VoicePanel from './VoicePanel';
 import { useVoiceCall, VOICE_STATES } from './useVoiceCall';
@@ -1555,6 +1556,31 @@ const ProfileCoach = () => {
       advanceRef.current(index, nextDraft);
     }
   }, [pushCoach]);
+
+  /* One point from the review, fixed on its own: the plan comes back for the
+     person to read, and lands only when they use it. Leaves fixDone alone, so
+     the full fix step still runs for whatever they did not touch. */
+  const planOneFinding = useCallback(async (finding, detail) => {
+    const current = draftRef.current;
+    const { data } = await profileAPI.coachFixPlan({
+      profile: draftToProfileShape(current),
+      review: current.review,
+      target: current.target,
+      motivation: current.targetWhy,
+      finding,
+      detail,
+    });
+    trackEvent('coach_finding_fix', { withDetail: !!detail });
+    return data?.plan || {};
+  }, []);
+
+  const applyOneFinding = useCallback((plan) => {
+    const before = draftRef.current;
+    const nextDraft = { ...applyFixPlan(before, plan, fixKeys(plan)), fixDone: before.fixDone };
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    trackEvent('coach_finding_fix_applied');
+  }, []);
 
   const toggleFix = useCallback((message, key) => {
     if (message.spent) return;
@@ -3519,6 +3545,7 @@ const ProfileCoach = () => {
                 <b>{item.what}</b>
                 {item.why && <span>{item.why}</span>}
                 {item.how && <i>{item.how}</i>}
+                <FindingFix finding={item} onPlan={planOneFinding} onApply={applyOneFinding} />
               </Finding>
             ))}
           </CardList>

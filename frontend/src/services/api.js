@@ -364,8 +364,9 @@ export const profileAPI = {
   // A LinkedIn profile read from its public page. Best effort: { success, data } or { reason }.
   coachLinkedinPublic: (linkedinUrl) => api.post('/profiles/coach/linkedin-public', { linkedinUrl }),
   // The review's fixes written out as new text, for the person to keep or drop.
-  coachFixPlan: ({ profile, review, target, motivation, assessment }) =>
-    api.post('/profiles/coach/fix-plan', { profile, review, target, motivation, assessment }),
+  // With `finding` (and the person's own `detail`) it fixes that one point only.
+  coachFixPlan: ({ profile, review, target, motivation, assessment, finding, detail }) =>
+    api.post('/profiles/coach/fix-plan', { profile, review, target, motivation, assessment, finding, detail }),
   coachTarget: ({ profile, target, location, workStyle, motivation, blocker }) =>
     api.post('/profiles/coach/target', { profile, target, location, workStyle, motivation, blocker }),
 

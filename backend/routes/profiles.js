@@ -1180,11 +1180,20 @@ router.post('/coach/linkedin-public', coachGuard, async (req, res) => {
 // @access  Public (guests metered by IP)
 router.post('/coach/fix-plan', coachGuard, aiRateLimiterIfSignedIn('career_analysis'), async (req, res) => {
   try {
-    const { profile, review, target, motivation, assessment } = req.body || {};
+    const { profile, review, target, motivation, assessment, finding, detail } = req.body || {};
     if (!profile || typeof profile !== 'object') {
       return res.status(400).json({ error: 'Profile is required' });
     }
+    // One point from the review, fixed on its own, with what the person added.
+    const clipText = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const focus = finding && typeof finding === 'object' && finding.what
+      ? {
+        finding: { what: clipText(finding.what, 300), why: clipText(finding.why, 400), how: clipText(finding.how, 500) },
+        detail: clipText(detail, 1200),
+      }
+      : null;
     const plan = await profileCoachService.planFixes({
+      focus,
       profile,
       review: review && typeof review === 'object' ? review : null,
       target: target ? String(target).trim().slice(0, 120) : '',

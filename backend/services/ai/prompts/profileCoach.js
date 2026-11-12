@@ -366,7 +366,7 @@ RULES:
  * the conversation; a better bullet is the same work said more clearly,
  * never more work.
  */
-const fixPlanPrompt = ({ profile, review, target, motivation, assessment }) => `You are a career coach. You have read this person's resume and talked with them about where they want to go. Now write the actual improvements to their profile.
+const fixPlanPrompt = ({ profile, review, target, motivation, assessment, focus = null }) => `You are a career coach. You have read this person's resume and talked with them about where they want to go. Now write the actual improvements to their profile.
 
 No em dashes (—) anywhere. Use a full stop, a comma or a colon instead.
 
@@ -381,8 +381,13 @@ ${JSON.stringify({
 }, null, 2)}
 
 ═══ WHAT YOUR REVIEW SAID TO FIX ═══
-${JSON.stringify((review && review.fix) || [], null, 2)}
-
+${JSON.stringify(focus ? [focus.finding] : ((review && review.fix) || []), null, 2)}
+${focus ? `
+═══ THIS ONE POINT ONLY ═══
+The person picked this single point to fix now. Fix only what it is about and return the other fields empty ("" or []).
+${focus.detail ? `They added this, in their own words. It is true and it is the best material you have; use it, keeping their numbers and claims exactly, and do not go beyond it:
+<their_words>${focus.detail}</their_words>
+` : 'They gave no extra detail, so make the simplest honest fix from what is already on their profile. Do not invent anything to fill a gap; if the fix needs a fact only they have, return nothing for it.\n'}` : ''}
 ═══ WHERE THEY WANT TO GO ═══
 Target role: ${target || '(not said; improve for the role they are in)'}
 ${motivation ? `Why: ${motivation}

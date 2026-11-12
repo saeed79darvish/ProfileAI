@@ -714,11 +714,11 @@ async function assessTarget({ profile, target, location, workStyle, motivation, 
  * dropped rather than shown.
  */
 const clip = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
-async function planFixes({ profile = {}, review = null, target = '', motivation = '', assessment = null } = {}) {
+async function planFixes({ profile = {}, review = null, target = '', motivation = '', assessment = null, focus = null } = {}) {
   const response = await callAI({
     max_tokens: 2400,
     temperature: 0.3,
-    messages: [{ role: 'user', content: fixPlanPrompt({ profile, review, target, motivation, assessment }) }],
+    messages: [{ role: 'user', content: fixPlanPrompt({ profile, review, target, motivation, assessment, focus }) }],
   });
   const raw = response.choices[0].message.content || '';
   let parsed = safeParseJSON(raw);
