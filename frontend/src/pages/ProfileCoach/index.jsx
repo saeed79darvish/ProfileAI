@@ -3754,7 +3754,7 @@ const ProfileCoach = () => {
         <CoachAvatar><CoachMark /></CoachAvatar>
         <Bubble>{JOB_PICKS_TEXT.INTRO}</Bubble>
       </Row>
-      <JobPicks jobs={jobPreview} onOpen={openPreviewJob} busy={busy} />
+      <JobPicks jobs={jobPreview} onOpen={openPreviewJob} busy={busy} signedIn={isAuthenticated} />
     </>
   );
 

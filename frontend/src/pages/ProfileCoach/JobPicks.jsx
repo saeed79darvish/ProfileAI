@@ -42,7 +42,7 @@ const salaryText = (job) => {
 
 const Logo = ({ job, size }) => <CompanyMark name={job.company} logoUrl={job.logoUrl} size={size} />;
 
-const JobPicks = ({ jobs, onOpen, busy }) => {
+const JobPicks = ({ jobs, onOpen, busy, signedIn = false }) => {
   const [top, ...rest] = jobs;
 
   const meta = (job) => [job.company, job.location].filter(Boolean).join(' · ');
@@ -79,7 +79,8 @@ const JobPicks = ({ jobs, onOpen, busy }) => {
         )}
 
         <FeaturedFoot>
-          <Locked><LockIcon aria-hidden="true" />{TEXT.SCORE_LOCKED}</Locked>
+          {/* A score is what an account unlocks, so a signed-in person is not told to make one. */}
+          {signedIn ? <span /> : <Locked><LockIcon aria-hidden="true" />{TEXT.SCORE_LOCKED}</Locked>}
           <ApplyButton as="span">{TEXT.APPLY}</ApplyButton>
         </FeaturedFoot>
       </Featured>
@@ -104,7 +105,7 @@ const JobPicks = ({ jobs, onOpen, busy }) => {
         ))}
       </List>
 
-      <Foot>{TEXT.FOOT}</Foot>
+      {!signedIn && <Foot>{TEXT.FOOT}</Foot>}
     </Wrap>
   );
 };
