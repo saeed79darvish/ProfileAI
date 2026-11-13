@@ -297,3 +297,33 @@ test('tidySkills brings back a skill the candidate holds and the posting names, 
   assert.ok(!flat.includes('Docker'), 'a skill the posting does not name is not added');
   assert.ok(!('Restored' in g));
 });
+
+test('summary: an opening that cannot stand alone is rejected, a real subject is accepted', () => {
+  const base = { allSourceText: 'Built React video players.', jobDescription: 'Video role.', experience: [], targetTitle: 'Engineer', heldTitles: ['engineer'], bulletTexts: [] };
+  for (const bad of ['Has also shipped full-stack features on AWS and GraphQL.', 'Shipped the AWSTV player and search template at Amazon.', 'Building React interfaces for video.', 'Also built React video players.']) {
+    assert.match(polish.verifySummary({ ...base, summary: bad }).reasons.join(' '), /opens without a subject/, bad);
+  }
+  for (const good of ['Frontend engineer who builds React video players.', 'Experienced nurse who cares for post-surgical patients.', 'Registered nurse with 9 years of experience in nursing.', 'Certified accountant who runs month-end close.', 'Product manager for billing software.']) {
+    assert.ok(!polish.verifySummary({ ...base, summary: good }).reasons.some((r) => /opens without a subject/.test(r)), good);
+  }
+});
+
+test('salvageSummary never drops the opening sentence, so it cannot leave a fragment', () => {
+  const check = (t) => (/bad/.test(t) ? { text: null } : { text: t });
+  // The opening sentence is the offender: nothing usable remains.
+  assert.equal(polish.salvageSummary('Frontend engineer, bad claim. Has also shipped features.', check), null);
+  // A later sentence is the offender: it alone is dropped.
+  assert.equal(polish.salvageSummary('Frontend engineer who builds players. Has a bad claim. Launched AWSTV.', check), 'Frontend engineer who builds players. Launched AWSTV.');
+});
+
+test('summary: a third-person "The candidate" opener is rejected', () => {
+  const base = { allSourceText: 'Registered nurse.', jobDescription: 'Nurse role.', experience: [], targetTitle: 'Nurse', heldTitles: ['nurse'], bulletTexts: [] };
+  const r = polish.verifySummary({ ...base, summary: 'The candidate is a registered nurse with nine years of experience.' });
+  assert.match(r.reasons.join(' '), /the candidate/i);
+});
+
+test('summary: the rejection names the phrase copied from the posting so a repair can change it', () => {
+  const base = { allSourceText: 'Built consumer health products.', jobDescription: 'You will build consumer health experiences across ChatGPT.', experience: [], targetTitle: 'Engineer', heldTitles: ['engineer'], bulletTexts: [] };
+  const r = polish.verifySummary({ ...base, summary: 'Engineer who can build consumer health experiences across web and mobile.' });
+  assert.match(r.reasons.join(' '), /copies four or more words from the posting \("build consumer health experiences"\)/);
+});

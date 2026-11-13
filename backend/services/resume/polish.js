@@ -19,6 +19,12 @@ const { auditTenureClaims, findTenureClaims, totalExperienceYears } = require('.
 
 const MAX_BULLET_CHARS = 230;
 const MAX_SUMMARY_WORDS = 65;
+const FRAGMENT_START_RE = /^(?:has|have|had|also|and|but|who|which|with|while|then|plus|including|as|so|currently|recently)\b/i;
+/** Action verbs that begin a bullet, not a sentence with a subject. A suffix test would
+ *  wrongly reject "Registered nurse...", "Certified accountant...", "Licensed electrician...". */
+const ACTION_VERB_START_RE = /^(?:shipped|built|launched|developed|led|managed|delivered|designed|created|implemented|owned|ran|wrote|worked|drove|improved|reduced|increased|maintained|supported|partnered|collaborated|mentored|coordinated|analyzed|analysed|automated|architected|spearheaded|established|executed|generated|handled|helped|introduced|migrated|optimized|optimised|performed|prepared|processed|produced|provided|resolved|reviewed|scaled|streamlined|trained|updated|conducted|closed|sold|taught|cared|treated|assisted|administered|documented|building|leading|managing|developing|delivering|designing|creating|working|driving|shipping|launching|supporting|owning|writing|selling|treating|teaching|running)\b/i;
+/** "The candidate is..." talks about the person instead of being their summary. */
+const THIRD_PERSON_START_RE = /^(?:the|this)\s+candidate\b|^candidate\b|^(?:he|she|they)\b/i;
 
 const words = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9+#.%$ ]+/g, ' ').split(/\s+/).filter(Boolean);
 const standaloneNumbers = (t) => (String(t || '').match(/(?<![A-Za-z0-9])\d[\d,.]*\+?%?/g) || []).map((n) => n.replace(/[,.]+$/, ''));
@@ -204,6 +210,14 @@ function verifySummary({ summary, allSourceText, jobDescription, experience, tar
   const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
   if (sentences.length > 3) reasons.push(`${sentences.length} sentences`);
   if (/\b(I|I'm|I've|my|me)\b/.test(text)) reasons.push('first person');
+  // The opening sentence must stand on its own: a subject first. "Has also
+  // shipped..." or "Shipped the player..." only makes sense after a sentence
+  // that is not there, and it is the first thing a recruiter reads.
+  const opener = (sentences[0] || '').trim();
+  if (FRAGMENT_START_RE.test(opener) || ACTION_VERB_START_RE.test(opener)) {
+    reasons.push(`opens without a subject: "${opener.slice(0, 50)}"`);
+  }
+  if (THIRD_PERSON_START_RE.test(opener)) reasons.push(`talks about "the candidate" instead of being their summary: "${opener.slice(0, 50)}"`);
   const actualYears = Math.floor(totalExperienceYears(experience));
   const overclaim = findTenureClaims(text).filter((c) => c.years > actualYears);
   if (overclaim.length) reasons.push(`years-of-experience claim the dates do not support ("${overclaim[0].raw}", the roles add up to ${actualYears})`);
@@ -228,7 +242,7 @@ function verifySummary({ summary, allSourceText, jobDescription, experience, tar
   const jd = words(jobDescription), sw = words(text);
   const jdGrams = new Set();
   for (let i = 0; i + 4 <= jd.length; i++) jdGrams.add(jd.slice(i, i + 4).join(' '));
-  for (let i = 0; i + 4 <= sw.length; i++) if (jdGrams.has(sw.slice(i, i + 4).join(' '))) { reasons.push('copies the posting'); break; }
+  for (let i = 0; i + 4 <= sw.length; i++) if (jdGrams.has(sw.slice(i, i + 4).join(' '))) { reasons.push(`copies four or more words from the posting ("${sw.slice(i, i + 4).join(' ')}"): say it in your own words`); break; }
   if (findBannedLanguage(text).some((f) => !f.fixable)) reasons.push('banned language');
   return { text: reasons.length ? null : scrubBannedLanguage(text).text, reasons };
 }
@@ -379,15 +393,17 @@ function tidySkills(skills, { jobDescription = '', bulletText = '', cap = 15, ca
 
 
 /**
- * A summary that failed only because of one sentence (a phrase copied from the
- * posting, an unsupported term) keeps its other sentences rather than being
- * thrown away for the candidate's old text. Returns null when nothing usable
- * remains or the remainder still fails.
+ * A summary that failed only because of one LATER sentence (a phrase copied from
+ * the posting, an unsupported term) keeps its other sentences rather than being
+ * thrown away for the candidate's old text. The opening sentence is never
+ * dropped. Returns null when nothing usable remains or the remainder still fails.
  */
 function salvageSummary(text, check) {
   const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
   if (sentences.length < 2) return null;
-  for (let drop = 0; drop < sentences.length; drop++) {
+  // The opening sentence says who this is and later sentences lean on it, so it
+  // is never the one dropped: removing it leaves a fragment ("Has also shipped...").
+  for (let drop = sentences.length - 1; drop >= 1; drop--) {
     const kept = sentences.filter((_, i) => i !== drop).join(' ');
     const res = check(kept);
     if (res.text) return res.text;
