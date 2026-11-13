@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Alert, Box, Button, Chip, CircularProgress, Container, Dialog, DialogContent, DialogTitle,
   Grid, IconButton, Paper, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, ToggleButton, ToggleButtonGroup, Typography, Tooltip as MuiTooltip,
+  Tab, Tabs, TextField, ToggleButton, ToggleButtonGroup, Typography, Tooltip as MuiTooltip,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -45,6 +45,9 @@ const shortDate = (d, bucket) => {
     ? date.toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' })
     : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 };
+
+const pct = (v) => (v == null ? 'n/a' : `${Math.round(v * 100)}%`);
+const PLAN_LABELS = { free: 'Free', starter: 'Starter', pro: 'Pro', pro_plus: 'Pro Plus', enterprise: 'Enterprise (legacy)' };
 
 const Stat = ({ label, value, sub, color }) => (
   <Paper sx={{ p: 2.5, height: '100%' }}>
@@ -141,7 +144,8 @@ function UserDialog({ userId, range, onClose }) {
                       <TableRow key={i}>
                         <TableCell>{new Date(c.createdAt).toLocaleString()}</TableCell>
                         <TableCell>{c.feature || c.route || 'unattributed'}</TableCell>
-                        <TableCell>{c.model}{c.status === 'error' && <Chip label="failed" size="small" color="error" sx={{ ml: 1 }} />}</TableCell>
+                        <TableCell>{c.model}{c.status === 'error' && <Chip label="failed" size="small" color="error" sx={{ ml: 1 }} />}
+                          {c.error && <Typography variant="caption" color="error" sx={{ display: 'block' }}>{c.error}</Typography>}</TableCell>
                         <TableCell align="right">{c.inputTokens.toLocaleString()}</TableCell>
                         <TableCell align="right">{c.outputTokens.toLocaleString()}</TableCell>
                         <TableCell align="right">{usd(c.costUsd)}</TableCell>
@@ -156,6 +160,141 @@ function UserDialog({ userId, range, onClose }) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MoneyRow({ label, value, hint, strong, color }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', py: 1, borderTop: strong ? '2px solid' : '1px solid', borderColor: strong ? 'text.primary' : 'divider' }}>
+      <Box>
+        <Typography fontWeight={strong ? 700 : 500}>{label}</Typography>
+        {hint && <Typography variant="caption" color="text.secondary">{hint}</Typography>}
+      </Box>
+      <Typography fontWeight={strong ? 700 : 600} variant={strong ? 'h6' : 'body1'} sx={{ color: color || 'text.primary' }}>{value}</Typography>
+    </Box>
+  );
+}
+
+function BusinessPanel({ biz }) {
+  if (!biz) return <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>;
+  const { subscribers: sub, month: m, plans } = biz;
+  const noRevenue = m.revenue === 0;
+  const profitable = m.profitProjected >= 0;
+
+  let verdict;
+  if (noRevenue) {
+    verdict = {
+      severity: 'warning',
+      title: 'No revenue yet',
+      text: `There are no paying subscribers and no credit pack sales this month. AI has cost ${usd(m.aiCost)} so far (about ${usd(m.aiCostProjected)} by month end), all of it paid by us.`,
+    };
+  } else if (profitable) {
+    verdict = {
+      severity: 'success',
+      title: 'We are making money',
+      text: `Projected profit this month is ${usd(m.profitProjected)}. AI costs ${pct(m.aiShareOfRevenue)} of what subscribers pay right now.`,
+    };
+  } else {
+    verdict = {
+      severity: 'error',
+      title: 'We are behind',
+      text: `Projected loss this month is ${usd(Math.abs(m.profitProjected))}. AI cost is on track for ${usd(m.aiCostProjected)} against ${usd(m.revenue)} of revenue.`,
+    };
+  }
+
+  return (
+    <Box>
+      <Alert severity={verdict.severity} sx={{ mb: 3 }}>
+        <Typography fontWeight={700}>{verdict.title}</Typography>
+        {verdict.text}
+      </Alert>
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={6} md={3}>
+          <Stat label="Paying subscribers" value={sub.paying.toLocaleString()} sub={`${sub.newThisMonth} new, ${sub.cancelledThisMonth} cancelled this month`} />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Stat label="Monthly revenue" value={usd(m.revenue)} sub={`${usd(sub.mrr)} subscriptions + ${usd(m.creditPackRevenue)} credit packs`} color={COLORS.SUCCESS} />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Stat label="AI cost this month" value={usd(m.aiCost)} sub={`${usd(m.aiCostProjected)} projected, ${usd(m.aiCostLastMonth)} last month`} color={COLORS.WARNING} />
+        </Grid>
+        <Grid item xs={6} md={3}>
+          <Stat
+            label="Projected profit"
+            value={usd(m.profitProjected)}
+            sub={noRevenue ? 'No revenue to compare against' : `${pct(m.profitProjected / m.revenue)} margin`}
+            color={m.profitProjected >= 0 ? COLORS.SUCCESS : '#dc2626'}
+          />
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={5}>
+          <Paper sx={{ p: 2.5, height: '100%' }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>Where the money goes this month</Typography>
+            <MoneyRow label="Subscriptions" value={usd(sub.mrr)} hint={`${sub.paying} paying, ${usd(sub.arpu)} average per subscriber`} />
+            <MoneyRow label="Credit packs" value={usd(m.creditPackRevenue)} hint={`${m.creditPacksSold} sold this month`} />
+            <MoneyRow label="Revenue" value={usd(m.revenue)} strong />
+            <MoneyRow label="Payment fees (estimate)" value={`- ${usd(m.estimatedFees)}`} hint={`${biz.assumptions.stripeFeePercent}% + $${biz.assumptions.stripeFeeFixedUsd.toFixed(2)} per charge`} />
+            <MoneyRow label="AI cost so far" value={`- ${usd(m.aiCost)}`} hint="Anthropic and OpenAI, month to date" />
+            <MoneyRow label="Profit so far" value={usd(m.profit)} strong color={m.profit >= 0 ? COLORS.SUCCESS : '#dc2626'} />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Subscription revenue is the full monthly run rate, while AI cost is only counted up to today, so profit so far looks
+              better early in the month. Projected profit above scales AI cost to the whole month.
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={7}>
+          <Paper sx={{ p: 2.5, height: '100%' }}>
+            <Typography variant="h6" fontWeight={600} gutterBottom>Who is using AI without paying</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={6}><Stat label="Free users" value={sub.freeUsers.toLocaleString()} sub={`${usd(m.freeUsersCost)} of AI this month`} /></Grid>
+              <Grid item xs={6}><Stat label="Paid tier, not paying" value={sub.comped.toLocaleString()} sub="Granted by hand or a promo code" /></Grid>
+              <Grid item xs={6}><Stat label="Annual run rate" value={usd(sub.arr)} sub="Subscriptions only" /></Grid>
+              <Grid item xs={6}><Stat label="Guests and background jobs" value={usd(m.noUserCost)} sub="AI with no signed-in user" /></Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+      </Grid>
+
+      <Paper sx={{ p: 2.5 }}>
+        <Typography variant="h6" fontWeight={600} gutterBottom>By plan, this month</Typography>
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Plan</TableCell>
+                <TableCell align="right">Users</TableCell>
+                <TableCell align="right">Paying</TableCell>
+                <TableCell align="right">Not paying</TableCell>
+                <TableCell align="right">Revenue per month</TableCell>
+                <TableCell align="right">AI cost</TableCell>
+                <TableCell align="right">AI cost per active user</TableCell>
+                <TableCell align="right">Profit</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {plans.map((p) => (
+                <TableRow key={p.plan}>
+                  <TableCell><strong>{PLAN_LABELS[p.plan] || p.plan}</strong></TableCell>
+                  <TableCell align="right">{p.users.toLocaleString()}</TableCell>
+                  <TableCell align="right">{p.paying.toLocaleString()}</TableCell>
+                  <TableCell align="right">{p.plan === 'free' ? 'n/a' : p.comped.toLocaleString()}</TableCell>
+                  <TableCell align="right">{usd(p.mrr)}</TableCell>
+                  <TableCell align="right">{usd(p.aiCostMonth)}</TableCell>
+                  <TableCell align="right">{p.activeUsers ? usd(p.costPerActiveUser) : 'n/a'}</TableCell>
+                  <TableCell align="right"><strong style={{ color: p.profitMonth >= 0 ? undefined : '#dc2626' }}>{usd(p.profitMonth)}</strong></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+          Revenue counts only active subscriptions with a payment method. Payment fees are estimated, not read from Stripe.
+        </Typography>
+      </Paper>
+    </Box>
   );
 }
 
@@ -174,23 +313,27 @@ export default function AdminAIUsage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openUser, setOpenUser] = useState(null);
+  const [tab, setTab] = useState('profit');
+  const [biz, setBiz] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [o, s, m, f, u] = await Promise.all([
+      const [o, s, m, f, u, b] = await Promise.all([
         adminAPI.aiUsageOverview(),
         adminAPI.aiUsageSeries({ range, by: seriesBy, bucket }),
         adminAPI.aiUsageBreakdown({ range, by: 'model' }),
         adminAPI.aiUsageBreakdown({ range, by: 'feature' }),
         adminAPI.aiUsageUsers({ range, sort, search: search || undefined, limit: 100 }),
+        adminAPI.aiUsageBusiness(),
       ]);
       setOverview(o.data);
       setSeries(s.data);
       setByModel(m.data.rows);
       setByFeature(f.data.rows);
       setUsers(u.data);
+      setBiz(b.data);
     } catch (err) {
       console.error('Failed to load AI usage:', err);
       setError('Could not load AI usage. Try again in a moment.');
@@ -236,18 +379,20 @@ export default function AdminAIUsage() {
     ? Math.round(((overview.projectedMonthUsd - overview.lastMonth.costUsd) / overview.lastMonth.costUsd) * 100)
     : null;
   const unpriced = (overview?.allTime.unpriced || 0);
+  // Net needs a month of revenue against about a month of cost.
+  const netComparable = range === 'mtd' || range === '30d';
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
         <IconButton onClick={() => navigate('/admin')} aria-label="Back to admin dashboard"><BackIcon /></IconButton>
         <AIIcon sx={{ color: COLORS.PRIMARY, fontSize: 32 }} />
-        <Typography variant="h4" fontWeight={700} sx={{ flexGrow: 1 }}>AI usage and cost</Typography>
+        <Typography variant="h4" fontWeight={700} sx={{ flexGrow: 1 }}>Profit and AI cost</Typography>
         <MuiTooltip title="Refresh"><IconButton onClick={load} aria-label="Refresh"><RefreshIcon /></IconButton></MuiTooltip>
         <Button startIcon={<DownloadIcon />} onClick={exportCsv} variant="outlined" size="small">Export CSV</Button>
       </Box>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        What we pay Anthropic and OpenAI, by user, feature and model. Cost is computed from the token counts each provider returns.
+        What subscribers pay us, what we pay Anthropic and OpenAI, and what is left. AI cost is computed from the token counts each provider returns.
         {overview?.trackingSince && ` Tracking since ${new Date(overview.trackingSince).toLocaleDateString()}.`}
       </Typography>
 
@@ -259,10 +404,20 @@ export default function AdminAIUsage() {
         </Alert>
       )}
 
-      {loading && !overview ? (
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Tab value="profit" label="Profit" />
+        <Tab value="usage" label="AI usage" />
+        <Tab value="users" label="Users" />
+      </Tabs>
+
+      {tab === 'profit' && <BusinessPanel biz={biz} />}
+
+      {tab !== 'profit' && (loading && !overview ? (
         <Box sx={{ textAlign: 'center', py: 8 }}><CircularProgress /></Box>
       ) : overview && (
         <>
+          {tab === 'usage' && (
+          <>
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={6} md={2.4}><Stat label="Today" value={usd(overview.today.costUsd)} sub={`${overview.today.calls.toLocaleString()} calls`} /></Grid>
             <Grid item xs={6} md={2.4}><Stat label="This month so far" value={usd(month.costUsd)} sub={`${month.calls.toLocaleString()} calls, ${overview.activeUsersThisMonth} users`} color={COLORS.WARNING} /></Grid>
@@ -324,6 +479,17 @@ export default function AdminAIUsage() {
             <Grid item xs={12} md={6}><UsageTable title="By feature" nameLabel="Feature" rows={byFeature} /></Grid>
           </Grid>
 
+          </>
+          )}
+
+          {tab === 'users' && (
+          <>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+            <ToggleButtonGroup size="small" exclusive value={range} onChange={(_, v) => v && setRange(v)} aria-label="Date range">
+              {RANGES.map((r) => <ToggleButton key={r.value} value={r.value}>{r.label}</ToggleButton>)}
+            </ToggleButtonGroup>
+            {loading && <CircularProgress size={20} />}
+          </Box>
           <Paper sx={{ p: 2.5 }}>
             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
               <Typography variant="h6" fontWeight={600} sx={{ flexGrow: 1 }}>Users</Typography>
@@ -340,12 +506,15 @@ export default function AdminAIUsage() {
                   <TableRow>
                     <TableCell>User</TableCell><TableCell>Tier</TableCell>
                     <TableCell align="right">Calls</TableCell><TableCell align="right">Tokens</TableCell>
-                    <TableCell align="right">Cost</TableCell><TableCell>Last call</TableCell>
+                    <TableCell align="right">AI cost</TableCell>
+                    <TableCell align="right">Pays per month</TableCell>
+                    <TableCell align="right">{netComparable ? 'Net this month' : 'Net'}</TableCell>
+                    <TableCell>Last call</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {users.users.length === 0 && (
-                    <TableRow><TableCell colSpan={6}><Typography variant="body2" color="text.secondary">No users with AI calls in this range.</Typography></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8}><Typography variant="body2" color="text.secondary">No users with AI calls in this range.</Typography></TableCell></TableRow>
                   )}
                   {users.users.map((u) => (
                     <TableRow key={u.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpenUser(u.id)}>
@@ -357,6 +526,12 @@ export default function AdminAIUsage() {
                       <TableCell align="right">{u.calls.toLocaleString()}</TableCell>
                       <TableCell align="right">{tokens(u)}</TableCell>
                       <TableCell align="right"><strong>{usd(u.costUsd)}</strong></TableCell>
+                      <TableCell align="right">{u.paysMonthly ? usd(u.paysMonthly) : 'Free'}</TableCell>
+                      <TableCell align="right">
+                        {netComparable ? (
+                          <strong style={{ color: u.paysMonthly - u.costUsd >= 0 ? undefined : '#dc2626' }}>{usd(u.paysMonthly - u.costUsd)}</strong>
+                        ) : 'n/a'}
+                      </TableCell>
                       <TableCell>{u.lastCallAt ? new Date(u.lastCallAt).toLocaleDateString() : ''}</TableCell>
                     </TableRow>
                   ))}
@@ -367,6 +542,7 @@ export default function AdminAIUsage() {
                       <TableCell align="right">{users.noUser.calls.toLocaleString()}</TableCell>
                       <TableCell align="right">{tokens(users.noUser)}</TableCell>
                       <TableCell align="right"><strong>{usd(users.noUser.costUsd)}</strong></TableCell>
+                      <TableCell /><TableCell />
                       <TableCell />
                     </TableRow>
                   )}
@@ -374,8 +550,10 @@ export default function AdminAIUsage() {
               </Table>
             </Box>
           </Paper>
+          </>
+          )}
         </>
-      )}
+      ))}
 
       <UserDialog userId={openUser} range={range} onClose={() => setOpenUser(null)} />
     </Container>

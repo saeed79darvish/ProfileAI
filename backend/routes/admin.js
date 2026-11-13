@@ -101,6 +101,10 @@ function aiRange(range = '30d') {
 }
 
 const num = (v) => Number(v) || 0;
+// "claude-haiku-4-5-20251001" and "claude-haiku-4-5" are the same model.
+const MODEL_EXPR = `regexp_replace("model", '-[0-9]{8}$', '')`;
+// Calls from routes with no feature tag are labelled by the route that made them.
+const FEATURE_EXPR = `COALESCE("feature", "route", 'unattributed')`;
 const totalsRow = (r = {}) => ({
   calls: num(r.calls),
   costUsd: num(r.cost),
@@ -159,7 +163,7 @@ router.get('/ai-usage/timeseries', async (req, res) => {
   try {
     const { from, range } = aiRange(req.query.range);
     const bucket = req.query.bucket === 'month' ? 'month' : 'day';
-    const dim = { provider: '"provider"', model: '"model"', feature: `COALESCE("feature",'unattributed')` }[req.query.by];
+    const dim = { provider: '"provider"', model: MODEL_EXPR, feature: FEATURE_EXPR }[req.query.by];
     const rows = await aiQuery(
       `SELECT date_trunc('${bucket}', "createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket,
               ${dim ? `${dim} AS series,` : ''} ${SUMS}
@@ -182,8 +186,9 @@ router.get('/ai-usage/breakdown', async (req, res) => {
   try {
     const { from, range } = aiRange(req.query.range);
     const by = ['provider', 'model', 'feature', 'route', 'operation'].includes(req.query.by) ? req.query.by : 'model';
+    const keyExpr = by === 'model' ? MODEL_EXPR : by === 'feature' ? FEATURE_EXPR : `COALESCE("${by}"::text, 'unattributed')`;
     const rows = await aiQuery(
-      `SELECT COALESCE("${by}"::text, 'unattributed') AS key,
+      `SELECT ${keyExpr} AS key,
               ${by === 'model' ? `MIN("provider") AS provider,` : ''}
               ${SUMS}, COUNT(DISTINCT "userId") AS users,
               COALESCE(AVG("latencyMs"),0) AS latency
@@ -214,8 +219,12 @@ router.get('/ai-usage/users', async (req, res) => {
               COALESCE(SUM(c."inputTokens"),0) AS input, COALESCE(SUM(c."outputTokens"),0) AS output,
               COALESCE(SUM(c."cacheReadTokens"),0) AS cache_read, COALESCE(SUM(c."cacheWriteTokens"),0) AS cache_write,
               COUNT(*) FILTER (WHERE c.status = 'error') AS errors, COUNT(*) FILTER (WHERE NOT c.priced) AS unpriced,
-              MAX(c."createdAt") AS last_call
+              MAX(c."createdAt") AS last_call, MAX(PAY.monthly) AS pays_monthly
        FROM "AIApiCalls" c LEFT JOIN "Users" u ON u.id = c."userId"
+       LEFT JOIN (
+         SELECT "userId", CASE WHEN "billingCycle" = 'yearly' THEN amount / 12 ELSE amount END AS monthly
+         FROM "Subscriptions" WHERE status = 'active' AND amount > 0 AND "paymentMethod" IS NOT NULL
+       ) PAY ON PAY."userId" = c."userId"
        WHERE c."userId" IS NOT NULL ${from ? 'AND c."createdAt" >= :from' : ''}
          ${search ? `AND (u."email" ILIKE :q OR u."firstName" ILIKE :q OR u."lastName" ILIKE :q)` : ''}
        GROUP BY c."userId", u."email", u."firstName", u."lastName", u."subscriptionTier", u."role"
@@ -230,7 +239,7 @@ router.get('/ai-usage/users', async (req, res) => {
       range,
       users: rows.map((r) => ({
         id: r.id, email: r.email, name: [r.firstName, r.lastName].filter(Boolean).join(' ') || null,
-        tier: r.tier || 'free', role: r.role, lastCallAt: r.last_call, ...totalsRow(r),
+        tier: r.tier || 'free', role: r.role, lastCallAt: r.last_call, paysMonthly: num(r.pays_monthly), ...totalsRow(r),
       })),
       noUser: totalsRow(system),
     });
@@ -249,8 +258,8 @@ router.get('/ai-usage/users/:id', async (req, res) => {
     const [user, totals, byFeature, byModel, daily, recent] = await Promise.all([
       User.findByPk(req.params.id, { attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'createdAt'] }),
       aiQuery(`SELECT ${SUMS} FROM "AIApiCalls" WHERE ${where}`, p),
-      aiQuery(`SELECT COALESCE("feature",'unattributed') AS key, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
-      aiQuery(`SELECT "model" AS key, MIN("provider") AS provider, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
+      aiQuery(`SELECT ${FEATURE_EXPR} AS key, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
+      aiQuery(`SELECT ${MODEL_EXPR} AS key, MIN("provider") AS provider, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
       aiQuery(`SELECT date_trunc('day', "createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY 1`, p),
       aiQuery(`SELECT "createdAt", "provider", "model", "operation", "feature", "route", "inputTokens", "outputTokens", "costUsd", "latencyMs", "status", "error"
                FROM "AIApiCalls" WHERE ${where} ORDER BY "createdAt" DESC LIMIT 50`, p),
@@ -271,13 +280,131 @@ router.get('/ai-usage/users/:id', async (req, res) => {
   }
 });
 
+// @route   GET /api/admin/ai-usage/business
+// @desc    Are we making money? Paying subscribers, monthly revenue, AI cost,
+//          estimated payment fees and the margin, overall and per plan.
+//
+// "Paying" means an active Subscription row with a payment method and an
+// amount above zero. Users whose tier was set by hand or by a promo code have
+// no such row, so they show up as "comped": they use AI but pay nothing.
+// Stripe fees are an estimate (STRIPE_FEE_PERCENT, STRIPE_FEE_FIXED_USD).
+router.get('/ai-usage/business', async (req, res) => {
+  try {
+    const feePct = Number(process.env.STRIPE_FEE_PERCENT) || 2.9;
+    const feeFixed = Number(process.env.STRIPE_FEE_FIXED_USD) || 0.3;
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const elapsedDays = Math.max(1, (now - monthStart) / 86400000);
+    const PAYING = `s.status = 'active' AND s.amount > 0 AND s."paymentMethod" IS NOT NULL`;
+    const MONTHLY = `CASE WHEN s."billingCycle" = 'yearly' THEN s.amount / 12 ELSE s.amount END`;
+
+    const [paying, people, tierCost, packs, packsLast, started, cancelled, costMonth, costLast, noUser] = await Promise.all([
+      aiQuery(`SELECT s."planType" AS plan, COUNT(*) AS subs, COALESCE(SUM(${MONTHLY}),0) AS mrr,
+                      COUNT(*) FILTER (WHERE s."billingCycle" = 'yearly') AS yearly
+               FROM "Subscriptions" s WHERE ${PAYING} GROUP BY 1 ORDER BY 3 DESC`),
+      aiQuery(`SELECT u."subscriptionTier"::text AS tier, u.role::text AS role, COUNT(*) AS users,
+                      COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "Subscriptions" s WHERE s."userId" = u.id AND ${PAYING})) AS paying
+               FROM "Users" u WHERE u."isActive" = true GROUP BY 1, 2`),
+      aiQuery(`SELECT COALESCE(u."subscriptionTier"::text, 'free') AS tier, COUNT(DISTINCT c."userId") AS active_users,
+                      COALESCE(SUM(c."costUsd"),0) AS cost, COUNT(*) AS calls
+               FROM "AIApiCalls" c JOIN "Users" u ON u.id = c."userId"
+               WHERE c."createdAt" >= :from GROUP BY 1`, { from: monthStart }),
+      aiQuery(`SELECT COUNT(*) AS n, COALESCE(SUM("amountPaid"),0) AS revenue FROM "CreditPacks"
+               WHERE "purchasedAt" >= :from AND status <> 'refunded' AND "amountPaid" > 0`, { from: monthStart }),
+      aiQuery(`SELECT COUNT(*) AS n, COALESCE(SUM("amountPaid"),0) AS revenue FROM "CreditPacks"
+               WHERE "purchasedAt" >= :from AND "purchasedAt" < :to AND status <> 'refunded' AND "amountPaid" > 0`, { from: lastMonthStart, to: monthStart }),
+      aiQuery(`SELECT COUNT(*) AS n FROM "Subscriptions" s WHERE ${PAYING} AND s."startDate" >= :from`, { from: monthStart }),
+      aiQuery(`SELECT COUNT(*) AS n FROM "Subscriptions" s WHERE s.status IN ('cancelled','expired') AND s.amount > 0 AND s."updatedAt" >= :from`, { from: monthStart }),
+      aiQuery(`SELECT COALESCE(SUM("costUsd"),0) AS cost, COUNT(*) AS calls FROM "AIApiCalls" WHERE "createdAt" >= :from`, { from: monthStart }),
+      aiQuery(`SELECT COALESCE(SUM("costUsd"),0) AS cost FROM "AIApiCalls" WHERE "createdAt" >= :from AND "createdAt" < :to`, { from: lastMonthStart, to: monthStart }),
+      aiQuery(`SELECT COALESCE(SUM("costUsd"),0) AS cost FROM "AIApiCalls" WHERE "userId" IS NULL AND "createdAt" >= :from`, { from: monthStart }),
+    ]);
+
+    const subs = paying.reduce((a, r) => a + num(r.subs), 0);
+    const mrr = paying.reduce((a, r) => a + num(r.mrr), 0);
+    const packRevenue = num(packs[0].revenue);
+    const revenueMonth = mrr + packRevenue; // run-rate subscriptions plus packs sold this month
+    const charges = subs + num(packs[0].n);
+    const fees = revenueMonth * (feePct / 100) + charges * feeFixed;
+    const aiCost = num(costMonth[0].cost);
+    const aiCostProjected = (aiCost / elapsedDays) * daysInMonth;
+    const profit = revenueMonth - fees - aiCost;
+    const profitProjected = revenueMonth - fees - aiCostProjected;
+
+    // Per plan: who pays, who is comped, what each costs.
+    const planKeys = new Set([...paying.map((r) => r.plan), ...people.map((r) => r.tier), ...tierCost.map((r) => r.tier)]);
+    const plans = [...planKeys].filter(Boolean).map((plan) => {
+      const pay = paying.find((r) => r.plan === plan);
+      const usersInTier = people.filter((r) => r.tier === plan);
+      const totalUsers = usersInTier.reduce((a, r) => a + num(r.users), 0);
+      const payingUsers = usersInTier.reduce((a, r) => a + num(r.paying), 0);
+      const cost = tierCost.find((r) => r.tier === plan);
+      const revenue = num(pay?.mrr);
+      const planCost = num(cost?.cost);
+      return {
+        plan,
+        users: totalUsers,
+        paying: num(pay?.subs) || payingUsers,
+        comped: plan === 'free' ? 0 : Math.max(0, totalUsers - payingUsers),
+        yearly: num(pay?.yearly),
+        mrr: revenue,
+        aiCostMonth: planCost,
+        activeUsers: num(cost?.active_users),
+        profitMonth: revenue - planCost,
+        costPerActiveUser: num(cost?.active_users) ? planCost / num(cost.active_users) : 0,
+      };
+    }).sort((a, b) => b.mrr - a.mrr || b.users - a.users);
+
+    const freeCost = num(tierCost.find((r) => r.tier === 'free')?.cost);
+    const compedCost = plans.filter((p) => p.plan !== 'free').reduce((a, p) => a + (p.comped > 0 ? p.aiCostMonth : 0), 0);
+
+    res.json({
+      assumptions: { stripeFeePercent: feePct, stripeFeeFixedUsd: feeFixed, currency: 'USD' },
+      subscribers: {
+        paying: subs,
+        mrr, arr: mrr * 12,
+        newThisMonth: num(started[0].n),
+        cancelledThisMonth: num(cancelled[0].n),
+        arpu: subs ? mrr / subs : 0,
+        totalUsers: people.reduce((a, r) => a + num(r.users), 0),
+        freeUsers: people.filter((r) => r.tier === 'free').reduce((a, r) => a + num(r.users), 0),
+        comped: plans.reduce((a, p) => a + p.comped, 0),
+      },
+      month: {
+        subscriptionRevenue: mrr,
+        creditPackRevenue: packRevenue,
+        creditPacksSold: num(packs[0].n),
+        lastMonthPackRevenue: num(packsLast[0].revenue),
+        revenue: revenueMonth,
+        estimatedFees: fees,
+        aiCost,
+        aiCostProjected,
+        aiCostLastMonth: num(costLast[0].cost),
+        profit,
+        profitProjected,
+        margin: revenueMonth ? profit / revenueMonth : null,
+        aiShareOfRevenue: revenueMonth ? aiCost / revenueMonth : null,
+        freeUsersCost: freeCost,
+        compedUsersCost: compedCost,
+        noUserCost: num(noUser[0].cost),
+      },
+      plans,
+    });
+  } catch (error) {
+    console.error('AI usage business error:', error);
+    res.status(500).json({ error: 'Failed to load business summary' });
+  }
+});
+
 // @route   GET /api/admin/ai-usage/export?range=30d   (CSV, one row per user)
 router.get('/ai-usage/export', async (req, res) => {
   try {
     const { from, range } = aiRange(req.query.range);
     const rows = await aiQuery(
       `SELECT COALESCE(u."email",'(no user)') AS email, COALESCE(u."subscriptionTier"::text,'') AS tier,
-              COALESCE(c."feature",'unattributed') AS feature, c."provider", c."model",
+              COALESCE(c."feature", c."route", 'unattributed') AS feature, c."provider", regexp_replace(c."model", '-[0-9]{8}$', '') AS model,
               COUNT(*) AS calls, SUM(c."inputTokens") AS input, SUM(c."outputTokens") AS output, SUM(c."costUsd") AS cost
        FROM "AIApiCalls" c LEFT JOIN "Users" u ON u.id = c."userId"
        ${from ? 'WHERE c."createdAt" >= :from' : ''}

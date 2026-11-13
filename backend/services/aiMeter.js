@@ -91,7 +91,7 @@ function meterAnthropic(client) {
         const u = res?.usage || {};
         record({
           provider: 'anthropic',
-          model: res?.model || params?.model,
+          model: params?.model || res?.model,
           usage: {
             input: u.input_tokens || 0,
             output: u.output_tokens || 0,

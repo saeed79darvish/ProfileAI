@@ -1472,6 +1472,7 @@ export const adminAPI = {
   aiUsageSeries: (params = {}) => api.get('/admin/ai-usage/timeseries', { params }),
   aiUsageBreakdown: (params = {}) => api.get('/admin/ai-usage/breakdown', { params }),
   aiUsageUsers: (params = {}) => api.get('/admin/ai-usage/users', { params }),
+  aiUsageBusiness: () => api.get('/admin/ai-usage/business'),
   aiUsageUser: (id, params = {}) => api.get(`/admin/ai-usage/users/${id}`, { params }),
   aiUsageExport: (params = {}) => api.get('/admin/ai-usage/export', { params, responseType: 'blob' })
 };
