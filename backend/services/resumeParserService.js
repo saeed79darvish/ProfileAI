@@ -2793,18 +2793,21 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       const polishPromise = polishEnabled
         ? (async () => {
             try {
-              const cfg = polish.buildPolishPrompt({
+              return await polish.run({
                 profile: profileData,
                 jobDescription,
                 targetTitle,
                 company: targetCompany,
                 keywords: extractedKeywords,
                 selected: tailorSettings && tailorSettings.experienceLines,
+                ask: (prompt, o = {}) => callAI({ system: o.system, prompt, max_tokens: o.max_tokens || 3500, retries: 1 }),
+                // A small model checks every new bullet against its source: cheap,
+                // and it catches the embellishments code cannot see.
+                askFast: (prompt) => callAI({ prompt, max_tokens: 1200, retries: 1, model: HAIKU_MODEL, temperature: 0 }),
+                // One repair round for what failed, only while the clock allows.
+                canRetry: () => elapsedMs() < 62000,
+                repair: repairTruncatedJSON,
               });
-              const raw = await callAI({ system: cfg.system, prompt: cfg.prompt, max_tokens: cfg.max_tokens, retries: 1 });
-              const parsed = polish.parsePolish(raw, repairTruncatedJSON);
-              if (!parsed) return { error: 'unparseable answer' };
-              return { verdict: polish.verifyPolish({ polished: parsed, profile: profileData, jobDescription, targetTitle, selected: tailorSettings && tailorSettings.experienceLines }) };
             } catch (err) {
               return { error: err.message };
             }
@@ -3246,12 +3249,12 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
         const result = await polishPromise;
         if (result && result.verdict) {
           const applied = polish.applyPolish(tailoredData, profileData, result.verdict);
-          polishReport = { appliedRoles: applied.appliedRoles, appliedIndexes: applied.appliedIndexes, rejected: applied.rejected, summaryApplied: applied.summaryApplied };
+          polishReport = { appliedRoles: applied.appliedRoles, appliedIndexes: applied.appliedIndexes, rejected: applied.rejected, summaryApplied: applied.summaryApplied, repaired: !!result.repaired };
           console.log(`[ProfilleAI] Polish: ${applied.appliedRoles.length}/${(profileData.experience || []).length} role(s) reworded, summary ${applied.summaryApplied ? 'rewritten' : 'kept'}${applied.rejected.length ? `; rejected: ${applied.rejected.join(' | ')}` : ''}`);
           tailoredData.changelog.push({
             section: 'experience, summary',
             action: 'polished',
-            detail: `Reworded ${applied.appliedRoles.length} role(s)${applied.summaryApplied ? ' and the summary' : ''}; every number, tool and title was checked against your resume.${applied.rejected.length ? ` Kept your original wording where a rewrite added something new: ${applied.rejected.map((r) => r.split(':')[0]).join(', ')}.` : ''}`,
+            detail: `Reworded ${applied.appliedRoles.length} role(s)${applied.summaryApplied ? ' and the summary' : ''}${result.repaired ? ' (one correction round)' : ''}; every number, tool and title was checked against your resume.${applied.rejected.length ? ` Kept your original wording where a rewrite added something new: ${applied.rejected.map((r) => r.split(':')[0]).join(', ')}.` : ''}`,
           });
         } else if (result && result.error) {
           console.warn('[ProfilleAI] Polish skipped:', result.error);
