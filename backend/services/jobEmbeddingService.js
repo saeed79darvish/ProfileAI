@@ -244,7 +244,7 @@ let openaiClient = null;
 
 function getClient() {
   if (!openaiClient) {
-    openaiClient = new OpenAI({
+    openaiClient = require('./aiMeter').meterOpenAI(new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
       // Transient "Premature close" / "Invalid response body" errors are
       // undici connection drops to OpenAI — retryable. The SDK retries
@@ -255,7 +255,7 @@ function getClient() {
       // below the SDK's 10-minute default so we fail fast and retry.
       maxRetries: 4,
       timeout: 15000,
-    });
+    }));
   }
   return openaiClient;
 }

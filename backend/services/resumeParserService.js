@@ -51,9 +51,9 @@ const {
   repairJoinedCompounds,
 } = require('./resume/textNormalizer');
 
-const anthropic = new Anthropic.default({
+const anthropic = require('./aiMeter').meterAnthropic(new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY
-});
+}));
 
 // Review-note phrasing that is commentary ABOUT a resume, never content OF one.
 // Used on both ends: stripping annotations an uploaded document already carried,
@@ -357,7 +357,7 @@ function applyDeterministicRepairs(draft, originalSourceText, gapSelections) {
 // OpenAI fallback when Claude is unavailable
 const OpenAI = require('openai');
 const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60000, maxRetries: 1 })
+  ? require('./aiMeter').meterOpenAI(new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60000, maxRetries: 1 }))
   : null;
 
 // Fallback: call OpenAI GPT-4o when Claude is down

@@ -20,6 +20,7 @@ const SavedJob = require('./SavedJob');
 const PhoneScreeningCall = require('./PhoneScreeningCall');
 const PasswordReset = require('./PasswordReset')(sequelize);
 const AIUsage = require('./AIUsage');
+const AIApiCall = require('./AIApiCall');
 const Notification = require('./Notification');
 const SupportTicket = require('./SupportTicket');
 const SavedPost = require('./SavedPost');
@@ -1059,6 +1060,7 @@ module.exports = {
   PhoneScreeningCall,
   PasswordReset,
   AIUsage,
+  AIApiCall,
   Notification,
   SupportTicket,
   SavedPost,

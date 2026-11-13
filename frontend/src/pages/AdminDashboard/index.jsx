@@ -136,6 +136,7 @@ export default function AdminDashboard() {
             icon={<AIIcon />}
             color={STAT_CARDS_CONFIG.AI.color}
             subtitle={`${stats.ai.totalUsage} all-time`}
+            onClick={() => navigate('/admin/ai-usage')}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -249,6 +250,11 @@ export default function AdminDashboard() {
               <Chip
                 icon={<PromoIcon />} label="Manage Promos" clickable
                 onClick={() => navigate('/admin/promos')}
+                sx={{ px: 1, py: 2.5, fontSize: '0.875rem' }}
+              />
+              <Chip
+                icon={<AIIcon />} label="AI usage and cost" clickable
+                onClick={() => navigate('/admin/ai-usage')}
                 sx={{ px: 1, py: 2.5, fontSize: '0.875rem' }}
               />
               <Chip

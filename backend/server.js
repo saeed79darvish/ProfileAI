@@ -483,6 +483,14 @@ const startServer = async () => {
       console.warn('⚠️  AIUsage featureType enum backfill skipped:', err.message);
     }
 
+    // AI provider call log (real tokens + cost per call) for the admin usage dashboard.
+    try {
+      const { up: ensureAIApiCallsTable } = require('./scripts/migrations/ensureAIApiCallsTable');
+      await ensureAIApiCallsTable();
+    } catch (err) {
+      console.warn('⚠️  AIApiCalls table ensure skipped:', err.message);
+    }
+
     // Idempotent, additive column add for the daily job-match digest email's
     // opt-out flag (Users.jobDigestOptOut). Production skips sequelize.sync,
     // so this additive ALTER ... ADD COLUMN IF NOT EXISTS is how the column

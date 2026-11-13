@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const logger = require('../utils/logger');
+const aiMeter = require('../services/aiMeter');
 
 /**
  * A rejected token and an unreachable database are different failures, and
@@ -90,6 +91,7 @@ const authMiddleware = async (req, res, next) => {
 
     req.user = user;
     req.userId = user.id;
+    aiMeter.setContext({ userId: user.id, route: `${req.method} ${req.baseUrl || ''}${req.path || ''}` });
     next();
   } catch (error) {
     if (isTokenError(error)) {
@@ -119,6 +121,7 @@ const optionalAuth = async (req, res, next) => {
     if (user && user.isActive) {
       req.user = user;
       req.userId = user.id;
+      aiMeter.setContext({ userId: user.id, route: `${req.method} ${req.baseUrl || ''}${req.path || ''}` });
     }
     next();
   } catch (error) {

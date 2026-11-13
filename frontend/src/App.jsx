@@ -80,6 +80,7 @@ const AdminDashboard = lazyWithReload(() => import('./pages/AdminDashboard'));
 const AdminUsers = lazyWithReload(() => import('./pages/AdminUsers'));
 const AdminPromos = lazyWithReload(() => import('./pages/AdminPromos'));
 const AdminSupport = lazyWithReload(() => import('./pages/AdminSupport'));
+const AdminAIUsage = lazyWithReload(() => import('./pages/AdminAIUsage'));
 const RecruiterOnboarding = lazyWithReload(() => import('./pages/RecruiterOnboarding'));
 const ApplyPilotLanding = lazyWithReload(() => import('./pages/AgentArena/LandingPage'));
 const InterviewPrep = lazyWithReload(() => import('./pages/InterviewPrep'));
@@ -581,6 +582,14 @@ function AppContent() {
               element={
                 <PrivateRoute allowedRoles={['admin']}>
                   <AdminSupport />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/ai-usage"
+              element={
+                <PrivateRoute allowedRoles={['admin']}>
+                  <AdminAIUsage />
                 </PrivateRoute>
               }
             />

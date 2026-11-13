@@ -1465,7 +1465,15 @@ export const adminAPI = {
   createPromo: (data) => api.post('/admin/promos', data),
   updatePromo: (id, data) => api.put(`/admin/promos/${id}`, data),
   deletePromo: (id) => api.delete(`/admin/promos/${id}`),
-  getRedemptions: (id) => api.get(`/admin/promos/${id}/redemptions`)
+  getRedemptions: (id) => api.get(`/admin/promos/${id}/redemptions`),
+
+  // AI API usage and cost
+  aiUsageOverview: () => api.get('/admin/ai-usage/overview'),
+  aiUsageSeries: (params = {}) => api.get('/admin/ai-usage/timeseries', { params }),
+  aiUsageBreakdown: (params = {}) => api.get('/admin/ai-usage/breakdown', { params }),
+  aiUsageUsers: (params = {}) => api.get('/admin/ai-usage/users', { params }),
+  aiUsageUser: (id, params = {}) => api.get(`/admin/ai-usage/users/${id}`, { params }),
+  aiUsageExport: (params = {}) => api.get('/admin/ai-usage/export', { params, responseType: 'blob' })
 };
 
 // External Applications API - Track jobs applied via ApplyPilot extension

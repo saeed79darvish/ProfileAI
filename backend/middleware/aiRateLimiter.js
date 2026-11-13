@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const aiMeter = require('../services/aiMeter');
 const { AIUsage, User, Profile, PromoRedemption, CreditPack } = require('../models');
 const { getLimits, isUnlimited, ESTIMATED_COSTS, FEATURE_NAMES, ONBOARDING_FREE_FEATURES, getWeekStart, getNextWeekStart } = require('../config/aiLimits');
 
@@ -140,6 +141,8 @@ const aiRateLimiter = (featureType, options = {}) => {
     throw new Error(`aiRateLimiter: unknown freeWhen "${options.freeWhen}"`);
   }
   return async (req, res, next) => {
+    // Tag every provider call made while serving this request with its feature.
+    aiMeter.setContext({ feature: featureType });
     // Optional global escape hatch for local development. Set
     // DISABLE_AI_RATE_LIMIT=true to bypass; otherwise the limits below run.
     if (process.env.DISABLE_AI_RATE_LIMIT === 'true') {
@@ -547,6 +550,15 @@ const coachVoiceSessionLimiter = async (req, res, next) => {
 /** Record a started voice session against the minutes it was granted. */
 const recordVoiceSession = async (userId, grantedMinutes, metadata = {}) => {
   try {
+    // The browser talks to OpenAI directly, so the real duration is unknown.
+    // Log the granted minutes as an upper-bound cost estimate (operation 'realtime').
+    aiMeter.record({
+      provider: 'openai',
+      model: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
+      operation: 'realtime',
+      minutes: Number(grantedMinutes) || 0,
+      context: { userId, feature: VOICE_FEATURE },
+    });
     return await AIUsage.create({
       userId,
       featureType: VOICE_FEATURE,

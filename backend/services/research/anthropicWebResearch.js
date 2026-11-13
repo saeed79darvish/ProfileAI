@@ -42,7 +42,7 @@ let sharedClient = null;
 function defaultClient() {
   if (!sharedClient) {
     const Anthropic = require('@anthropic-ai/sdk');
-    sharedClient = new (Anthropic.default || Anthropic)({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 180000 });
+    sharedClient = require('../aiMeter').meterAnthropic(new (Anthropic.default || Anthropic)({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 180000 }));
   }
   return sharedClient;
 }

@@ -663,7 +663,7 @@ Return as JSON array of objects:
 [{"title": "...", "reason": "Why this title works better"}]`;
 
     const OpenAI = require('openai');
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 });
+    const openai = require('../services/aiMeter').meterOpenAI(new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 }));
     
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_JOB_MODEL || 'gpt-4o-mini',
@@ -742,7 +742,7 @@ IMPORTANT RULES:
 4. Write clean, professional text`;
 
     const OpenAI = require('openai');
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 });
+    const openai = require('../services/aiMeter').meterOpenAI(new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 }));
     
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_JOB_MODEL || 'gpt-4o-mini',
@@ -814,7 +814,7 @@ IMPORTANT RULES:
 4. Write clean, professional text`;
 
     const OpenAI = require('openai');
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 });
+    const openai = require('../services/aiMeter').meterOpenAI(new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30000, maxRetries: 1 }));
     
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_JOB_MODEL || 'gpt-4o-mini',

@@ -6,10 +6,10 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { withRetry, safeParseJSON, validateAIScores } = require('../../utils/aiUtils');
 const { stripAiTellChars } = require('../../utils/aiTextCleanup');
 
-const anthropic = new Anthropic.default({
+const anthropic = require('../aiMeter').meterAnthropic(new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY,
   timeout: 60000, // 60s request timeout
-});
+}));
 
 // Default Claude model. Override via ANTHROPIC_MODEL env var.
 // Sonnet 4.5 retires 2026-11-30 and starts shedding availability 2026-10-30.

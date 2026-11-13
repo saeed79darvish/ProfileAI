@@ -83,6 +83,218 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// ─── AI API USAGE & COST ──────────────────────────────────────
+// Backed by AIApiCalls: one row per provider call with real tokens and cost
+// (see services/aiMeter.js). AIUsages, by contrast, only counts feature uses.
+
+const QueryTypes = sequelize.constructor.QueryTypes;
+const aiQuery = (sql, replacements = {}) =>
+  sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+
+/** range=7d|30d|90d|mtd|all  ->  { from: Date|null, label } */
+function aiRange(range = '30d') {
+  const now = new Date();
+  if (range === 'all') return { from: null, range };
+  if (range === 'mtd') return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), range };
+  const days = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }[range] || 30;
+  return { from: new Date(now.getTime() - days * 86400000), range: range in { '7d': 1, '30d': 1, '90d': 1, '365d': 1 } ? range : '30d' };
+}
+
+const num = (v) => Number(v) || 0;
+const totalsRow = (r = {}) => ({
+  calls: num(r.calls),
+  costUsd: num(r.cost),
+  inputTokens: num(r.input),
+  outputTokens: num(r.output),
+  cacheReadTokens: num(r.cache_read),
+  cacheWriteTokens: num(r.cache_write),
+  errors: num(r.errors),
+  unpriced: num(r.unpriced),
+});
+const SUMS = `COUNT(*) AS calls, COALESCE(SUM("costUsd"),0) AS cost,
+  COALESCE(SUM("inputTokens"),0) AS input, COALESCE(SUM("outputTokens"),0) AS output,
+  COALESCE(SUM("cacheReadTokens"),0) AS cache_read, COALESCE(SUM("cacheWriteTokens"),0) AS cache_write,
+  COUNT(*) FILTER (WHERE status = 'error') AS errors, COUNT(*) FILTER (WHERE NOT priced) AS unpriced`;
+
+// @route   GET /api/admin/ai-usage/overview
+// @desc    Headline spend: today, this month, last month, all time, projection
+router.get('/ai-usage/overview', async (req, res) => {
+  try {
+    const now = new Date();
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const elapsedDays = Math.max(1, (now - monthStart) / 86400000);
+
+    const [today, month, lastMonth, allTime, first, activeUsers] = await Promise.all([
+      aiQuery(`SELECT ${SUMS} FROM "AIApiCalls" WHERE "createdAt" >= :from`, { from: dayStart }),
+      aiQuery(`SELECT ${SUMS} FROM "AIApiCalls" WHERE "createdAt" >= :from`, { from: monthStart }),
+      aiQuery(`SELECT ${SUMS} FROM "AIApiCalls" WHERE "createdAt" >= :from AND "createdAt" < :to`, { from: lastMonthStart, to: monthStart }),
+      aiQuery(`SELECT ${SUMS} FROM "AIApiCalls"`),
+      aiQuery(`SELECT MIN("createdAt") AS first FROM "AIApiCalls"`),
+      aiQuery(`SELECT COUNT(DISTINCT "userId") AS n FROM "AIApiCalls" WHERE "createdAt" >= :from AND "userId" IS NOT NULL`, { from: monthStart }),
+    ]);
+
+    const monthTotals = totalsRow(month[0]);
+    res.json({
+      today: totalsRow(today[0]),
+      month: monthTotals,
+      lastMonth: totalsRow(lastMonth[0]),
+      allTime: totalsRow(allTime[0]),
+      trackingSince: first[0]?.first || null,
+      projectedMonthUsd: Math.round(((monthTotals.costUsd / elapsedDays) * daysInMonth) * 100) / 100,
+      activeUsersThisMonth: num(activeUsers[0]?.n),
+      daysInMonth,
+      daysElapsed: Math.round(elapsedDays * 10) / 10,
+    });
+  } catch (error) {
+    console.error('AI usage overview error:', error);
+    res.status(500).json({ error: 'Failed to load AI usage overview' });
+  }
+});
+
+// @route   GET /api/admin/ai-usage/timeseries?range=30d&bucket=day|month&by=provider|model|feature|none
+router.get('/ai-usage/timeseries', async (req, res) => {
+  try {
+    const { from, range } = aiRange(req.query.range);
+    const bucket = req.query.bucket === 'month' ? 'month' : 'day';
+    const dim = { provider: '"provider"', model: '"model"', feature: `COALESCE("feature",'unattributed')` }[req.query.by];
+    const rows = await aiQuery(
+      `SELECT date_trunc('${bucket}', "createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket,
+              ${dim ? `${dim} AS series,` : ''} ${SUMS}
+       FROM "AIApiCalls" ${from ? 'WHERE "createdAt" >= :from' : ''}
+       GROUP BY 1 ${dim ? ', 2' : ''} ORDER BY 1`,
+      { from }
+    );
+    res.json({
+      range, bucket,
+      points: rows.map((r) => ({ bucket: r.bucket, series: r.series || null, ...totalsRow(r) })),
+    });
+  } catch (error) {
+    console.error('AI usage timeseries error:', error);
+    res.status(500).json({ error: 'Failed to load AI usage series' });
+  }
+});
+
+// @route   GET /api/admin/ai-usage/breakdown?range=30d&by=model|feature|provider|route
+router.get('/ai-usage/breakdown', async (req, res) => {
+  try {
+    const { from, range } = aiRange(req.query.range);
+    const by = ['provider', 'model', 'feature', 'route', 'operation'].includes(req.query.by) ? req.query.by : 'model';
+    const rows = await aiQuery(
+      `SELECT COALESCE("${by}"::text, 'unattributed') AS key,
+              ${by === 'model' ? `MIN("provider") AS provider,` : ''}
+              ${SUMS}, COUNT(DISTINCT "userId") AS users,
+              COALESCE(AVG("latencyMs"),0) AS latency
+       FROM "AIApiCalls" ${from ? 'WHERE "createdAt" >= :from' : ''}
+       GROUP BY 1 ORDER BY SUM("costUsd") DESC, COUNT(*) DESC LIMIT 100`,
+      { from }
+    );
+    res.json({
+      range, by,
+      rows: rows.map((r) => ({ key: r.key, provider: r.provider || null, users: num(r.users), avgLatencyMs: Math.round(num(r.latency)), ...totalsRow(r) })),
+    });
+  } catch (error) {
+    console.error('AI usage breakdown error:', error);
+    res.status(500).json({ error: 'Failed to load AI usage breakdown' });
+  }
+});
+
+// @route   GET /api/admin/ai-usage/users?range=30d&sort=cost|calls|tokens&limit=50&search=
+router.get('/ai-usage/users', async (req, res) => {
+  try {
+    const { from, range } = aiRange(req.query.range);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const order = { calls: 'COUNT(*)', tokens: 'SUM(c."inputTokens" + c."outputTokens")' }[req.query.sort] || 'SUM(c."costUsd")';
+    const search = (req.query.search || '').trim();
+    const rows = await aiQuery(
+      `SELECT c."userId" AS id, u."email", u."firstName", u."lastName", u."subscriptionTier" AS tier, u."role",
+              COUNT(*) AS calls, COALESCE(SUM(c."costUsd"),0) AS cost,
+              COALESCE(SUM(c."inputTokens"),0) AS input, COALESCE(SUM(c."outputTokens"),0) AS output,
+              COALESCE(SUM(c."cacheReadTokens"),0) AS cache_read, COALESCE(SUM(c."cacheWriteTokens"),0) AS cache_write,
+              COUNT(*) FILTER (WHERE c.status = 'error') AS errors, COUNT(*) FILTER (WHERE NOT c.priced) AS unpriced,
+              MAX(c."createdAt") AS last_call
+       FROM "AIApiCalls" c LEFT JOIN "Users" u ON u.id = c."userId"
+       WHERE c."userId" IS NOT NULL ${from ? 'AND c."createdAt" >= :from' : ''}
+         ${search ? `AND (u."email" ILIKE :q OR u."firstName" ILIKE :q OR u."lastName" ILIKE :q)` : ''}
+       GROUP BY c."userId", u."email", u."firstName", u."lastName", u."subscriptionTier", u."role"
+       ORDER BY ${order} DESC LIMIT ${limit}`,
+      { from, q: `%${search}%` }
+    );
+    // Spend with no signed-in user (guests, ingestion, embeddings) shown as one line.
+    const [system] = await aiQuery(
+      `SELECT ${SUMS} FROM "AIApiCalls" WHERE "userId" IS NULL ${from ? 'AND "createdAt" >= :from' : ''}`, { from }
+    );
+    res.json({
+      range,
+      users: rows.map((r) => ({
+        id: r.id, email: r.email, name: [r.firstName, r.lastName].filter(Boolean).join(' ') || null,
+        tier: r.tier || 'free', role: r.role, lastCallAt: r.last_call, ...totalsRow(r),
+      })),
+      noUser: totalsRow(system),
+    });
+  } catch (error) {
+    console.error('AI usage users error:', error);
+    res.status(500).json({ error: 'Failed to load per-user AI usage' });
+  }
+});
+
+// @route   GET /api/admin/ai-usage/users/:id?range=30d
+router.get('/ai-usage/users/:id', async (req, res) => {
+  try {
+    const { from, range } = aiRange(req.query.range);
+    const where = `"userId" = :id ${from ? 'AND "createdAt" >= :from' : ''}`;
+    const p = { id: req.params.id, from };
+    const [user, totals, byFeature, byModel, daily, recent] = await Promise.all([
+      User.findByPk(req.params.id, { attributes: ['id', 'email', 'firstName', 'lastName', 'role', 'subscriptionTier', 'createdAt'] }),
+      aiQuery(`SELECT ${SUMS} FROM "AIApiCalls" WHERE ${where}`, p),
+      aiQuery(`SELECT COALESCE("feature",'unattributed') AS key, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
+      aiQuery(`SELECT "model" AS key, MIN("provider") AS provider, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY SUM("costUsd") DESC`, p),
+      aiQuery(`SELECT date_trunc('day', "createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket, ${SUMS} FROM "AIApiCalls" WHERE ${where} GROUP BY 1 ORDER BY 1`, p),
+      aiQuery(`SELECT "createdAt", "provider", "model", "operation", "feature", "route", "inputTokens", "outputTokens", "costUsd", "latencyMs", "status", "error"
+               FROM "AIApiCalls" WHERE ${where} ORDER BY "createdAt" DESC LIMIT 50`, p),
+    ]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      range,
+      user: user.toJSON(),
+      totals: totalsRow(totals[0]),
+      byFeature: byFeature.map((r) => ({ key: r.key, ...totalsRow(r) })),
+      byModel: byModel.map((r) => ({ key: r.key, provider: r.provider, ...totalsRow(r) })),
+      daily: daily.map((r) => ({ bucket: r.bucket, ...totalsRow(r) })),
+      recent: recent.map((r) => ({ ...r, costUsd: num(r.costUsd) })),
+    });
+  } catch (error) {
+    console.error('AI usage user detail error:', error);
+    res.status(500).json({ error: 'Failed to load user AI usage' });
+  }
+});
+
+// @route   GET /api/admin/ai-usage/export?range=30d   (CSV, one row per user)
+router.get('/ai-usage/export', async (req, res) => {
+  try {
+    const { from, range } = aiRange(req.query.range);
+    const rows = await aiQuery(
+      `SELECT COALESCE(u."email",'(no user)') AS email, COALESCE(u."subscriptionTier"::text,'') AS tier,
+              COALESCE(c."feature",'unattributed') AS feature, c."provider", c."model",
+              COUNT(*) AS calls, SUM(c."inputTokens") AS input, SUM(c."outputTokens") AS output, SUM(c."costUsd") AS cost
+       FROM "AIApiCalls" c LEFT JOIN "Users" u ON u.id = c."userId"
+       ${from ? 'WHERE c."createdAt" >= :from' : ''}
+       GROUP BY 1,2,3,4,5 ORDER BY SUM(c."costUsd") DESC`, { from }
+    );
+    const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [['email', 'tier', 'feature', 'provider', 'model', 'calls', 'input_tokens', 'output_tokens', 'cost_usd'].join(',')];
+    rows.forEach((r) => lines.push([r.email, r.tier, r.feature, r.provider, r.model, r.calls, r.input, r.output, num(r.cost).toFixed(6)].map(csvCell).join(',')));
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', `attachment; filename="ai-usage-${range}.csv"`);
+    res.send(lines.join('\n'));
+  } catch (error) {
+    console.error('AI usage export error:', error);
+    res.status(500).json({ error: 'Failed to export AI usage' });
+  }
+});
+
 // ─── USER MANAGEMENT ──────────────────────────────────────────
 
 // @route   GET /api/admin/users
