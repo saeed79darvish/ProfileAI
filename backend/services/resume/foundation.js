@@ -14,6 +14,8 @@
  * addition.
  */
 
+const { sameCompany, periodOf } = require('./sourceIdentity');
+
 const ROLE_NOUNS =
   'engineer|developer|programmer|architect|manager|designer|analyst|scientist|researcher|lead|director|head|consultant|specialist|administrator|coordinator|strategist|writer|recruiter|accountant|controller|officer|associate|technician';
 
@@ -143,6 +145,60 @@ function carries(t, o) {
 }
 
 /**
+ * Put the draft's roles in the profile's order, paired by EMPLOYER.
+ *
+ * Roles used to be paired with the model's draft by array position, which says
+ * nothing about which job a bullet belongs to. When the model was working from
+ * a different resume (a stale upload) the candidate's own bullets were printed
+ * under someone else's employer and title. Now:
+ *   - company, title and dates always come from the profile;
+ *   - a profile role with no draft entry for its employer comes back whole;
+ *   - a draft entry for an employer the profile does not have is removed.
+ * A draft entry with no company at all pairs by position, as before.
+ *
+ * @returns {{ notes: string[] }}
+ */
+function alignExperience(draft, originalExperience) {
+  const notes = [];
+  const src = Array.isArray(originalExperience) ? originalExperience : [];
+  if (!src.length) return { notes };
+  const drafted = Array.isArray(draft.experience) ? draft.experience : [];
+  const used = new Set();
+  const render = (units) => units.map((b) => `\u2022 ${b}`).join('\n');
+  const aligned = src.map((o, i) => {
+    const profileRole = o || {};
+    let j = drafted.findIndex((d, k) => !used.has(k) && d && typeof d === 'object' && sameCompany(d.company, profileRole.company));
+    if (j < 0) {
+      const byPosition = drafted[i];
+      const blank = byPosition && typeof byPosition === 'object' && !String(byPosition.company || '').trim();
+      if (blank && !used.has(i)) j = i;
+    }
+    const period = periodOf(profileRole);
+    if (j < 0) {
+      notes.push(`${profileRole.company || profileRole.title || `role ${i + 1}`}: not in the draft, restored from your profile`);
+      return { company: profileRole.company || '', title: profileRole.title || '', period, description: render(splitUnits(profileRole.description)) };
+    }
+    used.add(j);
+    const entry = drafted[j];
+    const label = profileRole.company || profileRole.title || `role ${i + 1}`;
+    if (entry.title && profileRole.title && String(entry.title).trim().toLowerCase() !== String(profileRole.title).trim().toLowerCase()) {
+      notes.push(`${label}: title kept as "${profileRole.title}" (the draft said "${entry.title}")`);
+    }
+    return {
+      ...entry,
+      company: profileRole.company || entry.company || '',
+      title: profileRole.title || entry.title || '',
+      period: period || entry.period || '',
+    };
+  });
+  drafted.forEach((d, k) => {
+    if (!used.has(k) && d && (d.company || d.title)) notes.push(`${d.company || d.title}: not an employer on your profile, removed from the draft`);
+  });
+  draft.experience = aligned;
+  return { notes };
+}
+
+/**
  * For each role, every original unit is kept — as the tailored line that still
  * carries it (so keyword surfacing survives) or verbatim. A tailored line that
  * carries no original is kept as an ADDITION only when it says something new:
@@ -157,6 +213,8 @@ function enforceFoundationBullets(draft, originalExperience, { skipRoles = [] } 
   const restored = [];
   const src = Array.isArray(originalExperience) ? originalExperience : [];
   if (!src.length) return { restored };
+  const aligned = alignExperience(draft, src);
+  restored.push(...aligned.notes);
   const out = Array.isArray(draft.experience) ? [...draft.experience] : [];
   const render = (units) => units.map((b) => `• ${b}`).join('\n');
 
@@ -243,3 +301,4 @@ module.exports.mergeEducation = mergeEducation;
 module.exports.bulletsOf = bulletsOf;
 module.exports.splitUnitsOf = splitUnits;
 module.exports.coverage = coverage;
+module.exports.alignExperience = alignExperience;

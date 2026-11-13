@@ -25,8 +25,9 @@ const { buildReviewPrompt, buildProfileReviewPrompt } = require('./resume/review
 const { auditDraft, hasSupport, hardClassDefects, flattenSkills } = require('./resume/draftAudit');
 const { auditProfile } = require('./resume/profileAudit');
 const { normalizeTitleForCompare, compareTitles, headlineFromPostingTitle } = require('./resume/titleMatch');
-const { buildTailoredSummary, enforceFoundationBullets, mergeEducation } = require('./resume/foundation');
+const { buildTailoredSummary, enforceFoundationBullets, mergeEducation, alignExperience } = require('./resume/foundation');
 const polish = require('./resume/polish');
+const { resumeMatchesProfile } = require('./resume/sourceIdentity');
 const {
   isValidRequirement,
   reconcileRequirementCoverage,
@@ -2169,6 +2170,21 @@ Return ONLY a valid JSON array, no additional text.`;
         originalResumeText = repairWrappedHyphens(originalResumeText);
       }
 
+      // The stored resume text is only the source of truth when it describes
+      // THIS candidate's career. A text left over from testing, or from another
+      // person's sample, made the model return someone else's history and the
+      // candidate's real roles were merged into it. When the employers it names
+      // do not match the structured profile, tailor from the profile instead.
+      let sourceNotice = null;
+      if (typeof originalResumeText === 'string' && originalResumeText.trim().length > 100) {
+        const identity = resumeMatchesProfile(originalResumeText, profileData);
+        if (!identity.matches) {
+          console.warn(`[ProfilleAI] Stored resume text does not match the profile (employers on the profile but not in the text: ${identity.missing.join(', ')}); tailoring from the profile instead`);
+          sourceNotice = `The resume saved on your account does not mention your current employers (${identity.missing.slice(0, 4).join(', ')}), so it was ignored and this copy was built from your profile. Upload your current resume to replace it.`;
+          originalResumeText = null;
+        }
+      }
+
       const hasUploadedResume = originalResumeText && originalResumeText.trim().length > 100;
 
       // ═══════════════════════════════════════════════════════════════
@@ -3214,6 +3230,17 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       // Applied BEFORE the foundation guard. A role or summary that failed
       // verification is left as the draft has it, so the guard below restores
       // the candidate's original bullets there. Nothing unverified ships.
+      // Pair the draft's roles with the profile's by employer first, so company,
+      // title and dates are the candidate's own whatever the model returned.
+      const alignment = alignExperience(tailoredData, profileData.experience);
+      if (alignment.notes.length) {
+        console.log('[ProfilleAI] Role alignment:', alignment.notes);
+        tailoredData.changelog.push({ section: 'experience', action: 'roles_aligned', detail: alignment.notes.join('; ') });
+      }
+      if (sourceNotice) {
+        tailoredData.sourceNotice = sourceNotice;
+        tailoredData.changelog.push({ section: 'source', action: 'stale_resume_ignored', detail: sourceNotice });
+      }
       let polishReport = null;
       {
         const result = await polishPromise;
