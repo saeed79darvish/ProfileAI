@@ -75,7 +75,7 @@ function buildPolishPrompt({ profile, jobDescription, targetTitle, company, keyw
 
   const years = Math.floor(totalExperienceYears(exp));
   const yearsFact = years >= 3
-    ? `YEARS OF EXPERIENCE: the dated roles add up to ${years} years. The first sentence of the summary may state "${years} years" (never a higher number). A recruiter screens on this, so state it plainly, inside a full sentence with a subject: "Frontend engineer with ${years} years of experience building React interfaces for ...". Never open with the number alone.`
+    ? `YEARS OF EXPERIENCE: the dated roles add up to ${years} years. The first sentence of the summary may state "${years} years" (never a higher number). A recruiter screens on this, so state it plainly, inside a full sentence with a subject: "<Role> with ${years} years of experience in <their broad field>". The years describe the whole career in that field, never one activity, tool, unit, setting or employer ("9 years in nursing", not "9 years caring for post-surgical patients" when part of that time was another kind of work). Never open with the number alone.`
     : 'YEARS OF EXPERIENCE: too short to state; leave years out.';
   const reqs = (Array.isArray(keywords.requirements) ? keywords.requirements : []).filter(Boolean).slice(0, 10);
   const reqBlock = reqs.length ? `POSTING REQUIREMENTS, as the posting ranks them:\n${reqs.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n` : '';
@@ -104,12 +104,12 @@ BULLET RULES
 - Use the posting's vocabulary only where it is already true of that work. Never write a bullet whose only support is the posting's wording.
 - Put the most relevant bullet first in each role. You may merge, shorten or drop weak or duplicate bullets. Never exceed a role's bullet limit and never pad. A role with no bullets stays empty.
 - Vary the wording between roles. Any two-or-more-word phrase appears at most twice in the whole resume. Do not use: production-grade, scalable (more than once), cross-functional, stakeholders, passionate, leverage, robust, cutting-edge, seamless, best practices, strong ownership, customer empathy.
-- Prefer concrete nouns (the system, the screen, the flow) over abstract ones (excellence, quality, synergy).
+- Prefer concrete nouns (the system, the patient unit, the campaign, the ledger, the screen) over abstract ones (excellence, quality, synergy).
 - A figure keeps the attribution its source gives it. "resulting in a 25% increase in engagement" becomes "...a 25% increase in engagement", never "raised engagement 25%". Do not turn a contribution into a cause, and never put an unexplained figure first in a role.
 - Add no outcome the source does not state: no "fast", "smooth", "at scale", "reliable", "easy to use" unless the source says so.
 - Do not explain what something was FOR unless the source says so. "enhancing feature design efficiency" stays about faster feature design; do not add an audience or benefit ("giving designers shared building blocks"). Purpose, audience and benefit clauses are claims like any other.
 - Name collaborators ("product managers and designers", "UX and QA") at most twice in the whole resume. Say what was built with them instead.
-- Order each role's bullets by what THIS posting asks for first. Compress off-topic material (for a frontend posting: servers, containers, cloud plumbing) into one short clause or drop it; give the space to work the posting cares about.
+- Order each role's bullets by what THIS posting asks for first. Compress work that is off-topic for this posting (a different function, domain or tool set than the posting asks for) into one short clause or drop it; give the space to the work the posting cares about.
 - Vary how bullets open. No verb opens more than two bullets in the whole resume, and a bullet is not "Built X in A, B and C to improve D": cut trailing purpose clauses that say nothing ("to align with business goals", "to improve efficiency").
 - Tense: past tense for past roles, present tense only for the current role, and the same tense across a role.
 - Every distinctive claim in the summary must be backed by a bullet you keep. Do not describe the candidate's whole career by one or two projects ("content-heavy products", "consumer-facing") and do not echo the posting's framing for work the source does not show.
@@ -118,6 +118,8 @@ SUMMARY RULES
 - Two or three sentences, at most ${MAX_SUMMARY_WORDS} words, in the same voice as the candidate's own summary (no "I").
 - The first sentence says what this person builds and the kind of product, taken from the strongest bullets. It must not open with the posting's job title as an identity unless the candidate has held that title.
 - Years: only the figure given above, in the first sentence, and only if it was given. No metrics, no self-rating (strong, passionate, proven), no run of four words copied from the posting.
+- Do not repeat a bullet. Each sentence adds something a bullet below does not say in the same words: the kind of professional this is, the scale or setting of the work, what ties the roles together.
+- Tense and place: past work stays in the past and at its own employer. Do not present something from an earlier role as current or as part of the current one.
 - The first sentence answers the posting's top requirements the candidate can truthfully meet, using their strongest matching evidence, even when other work is more impressive.
 - Mention at most two posting terms, only ones the bullets support.
 - Name the strongest evidence for this posting with a concrete system or result (what was built, for whom), not a stack inventory. Skip "comfortable with X" filler and backend breadth the posting does not ask for.
@@ -193,7 +195,7 @@ function verifyRole({ sourceUnits, bullets, allSourceText, limit }) {
   return { units: reasons.length ? null : out, reasons };
 }
 
-function verifySummary({ summary, allSourceText, jobDescription, experience, targetTitle, heldTitles }) {
+function verifySummary({ summary, allSourceText, jobDescription, experience, targetTitle, heldTitles, bulletTexts = [] }) {
   const reasons = [];
   const text = String(summary || '').replace(/\s+/g, ' ').trim();
   if (!text) return { text: null, reasons: ['empty'] };
@@ -211,6 +213,13 @@ function verifySummary({ summary, allSourceText, jobDescription, experience, tar
   const terms = unsupportedTerms(text, allSourceText);
   if (terms.length) reasons.push(`terms not in the resume (${terms.join(', ')})`);
   if (/\b(strong|proven|passionate|exceptional|results[- ]driven|world[- ]class)\b/i.test(text)) reasons.push('self-rating');
+  // A sentence that restates one bullet adds nothing: the strongest proof would
+  // be read twice in the first lines and the summary would spend its space on it.
+  for (const sentence of sentences) {
+    if (words(sentence).length < 7) continue;
+    const twin = bulletTexts.find((b) => coverage(sentence, b) >= 0.75);
+    if (twin) { reasons.push(`repeats a bullet instead of adding to it: "${sentence.slice(0, 60)}"`); break; }
+  }
   const tt = String(targetTitle || '').trim().toLowerCase();
   if (tt && text.toLowerCase().startsWith(tt) && !heldTitles.some((h) => h.includes(tt) || tt.includes(h))) {
     reasons.push('opens with a title the candidate has not held');
@@ -259,7 +268,8 @@ function verifyPolish({ polished, profile, jobDescription, targetTitle, selected
     const res = verifyRole({ sourceUnits, bullets: r && r.bullets, allSourceText, limit });
     return res;
   });
-  const s = verifySummary({ summary: polished && polished.summary, allSourceText, jobDescription, experience: exp, targetTitle, heldTitles });
+  const bulletTexts = roles.flatMap((r, i) => (Array.isArray(r.units) && r.units.length ? r.units : splitUnitsOf(exp[i] && exp[i].description)));
+  const s = verifySummary({ summary: polished && polished.summary, allSourceText, jobDescription, experience: exp, targetTitle, heldTitles, bulletTexts });
   return { summary: s.text, summaryReasons: s.reasons, roles };
 }
 
@@ -300,29 +310,69 @@ const CATEGORY_RULES = [
 ];
 
 /**
- * One entry per skill (the shorter spelling wins), grouped, at most `cap`
- * entries, those named in the posting or demonstrated in the bullets first.
- * Never adds a skill.
+ * One entry per skill (the shorter spelling wins), at most `cap` entries, those
+ * the posting names or the bullets show first. Never adds a skill.
+ *
+ * Grouping is the candidate's or the model's own when there is one: a nurse's
+ * "Clinical" and "Patient care" headings are not turned into "Tools". Only a
+ * flat list of technical skills is grouped by the built-in categories, and a
+ * flat list that is mostly not technical gets one plain "Skills" heading.
  */
-function tidySkills(skills, { jobDescription = '', bulletText = '', cap = 15 } = {}) {
-  const flat = Array.isArray(skills) ? skills : Object.values(skills || {}).flat();
+function tidySkills(skills, { jobDescription = '', bulletText = '', cap = 15, candidateSkills = [] } = {}) {
+  const grouped = skills && typeof skills === 'object' && !Array.isArray(skills);
+  const entries = [];
+  if (grouped) {
+    Object.entries(skills).forEach(([label, list]) => (Array.isArray(list) ? list : []).forEach((x) => entries.push({ s: String(x).trim(), label })));
+  } else {
+    (Array.isArray(skills) ? skills : []).forEach((x) => entries.push({ s: String(x).trim(), label: null }));
+  }
+  // A skill the candidate holds and the posting names is exactly what an ATS
+  // looks for, so it comes back if the draft dropped it. Only skills from the
+  // candidate's own list are ever added, never one the posting alone mentions.
+  const jdText = String(jobDescription).toLowerCase();
+  const have = new Set(entries.map((e) => skillKey(e.s)));
+  for (const raw of Array.isArray(candidateSkills) ? candidateSkills : Object.values(candidateSkills || {}).flat()) {
+    const sk = String(raw || '').trim();
+    if (!sk || have.has(skillKey(sk))) continue;
+    if (jdText.includes(skillStem(sk))) {
+      entries.push({ s: sk, label: grouped ? 'Restored' : null });
+      have.add(skillKey(sk));
+    }
+  }
   const seen = new Map();
-  for (const s of flat.map((x) => String(x).trim()).filter(Boolean)) {
-    const k = skillKey(s);
-    if (!seen.has(k) || s.length < seen.get(k).length) seen.set(k, s);
+  for (const e of entries.filter((x) => x.s)) {
+    const k = skillKey(e.s);
+    if (!seen.has(k) || e.s.length < seen.get(k).s.length) seen.set(k, { ...e, label: seen.has(k) ? seen.get(k).label : e.label });
   }
   const jd = String(jobDescription).toLowerCase(), bt = String(bulletText).toLowerCase();
   const score = (s) => (jd.includes(skillStem(s)) ? 2 : 0) + (bt.includes(skillStem(s)) ? 1 : 0);
-  const list = [...seen.values()].map((s, i) => ({ s, i, sc: score(s) })).sort((a, b) => b.sc - a.sc || a.i - b.i).slice(0, cap);
-  const grouped = {};
-  for (const { s } of list) {
-    const key = skillKey(s);
-    const cat = (CATEGORY_RULES.find(([, re]) => re.test(key.replace(/\./g, '').replace(/^(css|html)\d$/, '$1'))) || [])[0] || 'Tools';
-    (grouped[cat] = grouped[cat] || []).push(s);
+  const list = [...seen.values()].map((e, i) => ({ ...e, i, sc: score(e.s) })).sort((a, b) => b.sc - a.sc || a.i - b.i).slice(0, cap);
+
+  const out = {};
+  const put = (label, s) => { (out[label] = out[label] || []).push(s); };
+  const classify = (s) => {
+    const key = skillKey(s).replace(/\./g, '').replace(/^(css|html)\d$/, '$1');
+    return (CATEGORY_RULES.find(([, re]) => re.test(key)) || [])[0] || null;
+  };
+
+  if (grouped) {
+    const order = [];
+    list.forEach((e) => { if (!order.includes(e.label)) order.push(e.label); });
+    for (const label of order) {
+      list.filter((e) => e.label === label).forEach((e) => {
+        // A label the guards added ("Restored") is not a heading a reader should see.
+        put(label === 'Restored' ? classify(e.s) || 'Other skills' : label, e.s);
+      });
+    }
+    return out;
   }
+  const matched = list.filter((e) => classify(e.s)).length;
+  if (!list.length) return out;
+  if (matched / list.length < 0.6) { list.forEach((e) => put('Skills', e.s)); return out; }
+  list.forEach((e) => put(classify(e.s) || 'Tools', e.s));
   const order = ['Languages', 'Frameworks', 'APIs and data', 'Testing', 'Infrastructure', 'Tools'];
   const ordered = {};
-  for (const c of order) if (grouped[c]) ordered[c] = grouped[c];
+  for (const c of order) if (out[c]) ordered[c] = out[c];
   return ordered;
 }
 
@@ -472,7 +522,8 @@ async function run({ profile, jobDescription, targetTitle, company, keywords, se
   // Last resort for the summary: keep what is sound rather than fall back to the
   // candidate's old, untailored text.
   if (!verdict.summary) {
-    const check = (text) => verifySummary({ summary: text, allSourceText: allSource(profile), jobDescription, experience: profile.experience || [], targetTitle, heldTitles: heldTitlesOf(profile) });
+    const bulletTexts = verdict.roles.flatMap((r, i) => (Array.isArray(r.units) && r.units.length ? r.units : splitUnitsOf((profile.experience || [])[i] && profile.experience[i].description)));
+    const check = (text) => verifySummary({ summary: text, allSourceText: allSource(profile), jobDescription, experience: profile.experience || [], targetTitle, heldTitles: heldTitlesOf(profile), bulletTexts });
     const saved = salvageSummary(lastSummary, check) || salvageSummary(first.summary, check);
     if (saved) { verdict.summary = saved; verdict.summaryReasons = []; repaired = true; }
   }

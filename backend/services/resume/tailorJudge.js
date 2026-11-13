@@ -198,8 +198,21 @@ ${roles}
 
 Skills:
 ${skills}`;
-  const text = await callModel({ prompt, max_tokens: 6000 });
-  const t = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const parse = (raw) => {
+    const t = String(raw || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try { return JSON.parse(t); } catch (_) { /* try the object inside */ }
+    const m = t.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch (__) { /* fall through */ } }
+    const fixed = typeof repair === 'function' ? repair(t) : null;
+    return fixed && fixed.scores ? fixed : null;
+  };
+  let parsed = parse(await callModel({ prompt, max_tokens: 6000 }));
+  // One retry asking for a compact answer: a long answer with an unescaped quote
+  // is the usual reason this fails, and a missing judgment hides a real defect.
+  if (!parsed) parsed = parse(await callModel({ prompt: `${prompt}\n\nReturn COMPACT valid JSON: at most 6 issues, each field under 200 characters, every double quote inside a string escaped or replaced by a single quote.`, max_tokens: 4000 }));
+  if (parsed) return parsed;
+  const text = '';
+  const t = '';
   try { return JSON.parse(t); } catch (_) {
     const m = t.match(/\{[\s\S]*\}/);
     if (m) { try { return JSON.parse(m[0]); } catch (__) { /* fall through */ } }

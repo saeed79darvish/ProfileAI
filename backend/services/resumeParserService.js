@@ -2371,6 +2371,8 @@ Aim for the 5-12 requirements that actually decide this hire. Do not pad.`,
         skills: Array.isArray(profileData.skills) ? profileData.skills : Object.values(profileData.skills || {}).flat(),
         keywords: allRequiredKeywords,
         sourceText: originalSourceText,
+        evidenceText: (profileData.experience || []).map((e) => e && e.description).filter(Boolean).join(' '),
+        jobDescription,
       });
       // Only a mirrored headline is swapped into the summary's opening words; a
       // kept title leaves the candidate's own summary text alone.
@@ -3269,6 +3271,15 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
           const applied = polish.applyPolish(tailoredData, profileData, result.verdict);
           polishReport = { appliedRoles: applied.appliedRoles, appliedIndexes: applied.appliedIndexes, rejected: applied.rejected, summaryApplied: applied.summaryApplied, repaired: !!result.repaired };
           console.log(`[ProfilleAI] Polish: ${applied.appliedRoles.length}/${(profileData.experience || []).length} role(s) reworded, summary ${applied.summaryApplied ? 'rewritten' : 'kept'}${applied.rejected.length ? `; rejected: ${applied.rejected.join(' | ')}` : ''}`);
+          if (applied.appliedIndexes.includes(0)) {
+            const first = (profileData.experience || [])[0] || {};
+            tailoredData.changelog = (tailoredData.changelog || []).filter((c) => !['experience', 'experience_1'].includes(String((c && c.section) || '').toLowerCase()));
+            tailoredData.changelog.unshift({
+              section: 'experience_1',
+              action: 'role_reworded',
+              detail: `Reworded the ${first.company || 'most recent role'} bullets and put the work closest to this posting first; every number, tool and title was checked against your resume.`,
+            });
+          }
           if (applied.summaryApplied) {
             // The earlier notes for the summary describe the foundation text that
             // polish just replaced ("kept your summary verbatim"). Showing them
@@ -3312,7 +3323,7 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       // stored profile keeps the full list for the next application.
       {
         const bulletText = [tailoredData.summary, ...(tailoredData.experience || []).map((e) => e && e.description)].filter(Boolean).join(' ');
-        const grouped = polish.tidySkills(tailoredData.skills, { jobDescription, bulletText, cap: 15 });
+        const grouped = polish.tidySkills(tailoredData.skillsGrouped || tailoredData.skills, { jobDescription, bulletText, cap: 15, candidateSkills: profileData.skills });
         if (Object.keys(grouped).length) {
           tailoredData.skillsGrouped = grouped;
           tailoredData.skills = Object.values(grouped).flat();

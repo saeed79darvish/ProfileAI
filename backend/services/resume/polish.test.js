@@ -156,7 +156,7 @@ const RUN_PROFILE = {
   ],
 };
 const good = JSON.stringify({
-  summary: 'Builds React video players, from custom controls to codec selection. Launched AWSTV on a custom VideoJS integration.',
+  summary: 'Builds React video players for browsers and operating systems, from playback controls to codec choices.',
   experience: [{ index: 0, bullets: [
     { text: 'Launched the first version of AWSTV, integrating React with a custom VideoJS player.', from: [0] },
     { text: 'Added codec selection by browser and operating system so playback works across platforms.', from: [1] },
@@ -170,7 +170,7 @@ const bad = JSON.stringify({
   ] }],
 });
 const repairOnly = JSON.stringify({
-  summary: 'Builds React video players, from custom controls to codec selection. Launched AWSTV on a custom VideoJS integration.',
+  summary: 'Builds React video players for browsers and operating systems, from playback controls to codec choices.',
   experience: [{ index: 0, bullets: [
     { text: 'Launched the first version of AWSTV, integrating React with a custom VideoJS player.', from: [0] },
     { text: 'Added codec selection by browser and operating system so playback works across platforms.', from: [1] },
@@ -247,4 +247,53 @@ test('salvageSummary drops only the sentence that fails, keeping the rest', () =
   assert.equal(polish.salvageSummary('Builds React video players. A bad claim here. Launched AWSTV.', check), 'Builds React video players. Launched AWSTV.');
   assert.ok(!/bad/.test(polish.salvageSummary('Builds React video players. A bad claim here. Launched AWSTV.', check)));
   assert.equal(polish.salvageSummary('Only one sentence.', check), null);
+});
+
+test('tidySkills keeps a grouping that is already there, whatever the profession', () => {
+  const g = polish.tidySkills({ Clinical: ['IV therapy', 'Wound care', 'IV Therapy'], 'Patient care': ['Triage', 'Patient education'] }, { jobDescription: 'IV therapy and triage in an ICU.', cap: 15 });
+  assert.deepEqual(Object.keys(g), ['Clinical', 'Patient care']);
+  assert.equal(g.Clinical.filter((s) => /iv therapy/i.test(s)).length, 1);
+});
+
+test('tidySkills does not file a non-technical flat list under "Tools"', () => {
+  const g = polish.tidySkills(['Budgeting', 'Month-end close', 'Accounts payable', 'Excel', 'Audit support'], { cap: 15 });
+  assert.deepEqual(Object.keys(g), ['Skills']);
+  assert.equal(g.Skills.length, 5);
+});
+
+test('tidySkills turns the guards\' "Restored" label into a real heading', () => {
+  const g = polish.tidySkills({ Languages: ['TypeScript'], Restored: ['Docker', 'Triage'] }, { cap: 15 });
+  assert.ok(!('Restored' in g));
+  assert.ok((g.Infrastructure || []).includes('Docker'));
+  assert.ok((g['Other skills'] || []).includes('Triage'));
+});
+
+test('summary: a sentence that restates a bullet is rejected, one that adds is accepted', () => {
+  const base = { allSourceText: 'Launched the first version of AWSTV with a custom React and VideoJS player. React video.', jobDescription: 'Build video products.', experience: [], targetTitle: 'Video Engineer', heldTitles: ['engineer'],
+    bulletTexts: ['Launched the first version of AWSTV with a custom React and VideoJS player.'] };
+  const twin = polish.verifySummary({ ...base, summary: 'Launched the first version of AWSTV with a custom React and VideoJS player.' });
+  assert.match(twin.reasons.join(' '), /repeats a bullet/);
+  const adds = polish.verifySummary({ ...base, summary: 'Builds React video interfaces, from the first release to the controls people press.' });
+  assert.ok(!adds.reasons.some((r) => /repeats a bullet/.test(r)), adds.reasons.join('; '));
+});
+
+test('the prompt ties years to the field, not to an activity, and keeps past work in the past', () => {
+  const exp = [{ company: 'A', title: 'Nurse', startDate: '2018-01-01', current: true, description: '• Cared for patients.' }];
+  const { prompt } = polish.buildPolishPrompt({ profile: { summary: 's', experience: exp }, jobDescription: 'Nurse role.', targetTitle: 'Nurse', keywords: {} });
+  assert.match(prompt, /never one activity, tool, unit, setting or employer/);
+  assert.match(prompt, /past work stays in the past/i);
+  assert.ok(!/frontend|React interfaces/i.test(prompt), 'the prompt must not carry examples from one profession');
+});
+
+test('tidySkills brings back a skill the candidate holds and the posting names, never one only the posting names', () => {
+  const g = polish.tidySkills({ Languages: ['TypeScript'], Frameworks: ['React'] }, {
+    jobDescription: 'We need design systems and Figma experience, plus React.',
+    candidateSkills: ['TypeScript', 'React', 'Design Systems', 'Docker'],
+    cap: 15,
+  });
+  const flat = Object.values(g).flat();
+  assert.ok(flat.includes('Design Systems'), JSON.stringify(g));
+  assert.ok(!flat.includes('Figma'), 'a skill only the posting mentions is never added');
+  assert.ok(!flat.includes('Docker'), 'a skill the posting does not name is not added');
+  assert.ok(!('Restored' in g));
 });
