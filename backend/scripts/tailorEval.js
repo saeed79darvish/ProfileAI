@@ -36,7 +36,7 @@ const dir = opt('fixtures');
 if (!dir) { console.error('--fixtures <dir> is required'); process.exit(2); }
 const only = opt('only');
 
-const { deterministicChecks, judgeWithModel } = require('../services/resume/tailorJudge');
+const { deterministicChecks, atsChecks, judgeWithModel } = require('../services/resume/tailorJudge');
 const { callAI } = require('../services/ai/core');
 
 const callModel = async ({ prompt, max_tokens }) => {
@@ -62,8 +62,9 @@ const callModel = async ({ prompt, max_tokens }) => {
     if (!r.success) return { name, error: r.error };
     const result = r.data;
     const checks = deterministicChecks({ profile, result, jobDescription });
-    const judged = flag('no-judge') ? null : await judgeWithModel({ profile, result, jobDescription, callModel });
-    return { name, seconds: Math.round((Date.now() - t0) / 1000), result, checks, judged };
+    const ats = atsChecks({ profile, result });
+    const judged = flag('no-judge') ? null : await judgeWithModel({ profile, result, jobDescription, callModel, repair: svc.repairTruncatedJSON });
+    return { name, seconds: Math.round((Date.now() - t0) / 1000), result, checks, ats, judged };
   };
 
   const reports = await Promise.all(jobs.map((n) => runOne(n).catch((e) => ({ name: n, error: e.message }))));
@@ -76,6 +77,7 @@ const callModel = async ({ prompt, max_tokens }) => {
     console.log(`summary: ${rep.result.summary}`);
     for (const c of rep.result.changelog || []) if (['polished', 'stale_resume_ignored', 'roles_aligned'].includes(c.action)) console.log(`  [${c.action}] ${c.detail}`);
     console.log(rep.checks.pass ? 'checks: all pass' : `checks FAILED:\n${rep.checks.failures.map((f) => `  - ${f.check}: ${f.detail}`).join('\n')}`);
+    console.log(`ATS: keyword coverage ${rep.ats.coverage}% (${rep.ats.covered.length}/${rep.ats.supported.length} supported)${rep.ats.missingSupported.length ? ` MISSING though supported: ${rep.ats.missingSupported.join(', ')}` : ''}${rep.ats.problems.length ? ` | problems: ${rep.ats.problems.join('; ')}` : ''}`);
     if (rep.judged) {
       const s = rep.judged.scores || {};
       console.log(`judge: ${Object.entries(s).map(([k, v]) => `${k} ${v}`).join(' | ')}`);

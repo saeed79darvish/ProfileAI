@@ -15,7 +15,7 @@
 const { planRoleShapes } = require('./roleShape');
 const { splitUnitsOf, coverage } = require('./foundation');
 const { findBannedLanguage, scrubBannedLanguage } = require('./writingRules');
-const { auditTenureClaims } = require('./resumeHygiene');
+const { auditTenureClaims, findTenureClaims, totalExperienceYears } = require('./resumeHygiene');
 
 const MAX_BULLET_CHARS = 230;
 const MAX_SUMMARY_WORDS = 65;
@@ -47,7 +47,8 @@ function unsupportedTerms(text, sourceText) {
       const techShaped = /[.#+]/.test(tok) && /[A-Za-z]/.test(tok);
       const capitalMid = i > 0 && /^[A-Z][A-Za-z0-9]*$/.test(tok);
       if (!techShaped && !capitalMid) return;
-      if (!source.includes(tok.toLowerCase())) out.add(tok);
+      const low = tok.toLowerCase();
+      if (!source.includes(low) && !source.includes(low.replace(/(?:e?s)$/, ''))) out.add(tok);
     });
   }
   return [...out];
@@ -72,6 +73,13 @@ function buildPolishPrompt({ profile, jobDescription, targetTitle, company, keyw
     ].join('\n');
   }).join('\n\n');
 
+  const years = Math.floor(totalExperienceYears(exp));
+  const yearsFact = years >= 3
+    ? `YEARS OF EXPERIENCE: the dated roles add up to ${years} years. The first sentence of the summary may state "${years} years" (never a higher number). A recruiter screens on this, so state it plainly, inside a full sentence with a subject: "Frontend engineer with ${years} years of experience building React interfaces for ...". Never open with the number alone.`
+    : 'YEARS OF EXPERIENCE: too short to state; leave years out.';
+  const reqs = (Array.isArray(keywords.requirements) ? keywords.requirements : []).filter(Boolean).slice(0, 10);
+  const reqBlock = reqs.length ? `POSTING REQUIREMENTS, as the posting ranks them:\n${reqs.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n` : '';
+
   const system = `You are a resume editor. You improve WORDING only. You never add facts.
 You return JSON and nothing else.`;
 
@@ -79,6 +87,7 @@ You return JSON and nothing else.`;
 
 TARGET: ${targetTitle || 'the posting'}${company ? ` at ${company}` : ''}
 POSTING KEYWORDS: ${(keywords.required || []).slice(0, 14).join(', ')}
+${reqBlock}${yearsFact}
 
 CANDIDATE SUMMARY (their words):
 ${profile.summary || '(none)'}
@@ -98,6 +107,8 @@ BULLET RULES
 - Prefer concrete nouns (the system, the screen, the flow) over abstract ones (excellence, quality, synergy).
 - A figure keeps the attribution its source gives it. "resulting in a 25% increase in engagement" becomes "...a 25% increase in engagement", never "raised engagement 25%". Do not turn a contribution into a cause, and never put an unexplained figure first in a role.
 - Add no outcome the source does not state: no "fast", "smooth", "at scale", "reliable", "easy to use" unless the source says so.
+- Do not explain what something was FOR unless the source says so. "enhancing feature design efficiency" stays about faster feature design; do not add an audience or benefit ("giving designers shared building blocks"). Purpose, audience and benefit clauses are claims like any other.
+- Name collaborators ("product managers and designers", "UX and QA") at most twice in the whole resume. Say what was built with them instead.
 - Order each role's bullets by what THIS posting asks for first. Compress off-topic material (for a frontend posting: servers, containers, cloud plumbing) into one short clause or drop it; give the space to work the posting cares about.
 - Vary how bullets open. No verb opens more than two bullets in the whole resume, and a bullet is not "Built X in A, B and C to improve D": cut trailing purpose clauses that say nothing ("to align with business goals", "to improve efficiency").
 - Tense: past tense for past roles, present tense only for the current role, and the same tense across a role.
@@ -106,7 +117,8 @@ BULLET RULES
 SUMMARY RULES
 - Two or three sentences, at most ${MAX_SUMMARY_WORDS} words, in the same voice as the candidate's own summary (no "I").
 - The first sentence says what this person builds and the kind of product, taken from the strongest bullets. It must not open with the posting's job title as an identity unless the candidate has held that title.
-- No years-of-experience figure, no metrics, no self-rating (strong, passionate, proven), no run of four words copied from the posting.
+- Years: only the figure given above, in the first sentence, and only if it was given. No metrics, no self-rating (strong, passionate, proven), no run of four words copied from the posting.
+- The first sentence answers the posting's top requirements the candidate can truthfully meet, using their strongest matching evidence, even when other work is more impressive.
 - Mention at most two posting terms, only ones the bullets support.
 - Name the strongest evidence for this posting with a concrete system or result (what was built, for whom), not a stack inventory. Skip "comfortable with X" filler and backend breadth the posting does not ask for.
 
@@ -190,10 +202,12 @@ function verifySummary({ summary, allSourceText, jobDescription, experience, tar
   const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
   if (sentences.length > 3) reasons.push(`${sentences.length} sentences`);
   if (/\b(I|I'm|I've|my|me)\b/.test(text)) reasons.push('first person');
-  const bad = numbersIn(text).filter((n) => !numbersIn(allSourceText).includes(n));
+  const actualYears = Math.floor(totalExperienceYears(experience));
+  const overclaim = findTenureClaims(text).filter((c) => c.years > actualYears);
+  if (overclaim.length) reasons.push(`years-of-experience claim the dates do not support ("${overclaim[0].raw}", the roles add up to ${actualYears})`);
+  const yearsAllowed = new Set(findTenureClaims(text).filter((c) => c.years <= actualYears).map((c) => String(c.years)));
+  const bad = numbersIn(text).filter((n) => !numbersIn(allSourceText).includes(n) && !yearsAllowed.has(n.replace(/\+$/, '')));
   if (bad.length) reasons.push(`new number ${bad.join(', ')}`);
-  if (/\b\d+\+?\s*(?:years?|yrs?)\b|\b(?:eight|seven|six|five|ten|nine)\+?\s+years?\b/i.test(text)) reasons.push('years-of-experience claim');
-  else if (!auditTenureClaims(text, experience).clean) reasons.push('tenure claim the dates do not support');
   const terms = unsupportedTerms(text, allSourceText);
   if (terms.length) reasons.push(`terms not in the resume (${terms.join(', ')})`);
   if (/\b(strong|proven|passionate|exceptional|results[- ]driven|world[- ]class)\b/i.test(text)) reasons.push('self-rating');
@@ -209,6 +223,18 @@ function verifySummary({ summary, allSourceText, jobDescription, experience, tar
   if (findBannedLanguage(text).some((f) => !f.fixable)) reasons.push('banned language');
   return { text: reasons.length ? null : scrubBannedLanguage(text).text, reasons };
 }
+
+
+function allSource(profile) {
+  const exp = Array.isArray(profile.experience) ? profile.experience : [];
+  return [
+    profile.summary, profile.title,
+    ...(Array.isArray(profile.skills) ? profile.skills : Object.values(profile.skills || {}).flat()),
+    ...exp.flatMap((e) => [e.company, e.title, e.description]),
+    ...(profile.education || []).flatMap((e) => [e.school, e.degree, e.field]),
+  ].filter(Boolean).join(' ');
+}
+const heldTitlesOf = (profile) => [profile.title, ...(profile.experience || []).map((e) => e.title)].filter(Boolean).map((t) => String(t).toLowerCase());
 
 /**
  * Check a whole polish answer.
@@ -301,6 +327,24 @@ function tidySkills(skills, { jobDescription = '', bulletText = '', cap = 15 } =
 }
 
 
+
+/**
+ * A summary that failed only because of one sentence (a phrase copied from the
+ * posting, an unsupported term) keeps its other sentences rather than being
+ * thrown away for the candidate's old text. Returns null when nothing usable
+ * remains or the remainder still fails.
+ */
+function salvageSummary(text, check) {
+  const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (sentences.length < 2) return null;
+  for (let drop = 0; drop < sentences.length; drop++) {
+    const kept = sentences.filter((_, i) => i !== drop).join(' ');
+    const res = check(kept);
+    if (res.text) return res.text;
+  }
+  return null;
+}
+
 // ── Judge and repair ────────────────────────────────────────────────────────
 
 const OPENER_LIMIT = 2;
@@ -371,7 +415,7 @@ function buildFaithfulnessPrompt({ profile, polished, verdict }) {
     const src = splitUnitsOf(e.description).map((u, k) => `  source[${k}] ${u}`).join('\n');
     return `ROLE ${i}\n${src}\n${r.units.map((u, k) => `  new[${k}] ${u}`).join('\n')}`;
   }).filter(Boolean).join('\n\n');
-  return `You check rewritten resume bullets against their source. For each ROLE, list any new[] bullet that claims something its source does not say: a purpose, benefit, audience, scope, outcome or tool that is not in the source bullets. Rewording is fine; new claims are not. Also check the SUMMARY against all source bullets.
+  return `You check rewritten resume bullets against their source. For each ROLE, list every phrase in a new[] bullet that claims something its source does not say. Be strict about purpose, audience and benefit clauses (\"giving designers...\", \"so teams can...\", \"for users who...\"), scope (\"every\", \"entire\", \"across the company\"), outcomes and tools that are not in the source bullets. Pure rewording is fine; anything added is not. Also check the SUMMARY against all source bullets.
 
 ${blocks}
 
@@ -408,10 +452,12 @@ async function run({ profile, jobDescription, targetTitle, company, keywords, se
 
   const failures = collectFailures({ verdict, profile, judged });
   let repaired = false;
+  let lastSummary = first.summary;
   if ((failures.roles.size || failures.summary.length) && canRetry()) {
     try {
       const second = parsePolish(await ask(buildRepairPrompt({ basePrompt: cfg.prompt, failures, profile, previous: first }), { system: cfg.system, max_tokens: 2500 }), repair);
       if (second) {
+        if (second.summary) lastSummary = second.summary;
         const again = verify({ summary: second.summary || first.summary, experience: [...(second.experience || [])] });
         // Take a redone piece only if it now passes the code checks.
         const byIndex = new Map((second.experience || []).map((r) => [r && r.index, r]));
@@ -423,10 +469,17 @@ async function run({ profile, jobDescription, targetTitle, company, keywords, se
       }
     } catch (_) { /* keep the first verdict */ }
   }
+  // Last resort for the summary: keep what is sound rather than fall back to the
+  // candidate's old, untailored text.
+  if (!verdict.summary) {
+    const check = (text) => verifySummary({ summary: text, allSourceText: allSource(profile), jobDescription, experience: profile.experience || [], targetTitle, heldTitles: heldTitlesOf(profile) });
+    const saved = salvageSummary(lastSummary, check) || salvageSummary(first.summary, check);
+    if (saved) { verdict.summary = saved; verdict.summaryReasons = []; repaired = true; }
+  }
   return { verdict, repaired };
 }
 
 module.exports = {
   buildPolishPrompt, parsePolish, verifyPolish, verifyRole, verifySummary, applyPolish, run, collectFailures, buildRepairPrompt,
-  tidySkills, unsupportedTerms, MAX_BULLET_CHARS,
+  tidySkills, unsupportedTerms, salvageSummary, MAX_BULLET_CHARS,
 };

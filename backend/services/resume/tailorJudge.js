@@ -18,6 +18,7 @@
 const { unsupportedTerms } = require('./polish');
 const { sameCompany } = require('./sourceIdentity');
 const { findBannedLanguage } = require('./writingRules');
+const { findTenureClaims, totalExperienceYears } = require('./resumeHygiene');
 
 const numbersIn = (t) => (String(t || '').match(/\d[\d,.]*\+?%?/g) || []).map((n) => n.replace(/[,.]+$/, ''));
 const wordsOf = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9+#. ]+/g, ' ').split(/\s+/).filter(Boolean);
@@ -69,7 +70,8 @@ function deterministicChecks({ profile, result, jobDescription = '' }) {
 
   // Numbers and names must trace to the source.
   const srcNums = new Set(numbersIn(source));
-  const newNums = [...new Set(numbersIn([summary, ...bullets].join(' ')))].filter((n) => !srcNums.has(n));
+  const okYears = new Set(findTenureClaims(summary).filter((c) => c.years <= Math.floor(totalExperienceYears(srcExp))).map((c) => String(c.years)));
+  const newNums = [...new Set(numbersIn([summary, ...bullets].join(' ')))].filter((n) => !srcNums.has(n) && !okYears.has(n.replace(/\+$/, '')));
   if (newNums.length) fail('invented-number', newNums.join(', '));
   const terms = unsupportedTerms([summary, ...bullets].join('. '), source);
   if (terms.length) fail('unsupported-term', terms.slice(0, 8).join(', '));
@@ -85,7 +87,9 @@ function deterministicChecks({ profile, result, jobDescription = '' }) {
   // Summary rules.
   const nSummaryWords = wordsOf(summary).length;
   if (nSummaryWords > 75) fail('summary-length', `${nSummaryWords} words`);
-  if (/\b\d+\+?\s*(?:years?|yrs?)\b/i.test(summary)) fail('summary-years', 'states a years-of-experience figure');
+  const actualYears = Math.floor(totalExperienceYears(srcExp));
+  const overclaim = findTenureClaims(summary).filter((c) => c.years > actualYears);
+  if (overclaim.length) fail('summary-years', `claims "${overclaim[0].raw}", the dated roles add up to ${actualYears}`);
   if (/\b(strong|proven|passionate|exceptional|results[- ]driven|world[- ]class)\b/i.test(summary)) fail('summary-self-rating', 'rates itself');
   const jd = wordsOf(jobDescription), sw = wordsOf(summary);
   const grams = new Set();
@@ -117,6 +121,44 @@ function deterministicChecks({ profile, result, jobDescription = '' }) {
   return { pass: failures.length === 0, failures };
 }
 
+
+// ── ATS ─────────────────────────────────────────────────────────────────────
+
+const stem = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9+#. ]+/g, ' ').replace(/\b(css|html)\d\b/g, '$1').replace(/\s+/g, ' ').trim().replace(/s\b/g, '');
+
+/**
+ * What an applicant tracking system sees: does the resume contain the posting's
+ * keywords the candidate can truthfully claim, are the dates parseable, is the
+ * text plain. A keyword the SOURCE supports but the resume omits is a miss; a
+ * keyword the source does not support is a gap, never a miss.
+ */
+function atsChecks({ profile, result }) {
+  const source = stem(profileText(profile));
+  const { summary, bullets, skills } = resultText(result);
+  const resume = stem([result.title, summary, ...bullets, ...skills].join(' '));
+  const keywords = Array.isArray(result._jobKeywords) ? result._jobKeywords : [];
+  const supported = keywords.filter((k) => source.includes(stem(k)));
+  const covered = supported.filter((k) => resume.includes(stem(k)));
+  const missingSupported = supported.filter((k) => !covered.includes(k));
+  const problems = [];
+  const DATE = /^[A-Z][a-z]{2} \d{4}( - ([A-Z][a-z]{2} \d{4}|Present))?$/;
+  for (const e of result.experience || []) {
+    if (e.period && !DATE.test(String(e.period).trim())) problems.push(`date not machine-readable: "${e.period}" (${e.company})`);
+  }
+  const body = [result.title, summary, ...bullets, ...skills].join(' ');
+  if (/[^\x20-\x7E\n]/.test(body)) problems.push(`non-ASCII characters: ${[...new Set(body.match(/[^\x20-\x7E\n]/g))].join(' ')}`);
+  if (/\[|\bTODO\b|\bN\/A\b|lorem/i.test(body)) problems.push('placeholder or bracketed text');
+  if (!String(result.title || '').trim()) problems.push('empty headline');
+  if (!summary.trim()) problems.push('empty summary');
+  if (!skills.length) problems.push('no skills section');
+  return {
+    coverage: supported.length ? Math.round((covered.length / supported.length) * 100) : 100,
+    supported, covered, missingSupported,
+    gaps: keywords.filter((k) => !supported.includes(k)),
+    problems,
+  };
+}
+
 // ── The model judge ─────────────────────────────────────────────────────────
 
 const RUBRIC = `You are a skeptical senior recruiter and fact-checker. You are given a candidate's SOURCE profile (the only truth), a JOB POSTING, and a TAILORED RESUME written for it. Judge the tailored resume.
@@ -135,13 +177,15 @@ Return JSON only:
  "issues":[{"severity":"high|medium|low","where":"...","quote":"...","problem":"...","rule":"..."}],
  "verdict":"one sentence"}`;
 
-async function judgeWithModel({ profile, result, jobDescription, callModel }) {
+async function judgeWithModel({ profile, result, jobDescription, callModel, repair }) {
+  const years = Math.floor(totalExperienceYears(profile.experience || []));
   const roles = (result.experience || []).map((e) => `${e.title} | ${e.company} | ${e.period || ''}\n${e.description || ''}`).join('\n\n');
   const skills = result.skillsGrouped ? Object.entries(result.skillsGrouped).map(([k, v]) => `${k}: ${v.join(', ')}`).join('\n') : (result.skills || []).join(', ');
   const prompt = `${RUBRIC}
 
 === SOURCE PROFILE (truth) ===
 ${profileText(profile)}
+(The dated roles add up to ${years} years of experience, so a summary may truthfully say up to ${years} years.)
 
 === JOB POSTING ===
 ${String(jobDescription || '').slice(0, 4500)}
@@ -159,8 +203,10 @@ ${skills}`;
   try { return JSON.parse(t); } catch (_) {
     const m = t.match(/\{[\s\S]*\}/);
     if (m) { try { return JSON.parse(m[0]); } catch (__) { /* fall through */ } }
+    const fixed = typeof repair === 'function' ? repair(t) : null;
+    if (fixed && fixed.scores) return fixed;
     return { scores: {}, issues: [], verdict: 'judge answer was not valid JSON' };
   }
 }
 
-module.exports = { deterministicChecks, judgeWithModel, profileText, resultText, RUBRIC };
+module.exports = { deterministicChecks, atsChecks, judgeWithModel, profileText, resultText, RUBRIC };

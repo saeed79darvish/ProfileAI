@@ -227,3 +227,24 @@ test('run: a clean first answer needs no repair', async () => {
   assert.equal(out.repaired, false);
   assert.ok(out.verdict.summary);
 });
+
+test('summary: a years figure is allowed up to what the dated roles support, never above', () => {
+  const exp = [{ company: 'A', title: 'Engineer', startDate: '2019-01-01', endDate: '2026-06-01', description: '• Built React interfaces.' }];
+  const base = { allSourceText: 'Built React interfaces.', jobDescription: 'Frontend role.', experience: exp, targetTitle: 'Frontend Engineer', heldTitles: ['engineer'] };
+  const ok = polish.verifySummary({ ...base, summary: 'Frontend engineer with 7 years building React interfaces.' });
+  assert.equal(ok.reasons.length, 0, ok.reasons.join('; '));
+  const over = polish.verifySummary({ ...base, summary: 'Frontend engineer with 8+ years building React interfaces.' });
+  assert.match(over.reasons.join(' '), /years-of-experience/);
+});
+
+test('unsupportedTerms tolerates a plural of a term that is in the source', () => {
+  assert.deepEqual(polish.unsupportedTerms('Built shared UIs and Components.', 'Built UI components with React.'), []);
+  assert.deepEqual(polish.unsupportedTerms('Built Kubernetes tooling.', 'Built UI components with React.'), ['Kubernetes']);
+});
+
+test('salvageSummary drops only the sentence that fails, keeping the rest', () => {
+  const check = (t) => (/bad/.test(t) ? { text: null } : { text: t });
+  assert.equal(polish.salvageSummary('Builds React video players. A bad claim here. Launched AWSTV.', check), 'Builds React video players. Launched AWSTV.');
+  assert.ok(!/bad/.test(polish.salvageSummary('Builds React video players. A bad claim here. Launched AWSTV.', check)));
+  assert.equal(polish.salvageSummary('Only one sentence.', check), null);
+});

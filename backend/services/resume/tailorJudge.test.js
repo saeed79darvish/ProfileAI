@@ -52,3 +52,26 @@ test('a duplicated skill and a copied posting phrase are caught', () => {
   assert.ok(checks.includes('duplicate-skills'));
   assert.ok(checks.includes('summary-copies-jd'));
 });
+
+const { atsChecks } = require('./tailorJudge');
+
+test('ats: a supported keyword the resume omits is a miss, an unsupported one is a gap', () => {
+  const r = good();
+  r._jobKeywords = ['React', 'Node.js', 'Figma'];
+  r.skillsGrouped = { Languages: ['TypeScript'], Frameworks: ['React'] }; // Node.js is in the profile, left out here
+  const out = atsChecks({ profile: PROFILE, result: r });
+  assert.deepEqual(out.missingSupported, ['Node.js']);
+  assert.ok(out.gaps.includes('Figma'));
+  assert.ok(!out.missingSupported.includes('Figma'));
+});
+
+test('ats: unreadable dates, odd characters and placeholders are flagged', () => {
+  const r = good();
+  r._jobKeywords = [];
+  r.experience[0].period = '2025-04-01';
+  r.summary = 'Builds React → interfaces [add metric]';
+  const problems = atsChecks({ profile: PROFILE, result: r }).problems.join(' | ');
+  assert.match(problems, /date not machine-readable/);
+  assert.match(problems, /non-ASCII/);
+  assert.match(problems, /placeholder/);
+});
