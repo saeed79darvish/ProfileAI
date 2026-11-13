@@ -27,6 +27,7 @@ const { auditProfile } = require('./resume/profileAudit');
 const { normalizeTitleForCompare, compareTitles, headlineFromPostingTitle } = require('./resume/titleMatch');
 const { buildTailoredSummary, enforceFoundationBullets, mergeEducation, alignExperience } = require('./resume/foundation');
 const polish = require('./resume/polish');
+const { resolveHeadline } = require('./resume/headline');
 const { resumeMatchesProfile } = require('./resume/sourceIdentity');
 const {
   isValidRequirement,
@@ -2358,6 +2359,23 @@ Aim for the 5-12 requirements that actually decide this hire. Do not pad.`,
 
       const allRequiredKeywords = [...(extractedKeywords.required || []), ...(extractedKeywords.preferred || [])];
       const allKeywords = [...allRequiredKeywords, ...(extractedKeywords.soft || []), ...(extractedKeywords.domain || [])];
+
+      // The headline: the candidate's own title stays the main thing; the
+      // posting only moves it when that is common, at or below their level, and
+      // a fit (see resume/headline.js). "Staff Design Technologist" is not a
+      // title this candidate holds and not one to adopt.
+      const resolvedHeadline = resolveHeadline({
+        postingTitle: targetTitle,
+        candidateTitle: profileData.title,
+        heldTitles: (profileData.experience || []).map((e) => e && e.title).filter(Boolean),
+        skills: Array.isArray(profileData.skills) ? profileData.skills : Object.values(profileData.skills || {}).flat(),
+        keywords: allRequiredKeywords,
+        sourceText: originalSourceText,
+      });
+      // Only a mirrored headline is swapped into the summary's opening words; a
+      // kept title leaves the candidate's own summary text alone.
+      const summaryHeadline = resolvedHeadline.mode === 'mirror' ? resolvedHeadline.headline : '';
+      console.log(`[ProfilleAI] Headline: ${resolvedHeadline.mode} "${resolvedHeadline.headline}"`);
       
       // Build the explicit keyword injection block for the tailoring prompt
       const orGroups = extractedKeywords.orGroups || [];
@@ -2491,7 +2509,7 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       // in code after every AI round, so nothing the model does can change it.
       const foundationSummary = buildTailoredSummary({
         originalSummary: profileData.summary,
-        headline: targetHeadline || targetTitle,
+        headline: summaryHeadline,
         addition: '',
       }).foundation;
 
@@ -3096,24 +3114,24 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
         overridden: false,
       };
       if (targetTitle) {
-        const wanted = targetHeadline || targetTitle;
+        const wanted = resolvedHeadline.headline || targetHeadline || targetTitle;
         const drifted = normalizeTitleForCompare(tailoredData.title) !== normalizeTitleForCompare(wanted);
         if (drifted) {
           console.warn(
-            `[ProfilleAI] ⚠️ Title drift: model returned "${tailoredData.title}" ` +
-            `for a posting titled "${targetTitle}" — setting headline "${wanted}"`
+            `[ProfilleAI] Headline: model returned "${tailoredData.title}", setting "${wanted}" (${resolvedHeadline.mode})`
           );
-          tailoredData.changelog.push({
-            section: 'title',
-            action: 'title_corrected',
-            detail: `Model returned "${tailoredData.title || '(empty)'}"; headline set to "${wanted}" (the role from the posting "${targetTitle}", without the team name)`,
-          });
           titleAudit.overridden = true;
         }
+        // The earlier notes about the title describe what the model wanted to do
+        // (usually "set to the posting's exact title"); the code decided, so the
+        // reason shown to the candidate is the code's.
+        tailoredData.changelog = (tailoredData.changelog || []).filter((c) => !['title', 'headline'].includes(String((c && c.section) || '').toLowerCase()));
+        tailoredData.changelog.unshift({ section: 'title', action: 'headline_resolved', detail: resolvedHeadline.detail });
         tailoredData.title = wanted;
-        tailoredData.jobTitle = targetTitle;
+        if (targetTitle) tailoredData.jobTitle = targetTitle;
         titleAudit.target = wanted;
-        titleAudit.postingTitle = targetTitle;
+        titleAudit.postingTitle = targetTitle || null;
+        titleAudit.headlineMode = resolvedHeadline.mode;
       }
       if (targetCompany) {
         tailoredData.company = targetCompany;
@@ -3190,7 +3208,7 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
       // model's `summary` field is ignored; only `summaryAddition` is used.
       const built = buildTailoredSummary({
         originalSummary: profileData.summary,
-        headline: targetHeadline || targetTitle,
+        headline: summaryHeadline,
         addition: tailoredData.summaryAddition,
       });
       const modelSummary = String(tailoredData.summary || '');
@@ -3251,6 +3269,17 @@ ${confirmedLines.map((c) => `• ${c.requirement} — candidate says: "${c.evide
           const applied = polish.applyPolish(tailoredData, profileData, result.verdict);
           polishReport = { appliedRoles: applied.appliedRoles, appliedIndexes: applied.appliedIndexes, rejected: applied.rejected, summaryApplied: applied.summaryApplied, repaired: !!result.repaired };
           console.log(`[ProfilleAI] Polish: ${applied.appliedRoles.length}/${(profileData.experience || []).length} role(s) reworded, summary ${applied.summaryApplied ? 'rewritten' : 'kept'}${applied.rejected.length ? `; rejected: ${applied.rejected.join(' | ')}` : ''}`);
+          if (applied.summaryApplied) {
+            // The earlier notes for the summary describe the foundation text that
+            // polish just replaced ("kept your summary verbatim"). Showing them
+            // beside the new summary would be false, so they are replaced.
+            tailoredData.changelog = (tailoredData.changelog || []).filter((c) => String((c && c.section) || '').toLowerCase() !== 'summary');
+            tailoredData.changelog.unshift({
+              section: 'summary',
+              action: 'summary_rewritten',
+              detail: 'Rewrote the summary around your strongest work for this posting, with your years of experience taken from your dated roles; every claim traces to your resume.',
+            });
+          }
           tailoredData.changelog.push({
             section: 'experience, summary',
             action: 'polished',

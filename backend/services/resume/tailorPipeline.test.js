@@ -159,41 +159,22 @@ function script(draft) {
 
 // ── The reported defect ─────────────────────────────────────────────────────
 
-test('a model that returns the wrong seniority band is corrected in code', async () => {
+test('the headline never claims a level the candidate has not held', async () => {
   script(
     draftReply({
-      // The exact failure: the posting is Staff, the model wrote Senior.
-      title: 'Senior Software Engineer',
+      // The posting is Staff and the model adopts it; the candidate is Senior.
+      title: 'Staff Software Engineer',
       requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
     })
   );
 
   const result = await tailor();
   assert.equal(result.success, true, result.error);
-  assert.equal(result.data.title, 'Staff Software Engineer');
-  assert.equal(result.data.jobTitle, 'Staff Software Engineer');
+  assert.equal(result.data.title, 'Senior Software Engineer', 'the candidate\'s own title stays');
+  assert.equal(result.data.jobTitle, 'Staff Software Engineer', 'the posting title is still kept for the record');
 });
 
-test('the correction is recorded, not silent', async () => {
-  script(
-    draftReply({
-      title: 'Senior Software Engineer',
-      requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
-    })
-  );
-
-  const { data } = await tailor();
-  assert.equal(data.verification.title.correctedInCode, true);
-  assert.equal(data.verification.title.returnedByModel, 'Senior Software Engineer');
-  assert.equal(data.verification.title.target, 'Staff Software Engineer');
-  assert.equal(data.verification.title.postingBand, 'staff');
-  assert.equal(data.verification.title.compliant, true); // compliant AFTER the fix
-  const entry = data.changelog.find((c) => c.action === 'title_corrected');
-  assert.ok(entry, 'no changelog entry for the corrected title');
-  assert.match(entry.detail, /Staff Software Engineer/);
-});
-
-test('a model that gets the title right is left alone', async () => {
+test('the headline decision is recorded with its reason, not silent', async () => {
   script(
     draftReply({
       title: 'Staff Software Engineer',
@@ -202,9 +183,41 @@ test('a model that gets the title right is left alone', async () => {
   );
 
   const { data } = await tailor();
-  assert.equal(data.title, 'Staff Software Engineer');
+  assert.equal(data.verification.title.correctedInCode, true);
+  assert.equal(data.verification.title.returnedByModel, 'Staff Software Engineer');
+  assert.equal(data.verification.title.target, 'Senior Software Engineer');
+  assert.equal(data.verification.title.compliant, true);
+  const entry = data.changelog.find((c) => c.action === 'headline_resolved');
+  assert.ok(entry, 'no changelog entry for the headline');
+  assert.match(entry.detail, /your own title/i);
+});
+
+test('a model that already keeps the candidate\'s own title is left alone', async () => {
+  script(
+    draftReply({
+      title: 'Senior Software Engineer',
+      requirementCoverage: REQUIREMENTS.map((r) => ({ requirement: r, status: 'demonstrated' })),
+    })
+  );
+
+  const { data } = await tailor();
+  assert.equal(data.title, 'Senior Software Engineer');
   assert.equal(data.verification.title.correctedInCode, false);
-  assert.ok(!data.changelog.some((c) => c.action === 'title_corrected'));
+});
+
+test('a common title at or below the candidate\'s level is mirrored', async () => {
+  script(draftReply({ title: 'Software Engineer', requirementCoverage: [] }));
+  const { data } = await tailor({ jobTitle: 'Senior Software Engineer, Payments', company: 'Acme Corp' });
+  assert.equal(data.title, 'Senior Software Engineer');
+  assert.equal(data.jobTitle, 'Senior Software Engineer, Payments');
+});
+
+test('an unusual posting title is never adopted; the candidate\'s own title stays', async () => {
+  script(draftReply({ title: 'Staff Design Technologist', requirementCoverage: [] }));
+  const { data } = await tailor({ jobTitle: 'Staff Design Technologist', company: '' });
+  assert.ok(!/Design Technologist/i.test(data.title), data.title);
+  assert.ok(data.title.startsWith('Senior Software Engineer'), data.title);
+  assert.equal(data.jobTitle, 'Staff Design Technologist');
 });
 
 test('with no posting title the candidate’s own title is not overwritten', async () => {
@@ -229,7 +242,8 @@ test('the scraped header title beats the model’s reading of the posting body',
   for (let i = 0; i < 4; i++) scripted.push(JSON.stringify({ resume: {}, fixes: [], openQuestions: [] }));
 
   const { data } = await tailor({ jobTitle: 'Staff Software Engineer' });
-  assert.equal(data.title, 'Staff Software Engineer');
+  assert.equal(data.jobTitle, 'Staff Software Engineer', 'the header title is the one recorded');
+  assert.equal(data.title, 'Senior Software Engineer');
 });
 
 // ── The target role actually reaching the prompt ────────────────────────────
@@ -333,7 +347,7 @@ test('a truncated draft still yields a resume with the right title', async () =>
 
   const result = await tailor();
   assert.equal(result.success, true, result.error);
-  assert.equal(result.data.title, 'Staff Software Engineer');
+  assert.equal(result.data.title, 'Senior Software Engineer');
 });
 
 test('keyword extraction failing does not lose the scraped title', async () => {
@@ -342,7 +356,8 @@ test('keyword extraction failing does not lose the scraped title', async () => {
 
   const { data } = await tailor();
   // The header title is independent of the keyword call, so it still applies.
-  assert.equal(data.title, 'Staff Software Engineer');
+  assert.equal(data.jobTitle, 'Staff Software Engineer');
+  assert.equal(data.title, 'Senior Software Engineer');
 });
 
 test('tailoring without an original resume or a populated profile is refused', async () => {
@@ -439,19 +454,19 @@ test('the model is no longer asked to write out a selfAudit block', async () => 
   assert.ok(!/"selfAudit"\s*:/.test(contract), 'selfAudit is still in the output contract');
 });
 
-test('the headline is the role; the team name stays with the employer', async () => {
+test('the team name stays with the employer, never in the headline', async () => {
   script(draftReply({ title: 'Software Engineer, Agentic Runtime', requirementCoverage: [] }));
   const { data } = await tailor({ jobTitle: 'Software Engineer, Agentic Runtime', company: 'Glean' });
-  assert.equal(data.title, 'Software Engineer', 'a team name reached the headline');
+  assert.equal(data.title, 'Senior Software Engineer', 'a team name reached the headline');
   // The exact posting title is kept for the record and the filename.
   assert.equal(data.jobTitle, 'Software Engineer, Agentic Runtime');
   assert.equal(data.verification.title.compliant, true);
 });
 
-test('a posting with no seniority band does not get one', async () => {
-  script(draftReply({ title: 'Senior Software Engineer', requirementCoverage: [] }));
+test('a posting with no seniority band leaves the candidate\'s own title', async () => {
+  script(draftReply({ title: 'Software Engineer', requirementCoverage: [] }));
   const { data } = await tailor({ jobTitle: 'Software Engineer, Agentic Runtime', company: 'Glean' });
-  assert.equal(data.title, 'Software Engineer');
+  assert.equal(data.title, 'Senior Software Engineer');
   assert.equal(data.verification.title.correctedInCode, true);
 });
 
@@ -497,7 +512,7 @@ test('the candidate\'s own tenure figure is kept and flagged, never deleted', as
     { ...PROFILE, summary: 'Senior Software Engineer with 15+ years of experience building billing systems.' },
     JOB_DESCRIPTION, RESUME_TEXT, null, null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' }
   );
-  assert.match(result.data.summary, /^Staff Software Engineer with 15\+ years of experience building billing systems\./, 'the candidate\'s own figure was altered');
+  assert.match(result.data.summary, /^Senior Software Engineer with 15\+ years of experience building billing systems\./, 'the candidate\'s own figure was altered');
   assert.ok((result.data.openQuestions || []).some((q) => q.type === 'tenure_verify'), 'the candidate was not asked to confirm the figure');
 });
 
@@ -523,7 +538,7 @@ test('the foundation survives tailoring end to end', async () => {
   const original = { ...PROFILE, summary: 'Senior Software Engineer with 8+ years building billing systems.', education: [{ school: 'Somewhere', degree: 'BSc', field: 'Maths', year: '2018' }] };
   const { data } = await resumeParserService.tailorProfileForJob(original, JOB_DESCRIPTION, RESUME_TEXT, null, null, { jobTitle: 'Staff Software Engineer', company: 'Acme Corp' });
 
-  assert.ok(data.summary.startsWith('Staff Software Engineer with 8+ years building billing systems.'), data.summary);
+  assert.ok(data.summary.startsWith('Senior Software Engineer with 8+ years building billing systems.'), data.summary);
   assert.match(data.summary, /multi-team billing features/);
   const acme = data.experience.find((e) => e.company === 'Acme Corp');
   assert.match(acme.description, /Built billing services/, 'the original bullet was lost');
