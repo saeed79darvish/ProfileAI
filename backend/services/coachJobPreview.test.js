@@ -66,6 +66,57 @@ test('one opening per company', () => {
   assert.deepEqual(picked.map((j) => j.company).sort(), ['Acme', 'Globex']);
 });
 
+test('one opening per company even when the name is spelled two ways', () => {
+  // Production showed "Coupang" and "Coupang Internal", and "Atoms" and
+  // "ATOMS Careers page", as separate employers on one card.
+  const pool = [
+    job(1, 'Data Analyst', { company: 'Coupang' }),
+    job(2, 'Data Analyst', { company: 'Coupang Internal' }),
+    job(3, 'Data Analyst', { company: 'Atoms' }),
+    job(4, 'Data Analyst', { company: 'ATOMS Careers page' }),
+    job(5, 'Data Analyst', { company: 'Globex' }),
+  ];
+  const picked = pickPreviewJobs(pool, previewProfile({ title: 'Data Analyst' }));
+  assert.equal(picked.length, PREVIEW_COUNT);
+  assert.deepEqual(new Set(picked.map((j) => j.company.toLowerCase().split(' ')[0])).size, PREVIEW_COUNT);
+});
+
+test('a senior person is not shown staff-level roles while others remain', () => {
+  // A senior data analyst was shown two "Staff Data Analyst" postings.
+  const pool = [
+    ...[1, 2, 3, 4, 5, 6].map((id) => job(id, 'Senior Data Analyst')),
+    job(7, 'Staff Data Analyst', { description: 'SQL Python Tableau', skills: ['sql', 'python', 'tableau'] }),
+    job(8, 'Principal Data Analyst', { description: 'SQL Python Tableau', skills: ['sql', 'python', 'tableau'] }),
+  ];
+  const profile = previewProfile({
+    title: 'Data Analyst', target: 'Senior Data Analyst', location: 'San Francisco, CA',
+    skills: ['SQL', 'Python', 'Tableau'], constraints: { seniority: 'senior' },
+  });
+  const picked = pickPreviewJobs(pool, profile);
+  assert.equal(picked.length, PREVIEW_COUNT);
+  assert.ok(picked.every((j) => ![7, 8].includes(j.id)), 'no staff or principal on the card');
+});
+
+test('staff roles stay when the senior person is heading for one, or little else exists', () => {
+  const staffPool = [
+    ...[1, 2, 3, 4, 5, 6].map((id) => job(id, 'Senior Data Analyst')),
+    job(7, 'Staff Data Analyst', { description: 'SQL Python Tableau', skills: ['sql', 'python', 'tableau'] }),
+  ];
+  const aiming = previewProfile({
+    title: 'Senior Data Analyst', target: 'Staff Data Analyst', location: 'San Francisco, CA',
+    skills: ['SQL', 'Python', 'Tableau'], constraints: { seniority: 'senior' },
+  });
+  assert.ok(pickPreviewJobs(staffPool, aiming).some((j) => j.id === 7), 'their own target is kept');
+
+  // Too few other roles: better a staff role than a thin card.
+  const thin = [job(1, 'Senior Data Analyst'), job(2, 'Staff Data Analyst'), job(3, 'Principal Data Analyst')];
+  const picked = pickPreviewJobs(thin, previewProfile({
+    title: 'Data Analyst', target: 'Senior Data Analyst', location: 'San Francisco, CA',
+    constraints: { seniority: 'senior' },
+  }));
+  assert.equal(picked.length, PREVIEW_COUNT);
+});
+
 test('searches come from the target, the title and the roles they held', () => {
   const queries = roleQueries(previewProfile({
     target: 'Staff Software Engineer, AI and LLM Platform',

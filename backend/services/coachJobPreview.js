@@ -34,6 +34,7 @@ const { buildJobSearchTsquery } = require('../utils/searchQuery');
 const { rankJobs, computeYearsOfExperience, inferExperienceLevelOrNull } = require('./jobRelevanceService');
 const { LEVEL, resolveCandidateLevel, excludesEarlyCareer, isEarlyCareerTitle, jobLevel } = require('./jobSeniorityFit');
 const { locationTier, metroTerms } = require('../utils/jobLocationFit');
+const { companyKey } = require('../utils/companyKey');
 
 const PREVIEW_COUNT = 3;
 const POOL_PER_QUERY = 120;
@@ -117,6 +118,16 @@ function pickPreviewJobs(pool, profile) {
     });
     if (entryFriendly.length >= PREVIEW_COUNT * 2) fitting = entryFriendly;
   }
+  /* The same promise the other way round. The feed gives a senior a small
+     lift for staff roles as a stretch, which is fine in a long list but not
+     on a three-card preview: a senior data analyst was shown two "Staff Data
+     Analyst" postings. Someone who said "senior" is not shown staff, principal
+     or director titles while enough others remain, unless the role they are
+     heading for is itself one of those. */
+  if (level === LEVEL.SENIOR && jobLevel({ title: profile.target }) !== LEVEL.STAFF_PLUS) {
+    const notAbove = fitting.filter((j) => jobLevel(j) !== LEVEL.STAFF_PLUS);
+    if (notAbove.length >= PREVIEW_COUNT * 2) fitting = notAbove;
+  }
   const ranked = rankJobs(fitting, profile, {
     sortMode: 'match',
     preferences: profile.constraints,
@@ -132,7 +143,7 @@ function pickPreviewJobs(pool, profile) {
   const ordered = tiered.map((t) => t.job);
   const companies = new Set();
   const varied = ordered.filter((job) => {
-    const key = String(job.company || '').toLowerCase().trim();
+    const key = companyKey(job.company);
     if (key && companies.has(key)) return false;
     companies.add(key);
     return true;
