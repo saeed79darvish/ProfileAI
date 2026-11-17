@@ -87,7 +87,7 @@ class PaymentService {
 
       // Calculate amount based on billing cycle
       const amount = billingCycle === 'yearly'
-        ? Math.round(plan.price * 10) // 17% discount
+        ? (plan.yearlyPrice ?? Math.round(plan.price * 10)) // the price shown on the pricing page
         : plan.price;
 
       // Stripe Checkout's 'card' method type already includes Apple Pay /
@@ -163,7 +163,7 @@ class PaymentService {
       if (!plan) throw new Error('Invalid plan type');
 
       const amount = billingCycle === 'yearly'
-        ? Math.round(plan.price * 10) // 17% discount
+        ? (plan.yearlyPrice ?? Math.round(plan.price * 10)) // the price shown on the pricing page
         : plan.price;
 
       const accessToken = await this.getPayPalAccessToken();
@@ -211,7 +211,7 @@ class PaymentService {
       const plan = plans[planType];
 
       const amount = billingCycle === 'yearly'
-        ? Math.round(plan.price * 10)
+        ? (plan.yearlyPrice ?? Math.round(plan.price * 10))
         : plan.price;
 
       const startDate = new Date();
