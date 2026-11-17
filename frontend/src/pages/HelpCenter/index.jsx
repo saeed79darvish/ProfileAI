@@ -52,7 +52,7 @@ const FAQ = [
   },
   {
     q: 'How do I cancel or change my subscription?',
-    a: 'Go to Pricing (or your account menu \u2192 Upgrade), and use the "Manage subscription" link to open the Stripe billing portal. You can cancel, switch plans, or update payment there. Cancellation takes effect at the end of your current billing period.',
+    a: 'Go to the Pricing page and use the "Cancel subscription" link under the plans, or email billing@profilleai.com and we will cancel it for you. Cancellation takes effect at the end of your current billing period, so you keep your paid features until then and you are not charged again.',
   },
   {
     q: 'I ran out of AI credits. What now?',

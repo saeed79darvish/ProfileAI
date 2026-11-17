@@ -85,7 +85,7 @@ import {
 import { getPrice, renderFeatureValue } from './utils';
 import { ROUTES, TEXT, CREDIT_PACKS, COMPARE_FEATURES, FAQS, TIMINGS } from './constants';
 import PaymentMethodSelector from '../../components/PaymentMethodSelector';
-import { creditPackAPI } from '../../services/api';
+import { creditPackAPI, subscriptionAPI } from '../../services/api';
 import styled from 'styled-components';
 
 // ─── Mobile-only UI primitives ────────────────────────────────────────────
@@ -178,12 +178,50 @@ const Pricing = () => {
   const [openFAQ, setOpenFAQ] = useState(null);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelledUntil, setCancelledUntil] = useState(null);
   // Mobile-specific UX: tabs over stacked cards, and disclosure-style
   // wrappers for Compare / Credit Packs to cut scrolling from ~5 viewports
   // down to ~2. Desktop is untouched.
   const isMobile = useMediaQuery('(max-width: 768px)');
   const [activePlanTab, setActivePlanTab] = useState('pro'); // default to the Most Popular tier
   const [compareOpenMobile, setCompareOpenMobile] = useState(false);
+
+  const isPaidUser = !!user && ['starter', 'pro', 'pro_plus', 'enterprise'].includes(user.subscriptionTier);
+  const planEnding = cancelledUntil !== null || (isPaidUser && user?.subscriptionStatus === 'cancelled');
+
+  // Self-serve cancel. Ends at the close of the period already paid for, so
+  // nothing is lost and nothing renews. Mirrors the Help Center wording.
+  const handleCancelSubscription = async () => {
+    const ok = window.confirm(
+      'Cancel your subscription?\n\nYou keep your paid features until the end of the period you already paid for, and you will not be charged again.'
+    );
+    if (!ok) return;
+    setCancelLoading(true);
+    try {
+      const { data } = await subscriptionAPI.cancel();
+      const until = data?.accessUntil
+        ? new Date(data.accessUntil).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+      setCancelledUntil(until);
+      setSnackbar({
+        show: true,
+        message: until
+          ? `Subscription cancelled. Your plan stays active until ${until}.`
+          : 'Subscription cancelled. Your plan stays active until the end of the period you paid for.',
+        type: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        show: true,
+        message: 'We could not cancel automatically. Email billing@profilleai.com and we will do it for you the same day.',
+        type: 'error',
+      });
+    } finally {
+      setCancelLoading(false);
+      setTimeout(() => setSnackbar(prev => ({ ...prev, show: false })), 6000);
+    }
+  };
 
   // Handle purchase success/cancel from Stripe redirect
   useEffect(() => {
@@ -434,8 +472,8 @@ const Pricing = () => {
                 {plan.type === 'free'
                   ? 'Forever free'
                   : billingCycle === 'monthly'
-                    ? 'Billed monthly'
-                    : `Billed $${plan.price.yearly} annually`}
+                    ? 'Billed monthly. Renews until you cancel.'
+                    : `Billed $${plan.price.yearly} once a year. Renews until you cancel.`}
               </BilledText>
 
               {/* Hide the CTA on the Free card for users who are already on
@@ -472,10 +510,31 @@ const Pricing = () => {
         </PlansGrid>
 
         <TrustBadges>
-          <TrustBadge><CheckIcon /> Cancel anytime</TrustBadge>
+          <TrustBadge><CheckIcon /> Cancel anytime, keep access until the period ends</TrustBadge>
+          <TrustBadge><CheckIcon /> 7-day money-back guarantee</TrustBadge>
           <TrustBadge><CheckIcon /> Credits never expire</TrustBadge>
           <TrustBadge><CheckIcon /> Secure checkout</TrustBadge>
         </TrustBadges>
+
+        {isPaidUser && (
+          <p style={{ textAlign: 'center', margin: '16px 0 0', fontSize: 14, color: '#64748b' }}>
+            {planEnding ? (
+              <>Your subscription is cancelled{cancelledUntil ? ` and stays active until ${cancelledUntil}` : ' and stays active until the end of your billing period'}. You will not be charged again.</>
+            ) : (
+              <>
+                Need to stop?{' '}
+                <button
+                  type="button"
+                  onClick={handleCancelSubscription}
+                  disabled={cancelLoading}
+                  style={{ background: 'none', border: 'none', padding: 0, color: '#7c3aed', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}
+                >
+                  {cancelLoading ? 'Cancelling...' : 'Cancel subscription'}
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </PlansSection>
 
       {/* Application Credit Packs — flat, always-visible section on both mobile

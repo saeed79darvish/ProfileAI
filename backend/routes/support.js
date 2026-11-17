@@ -53,7 +53,7 @@ ProfilleAI is a career platform for candidates and recruiters. Core features:
 - Free (trial): 1 resume parse / month, 1 profile enhancement / month, 3 resume tailorings LIFETIME, 2 AI cover letters / month, 5 career suggestions / month, basic profile.
 - Pro ($14.99 / month or $119 / year): 50 tailorings / month, 30 cover letters / month, 20 resume parses / month, 30 profile enhancements / month, unlimited career suggestions, watermark-free exports, priority support.
 - Pro+ ($29.99 / month or $239 / year): everything in Pro PLUS 200 tailorings / month, 200 cover letters / month, unlimited interview prep, batch tailoring.
-- Billing is handled by Stripe. Manage subscription is under Account or via the Pricing page.
+- Billing is handled by Stripe. To cancel, use the "Cancel subscription" link under the plans on the Pricing page, or email billing@profilleai.com. Cancelling stops future charges and paid features stay on until the end of the period already paid for. There is no separate billing portal.
 
 ═══ REFUND POLICY (7-day money-back guarantee) ═══
 Users can request a full refund within 7 days of their INITIAL subscription purchase, ONLY IF:

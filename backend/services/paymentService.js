@@ -290,7 +290,19 @@ class PaymentService {
         throw new Error('No active subscription found');
       }
 
-      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      // Cancel at the END of the paid period, not now. Cancelling immediately
+      // threw away time the customer had already paid for (a yearly plan lost
+      // up to 11 months), which is exactly the billing trap users complain
+      // about with competitors. Access is gated on subscriptionTier, which
+      // stays paid until Stripe sends customer.subscription.deleted at the end
+      // of the period (handleSubscriptionDeleted drops it to free).
+      const updated = await stripe.subscriptions.update(user.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      });
+
+      const periodEnd =
+        updated.items?.data?.[0]?.current_period_end ?? updated.current_period_end;
+      const accessUntil = periodEnd ? new Date(periodEnd * 1000) : null;
 
       await Subscription.update(
         { status: 'cancelled' },
@@ -298,11 +310,14 @@ class PaymentService {
       );
 
       await User.update(
-        { subscriptionStatus: 'cancelled' },
+        {
+          subscriptionStatus: 'cancelled',
+          ...(accessUntil ? { subscriptionExpiresAt: accessUntil } : {}),
+        },
         { where: { id: user.id } }
       );
 
-      return { success: true };
+      return { success: true, cancelAtPeriodEnd: true, accessUntil };
     } catch (error) {
       console.error('Error cancelling subscription:', error);
       throw error;
@@ -394,13 +409,26 @@ class PaymentService {
     });
 
     if (user) {
+      // Stripe statuses ('canceled', 'past_due', 'trialing'...) are not our
+      // enum values, and writing them verbatim throws. A subscription that is
+      // still active but set to end at period end is 'cancelled' here, which
+      // keeps the account paid until the period actually ends.
+      let status;
+      if (subscription.status === 'active' || subscription.status === 'trialing') {
+        status = subscription.cancel_at_period_end ? 'cancelled' : 'active';
+      } else if (subscription.status === 'canceled') {
+        status = 'cancelled';
+      } else {
+        status = 'expired';
+      }
+
       await User.update({
-        subscriptionStatus: subscription.status
+        subscriptionStatus: status
       }, { where: { id: user.id } });
 
       await Subscription.update({
-        status: subscription.status
-      }, { 
+        status
+      }, {
         where: { 
           stripeSubscriptionId: subscription.id 
         } 
