@@ -15,7 +15,7 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Box, TextFie
 import {
   PageContainer,
   Header,
-  SpecialBadge,
+  CurrentPlanBadge,
   Title,
   Subtitle,
   BillingToggle,
@@ -189,6 +189,23 @@ const Pricing = () => {
 
   const isPaidUser = !!user && ['starter', 'pro', 'pro_plus', 'enterprise'].includes(user.subscriptionTier);
   const planEnding = cancelledUntil !== null || (isPaidUser && user?.subscriptionStatus === 'cancelled');
+
+  // Say which plan this person is on, first thing on the page. Guests get the
+  // short pitch instead.
+  const PLAN_NAMES = { free: 'Free', starter: 'Starter', pro: 'Pro', pro_plus: 'Pro+', enterprise: 'Enterprise' };
+  const TIER_RANK = { free: 0, starter: 1, pro: 2, pro_plus: 3, enterprise: 4 };
+  const currentTier = user ? (user.subscriptionTier || 'free') : null;
+  const currentPlanName = currentTier ? (PLAN_NAMES[currentTier] || 'Free') : null;
+  const headerTitle = currentPlanName
+    ? (currentTier === 'free' ? "You're on the Free plan" : `You're on ${currentPlanName}`)
+    : TEXT.TITLE;
+  const headerSubtitle = !currentPlanName
+    ? TEXT.SUBTITLE
+    : planEnding
+      ? 'Your plan ends when the billing period does. Compare plans below.'
+      : isPaidUser
+        ? 'Renews until you cancel. Switch or compare plans below.'
+        : 'Upgrade anytime. Credits never expire.';
 
   // Self-serve cancel. Ends at the close of the period already paid for, so
   // nothing is lost and nothing renews. Mirrors the Help Center wording.
@@ -403,11 +420,8 @@ const Pricing = () => {
 
       {/* Header */}
       <Header>
-        <SpecialBadge>
-          <BoltIcon /> {TEXT.LAUNCH_BADGE}
-        </SpecialBadge>
-        <Title>{TEXT.TITLE}</Title>
-        <Subtitle>{TEXT.SUBTITLE}</Subtitle>
+        <Title>{headerTitle}</Title>
+        <Subtitle>{headerSubtitle}</Subtitle>
 
         <BillingToggle>
           <BillingOption
@@ -454,8 +468,10 @@ const Pricing = () => {
           {plans
             .filter((plan) => !isMobile || plan.type === activePlanTab)
             .map((plan, index) => (
-            <PlanCard key={index} $popular={plan.popular}>
-              {plan.popular && <PopularBadge>Most Popular</PopularBadge>}
+            <PlanCard key={index} $popular={plan.popular} $current={!!user && currentTier === plan.type}>
+              {!!user && currentTier === plan.type
+                ? <CurrentPlanBadge>Your plan</CurrentPlanBadge>
+                : plan.popular && <PopularBadge>Most Popular</PopularBadge>}
 
               <PlanIcon $popular={plan.popular}>
                 {plan.icon}
@@ -485,12 +501,16 @@ const Pricing = () => {
                   onClick={() => handleSubscribe(plan)}
                   disabled={user?.subscriptionTier === plan.type}
                 >
-                  {user?.subscriptionTier === plan.type ? 'Current plan' : plan.buttonText}
+                  {user?.subscriptionTier === plan.type
+                    ? 'Current plan'
+                    : isPaidUser && (TIER_RANK[plan.type] ?? 0) < (TIER_RANK[currentTier] ?? 0)
+                      ? `Switch to ${plan.name}`
+                      : plan.buttonText}
                 </PlanButton>
               )}
               {plan.type === 'free' && user && (
                 <PlanButton $popular={plan.popular} as="div" $current>
-                  {user.subscriptionTier === 'free' ? 'Your current plan' : 'Included'}
+                  {currentTier === 'free' ? 'Your current plan' : 'Included in your plan'}
                 </PlanButton>
               )}
 

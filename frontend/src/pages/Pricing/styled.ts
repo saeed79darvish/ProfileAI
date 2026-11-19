@@ -10,11 +10,13 @@ export const PageContainer = styled.div`
 
 export const Header = styled.header`
   text-align: center;
-  padding: 60px 20px 40px;
+  /* Kept short on purpose: the plan cards should be on screen without
+     scrolling, and a logged-in user should see their own plan first. */
+  padding: 28px 20px 12px;
   background: ${COLORS.BG_WHITE};
 
   @media (max-width: 640px) {
-    padding: 24px 16px 28px;
+    padding: 16px 16px 8px;
   }
 `;
 
@@ -45,34 +47,29 @@ export const SpecialBadge = styled.div`
 `;
 
 export const Title = styled.h1`
-  font-size: 48px;
+  font-size: 30px;
   font-weight: 700;
   color: ${COLORS.TEXT_PRIMARY};
-  margin: 0 0 16px;
-  line-height: 1.1;
-
-  @media (max-width: 768px) {
-    font-size: 32px;
-  }
+  margin: 0 0 6px;
+  line-height: 1.15;
 
   @media (max-width: 640px) {
-    font-size: 26px;
-    margin: 0 0 10px;
+    font-size: 22px;
+    margin: 0 0 4px;
   }
 `;
 
 export const Subtitle = styled.p`
-  font-size: 18px;
+  font-size: 15px;
   color: ${COLORS.TEXT_SECONDARY};
-  margin: 0 0 8px;
-  max-width: 500px;
+  margin: 0;
+  max-width: 560px;
   margin-left: auto;
   margin-right: auto;
-  line-height: 1.6;
+  line-height: 1.5;
 
   @media (max-width: 640px) {
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 13px;
   }
 `;
 
@@ -80,13 +77,13 @@ export const BillingToggle = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  margin-top: 32px;
+  margin-top: 16px;
   padding: 4px;
   background: ${COLORS.BG_GRAY};
   border-radius: 50px;
 
   @media (max-width: 640px) {
-    margin-top: 20px;
+    margin-top: 12px;
     gap: 4px;
   }
 `;
@@ -117,10 +114,10 @@ export const SaveBadge = styled.span`
 export const PlansSection = styled.section`
   max-width: 1200px;
   margin: 0 auto;
-  padding: 40px 20px 60px;
+  padding: 28px 20px 60px;
 
   @media (max-width: 640px) {
-    padding: 20px 14px 8px;
+    padding: 16px 14px 8px;
   }
 `;
 
@@ -196,7 +193,13 @@ export const PlanCard = styled.div`
       transform: scale(1);
     }
   `}
-  
+
+  /* The plan the signed-in user is on: a clear outline, not just a greyed button. */
+  ${props => props.$current && `
+    outline: 3px solid ${COLORS.SUCCESS};
+    outline-offset: 2px;
+  `}
+
   &:hover {
     transform: ${props => props.$popular ? 'scale(1.07)' : 'translateY(-4px)'};
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
@@ -220,6 +223,10 @@ export const PopularBadge = styled.div`
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+`;
+
+export const CurrentPlanBadge = styled(PopularBadge)`
+  background: ${COLORS.SUCCESS};
 `;
 
 export const PlanIcon = styled.div`
