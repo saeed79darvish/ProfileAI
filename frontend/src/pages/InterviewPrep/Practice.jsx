@@ -364,7 +364,8 @@ export default function Practice() {
                   <div className="bars" aria-hidden="true">
                     {BAR_SHAPE.map((s, i) => <span key={i} className="bar" style={{ height: `${Math.round(6 + s * level * 34)}px` }} />)}
                   </div>
-                  <div className="time" role="timer" aria-label="Time elapsed">{formatElapsed(call.elapsedMs)}</div>
+                  {call.debugLog.length > 0 && <pre style={{ margin: '8px 0', padding: 10, background: '#10121f', color: '#9fe8b0', fontSize: 11, lineHeight: 1.4, borderRadius: 8, maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{call.debugLog.join('\n')}</pre>}
+                <div className="time" role="timer" aria-label="Time elapsed">{formatElapsed(call.elapsedMs)}</div>
                   <div className="hint">About a minute is a good answer</div>
                   <div className="status" role="status" aria-live="polite">{status}</div>
                 </div>

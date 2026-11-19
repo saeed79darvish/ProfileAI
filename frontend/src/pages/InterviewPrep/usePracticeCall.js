@@ -55,6 +55,7 @@ export const usePracticeCall = () => {
   const [speaking, setSpeaking] = useState(false);
   const [level, setLevel] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
+  const [debugLog, setDebugLog] = useState([]);
   const [muted, setMuted] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [startedAt, setStartedAt] = useState(null);
@@ -75,6 +76,13 @@ export const usePracticeCall = () => {
   const micRafRef = useRef(null);
   const audioCtxRef = useRef(null);
   const interimRef = useRef('');
+  const lastMicPaintRef = useRef(0);
+  const debugOn = useRef(typeof window !== 'undefined' && /[?&]debug=1/.test(window.location.search));
+  const note = useCallback((tag, detail = '') => {
+    if (!debugOn.current) return;
+    const t = startedAtMsRef.current ? ((Date.now() - startedAtMsRef.current) / 1000).toFixed(1) : '-';
+    setDebugLog((prev) => [...prev.slice(-39), `${t}s ${tag} ${String(detail).slice(0, 200)}`]);
+  }, []);
   const capRef = useRef(null);
   const wrapRef = useRef(null);
   const deadlineRef = useRef(null);
@@ -305,6 +313,9 @@ export const usePracticeCall = () => {
   const onEvent = useCallback((raw) => {
     let event;
     try { event = JSON.parse(raw); } catch { return; }
+    if (debugOn.current && !/delta$|rate_limits|content_part|output_item|conversation.item.(added|created|done)|committed|session.(created|updated)/.test(event.type)) {
+      note(event.type, event.error ? JSON.stringify(event.error) : event.transcript || event.name || event.response?.status_details?.reason || event.response?.status || '');
+    }
 
     switch (event.type) {
       case 'response.created':
@@ -445,7 +456,7 @@ export const usePracticeCall = () => {
       default:
         break;
     }
-  }, [clearNudge, hangUpWhenQuiet, sayGoodbyeWhenFree, scheduleNudge, sendEvent, startReplying, tellCoach]);
+  }, [clearNudge, hangUpWhenQuiet, note, sayGoodbyeWhenFree, scheduleNudge, sendEvent, startReplying, tellCoach]);
 
   /**
    * Begin a session for a prep. Asks our server for the session (questions and
@@ -530,6 +541,7 @@ export const usePracticeCall = () => {
         return;
       }
       micRef.current = mic;
+      note('mic', `${mic.getAudioTracks()[0]?.label || 'unknown'} / ${mic.getAudioTracks()[0]?.readyState}`);
 
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -558,7 +570,11 @@ export const usePracticeCall = () => {
             let sum = 0;
             for (let i = 0; i < buf.length; i += 1) { const v = (buf[i] - 128) / 128; sum += v * v; }
             const rms = Math.sqrt(sum / buf.length);
-            setMicLevel((prev) => prev * 0.6 + Math.min(1, rms * 6) * 0.4);
+            const nowMs = performance.now();
+            if (nowMs - lastMicPaintRef.current > 66) {
+              lastMicPaintRef.current = nowMs;
+              setMicLevel((prev) => prev * 0.5 + Math.min(1, rms * 6) * 0.5);
+            }
             micRafRef.current = requestAnimationFrame(tickMic);
           };
           micRafRef.current = requestAnimationFrame(tickMic);
@@ -633,7 +649,7 @@ export const usePracticeCall = () => {
       if (stale()) return;
       fail(callErrorKind(err));
     }
-  }, [finish, holdScreen, onEvent, sayGoodbyeWhenFree, sendEvent, startReplying, teardown, tellCoach, watchLevel]);
+  }, [finish, holdScreen, note, onEvent, sayGoodbyeWhenFree, sendEvent, startReplying, teardown, tellCoach, watchLevel]);
 
   /**
    * "I am done, next question": a short typed turn asking the coach to give
@@ -681,6 +697,7 @@ export const usePracticeCall = () => {
     speaking,
     level,
     micLevel,
+    debugLog,
     muted,
     toggleMute,
     start,
