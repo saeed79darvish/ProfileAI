@@ -42,6 +42,14 @@ const REALTIME_VOICE = process.env.OPENAI_REALTIME_VOICE || 'marin';
    transcript has been given nothing to check. */
 const INPUT_TRANSCRIPTION_MODEL = process.env.OPENAI_REALTIME_STT_MODEL || 'whisper-1';
 
+/* Interview practice: a calmer, more conversational voice than the coach's, and a
+   transcriber that streams words as they are said (whisper-1 only returns a turn
+   once it is over, so the page looked deaf while someone was mid-answer). The
+   noise setting is the laptop-microphone one: near_field assumes a headset and
+   clips a quieter voice further from the mic. */
+const PRACTICE_VOICE = process.env.OPENAI_PRACTICE_VOICE || 'cedar';
+const PRACTICE_STT_MODEL = process.env.OPENAI_PRACTICE_STT_MODEL || 'gpt-4o-transcribe';
+
 const isConfigured = () => !!process.env.OPENAI_API_KEY;
 
 /**
@@ -65,7 +73,7 @@ async function createVoiceSession({ firstName, profile = {}, missing = [], maxMi
  * both go through here so the audio, turn detection and model settings stay
  * identical.
  */
-async function createRealtimeSession({ instructions, tools = [] } = {}) {
+async function createRealtimeSession({ instructions, tools = [], voice, transcriptionModel, noiseReduction } = {}) {
   if (!isConfigured()) throw new Error('OPENAI_API_KEY is not configured');
 
   const body = {
@@ -77,11 +85,11 @@ async function createRealtimeSession({ instructions, tools = [] } = {}) {
       tool_choice: 'auto',
       audio: {
         input: {
-          transcription: { model: INPUT_TRANSCRIPTION_MODEL },
+          transcription: { model: transcriptionModel || INPUT_TRANSCRIPTION_MODEL },
           /* Keyboards, traffic, a room. The browser suppresses some of this
              before it leaves the machine; this catches what is left, and
              what is left is what trips the detector below. */
-          noise_reduction: { type: 'near_field' },
+          noise_reduction: { type: noiseReduction || 'near_field' },
           /* Semantic turn detection at its least eager. Plain voice-activity
              detection ended a turn on any sound and let any sound interrupt:
              a TV in the room, or Remi's own voice leaking back through the
@@ -105,7 +113,7 @@ async function createRealtimeSession({ instructions, tools = [] } = {}) {
             interrupt_response: false,
           },
         },
-        output: { voice: REALTIME_VOICE },
+        output: { voice: voice || REALTIME_VOICE },
       },
     },
   };
@@ -175,6 +183,8 @@ function filterLearned(fields = {}) {
 module.exports = {
   createVoiceSession,
   createRealtimeSession,
+  PRACTICE_VOICE,
+  PRACTICE_STT_MODEL,
   filterLearned,
   isConfigured,
   REALTIME_MODEL,

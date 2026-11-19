@@ -54,6 +54,7 @@ export const usePracticeCall = () => {
   const [state, setState] = useState(PRACTICE_STATES.idle);
   const [speaking, setSpeaking] = useState(false);
   const [level, setLevel] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
   const [muted, setMuted] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [startedAt, setStartedAt] = useState(null);
@@ -71,6 +72,9 @@ export const usePracticeCall = () => {
   const micRef = useRef(null);
   const audioRef = useRef(null);
   const rafRef = useRef(null);
+  const micRafRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const interimRef = useRef('');
   const capRef = useRef(null);
   const wrapRef = useRef(null);
   const deadlineRef = useRef(null);
@@ -129,6 +133,11 @@ export const usePracticeCall = () => {
     releaseScreen();
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
+    if (micRafRef.current) cancelAnimationFrame(micRafRef.current);
+    micRafRef.current = null;
+    try { audioCtxRef.current?.close(); } catch { /* already closed */ }
+    audioCtxRef.current = null;
+    interimRef.current = '';
     [capRef, wrapRef, deadlineRef, finishThoughtRef, nudgeTimerRef, greetingCapRef, blipRef].forEach((ref) => {
       if (ref.current) clearTimeout(ref.current);
       ref.current = null;
@@ -146,6 +155,7 @@ export const usePracticeCall = () => {
     pcRef.current = null;
     setSpeaking(false);
     setLevel(0);
+    setMicLevel(0);
     setMuted(false);
   }, [releaseScreen]);
 
@@ -353,8 +363,20 @@ export const usePracticeCall = () => {
         if (greetingDoneRef.current && !greetedRef.current) setTimeout(startReplying, 800);
         break;
 
+      // Words as they are said (gpt-4o-transcribe streams them), shown until the final text for the turn lands.
+      case 'conversation.item.input_audio_transcription.delta': {
+        if (!greetedRef.current) break;
+        const piece = String(event.delta || '');
+        if (!piece) break;
+        interimRef.current += piece;
+        const base = heardRef.current ? `${heardRef.current} ` : '';
+        setHeardText((base + interimRef.current).slice(-MAX_HEARD_CHARS));
+        break;
+      }
+
       // The candidate's words, once the transcriber is sure of them. These build the live "what we heard".
       case 'conversation.item.input_audio_transcription.completed': {
+        interimRef.current = '';
         const text = String(event.transcript || '').trim();
         // Before the greeting is done whatever was heard is the room or an echo, not an answer.
         if (!text || !greetedRef.current) break;
@@ -521,6 +543,28 @@ export const usePracticeCall = () => {
       };
       pc.addTrack(mic.getAudioTracks()[0], mic);
 
+      // The candidate's own level, so the page can show the microphone is picking them up.
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) {
+          const ctx = new Ctx();
+          audioCtxRef.current = ctx;
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          ctx.createMediaStreamSource(mic).connect(analyser);
+          const buf = new Uint8Array(analyser.fftSize);
+          const tickMic = () => {
+            analyser.getByteTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i += 1) { const v = (buf[i] - 128) / 128; sum += v * v; }
+            const rms = Math.sqrt(sum / buf.length);
+            setMicLevel((prev) => prev * 0.6 + Math.min(1, rms * 6) * 0.4);
+            micRafRef.current = requestAnimationFrame(tickMic);
+          };
+          micRafRef.current = requestAnimationFrame(tickMic);
+        }
+      } catch { /* no meter; the call still works */ }
+
       const channel = pc.createDataChannel(EVENT_CHANNEL);
       channelRef.current = channel;
       channel.addEventListener('message', (event) => onEvent(event.data));
@@ -636,6 +680,7 @@ export const usePracticeCall = () => {
     state,
     speaking,
     level,
+    micLevel,
     muted,
     toggleMute,
     start,

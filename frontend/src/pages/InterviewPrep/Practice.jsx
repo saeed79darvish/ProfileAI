@@ -230,7 +230,9 @@ export default function Practice() {
   const states = questionStates(total, call.currentIndex);
   const story = current ? storyForQuestion(current.text, stories) : null;
   const heading = prep ? [prep.scope === 'role' ? '' : prep.company, prep.role].filter((x) => typeof x === 'string' && x).join(', ') : '';
-  const level = Math.max(0, Math.min(1, call.level));
+  // The coach's voice drives the orb while it talks; the candidate's own microphone does on their turn.
+  const mine = !call.speaking && !call.muted;
+  const level = Math.max(0, Math.min(1, mine ? call.micLevel || 0 : call.level));
   const status = call.state === PRACTICE_STATES.connecting ? 'Connecting to your coach...'
     : call.state === PRACTICE_STATES.ending ? 'Wrapping up...'
     : call.muted ? 'Paused. Your microphone is off.'

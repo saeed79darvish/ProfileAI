@@ -355,7 +355,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         firstName: req.user.firstName, prep, questions, stories,
         profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes, lastTime, focus,
       });
-      const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes });
+      const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes, voice: realtime.PRACTICE_VOICE, transcriptionModel: realtime.PRACTICE_STT_MODEL, noiseReduction: 'far_field' });
 
       if (req.voiceAllowance) await recordVoice(req.user.id, maxSessionMinutes, { feature: 'interview_practice', prepId: req.params.id });
       return res.json({ success: true, ...session, maxSessionMinutes, questions });
