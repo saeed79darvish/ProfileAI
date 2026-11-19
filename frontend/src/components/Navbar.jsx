@@ -416,13 +416,27 @@ const PlanBadge = styled.span`
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-left: 6px;
-  background: ${p => (p.$tier === 'pro'
+  background: ${p => (p.$tier === 'pro' || p.$tier === 'pro_plus'
     ? 'linear-gradient(135deg, rgba(167,139,250,0.3) 0%, rgba(124,58,237,0.3) 100%)'
     : p.$tier === 'enterprise'
     ? 'linear-gradient(135deg, rgba(124,94,207,0.3) 0%, rgba(147,51,234,0.3) 100%)'
+    : p.$tier === 'starter'
+    ? 'rgba(124, 58, 237, 0.15)'
     : 'rgba(100, 116, 139, 0.2)')};
-  color: ${p => (p.$tier === 'pro' ? '#a78bfa' : p.$tier === 'enterprise' ? '#7c5ecf' : '#94a3b8')};
+  color: ${p => (p.$tier === 'pro' || p.$tier === 'pro_plus' ? '#a78bfa' : p.$tier === 'enterprise' ? '#7c5ecf' : p.$tier === 'starter' ? '#a78bfa' : '#94a3b8')};
 `;
+
+/* Every paid plan needs a label here. The badge used to know only 'pro' and
+   'enterprise', so a Pro+ subscriber (tier 'pro_plus') saw "Free" in the nav
+   right after paying, and Starter did too. */
+const TIER_LABELS = {
+  starter: 'Starter',
+  pro: '⭐ Pro',
+  pro_plus: '⭐ Pro+',
+  enterprise: '👑 Enterprise',
+};
+const tierLabelFor = (tier) => TIER_LABELS[tier] || 'Free';
+const isPaidTier = (tier) => Boolean(TIER_LABELS[tier]);
 
 /* Dropdowns */
 const DropdownWrap = styled.div`
@@ -765,7 +779,7 @@ const Navbar = () => {
   const renderUserMeta = () => {
     const role = isAdmin ? 'Admin' : isRecruiter ? 'Recruiter' : (user?.headline || 'Candidate');
     const tier = user?.subscriptionTier || 'free';
-    const tierLabel = tier === 'pro' ? '⭐ Pro' : tier === 'enterprise' ? '👑 Enterprise' : 'Free';
+    const tierLabel = tierLabelFor(tier);
     return (
       <UserMeta>
         <UserName>{user?.firstName} {user?.lastName}</UserName>
@@ -826,7 +840,7 @@ const Navbar = () => {
               <PersonIcon /> My Profile
             </DropdownItem>
             <DropdownItem role="menuitem" onClick={() => go('/pricing')}>
-              <UpgradeIcon /> Upgrade
+              <UpgradeIcon /> {isPaidTier(user?.subscriptionTier) ? 'Plans' : 'Upgrade'}
             </DropdownItem>
           </>
         )}
@@ -945,11 +959,7 @@ const Navbar = () => {
       ? 'Recruiter'
       : (user?.headline || 'Candidate');
     const tier = user?.subscriptionTier || 'free';
-    const tierLabel = tier === 'pro'
-      ? '⭐ Pro'
-      : tier === 'enterprise'
-      ? '👑 Enterprise'
-      : 'Free';
+    const tierLabel = tierLabelFor(tier);
     return (
       <MobileMenuWrap ref={mobileUserMenuRef}>
         <MobileAvatarButton
@@ -1156,7 +1166,7 @@ const Navbar = () => {
               + avatar-as-account-menu. Primary nav lives in the strip below. */}
           {isAuthenticated && (
             <MobileQuickActions>
-              {user?.subscriptionTier !== 'pro' && user?.subscriptionTier !== 'enterprise' && (
+              {!['pro', 'pro_plus', 'enterprise'].includes(user?.subscriptionTier) && (
                 <MobileUpgradePill
                   type="button"
                   onClick={() => go('/pricing')}
