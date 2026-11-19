@@ -219,7 +219,7 @@ export default function Practice() {
   const top = useMemo(() => (only ? [{ text: only.text.trim(), kind: only.kind === 'resume' ? 'resume' : 'reported' }] : pickTopQuestions(prep, 5)), [prep, only]);
   const running = call.state !== PRACTICE_STATES.idle;
   const goPrep = useCallback(() => navigate(`/interview-prep/prep/${prepId}`), [navigate, prepId]);
-  const [voice, setVoice] = useState(() => { try { return localStorage.getItem('practiceVoice') || 'cedar'; } catch { return 'cedar'; } });
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem('practiceVoice') || 'marin'; } catch { return 'marin'; } });
   const [sampleState, setSampleState] = useState('idle'); // idle | loading | playing | failed
   const sampleAudio = useRef(null);
   const chooseVoice = (v) => {

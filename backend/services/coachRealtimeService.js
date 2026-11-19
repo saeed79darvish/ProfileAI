@@ -47,7 +47,7 @@ const INPUT_TRANSCRIPTION_MODEL = process.env.OPENAI_REALTIME_STT_MODEL || 'whis
    once it is over, so the page looked deaf while someone was mid-answer). The
    noise setting is the laptop-microphone one: near_field assumes a headset and
    clips a quieter voice further from the mic. */
-const PRACTICE_VOICE = process.env.OPENAI_PRACTICE_VOICE || 'cedar';
+const PRACTICE_VOICE = process.env.OPENAI_PRACTICE_VOICE || 'marin';
 const PRACTICE_STT_MODEL = process.env.OPENAI_PRACTICE_STT_MODEL || 'gpt-4o-transcribe';
 
 /* The voices the realtime API offers; a caller's choice is only honoured from this list. */
