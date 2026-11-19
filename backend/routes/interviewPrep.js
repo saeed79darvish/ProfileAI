@@ -95,6 +95,19 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
     } catch (err) { return sendError(res, err); }
   });
 
+  // A short audio sample of a coach voice, for the picker on the practice screen. Cached server side.
+  router.get('/voice-sample/:voice', authMiddleware, async (req, res) => {
+    try {
+      const buf = await realtime.voiceSample(String(req.params.voice || ''));
+      if (!buf) return res.status(404).json({ success: false, code: 'not_found', message: 'Unknown voice' });
+      res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'private, max-age=86400' });
+      return res.send(buf);
+    } catch (err) {
+      console.error('[interviewPrep] voice sample failed:', (err && err.message) || err);
+      return res.status(502).json({ success: false, code: 'error', message: 'Could not load that sample.' });
+    }
+  });
+
   router.get('/mine', authMiddleware, standaloneOnly(canUseStandalone), async (req, res) => {
     try {
       const userId = req.user.id;
@@ -317,7 +330,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
       if (prepRow.status !== 'ready' || !prepRow.prep) {
         return res.status(409).json({ success: false, code: 'not_ready', message: 'The research is not ready yet.' });
       }
-      const { tailoredProfileId, questions: requested } = req.body || {};
+      const { tailoredProfileId, questions: requested, voice: requestedVoice } = req.body || {};
       let source = null;
       if (tailoredProfileId) {
         if (!isUuid(tailoredProfileId)) return res.status(400).json({ success: false, code: 'invalid_request', message: 'Invalid tailoredProfileId' });
@@ -355,7 +368,7 @@ function buildRouter({ service, authMiddleware, limiter, recordUsage, runModel, 
         firstName: req.user.firstName, prep, questions, stories,
         profileSnapshot: profileSnapshot(source), maxMinutes: maxSessionMinutes, lastTime, focus,
       });
-      const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes, voice: realtime.PRACTICE_VOICE, transcriptionModel: realtime.PRACTICE_STT_MODEL, noiseReduction: 'far_field' });
+      const session = await realtime.createRealtimeSession({ instructions, tools: PRACTICE_TOOLS, maxMinutes: maxSessionMinutes, voice: realtime.pickPracticeVoice(requestedVoice), transcriptionModel: realtime.PRACTICE_STT_MODEL, noiseReduction: 'far_field' });
 
       if (req.voiceAllowance) await recordVoice(req.user.id, maxSessionMinutes, { feature: 'interview_practice', prepId: req.params.id });
       return res.json({ success: true, ...session, maxSessionMinutes, questions });

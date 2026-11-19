@@ -50,6 +50,32 @@ const INPUT_TRANSCRIPTION_MODEL = process.env.OPENAI_REALTIME_STT_MODEL || 'whis
 const PRACTICE_VOICE = process.env.OPENAI_PRACTICE_VOICE || 'cedar';
 const PRACTICE_STT_MODEL = process.env.OPENAI_PRACTICE_STT_MODEL || 'gpt-4o-transcribe';
 
+/* The voices the realtime API offers; a caller's choice is only honoured from this list. */
+const PRACTICE_VOICES = ['marin', 'cedar', 'coral', 'sage', 'verse', 'ballad', 'alloy', 'ash', 'echo', 'shimmer'];
+const pickPracticeVoice = (v) => (PRACTICE_VOICES.includes(v) ? v : PRACTICE_VOICE);
+
+const SAMPLE_TEXT = "Hi, I'm your interview coach. Take your time, and tell me about a project you're proud of.";
+const sampleCache = new Map();
+
+/** A short spoken sample of one voice, cached so each voice is generated at most once per server run. */
+async function voiceSample(voice) {
+  if (!PRACTICE_VOICES.includes(voice)) return null;
+  if (sampleCache.has(voice)) return sampleCache.get(voice);
+  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
+  const res = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini-tts', voice, input: SAMPLE_TEXT, response_format: 'mp3',
+      instructions: 'Speak like a relaxed, friendly person in a real conversation. Natural pace, warm, not theatrical.',
+    }),
+  });
+  if (!res.ok) throw new Error(`speech sample failed: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  sampleCache.set(voice, buf);
+  return buf;
+}
+
 const isConfigured = () => !!process.env.OPENAI_API_KEY;
 
 /**
@@ -184,6 +210,9 @@ module.exports = {
   createVoiceSession,
   createRealtimeSession,
   PRACTICE_VOICE,
+  PRACTICE_VOICES,
+  pickPracticeVoice,
+  voiceSample,
   PRACTICE_STT_MODEL,
   filterLearned,
   isConfigured,

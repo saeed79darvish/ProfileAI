@@ -219,10 +219,33 @@ export default function Practice() {
   const top = useMemo(() => (only ? [{ text: only.text.trim(), kind: only.kind === 'resume' ? 'resume' : 'reported' }] : pickTopQuestions(prep, 5)), [prep, only]);
   const running = call.state !== PRACTICE_STATES.idle;
   const goPrep = useCallback(() => navigate(`/interview-prep/prep/${prepId}`), [navigate, prepId]);
+  const [voice, setVoice] = useState(() => { try { return localStorage.getItem('practiceVoice') || 'cedar'; } catch { return 'cedar'; } });
+  const [sampleState, setSampleState] = useState('idle'); // idle | loading | playing | failed
+  const sampleAudio = useRef(null);
+  const chooseVoice = (v) => {
+    setVoice(v);
+    try { localStorage.setItem('practiceVoice', v); } catch { /* the choice just is not remembered */ }
+  };
+  const playSample = useCallback(async () => {
+    try { sampleAudio.current?.pause(); } catch { /* nothing playing */ }
+    setSampleState('loading');
+    try {
+      const res = await interviewPrepAPI.voiceSample(voice);
+      const url = URL.createObjectURL(res.data);
+      const audio = new Audio(url);
+      sampleAudio.current = audio;
+      audio.onended = () => { setSampleState('idle'); URL.revokeObjectURL(url); };
+      await audio.play();
+      setSampleState('playing');
+    } catch { setSampleState('failed'); }
+  }, [voice]);
+  useEffect(() => () => { try { sampleAudio.current?.pause(); } catch { /* gone */ } }, []);
+
   const begin = useCallback(() => {
     setNotice(''); setScreen('ready'); setSaveState('idle');
-    startCall(prepId, sessionBody(top));
-  }, [startCall, prepId, top]);
+    try { sampleAudio.current?.pause(); } catch { /* nothing playing */ }
+    startCall(prepId, { ...sessionBody(top), voice });
+  }, [startCall, prepId, top, voice]);
 
   const list = call.questions;
   const total = list.length;
@@ -303,6 +326,16 @@ export default function Practice() {
                 {errBox.plans && <div style={{ marginTop: 10 }}><Btn type="button" onClick={() => navigate('/pricing')}>See plans</Btn></div>}
               </Note>
             )}
+            <Note $info>
+              <label htmlFor="coach-voice" style={{ fontWeight: 700 }}>Coach voice</label>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                <select id="coach-voice" value={voice} onChange={(e) => chooseVoice(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 14.5, textTransform: 'capitalize' }}>
+                  {['marin', 'cedar', 'coral', 'sage', 'verse', 'ballad', 'alloy', 'ash', 'echo', 'shimmer'].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+                <Btn type="button" $ghost onClick={playSample} disabled={sampleState === 'loading'}>{sampleState === 'loading' ? 'Loading...' : sampleState === 'playing' ? 'Play again' : 'Play sample'}</Btn>
+                {sampleState === 'failed' && <span style={{ color: C.danger, fontSize: 14 }}>Could not load that sample. Try again.</span>}
+              </div>
+            </Note>
             <Row>
               <Btn type="button" onClick={begin} disabled={call.state === PRACTICE_STATES.connecting}>Start practice</Btn>
             </Row>

@@ -149,6 +149,7 @@ async function setup({ user = { id: 'u1', role: 'candidate', subscriptionTier: '
   const recorded = [];
   const realtime = {
     isConfigured: () => configured,
+    pickPracticeVoice: (v) => (v === 'sage' ? 'sage' : 'cedar'),
     createRealtimeSession: async (a) => { realtimeCalls.push(a); return { clientSecret: 'ek_x', expiresAt: 123, model: 'm', sessionId: 's1' }; },
   };
   const app = express();
