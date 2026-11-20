@@ -72,8 +72,24 @@ class PaymentService {
       const user = await User.findByPk(userId);
       if (!user) throw new Error('User not found');
 
-      // Get or create Stripe customer
+      // Refuse a second subscription: a second checkout would charge twice.
+      if (user.stripeSubscriptionId) {
+        const existing = await stripe.subscriptions.retrieve(user.stripeSubscriptionId).catch(() => null);
+        if (existing && ['active', 'trialing', 'past_due'].includes(existing.status) && !existing.cancel_at_period_end) {
+          const err = new Error('You already have an active subscription. Manage it from the billing page.');
+          err.statusCode = 409;
+          throw err;
+        }
+      }
+
+      // Get or create Stripe customer. An id saved under another Stripe mode
+      // (test keys, then live) or a deleted customer does not exist any more:
+      // make a fresh one instead of failing every checkout.
       let customerId = user.stripeCustomerId;
+      if (customerId) {
+        const found = await stripe.customers.retrieve(customerId).catch(() => null);
+        if (!found || found.deleted) customerId = null;
+      }
       if (!customerId) {
         const customer = await this.createCustomer(user);
         customerId = customer.id;
@@ -120,7 +136,7 @@ class PaymentService {
             quantity: 1,
           },
         ],
-        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard?subscription=success`,
+        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/profile?subscription=success`,
         cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/pricing?subscription=cancelled`,
         metadata: {
           userId: user.id,
@@ -324,6 +340,21 @@ class PaymentService {
     }
   }
 
+  // Stripe's hosted page for card updates, invoices and receipts.
+  async createBillingPortalSession(userId) {
+    const user = await User.findByPk(userId);
+    if (!user || !user.stripeCustomerId) {
+      const err = new Error('No billing account yet');
+      err.statusCode = 404;
+      throw err;
+    }
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/pricing`,
+    });
+    return { url: session.url };
+  }
+
   // Create Payment Intent (for one-time payments)
   async createPaymentIntent(amount, currency = 'usd', metadata = {}) {
     try {
@@ -460,6 +491,15 @@ class PaymentService {
 
   async handlePaymentSucceeded(invoice) {
     console.log('Payment succeeded for invoice:', invoice.id);
+    // A renewal: move "access until" forward to the end of the paid period.
+    const line = invoice.lines?.data?.[0];
+    const periodEnd = line?.period?.end;
+    if (!periodEnd || !invoice.customer) return;
+    const user = await User.findOne({ where: { stripeCustomerId: invoice.customer } });
+    if (!user) return;
+    const endDate = new Date(periodEnd * 1000);
+    await User.update({ subscriptionExpiresAt: endDate, subscriptionStatus: 'active' }, { where: { id: user.id } });
+    await Subscription.update({ endDate, status: 'active' }, { where: { userId: user.id } });
   }
 
   async handlePaymentFailed(invoice) {

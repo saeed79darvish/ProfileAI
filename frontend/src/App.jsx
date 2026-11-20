@@ -5,6 +5,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import SubscriptionReturnNotice from './components/SubscriptionReturnNotice';
 import { BackgroundTasksProvider } from './contexts/BackgroundTasksContext';
 import BackgroundTasksIndicator from './components/BackgroundTasksIndicator';
 import PendingApplicationCard from './components/PendingApplicationCard';
@@ -274,6 +275,7 @@ function AppContent() {
   return (
     <>
       <ScrollToTopOnNavigate />
+      <SubscriptionReturnNotice />
       <ImpersonationBanner />
       {!hideNavbar && <Navbar />}
       {/* AI work that keeps running after its modal is hidden — visible on

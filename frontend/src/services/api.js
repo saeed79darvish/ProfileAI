@@ -1106,6 +1106,9 @@ export const subscriptionAPI = {
 
   // Cancel subscription
   cancel: () => api.post('/subscriptions/cancel'),
+
+  // Stripe billing portal (update card, invoices)
+  portal: () => api.post('/subscriptions/portal'),
   
   // Check feature access
   checkFeatureAccess: (feature) => 

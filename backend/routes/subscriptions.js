@@ -100,32 +100,24 @@ router.post('/create-checkout-session', auth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error creating checkout session:', error);
-    res.status(500).json({ error: error.message });
+    if (error.statusCode === 409) return res.status(409).json({ error: error.message });
+    res.status(500).json({ error: 'We could not start checkout. Please try again.' });
   }
 });
 
-// Confirm subscription (after successful payment)
-router.post('/confirm', auth, async (req, res) => {
+// Stripe-hosted billing page (update card, invoices).
+router.post('/portal', auth, async (req, res) => {
   try {
-    const { planType, billingCycle, paymentMethod, externalId } = req.body;
-
-    const subscription = await paymentService.completeSubscription(
-      req.userId,
-      planType,
-      billingCycle,
-      paymentMethod,
-      externalId
-    );
-
-    res.json({
-      success: true,
-      subscription
-    });
+    res.json(await paymentService.createBillingPortalSession(req.userId));
   } catch (error) {
-    console.error('Error confirming subscription:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error opening billing portal:', error.message);
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Could not open billing. Please try again.' });
   }
 });
+
+// There is deliberately no client-callable "confirm" route: a plan is only
+// granted by Stripe's signed webhook (stripeWebhookHandler below). A route that
+// let the browser say "I paid" would let anyone upgrade themselves for free.
 
 // Cancel subscription
 router.post('/cancel', auth, async (req, res) => {

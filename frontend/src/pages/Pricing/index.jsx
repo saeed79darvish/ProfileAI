@@ -240,6 +240,16 @@ const Pricing = () => {
     }
   };
 
+  const handleOpenBilling = async () => {
+    try {
+      const { data } = await subscriptionAPI.portal();
+      if (data?.url) window.location.assign(data.url);
+    } catch (err) {
+      setSnackbar({ show: true, message: 'We could not open billing. Email billing@profilleai.com and we will help.', type: 'error' });
+      setTimeout(() => setSnackbar(prev => ({ ...prev, show: false })), 6000);
+    }
+  };
+
   // Handle purchase success/cancel from Stripe redirect
   useEffect(() => {
     const purchaseStatus = searchParams.get('purchase');
@@ -542,14 +552,21 @@ const Pricing = () => {
               <>Your subscription is cancelled{cancelledUntil ? ` and stays active until ${cancelledUntil}` : ' and stays active until the end of your billing period'}. You will not be charged again.</>
             ) : (
               <>
-                Need to stop?{' '}
+                <button
+                  type="button"
+                  onClick={handleOpenBilling}
+                  style={{ background: 'none', border: 'none', padding: 0, color: '#7c3aed', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}
+                >
+                  Update card or see invoices
+                </button>
+                {' '}or{' '}
                 <button
                   type="button"
                   onClick={handleCancelSubscription}
                   disabled={cancelLoading}
                   style={{ background: 'none', border: 'none', padding: 0, color: '#7c3aed', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}
                 >
-                  {cancelLoading ? 'Cancelling...' : 'Cancel subscription'}
+                  {cancelLoading ? 'Cancelling...' : 'cancel your subscription'}
                 </button>
               </>
             )}
