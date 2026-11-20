@@ -208,14 +208,11 @@ async function init() {
   // Check auth silently in background
   await checkAuthSilently();
   
-  // Always inject styles and create FAB
+  // Styles are cheap and harmless; the floating button is only for job pages,
+  // so it never shows up on the rest of the web. It is created when a page is
+  // confirmed as a job page (see syncFab).
   injectStyles();
-
-  // Check if FAB should be hidden
-  const shouldShowFab = await checkFabVisibility();
-  if (shouldShowFab) {
-    createFloatingButton();
-  }
+  await syncFab();
   
   setupMessageListener();
   
@@ -640,7 +637,8 @@ function handleNavigation() {
   isJobPage = false;
   detectJobPage();
   detectSite();
-  
+  void syncFab(); // off a job page the button goes away; on one it appears
+
   // Clean up any leftover injected elements
   const oldBanner = document.getElementById('profileai-banner');
   if (oldBanner) oldBanner.remove();
@@ -1164,7 +1162,21 @@ function createFloatingButton() {
 
 // Show/hide the autofill button on the FAB based on job page detection
 // (kept as no-op for callers)
-function updateFabAutofillVisibility() {}
+function updateFabAutofillVisibility() {
+  void syncFab();
+}
+
+/** Show the floating button on job pages only (and only if the user has not hidden it). */
+async function syncFab() {
+  try {
+    if (!isJobPage) {
+      document.getElementById('profileai-fab')?.remove();
+      document.getElementById('profileai-fab-menu')?.remove();
+      return;
+    }
+    if (await checkFabVisibility()) createFloatingButton();
+  } catch (_) {}
+}
 
 // Toggle overlay panel
 function toggleOverlay() {

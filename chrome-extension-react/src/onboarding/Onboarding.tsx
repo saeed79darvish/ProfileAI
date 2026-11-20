@@ -125,6 +125,15 @@ export const Onboarding: React.FC = () => {
             <div className="ready-note">Profile ready</div>
             <div className="choices"><button className="btn btn-primary btn-lg" onClick={findJob}>Find a job</button></div>
           </>
+        ) : signedIn ? (
+          <>
+            <h1>You are signed in{profile?.firstName ? `, ${profile.firstName}` : ''}. One step left.</h1>
+            <p className="lead">ProfilleAI needs your profile to fill applications, score your fit and tailor your resume. It takes about two minutes, and it syncs to this extension when you come back to this tab.</p>
+            <div className="choices">
+              <button className="btn btn-primary btn-lg" onClick={() => window.open(PROFILE_URL, '_blank')}>Build my profile</button>
+            </div>
+            <button className="btn btn-ghost skip-link" onClick={findJob}>Skip for now, find a job</button>
+          </>
         ) : form ? (
           <>
             <h1>Sign in</h1>
