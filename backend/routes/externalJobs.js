@@ -16,6 +16,7 @@ const { deriveRoleQuery } = require('../utils/roleQuery');
 const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = require('../services/jobSeniorityFit');
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
+const { locationTier } = require('../utils/jobLocationFit');
 const { attachMatches, matchForJob } = require('../services/jobMatchList');
 const { structuredFor } = require('../services/jobDescriptionStructureService');
 
@@ -1755,12 +1756,30 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
     }
     const railDropsEarlyCareer = excludesEarlyCareer(rail.candidateLevel);
 
+    // Where they can work. The rail ranked on role and embedding alone, so the
+    // extension's first job for a San Francisco profile was an on-site posting in
+    // Bucharest. Same rule as the coach's picks (utils/jobLocationFit): their
+    // metro, then remote open to their country, then elsewhere in their country,
+    // never a country they cannot work from. A pool wider than the page is pulled
+    // so dropping jobs still leaves a full rail.
+    const stated = rail.careerConstraints && rail.careerConstraints.location;
+    const where = profile.location
+      || (typeof stated === 'string' && !NON_PLACE_LOCATION_RE.test(stated.trim()) ? stated : '');
+    const poolSize = where ? Math.min(limit * 5, 60) : limit;
+    const byPlace = (rows) => {
+      if (!where) return rows;
+      const tiered = rows
+        .map((r, i) => ({ r, i, tier: locationTier(where, { location: r.location, locationType: r.locationType }) }))
+        .filter((x) => x.tier > 0);
+      return tiered.sort((a, b) => (a.tier - b.tier) || (a.i - b.i)).map((x) => x.r);
+    };
+
     // Try a tight 14-day window first; widen to 30 days if too few results.
     const tryWindow = async (days) => {
       if (profileEmbedding) {
         try {
           const result = await searchSimilarJobs(profileEmbedding, {
-            limit,
+            limit: poolSize,
             offset: 0,
             datePosted: days <= 7 ? 'week' : (days <= 14 ? '2weeks' : 'month'),
             rankText: rail.roleHint || null,
@@ -1798,11 +1817,12 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
         attributes: { exclude: ['descriptionHtml', 'descriptionStructured', 'metadata', 'embedding'] },
         include: [{ model: Company, as: 'companyInfo', attributes: ['id', 'name', 'slug', 'domain', 'logoUrl', 'website', 'industry', 'employeeCount', 'employeeRange', 'fundingStage', 'headquarters', 'linkedinUrl'] }]
       });
-      return rankJobs(pool, profile, { preferences: rail.careerConstraints, target: rail.targetRole }).slice(0, limit);
+      return rankJobs(pool, profile, { preferences: rail.careerConstraints, target: rail.targetRole }).slice(0, poolSize);
     };
 
-    let jobs = await tryWindow(14);
-    if (jobs.length < Math.min(limit, 4)) jobs = await tryWindow(30);
+    let jobs = byPlace(await tryWindow(14));
+    if (jobs.length < Math.min(limit, 4)) jobs = byPlace(await tryWindow(30));
+    jobs = jobs.slice(0, limit);
 
     // Build a short reason string per job — uses signals already on the
     // payload (relevanceScore, matched skills inferred from job.skills ∩

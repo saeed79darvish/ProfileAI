@@ -61,3 +61,9 @@ test('withLocationFactor scales both scores and records why, leaving a fit alone
   });
   assert.equal(withLocationFactor(data, { factor: 1, tier: 1 }), data);
 });
+
+test('Latin America is not the United States', () => {
+  assert.equal(tier('San Francisco, CA', 'Remote - Latin America', 'remote'), 0);
+  assert.equal(tier('San Francisco, CA', 'Remote, South America', 'remote'), 0);
+  assert.equal(tier('San Francisco, CA', 'Remote - North America', 'remote'), 2);
+});

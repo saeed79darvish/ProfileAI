@@ -46,7 +46,8 @@ const lower = (s) => String(s || '').toLowerCase();
 
 /** "San Francisco, CA" and "Austin, Texas, United States" are in the US. */
 function isUSPlace(text) {
-  const t = lower(text);
+  // "Latin America" and "South America" are not the United States, though both say "america".
+  const t = lower(text).replace(/\b(latin|south|central) america\b/g, ' ');
   if (!t.trim()) return false;
   if (US_NAMES.some((n) => t.includes(n))) return true;
   if (/(^|[\s,(/-])us([\s,)/-]|$)/.test(t)) return true;
