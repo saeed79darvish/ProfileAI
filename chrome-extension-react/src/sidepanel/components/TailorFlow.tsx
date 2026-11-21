@@ -165,7 +165,7 @@ const NoteInput: React.FC<{
 const COACH: Record<string, string> = {
   fit: "Step 1, Fit. For each requirement your resume does not show, answer \"I have this\" or \"I don't\". Required ones count most. Only what you confirm is added, so nothing is invented, and your score updates as you answer.",
   plan: 'Step 2, Plan. ProfilleAI picked changes for your title, summary, skills and experience. Tap a change to turn it on or off, add a note in the box if you want something specific, and choose 1 or 2 pages. Then click Tailor resume.',
-  tailoring: 'Tailoring runs in the background. You can hide this window or close the panel: it keeps going and tells you when your resume is ready.',
+  tailoring: 'Tailoring runs in the background. You can close the panel: it keeps going and tells you when your resume is ready.',
   review: 'Step 3, Review. Each changed section shows before and after. Keep it, skip it, or refine it with Ask AI. Nothing changes in your resume until you keep it.',
   apply: 'Step 4, Apply. Download your tailored resume as PDF or Word, then apply on the company site. ProfilleAI records the application when you confirm you sent it.',
 };
@@ -736,7 +736,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     return (
       <>
         <h3 className="tf-h3 first">Tailoring your resume...</h3>
-        <p className="tf-hint">About a minute. You can hide this and keep working; we&rsquo;ll let you know when it&rsquo;s ready.</p>
+        <p className="tf-hint">About a minute. You can close this panel; we&rsquo;ll let you know when it&rsquo;s ready.</p>
         <ol className="tf-progress">
           {PROGRESS.map((name, i) => {
             const state = i < progress ? 'done' : i === progress ? 'active' : 'pending';
@@ -894,8 +894,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
         </button>
       </>
     );
-  } else if (step === 'tailoring') {
-    footer = <button type="button" className="tf-btn secondary full" onClick={onClose}>Hide and keep working</button>;
   } else if (step === 'review') {
     footer = (
       <>
