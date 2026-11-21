@@ -3313,6 +3313,7 @@ const ReviewPage = () => {
         profileData={appDetail?.profile || null}
         tailoredProfileData={appDetail?.diff?.rich || appDetail?.renderedResume || null}
         jobTitle={selected?.role}
+        company={selected?.company}
         user={authUser}
         initialTab={resumePreviewMode}
       />

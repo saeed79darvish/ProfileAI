@@ -12,7 +12,7 @@ import {
 } from '@mui/icons-material';
 import { resumeAPI, profileAPI } from '../services/api';
 import PdfCanvasPreview from './PdfCanvasPreview';
-import { buildResumeFilename, RESUME_FILENAME_MAX } from '../utils/resumeFilename';
+import { buildResumeFilename, uniqueResumeName, usedResumeNames, rememberResumeName, RESUME_FILENAME_MAX } from '../utils/resumeFilename';
 import { hideWhileTyping } from '@/styles/keyboard';
 
 // === Config ===
@@ -1522,12 +1522,16 @@ export default function ResumePreviewModal({
   profileData,
   tailoredProfileData,
   jobTitle,
+  company,
   user,
   preloadedPreviewUrl,
   // Optional: 'preview' (default) or 'edit', opens the modal with
   // the Edit tab pre-selected so callers like the ApplyPilot Review
   // page can route directly to the inline editor.
   initialTab = 'preview',
+  // Optional: close the modal once the file has been saved, for callers where the
+  // next step is on the page underneath (the extension's overlay on a job page).
+  closeAfterDownload = false,
   // Optional: an Apply button beside Download (Tailor for a Job ends here).
   // Called in the tap itself, so the job page can open in a new tab without
   // the popup blocker; the PDF downloads right after.
@@ -1540,7 +1544,9 @@ export default function ResumePreviewModal({
       data.firstName || user?.firstName || (data.fullName || data.name || '').split(' ')[0] || '';
     const lastName =
       data.lastName || user?.lastName || (data.fullName || data.name || '').split(' ').slice(1).join(' ') || '';
-    return buildResumeFilename(`${firstName} ${lastName}`, jobTitle || data.title || data.headline);
+    const base = buildResumeFilename(`${firstName} ${lastName}`, jobTitle || data.title || data.headline, company || data.company);
+    // A name already downloaded gets a number: Google, then Google-2.
+    return uniqueResumeName(base, usedResumeNames(user?.id));
   };
 
   // Computed once per open, so editing the title doesn't rename the file
@@ -1756,6 +1762,7 @@ export default function ResumePreviewModal({
   };
 
   const triggerDownload = (blob, fileName) => {
+    rememberResumeName(user?.id, fileName);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1774,6 +1781,8 @@ export default function ResumePreviewModal({
       const { blob, fileName } = await generateFile();
       triggerDownload(blob, fileName);
       setSaveState({ phase: 'saved', message: '', via: 'download', fileName });
+      // A beat, so the browser's download starts and "saved" is seen, then back to the job.
+      if (closeAfterDownload) setTimeout(() => onClose?.(), 900);
     } catch (err) {
       console.error('Download error:', err);
       setSaveState({ phase: 'failed', message: 'We could not prepare your resume. Check your connection and try again.', via: '', fileName: '' });
@@ -1792,6 +1801,7 @@ export default function ResumePreviewModal({
       if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({ files: [file], title: fileName });
+          rememberResumeName(user?.id, fileName);
           setSaveState({ phase: 'saved', message: '', via: 'share', fileName });
           return true;
         } catch (err) {
@@ -2079,22 +2089,15 @@ export default function ResumePreviewModal({
               <span>Generating preview...</span>
             </LoadingBox>
           ) : currentUrl ? (
-            isMobile ? (
-              // Mobile Safari/Chrome won't render a PDF data-URI in an <iframe>
-              // (shows blank), so rasterise the pages to <canvas> instead.
-              <PdfCanvasPreview
-                url={currentUrl}
-                title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
-                onPageInfo={(info) => setPageInfo((prev) => ({ ...prev, ...info }))}
-              />
-            ) : (
-              <iframe
-                src={currentUrl.startsWith('blob:') || currentUrl.startsWith('data:') || /\.pdf(\?|$)/i.test(currentUrl)
-                  ? `${currentUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
-                  : currentUrl}
-                title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
-              />
-            )
+            // Rasterised to <canvas> on every screen. Mobile Safari/Chrome won't render a
+            // PDF data-URI in an <iframe> (shows blank), and the browser's own viewer
+            // follows a link in the resume inside the frame, replacing the preview.
+            // PdfCanvasPreview draws the links itself and opens each in a new tab.
+            <PdfCanvasPreview
+              url={currentUrl}
+              title={showingOriginal ? 'Original Resume' : 'Tailored Resume'}
+              onPageInfo={(info) => setPageInfo((prev) => ({ ...prev, ...info }))}
+            />
           ) : (
             // Empty-state / failure. Surfaces the real error + one Retry
             // button — user preference: keep it simple, no extra buttons.

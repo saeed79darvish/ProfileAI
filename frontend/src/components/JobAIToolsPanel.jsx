@@ -1193,6 +1193,7 @@ export default function JobAIToolsPanel({ job }) {
         profileData={profile}
         tailoredProfileData={tailoredProfile}
         jobTitle={job?.title}
+        company={job?.company}
       />
 
       {/* Cover Letter Modal */}

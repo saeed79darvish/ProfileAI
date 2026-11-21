@@ -201,6 +201,8 @@ const ResumeDownloadPage = () => {
         profileData={profileData}
         tailoredProfileData={tailoredProfile}
         jobTitle={tailoredProfile?.jobTitle}
+        company={tailoredProfile?.company}
+        closeAfterDownload={overlayMode}
         user={user}
       />
     </Box>

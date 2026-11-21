@@ -10,6 +10,12 @@ import { CircularProgress } from '@mui/material';
  * shows blank. To give mobile users a real preview we rasterise each page with
  * pdf.js onto a canvas. pdf.js is heavy, so it's dynamically imported here and
  * this whole component is only mounted on small screens.
+ *
+ * It is also the desktop preview now. The browser's own PDF viewer in an <iframe>
+ * follows a link inside the resume (LinkedIn, GitHub, a portfolio) in the frame
+ * itself, which replaced the preview, and on the download overlay it took over the
+ * page it sits on. Here the links are drawn over each page as real anchors that
+ * open a new tab, so the preview never navigates.
  */
 
 const Wrap = styled.div`
@@ -31,13 +37,25 @@ const Pages = styled.div`
   gap: 10px;
   padding: 10px;
 
+  .pdf-page {
+    position: relative;
+    width: 100%;
+    flex-shrink: 0;
+  }
+
   canvas {
+    display: block;
     width: 100%;
     height: auto;
     max-width: 100%;
     border-radius: 4px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.12);
     background: #fff;
+  }
+
+  .pdf-page a {
+    position: absolute;
+    cursor: pointer;
   }
 `;
 
@@ -142,10 +160,35 @@ export default function PdfCanvasPreview({ url, title, onPageInfo }) {
           const ctx = canvas.getContext('2d');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          container.appendChild(canvas);
+          const box = document.createElement('div');
+          box.className = 'pdf-page';
+          box.appendChild(canvas);
+          container.appendChild(box);
 
           await page.render({ canvasContext: ctx, viewport }).promise;
           if (cancelled) return;
+
+          // The page's links, as anchors over the canvas. Always a new tab: a link
+          // here must never navigate the preview or the page it is shown on.
+          try {
+            const annotations = await page.getAnnotations({ intent: 'display' });
+            if (cancelled) return;
+            for (const a of annotations) {
+              const href = a.subtype === 'Link' ? a.url : '';
+              if (!href || !/^(https?:|mailto:|tel:)/i.test(href) || !a.rect) continue;
+              const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(a.rect);
+              const link = document.createElement('a');
+              link.href = href;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.title = href;
+              link.style.left = `${(Math.min(x1, x2) / viewport.width) * 100}%`;
+              link.style.top = `${(Math.min(y1, y2) / viewport.height) * 100}%`;
+              link.style.width = `${(Math.abs(x2 - x1) / viewport.width) * 100}%`;
+              link.style.height = `${(Math.abs(y2 - y1) / viewport.height) * 100}%`;
+              box.appendChild(link);
+            }
+          } catch { /* a page whose links cannot be read still previews */ }
         }
 
         if (!cancelled) setStatus('ready');
@@ -171,8 +214,8 @@ export default function PdfCanvasPreview({ url, title, onPageInfo }) {
     const onScroll = () => {
       const middle = el.scrollTop + el.clientHeight / 2;
       let page = 1;
-      [...el.querySelectorAll('canvas')].forEach((canvas, i) => {
-        if (canvas.offsetTop <= middle) page = i + 1;
+      [...el.querySelectorAll('.pdf-page')].forEach((box, i) => {
+        if (box.offsetTop <= middle) page = i + 1;
       });
       if (page !== shown) {
         shown = page;

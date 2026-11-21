@@ -1198,6 +1198,7 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
         profileData={profile}
         tailoredProfileData={finalCopy}
         jobTitle={job?.title}
+        company={job?.company}
         user={user}
         onApply={applyUrl ? handleApply : undefined}
         applyNote={applyUrl ? `Apply downloads this PDF and opens ${company}'s page in a new tab.` : undefined}
