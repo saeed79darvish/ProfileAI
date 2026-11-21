@@ -563,6 +563,17 @@ function listenForAuthBroadcast() {
 // Also inject extension auth INTO localStorage if web app has no auth
 function checkLocalStorageAuth() {
   try {
+    // The download overlay is the web app in an iframe on someone else's site, and
+    // the browser keeps that iframe's storage apart per site. A token left there by
+    // an earlier run is stale as often as not: reading it as "already signed in"
+    // skipped the injection below, sent a dead token to the API, and the app's 401
+    // handler then navigated the overlay to the sign-in page for a person who is
+    // signed in. Inside the overlay the extension's token is the only one that
+    // counts, and a token found there must never be written back over it.
+    if (window.top !== window.self) {
+      void injectExtensionAuthToLocalStorage();
+      return;
+    }
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
