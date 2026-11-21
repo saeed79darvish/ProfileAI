@@ -104,6 +104,10 @@ export const PanelTour: React.FC<Props> = ({ mode, onClose }) => {
   const card = useRef<HTMLDivElement>(null);
   const step = steps[i];
   const last = i === steps.length - 1;
+  // On a job page the panel already shows the job (its Analyze row). The last step
+  // then stays right here: sending someone to the job board from a job they are
+  // looking at is the opposite of "you are ready".
+  const onJob = last && !!document.querySelector('.app .jm-job-row');
 
   const measure = useCallback(() => {
     const root = document.querySelector<HTMLElement>('.app');
@@ -132,7 +136,7 @@ export const PanelTour: React.FC<Props> = ({ mode, onClose }) => {
   const finish = (done: boolean) => onClose(done);
   const next = () => {
     if (last) {
-      if (step.cta) chrome.tabs.create({ url: `${CONFIG.WEB_BASE}/jobs` });
+      if (step.cta && !onJob) chrome.tabs.create({ url: `${CONFIG.WEB_BASE}/jobs` });
       finish(true);
     } else setI(i + 1);
   };
@@ -147,11 +151,11 @@ export const PanelTour: React.FC<Props> = ({ mode, onClose }) => {
       <div className={`ptour-card ${rect ? '' : 'centered'}`} ref={card} style={rect && cardTop !== null ? { top: cardTop } : undefined}>
         <div className="ptour-count">{i + 1} of {steps.length}</div>
         <h3>{step.title}</h3>
-        <p>{step.body}</p>
+        <p>{onJob ? 'You are on a job now. Analyze it, then apply with Quick Fill, Answer Questions and a tailored resume.' : step.body}</p>
         <div className="ptour-row">
           {i > 0 ? <button className="ptour-ghost" onClick={() => setI(i - 1)}>Back</button> : <button className="ptour-ghost" onClick={() => finish(false)}>Skip tour</button>}
           <div className="ptour-dots">{steps.map((_, k) => <span key={k} className={k === i ? 'on' : k < i ? 'done' : ''} />)}</div>
-          <button className="ptour-primary" onClick={next}>{last ? (step.cta || 'Done') : 'Next'}</button>
+          <button className="ptour-primary" onClick={next}>{last ? (onJob ? 'Start applying' : step.cta || 'Done') : 'Next'}</button>
         </div>
         {i > 0 && !last && <button className="ptour-skip" onClick={() => finish(false)}>Skip tour</button>}
       </div>
