@@ -116,3 +116,24 @@ test('the SQL builders are safe to inline and null without a candidate level', (
   assert.doesNotMatch(EARLY_CAREER_PG, /['\\$]/);
   assert.match(notEarlyCareerSql('ej.title'), /^NOT \(COALESCE\(ej\.title, ''\) ~\* '/);
 });
+
+test('a senior profile outweighs a stale student stage or a mid-level answer', () => {
+  assert.deepEqual(
+    resolveCandidateLevel({ constraints: { careerStage: 'internship' }, inferredLevel: 'senior' }),
+    { level: LEVEL.SENIOR, source: 'inferred' }
+  );
+  assert.deepEqual(
+    resolveCandidateLevel({ constraints: { seniority: 'ic' }, inferredLevel: 'senior' }),
+    { level: LEVEL.SENIOR, source: 'inferred' }
+  );
+  // A student whose profile reads one rung up stays a student.
+  assert.deepEqual(
+    resolveCandidateLevel({ constraints: { careerStage: 'new_grad' }, inferredLevel: 'entry' }),
+    { level: LEVEL.STUDENT, source: 'stated' }
+  );
+  // Stated above the profile is the person's call.
+  assert.deepEqual(
+    resolveCandidateLevel({ constraints: { seniority: 'staff' }, inferredLevel: 'mid' }),
+    { level: LEVEL.STAFF_PLUS, source: 'stated' }
+  );
+});

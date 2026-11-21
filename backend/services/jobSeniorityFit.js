@@ -150,8 +150,19 @@ function candidateLevelFromPreferences(constraints = {}) {
  */
 function resolveCandidateLevel({ constraints = {}, inferredLevel = null } = {}) {
   const stated = candidateLevelFromPreferences(constraints);
-  if (stated !== null) return { level: stated, source: 'stated' };
   const inferred = INFERRED_LEVELS[inferredLevel];
+  if (stated !== null) {
+    // A stated answer normally wins, but not against a profile that clearly
+    // says otherwise: a "Senior Software Engineer" whose coach answers left a
+    // student stage or "IC" was being ranked as a student or mid-level and
+    // shown internships first. Take the profile's reading when it is a senior
+    // level above what was stated, or two or more rungs above it. Never the
+    // other way: a stated level above the profile's is the person's call.
+    if (isLevel(inferred) && inferred > stated && (inferred >= LEVEL.SENIOR || inferred - stated >= 2)) {
+      return { level: inferred, source: 'inferred' };
+    }
+    return { level: stated, source: 'stated' };
+  }
   if (isLevel(inferred)) return { level: inferred, source: 'inferred' };
   return { level: null, source: null };
 }
