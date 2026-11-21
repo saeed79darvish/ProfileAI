@@ -17,6 +17,7 @@ const { resolveCandidateLevel, excludesEarlyCareer, notEarlyCareerSql } = requir
 const { normalizeJobUrl } = require('../utils/jobUrl');
 const { truncateListDescriptions } = require('../utils/jobListPayload');
 const { locationTier } = require('../utils/jobLocationFit');
+const { profileFamily, familyFits } = require('../utils/roleFamily');
 const { attachMatches, matchForJob } = require('../services/jobMatchList');
 const { structuredFor } = require('../services/jobDescriptionStructureService');
 
@@ -1765,10 +1766,17 @@ router.get('/recommended', authMiddleware, requireVerifiedEmail, async (req, res
     const stated = rail.careerConstraints && rail.careerConstraints.location;
     const where = profile.location
       || (typeof stated === 'string' && !NON_PLACE_LOCATION_RE.test(stated.trim()) ? stated : '');
-    const poolSize = where ? Math.min(limit * 5, 60) : limit;
+    const poolSize = where || family ? Math.min(limit * 5, 60) : limit;
+    // And what they do. deriveRoleQuery reduces "Staff Software Engineer, Frontend
+    // Platform" to "Software Engineer", which a Backend Infrastructure posting
+    // matches as well as any, so the rail also drops a job whose title names a
+    // different engineering family than theirs (utils/roleFamily). Titles that
+    // name no family, or two, are never dropped.
+    const family = profileFamily(profile);
     const byPlace = (rows) => {
-      if (!where) return rows;
-      const tiered = rows
+      const fitting = rows.filter((r) => familyFits(family, r.title));
+      if (!where) return fitting;
+      const tiered = fitting
         .map((r, i) => ({ r, i, tier: locationTier(where, { location: r.location, locationType: r.locationType }) }))
         .filter((x) => x.tier > 0);
       return tiered.sort((a, b) => (a.tier - b.tier) || (a.i - b.i)).map((x) => x.r);
