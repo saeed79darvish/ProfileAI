@@ -85,6 +85,8 @@ interface TailorFlowProps {
   profile: any | null;
   /** A copy tailored earlier for this posting: opens at Apply. */
   initialCopy: any | null;
+  /** Changes each time the person chooses to start over, so a finished copy still open in the flow is dropped. */
+  freshStamp?: number;
   restore: TailorRestore | null;
   onStatus: (status: TailorStatus) => void;
   onNotify: (message: string, type: NotifyType) => void;
@@ -190,7 +192,7 @@ const TailorCoach: React.FC<{ step: string }> = ({ step }) => {
 };
 
 export const TailorFlow: React.FC<TailorFlowProps> = ({
-  open, onClose, job, jobUrl, profile, initialCopy, restore, onStatus, onNotify, onOpStart, onOpEnd,
+  open, onClose, job, jobUrl, profile, initialCopy, freshStamp, restore, onStatus, onNotify, onOpStart, onOpEnd,
 }) => {
   const [step, setStep] = useState<Step>('fit');
   const [match, setMatch] = useState<MatchResult | null>(null);
@@ -292,6 +294,8 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     setShowCovered(false);
   }, []);
 
+  const freshSeen = useRef<number | undefined>(freshStamp);
+
   // Opening: an existing copy goes straight to Apply; work in flight or a result
   // waiting at Review is picked up where it was; anything else starts over at Fit.
   useEffect(() => {
@@ -299,7 +303,9 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     // A restored task decides where the flow stands; starting over here would
     // read the match again for nothing.
     if (restore && appliedRestore.current !== restore.stamp) return;
-    const sameJob = stateKeyRef.current === jobKey;
+    const forced = freshStamp !== undefined && freshStamp !== freshSeen.current;
+    freshSeen.current = freshStamp;
+    const sameJob = stateKeyRef.current === jobKey && !forced;
     stateKeyRef.current = jobKey;
     if (sameJob && (stepRef.current === 'tailoring' || (stepRef.current === 'review' && resultRef.current))) return;
     if (initialCopy) {
@@ -555,16 +561,6 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
   // Downloading a resume, or opening this step, is neither applying nor going to the
   // application page, so nothing is recorded here. The page script records the start
   // when the form is actually filled and marks it applied when it sees it submitted.
-
-  const tailorAgain = () => {
-    setResult(null);
-    setFinalCopy(null);
-    setError('');
-    setLimit(null);
-    setDownloaded(false);
-    setStep('fit');
-    if (!match) void loadMatch();
-  };
 
   const finish = () => {
     setResult(null);
@@ -903,14 +899,9 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
         </button>
       </>
     );
-  } else if (step === 'apply') {
-    footer = (
-      <>
-        <button type="button" className="tf-btn secondary" onClick={tailorAgain}>Tailor again</button>
-        <button type="button" className="tf-btn secondary strong" onClick={finish}>Done</button>
-      </>
-    );
   }
+  // Apply has no footer: the close button finishes, and starting over is the
+  // "Already tailored" choice the next time Tailor is pressed for this job.
 
   return (
     <div className="tf-overlay" role="dialog" aria-modal="true" aria-label={`Tailor for ${job?.company || 'this job'}`}>

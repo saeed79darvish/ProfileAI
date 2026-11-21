@@ -306,3 +306,31 @@
   background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(139, 92, 246, 0.35); }
 .tf-coach p { flex: 1; margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary); }
 .tf-coach button { flex-shrink: 0; border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; color: #fff; background: var(--accent-gradient); }
+
+/* Already tailored: open the saved copy or start over. Above the flow (1050),
+   below the toast (1100). */
+.att-backdrop {
+  position: fixed; inset: 0; z-index: 1060;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: rgba(8, 6, 20, 0.62);
+}
+.att-card {
+  width: 100%; max-width: 340px;
+  padding: 22px 18px 14px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.att-card h3 { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
+.att-card p { margin: 0 0 18px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+.att-card strong { color: var(--text-primary); }
+.att-buttons { display: flex; flex-direction: column; gap: 8px; }
+.att-cancel {
+  padding: 10px; border: none; background: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary);
+}
+.att-cancel:hover { color: var(--text-primary); }

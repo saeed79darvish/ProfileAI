@@ -21,6 +21,7 @@ import { AddExperienceModal } from './components/AddExperienceModal';
 import { MatchAnalysisModal } from './components/MatchAnalysisModal';
 import { PendingApplicationCard } from './components/PendingApplicationCard';
 import { TailorFlow, type TailorRestore, type TailorStatus } from './components/TailorFlow';
+import { AlreadyTailoredModal } from './components/AlreadyTailoredModal';
 import { computeProfileProgress, buildProfileSummary, type ProfileSummary } from './profileProgress';
 import type { FullProfile, JobInfo, AuthState, KeywordAnalysis } from '../types';
 import { BrandIcon, BrandLogo } from '../components/BrandLogo';
@@ -86,6 +87,10 @@ export const SidePanel: React.FC = () => {
    */
   const [flowJob, setFlowJob] = useState<{ job: JobInfo; url: string } | null>(null);
   const [showTailorFlow, setShowTailorFlow] = useState(false);
+  // A job that already has a tailored copy asks before opening it or starting over.
+  const [alreadyTailored, setAlreadyTailored] = useState<{ pinned: any; cached: any } | null>(null);
+  const [tailorCost, setTailorCost] = useState('1 credit');
+  const [freshStamp, setFreshStamp] = useState(0);
   /** A copy tailored earlier for this posting: the flow opens at Apply. */
   const [flowCopy, setFlowCopy] = useState<any | null>(null);
   /** A tailor task that did not start in this panel instance. */
@@ -549,7 +554,14 @@ export const SidePanel: React.FC = () => {
       }
     } catch (_) {}
 
-    setFlowCopy(cached);
+    if (cached) {
+      setAlreadyTailored({ pinned, cached });
+      chrome.runtime.sendMessage({ type: 'TAILOR_USAGE' })
+        .then((r) => setTailorCost(r?.success && r.unlimited ? '' : '1 credit'))
+        .catch(() => {});
+      return;
+    }
+    setFlowCopy(null);
     setFlowJob(pinned);
     setShowTailorFlow(true);
   }, [readJobForRun, tailorStatus, flowJob]);
@@ -986,11 +998,35 @@ export const SidePanel: React.FC = () => {
         jobUrl={flowJob?.url || ''}
         profile={profile}
         initialCopy={flowCopy}
+        freshStamp={freshStamp}
         restore={tailorRestore}
         onStatus={setTailorStatus}
         onNotify={showNotification}
         onOpStart={() => beginOp('tailor')}
         onOpEnd={() => endOp('tailor')}
+      />
+
+      <AlreadyTailoredModal
+        open={!!alreadyTailored}
+        jobTitle={alreadyTailored?.pinned?.job?.title}
+        company={alreadyTailored?.pinned?.job?.company}
+        costLabel={tailorCost}
+        onCancel={() => setAlreadyTailored(null)}
+        onOpen={() => {
+          if (!alreadyTailored) return;
+          setFlowCopy(alreadyTailored.cached);
+          setFlowJob(alreadyTailored.pinned);
+          setAlreadyTailored(null);
+          setShowTailorFlow(true);
+        }}
+        onStartOver={() => {
+          if (!alreadyTailored) return;
+          setFlowCopy(null);
+          setFlowJob(alreadyTailored.pinned);
+          setFreshStamp((n) => n + 1);
+          setAlreadyTailored(null);
+          setShowTailorFlow(true);
+        }}
       />
 
       {showCoverLetterModal && (
