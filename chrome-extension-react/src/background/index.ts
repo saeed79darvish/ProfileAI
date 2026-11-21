@@ -3001,18 +3001,21 @@ async function experienceAppend(d: { roleIndex: number; bullets: string[] }) {
  * Everything else is left to the existing flow. A fact question with no stored
  * fact comes back unmatched so it is skipped instead of guessed.
  */
-async function factDropdownAnswers(d: { fields: Array<{ question: string; options?: string[] }>; jobDescription?: string }) {
+async function factDropdownAnswers(d: { fields: Array<{ question: string; options?: string[] }>; jobDescription?: string; fieldType?: 'select' | 'text' }) {
   const catalog = await getAnswerCatalog();
   // A fact question always goes to the server. Any other dropdown goes too when
   // the person has earlier answers, because the server may recognise it as the
   // same kind of question worded differently.
   const learned = await hasLearned();
-  const candidates = (d.fields || []).filter((f) => !!matchFact(f.question, catalog) || (learned && !isSensitiveQuestion(f.question)));
+  // Free-text boxes go only when the catalog recognises the fact: the server answers a
+  // fact deterministically, but would send any other open question to the model.
+  const asText = d.fieldType === 'text';
+  const candidates = (d.fields || []).filter((f) => !!matchFact(f.question, catalog) || (learned && !asText && !isSensitiveQuestion(f.question)));
   if (candidates.length === 0) return { success: true as const, matched: [] as string[], details: {} as Record<string, AnswerDetail> };
   const res = await generateAIAnswers(
     candidates.map((f) => f.question),
     d.jobDescription || '',
-    candidates.map((f) => ({ question: f.question, fieldType: 'select', options: f.options && f.options.length ? f.options : null })),
+    candidates.map((f) => ({ question: f.question, fieldType: asText ? 'text' : 'select', options: f.options && f.options.length ? f.options : null })),
   );
   const details: Record<string, AnswerDetail> = {};
   const matched: string[] = [];

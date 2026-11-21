@@ -8,7 +8,8 @@
 // having a second copy here is what let the content script and the background
 // worker disagree about the same posting.
 import { scrapeJobFromDocument } from '../jobScrape';
-import { parseWordHint, pickOption, cleanOptionTexts, decideLearn, type WordHint } from '../answerMemory';
+import { scrubIdentifier, parseLocation, patternsFor, isFactShapedQuestion } from '../autofill/fieldRules';
+import { parseWordHint, pickOption, cleanOptionTexts, decideLearn, matchFact, type WordHint, type AnswerCatalog } from '../answerMemory';
 
 // Environment: 'development' | 'production'
 const ENV = 'production';
@@ -2000,6 +2001,97 @@ async function fillFactDropdowns(pending: AiDropdownCandidate[], skipped: string
   return filled;
 }
 
+/** The answer-memory catalog for this fill, fetched once, so rule code can tell a fact question. */
+let factCatalog: AnswerCatalog | null = null;
+
+/** Choice widgets the generic path cannot click (ARIA radios, Yes/No buttons), answered later from memory. */
+const deferredFacts: Array<{ question: string; options: string[]; el: HTMLElement; apply: (picked: string) => boolean }> = [];
+
+function deferFact(question: string, options: string[], el: HTMLElement, apply: (picked: string) => boolean): boolean {
+  if (!matchFact(question, factCatalog)) return false;
+  // The same group can be reached twice (by its container and by its buttons); one answer, one click.
+  if (deferredFacts.some((d) => d.question === question)) return true;
+  deferredFacts.push({ question, options, el, apply });
+  return true;
+}
+
+async function resolveDeferredFacts(skipped: string[]): Promise<number> {
+  const batch = deferredFacts.splice(0, deferredFacts.length);
+  if (batch.length === 0) return 0;
+  let filled = 0;
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'FACT_DROPDOWN_ANSWERS',
+      data: { fields: batch.map((b) => ({ question: b.question, options: b.options })) },
+    });
+    const matched = new Set<string>(resp?.matched || []);
+    for (const b of batch) {
+      const d = resp?.details?.[b.question];
+      if (matched.has(b.question) && (d?.source === 'fact' || d?.source === 'learned') && (d.answer || d.choiceValue)) {
+        const picked = pickOption(b.options, { answer: d.answer, choiceValue: d.choiceValue });
+        if (picked && b.apply(picked)) {
+          filled++;
+          noteReused(b.el, b.question, d, b.options);
+          continue;
+        }
+      }
+      skipped.push(b.question);
+    }
+  } catch (e) {
+    console.warn('[ProfileAI] deferred fact choices failed', e);
+  }
+  return filled;
+}
+
+/** Whole years of work the profile's dates show, or 0 when they show none. Never a guess from a count of jobs. */
+function profileYears(profile: any): number {
+  const rows = Array.isArray(profile?.experience) ? profile.experience : [];
+  let months = 0;
+  for (const r of rows) {
+    const start = r?.startDate ? new Date(r.startDate) : null;
+    const end = r?.current || /present|current/i.test(String(r?.endDate || '')) ? new Date() : (r?.endDate ? new Date(r.endDate) : null);
+    if (start && end && !isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start) {
+      months += (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+    }
+  }
+  return Math.round(months / 12);
+}
+
+/**
+ * Quick Fill for free-text boxes that ask about a stored fact: notice period, salary,
+ * start date, street address, zip. The answer is the one the person saved; the model
+ * is never asked, and a box with no saved answer stays empty and is flagged.
+ */
+async function fillFactTexts(
+  pending: { input: HTMLInputElement | HTMLTextAreaElement; question: string }[],
+  skipped: string[],
+): Promise<number> {
+  if (pending.length === 0) return 0;
+  let filled = 0;
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'FACT_DROPDOWN_ANSWERS',
+      data: { fieldType: 'text', fields: pending.map((c) => ({ question: c.question })) },
+    });
+    const matched = new Set<string>(resp?.matched || []);
+    for (const cand of pending) {
+      if (!matched.has(cand.question)) continue;
+      if (cand.input.value && cand.input.value.trim()) continue;
+      const d = resp.details?.[cand.question];
+      if ((d?.source === 'fact' || d?.source === 'learned') && d.answer) {
+        fillInput(cand.input, String(d.answer));
+        filled++;
+        noteReused(cand.input as HTMLElement, cand.question, d, []);
+      } else {
+        skipped.push(cand.question);
+      }
+    }
+  } catch (e) {
+    console.warn('[ProfileAI] fact text fields failed', e);
+  }
+  return filled;
+}
+
 function closeCustomDropdown(trigger: Element) {
   try {
     document.body.click();
@@ -2077,54 +2169,28 @@ function fillSelectSmart(select: HTMLSelectElement, questionLabel: string, profi
       else if (deg.includes('master') || deg.includes('mba') || deg.includes('ms ') || deg.includes('m.s')) bestValue = "Master";
       else if (deg.includes('bachelor') || deg.includes('bs ') || deg.includes('b.s') || deg.includes('ba ')) bestValue = "Bachelor";
       else if (deg.includes('associate')) bestValue = 'Associate';
-      else bestValue = "Bachelor";
-    } else {
-      bestValue = "Bachelor";
+      // An unrecognised degree, or none on the profile, is left for the person.
     }
   }
   // Years of experience
   else if (q.includes('years') && (q.includes('experience') || q.includes('relevant'))) {
-    let years = 5;
-    if (profile?.experience && Array.isArray(profile.experience)) {
-      years = Math.min(profile.experience.length * 2, 15);
-    }
+    // Years come from the profile's dates, never from how many jobs are listed.
+    const years = profileYears(profile);
     // Try to find the best range option
     for (const opt of options) {
       const optText = opt.text.toLowerCase();
       const match = optText.match(/(\d+)/);
       if (match) {
         const num = parseInt(match[1]);
-        if (num <= years) bestValue = opt.text; // keep the highest that fits
+        if (years > 0 && num <= years) bestValue = opt.text; // keep the highest that fits
       }
     }
-    if (!bestValue) bestValue = years.toString();
+    if (!bestValue && years > 0) bestValue = years.toString();
   }
-  // How did you hear
-  else if (q.includes('hear') || q.includes('how did you find') || q.includes('source') || q.includes('referral source')) {
-    const preferred = ['online', 'job board', 'linkedin', 'internet', 'website', 'other'];
-    for (const pref of preferred) {
-      const match = options.find(o => o.text.toLowerCase().includes(pref));
-      if (match) { bestValue = match.text; break; }
-    }
-  }
-  // Visa / work authorization
-  else if (q.includes('authorized') || q.includes('work authorization') || q.includes('eligible')) {
-    bestValue = 'Yes';
-  }
-  else if (q.includes('visa') || q.includes('sponsorship')) {
-    bestValue = 'No';
-  }
-  // Location preference
-  else if (q.includes('willing to relocate') || q.includes('relocate')) {
-    bestValue = 'Yes';
-  }
-  // Start date / availability
-  else if (q.includes('start') || q.includes('available') || q.includes('notice')) {
-    const preferred = ['2 weeks', 'two weeks', 'immediately', '1 month', 'within'];
-    for (const pref of preferred) {
-      const match = options.find(o => o.text.toLowerCase().includes(pref));
-      if (match) { bestValue = match.text; break; }
-    }
+  // Facts (how you heard about the job, work authorization, sponsorship, relocation,
+  // start date, notice period, salary) get no default here: the saved answer decides.
+  else if (isFactShapedQuestion(q)) {
+    // no answer from rules
   }
   // Country
   else if (q.includes('country') && !q.includes('county')) {
@@ -2147,18 +2213,6 @@ function fillSelectSmart(select: HTMLSelectElement, questionLabel: string, profi
       if (part.length < 2) continue;
       const match = options.find(o => o.text.toLowerCase().includes(part) || part.includes(o.text.toLowerCase()));
       if (match) { bestValue = match.text; break; }
-    }
-  }
-  // Salary range / expectations
-  else if (q.includes('salary') || q.includes('compensation') || q.includes('pay range')) {
-    const preferred = ['open', 'prefer not', 'negotiable', 'competitive'];
-    for (const pref of preferred) {
-      const match = options.find(o => o.text.toLowerCase().includes(pref));
-      if (match) { bestValue = match.text; break; }
-    }
-    // If no neutral option, default to a mid-range option
-    if (!bestValue && options.length > 2) {
-      bestValue = options[Math.floor(options.length / 2)].text;
     }
   }
   // Language proficiency
@@ -2232,45 +2286,12 @@ function getSmartTextValue(questionLabel: string, profile: any): string | null {
       return profile.experience[0].company || profile.experience[0].organization || null;
     }
   }
-  // Current / legal address
-  if (q.includes('address') || q.includes('legal address') || q.includes('street')) {
-    return profile.location || null;
-  }
-  // Salary expectations
-  if (q.includes('salary') || q.includes('compensation') || q.includes('pay expectation')) {
-    return 'Open to discussion based on the full compensation package';
-  }
-  // Start date — ONLY for free-text date questions, not month/year picker subfields.
-  // (e.g. Greenhouse splits employment dates into separate "Start date month" / "year"
-  // dropdowns; typing "Two weeks notice - flexible" into them is the bug from screenshots.)
-  if ((q.includes('start date') || q.includes('earliest start') || q.includes('available to start'))
-      && !q.includes('month') && !q.includes('year') && !q.includes('day')) {
-    return 'Two weeks notice - flexible';
-  }
-  // Referred by
-  if (q.includes('referred') || q.includes('referral')) {
-    // Only return free-text "N/A" for open text questions. Greenhouse-style yes/no
-    // dropdowns rarely have an "N/A" option; let the dropdown handler pick "No" instead.
-    if (q.includes('?') || q.startsWith('were you') || q.startsWith('have you') || q.startsWith('did you')) return null;
-    return 'N/A';
-  }
-  // How did you hear about this / find out about
-  if (q.includes('hear about') || q.includes('how did you find') || q.includes('where did you find') || q.includes('how did you learn') || q.includes('find out about')) {
-    return 'LinkedIn';
-  }
-  // Relocation timeline
-  if (q.includes('relocation timeline') || q.includes('relocating') || q.includes('relocation') || q.includes('when can you start')) {
-    return 'I am based in the area and available to start within two weeks';
-  }
-  // Cover letter / why interested
-  if (q.includes('cover letter') || q.includes('why are you interested') || q.includes('why do you want')) {
-    const skills = profile.skills ? Object.values(profile.skills).flat().slice(0, 5).join(', ') : '';
-    return `This role caught my attention because it connects well with my background in ${skills || 'software engineering'}. ${(profile.summary || '').substring(0, 300)}`;
-  }
-  // Notice period
-  if (q.includes('notice period')) {
-    return 'Two weeks';
-  }
+  // Salary, start date, notice period, relocation, referral, how you heard about the
+  // job, a street address and "why this company" are NOT answered here. They used to
+  // be: "Two weeks", "I am based in the area and available to start within two
+  // weeks", "LinkedIn", "N/A" and a pasted summary went into every form whatever the
+  // person had said, and over what they had saved. Those questions are answered from
+  // the person's saved facts and stories (answer memory), or left for them.
   // Full name (single "name" field)
   if ((q === 'name' || q === 'full name' || q === 'your name' || q === 'candidate name') && profile.firstName) {
     return `${profile.firstName} ${profile.lastName || ''}`.trim();
@@ -2301,6 +2322,10 @@ function getSmartTextValue(questionLabel: string, profile: any): string | null {
     q.includes('current city') || q.includes('which city') ||
     q.includes('where are you based') || q.includes('where do you live')
   )) {
+    // A "city" box gets the city; a location or "where do you live" box gets the whole place.
+    if (q === 'city' || q.includes('current city') || q.includes('which city')) {
+      return parseLocation(profile.location).city || null;
+    }
     return profile.location || null;
   }
 
@@ -2353,7 +2378,8 @@ function fillCheckboxes(container: Element, profile: any): number {
         label.includes('certify') || label.includes('understand') || label.includes('read the above') ||
         label.includes('i have read') || label.includes('privacy policy')) {
       shouldCheck = true;
-    } else if (label.includes('authorized to work') || label.includes('background check') || label.includes('legally eligible')) {
+    } else if (label.includes('background check')) {
+      // "I am authorized to work" is a claim about the person, not a consent: never ticked for them.
       shouldCheck = true;
     } else if (label.includes('contact me') || label.includes('notify me')) {
       shouldCheck = true;
@@ -2430,8 +2456,7 @@ function fillCheckboxes(container: Element, profile: any): number {
       shouldCheck = true;
     }
     // Work authorization confirmations
-    else if (context.includes('authorized to work') || context.includes('legally eligible') ||
-             context.includes('right to work') || context.includes('background check')) {
+    else if (context.includes('background check')) {
       shouldCheck = true;
     }
     // Skills selection checkboxes — check if the skill is in the user's profile
@@ -2657,17 +2682,16 @@ function fillCustomDropdowns(container: Element, profile: any, skipped?: string[
         if (deg.includes('phd') || deg.includes('doctor')) desiredValue = 'Doctorate';
         else if (deg.includes('master')) desiredValue = "Master";
         else if (deg.includes('bachelor')) desiredValue = "Bachelor";
-        else desiredValue = "Bachelor";
-      } else desiredValue = "Bachelor";
+        // An unrecognised degree, or none on the profile, is left for the person.
+      }
     }
     else if (q.includes('country')) desiredValue = locationToCountryName(profile?.location);
     else if (q.includes('state') || q.includes('province')) {
       const parts = (profile?.location || '').split(',');
       desiredValue = parts.length > 1 ? parts[parts.length - 2].trim() : '';
     }
-    else if (q.includes('authorized') || q.includes('eligible')) desiredValue = 'Yes';
-    else if (q.includes('visa') || q.includes('sponsorship')) desiredValue = 'No';
-    else if (q.includes('hear') || q.includes('how did you find') || q.includes('source')) desiredValue = 'Online';
+    // Facts: no default. The question goes to the saved answers (fillFactDropdowns).
+    else if (isFactShapedQuestion(q) || q.includes('eligible') || q.includes('source')) { /* no answer from rules */ }
     // Compliance / screening yes-no patterns (Greenhouse / Coinbase-style). Default to "No"
     // because these are almost always negative-by-default declarations.
     else if (q.includes('government official') || q.includes('government agency')) desiredValue = 'No';
@@ -2869,6 +2893,15 @@ function fillAriaRadioGroups(container: Element, profile: any): number {
 
     console.log('[ProfileAI] ARIA radiogroup label:', groupLabel.substring(0, 80), '| options:', radioTexts.map(t => t.substring(0, 40)));
 
+    // A fact question (work authorization, sponsorship, relocation, the office ...) is answered
+    // from the person's saved answers, after the rules, not by a default.
+    if (deferFact(groupLabel, radioTexts, group as HTMLElement, (picked) => {
+      const t = radios.find((r) => (r.textContent || r.getAttribute('aria-label') || '').trim() === picked);
+      if (!t) return false;
+      t.click();
+      return true;
+    })) return;
+
     // Determine the desired answer based on question context
     let desiredAnswer = '';
 
@@ -2900,19 +2933,13 @@ function fillAriaRadioGroups(container: Element, profile: any): number {
         const match = radioTexts.find(t => t.toLowerCase().includes(fb));
         if (match) { desiredAnswer = match; break; }
       }
-    } else if (q.includes('authorized') || q.includes('legally') || q.includes('eligible to work') || q.includes('right to work')) {
-      desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
-    } else if (q.includes('sponsorship') || q.includes('visa')) {
-      desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'no') || 'No';
-    } else if (q.includes('relocate') || q.includes('commute') || q.includes('on-site') || q.includes('onsite')) {
-      desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
+    } else if (isFactShapedQuestion(q)) {
+      // Facts: no default; answered from the saved answers above, or left for the person.
     } else if (q.includes('18 years') || q.includes('age') || q.includes('over 18')) {
       desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
     } else if (q.includes('agree') || q.includes('consent') || q.includes('acknowledge') || q.includes('confirm')) {
       desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
     } else if (q.includes('background check') || q.includes('drug test')) {
-      desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
-    } else if (q.includes('remote') || q.includes('hybrid')) {
       desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
     } else if (q.includes('non-compete') || q.includes('noncompete')) {
       desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'no') || 'No';
@@ -2981,6 +3008,12 @@ function fillAriaRadioGroups(container: Element, profile: any): number {
 
       const q = groupLabel.toLowerCase();
       const radioTexts = radios.map(r => (r.textContent || r.getAttribute('aria-label') || '').trim());
+      if (deferFact(groupLabel, radioTexts, parentContainer as HTMLElement, (picked) => {
+        const t = radios.find((r) => (r.textContent || r.getAttribute('aria-label') || '').trim() === picked);
+        if (!t) return false;
+        t.click();
+        return true;
+      })) return;
       let desiredAnswer = '';
 
       if (q.includes('gender') || q.includes('sex')) {
@@ -2995,16 +3028,12 @@ function fillAriaRadioGroups(container: Element, profile: any): number {
           const match = radioTexts.find(t => t.toLowerCase().includes(fb));
           if (match) { desiredAnswer = match; break; }
         }
-      } else if (q.includes('authorized') || q.includes('eligible')) {
-        desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
-      } else if (q.includes('sponsorship') || q.includes('visa')) {
-        desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'no') || 'No';
+      } else if (isFactShapedQuestion(q) || q.includes('eligible')) {
+        // Facts: no default; answered from the saved answers above, or left for the person.
       } else if (q.includes('government') && q.includes('employ')) {
         desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'no') || 'No';
       } else if (q.includes('previously worked') || q.includes('former employee') || q.includes('worked for') || q.includes('employed by')) {
         desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'no') || 'No';
-      } else if (q.includes('relocate') || q.includes('commute') || q.includes('on-site') || q.includes('onsite') || q.includes('in-office') || q.includes('in office') || q.includes('currently able') || q.includes('days a week')) {
-        desiredAnswer = radioTexts.find(t => t.toLowerCase() === 'yes') || 'Yes';
       }
 
       if (!desiredAnswer) return;
@@ -3155,14 +3184,23 @@ function fillButtonToggles(container: Element, profile: any): number {
     const q = questionText.toLowerCase();
     console.log('[ProfileAI] Button toggle question:', q.substring(0, 80));
 
+    // A fact question is answered from the person's saved answers, not by a default.
+    if (deferFact(questionText, buttons.map((b) => (b.textContent || '').trim()), questionContainer as HTMLElement, (picked) => {
+      const t = buttons.find((b) => (b.textContent || '').trim() === picked);
+      if (!t) return false;
+      t.click();
+      t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      t.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      t.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      processedContainers.add(questionContainer);
+      return true;
+    })) return;
+
     let desiredAnswer = '';
 
-    if (q.includes('authorized') || q.includes('eligible') || q.includes('legally') || q.includes('right to work')) {
-      desiredAnswer = 'yes';
-    } else if (q.includes('sponsorship') || q.includes('visa') || q.includes('immigration')) {
-      desiredAnswer = 'no';
-    } else if (q.includes('commute') || q.includes('relocate') || q.includes('willing') || q.includes('on-site') || q.includes('onsite') || q.includes('office') || q.includes('meet this requirement') || q.includes('able to') || q.includes('work from')) {
-      desiredAnswer = 'yes';
+    if (isFactShapedQuestion(q) || q.includes('eligible') || q.includes('willing') || q.includes('office') || q.includes('meet this requirement') || q.includes('able to')) {
+      // Facts: no default; answered from the saved answers above, or left for the person.
     } else if (q.includes('18 years') || q.includes('age') || q.includes('over 18') || q.includes('at least 18')) {
       desiredAnswer = 'yes';
     } else if (q.includes('veteran')) {
@@ -3173,18 +3211,12 @@ function fillButtonToggles(container: Element, profile: any): number {
       desiredAnswer = 'yes';
     } else if (q.includes('background check') || q.includes('drug test') || q.includes('drug screen')) {
       desiredAnswer = 'yes';
-    } else if (q.includes('remote') || q.includes('hybrid')) {
-      desiredAnswer = 'yes';
     } else if (q.includes('non-compete') || q.includes('non compete') || q.includes('noncompete')) {
-      desiredAnswer = 'no';
-    } else if (q.includes('require') && q.includes('sponsor')) {
       desiredAnswer = 'no';
     } else if (q.includes('government') && q.includes('employ')) {
       desiredAnswer = 'no';
     } else if (q.includes('previously worked') || q.includes('former employee') || q.includes('worked for') || q.includes('employed by')) {
       desiredAnswer = 'no';
-    } else if (q.includes('currently able') || q.includes('in-office') || q.includes('in office') || q.includes('days a week') || q.includes('work on-site') || q.includes('work onsite')) {
-      desiredAnswer = 'yes';
     }
 
     if (!desiredAnswer) {
@@ -3490,6 +3522,12 @@ async function fillFormInner(container: Element, silent = false) {
   // Track fields the autofill chose to skip (e.g. dropdown with no confident match).
   // Surfaced in the completion toast so users know what to fill manually.
   const skippedFields: string[] = [];
+  // The catalog lets the rule code recognise a fact question; without it nothing here is guessed.
+  deferredFacts.length = 0;
+  try {
+    const cat = await chrome.runtime.sendMessage({ type: 'MEMORY_CATALOG' });
+    factCatalog = cat?.catalog || null;
+  } catch (_) { factCatalog = null; }
   
   // Save scroll position to restore after filling (prevents jarring scroll during autofill)
   const scrollX = window.scrollX;
@@ -3504,6 +3542,10 @@ async function fillFormInner(container: Element, silent = false) {
     } catch (_) {}
   }
 
+  // What the profile's one-line location plainly says. A zip is only here when the
+  // location text itself holds one; it is never guessed (see autofill/fieldRules).
+  const loc = parseLocation(profileData!.location);
+
   // Regex-based field mappings (mirrors the vanilla extension)
   const fieldMappings = [
     { patterns: ['first.?name', 'fname', 'given.?name', 'first_name', 'name.?first'], value: profileData!.firstName, type: 'firstName' },
@@ -3514,7 +3556,13 @@ async function fillFormInner(container: Element, silent = false) {
     { patterns: ['linkedin', 'linked.?in'], value: profileData!.linkedinUrl, type: 'linkedin' },
     { patterns: ['github'], value: profileData!.githubUrl, type: 'github' },
     { patterns: ['portfolio', 'website', 'personal.?site', 'personal.?url', 'other.?url', 'web.?site'], value: profileData!.portfolioUrl || profileData!.linkedinUrl, type: 'portfolio' },
-    { patterns: ['city', 'location', 'street.?address', 'mailing.?address', 'home.?address', 'current.?location', 'where.?are.?you.?based'], value: profileData!.location, type: 'location' },
+    // City, state and zip each get their own value. They used to share the whole
+    // location string, so a "City" box got "San Francisco, CA" and a street-address
+    // box got the same; the street address is a saved fact now (answer memory).
+    { patterns: patternsFor('zip'), value: loc.zip, type: 'zip' },
+    { patterns: patternsFor('state'), value: loc.state, type: 'state' },
+    { patterns: patternsFor('city'), value: loc.city, type: 'city' },
+    { patterns: ['location', 'current.?location', 'where.?are.?you.?based'], value: profileData!.location, type: 'location' },
     { patterns: ['current.?title', 'job.?title', 'your.?title', 'headline'], value: profileData!.title || profileData!.headline, type: 'title' },
     { patterns: ['summary', 'about.?me', 'bio(?:graphy)?', 'cover.?letter', 'introduction', 'tell.?us.?about', 'why.?(?:are.?you.?)?interested', 'additional.?info'], value: profileData!.summary, type: 'summary' },
   ];
@@ -3528,6 +3576,8 @@ async function fillFormInner(container: Element, silent = false) {
 
   console.log('[ProfileAI] Found', inputs.length, 'fillable inputs');
 
+  // Text boxes the person's saved facts may answer (notice period, salary, start date, street address, zip ...).
+  const factTextCandidates: { input: HTMLInputElement | HTMLTextAreaElement; question: string }[] = [];
   // Collect unfilled custom questions for AI (text fields, and later radio/select/checkbox)
   const customQuestions: { input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement; question: string; fieldType?: string; options?: string[]; radios?: HTMLInputElement[] }[] = [];
 
@@ -3621,9 +3671,10 @@ async function fillFormInner(container: Element, silent = false) {
         'email': profileData!.email,
         'phone': profileData!.phone,
         'phonenumber': profileData!.phone,
-        'addresssection_addressline1': profileData!.location,
-        'addresssection_city': profileData!.location?.split(',')[0]?.trim(),
-        'city': profileData!.location?.split(',')[0]?.trim(),
+        // Address line 1 is a saved fact, not the location string.
+        'addresssection_city': parseLocation(profileData!.location).city || undefined,
+        'addresssection_postalcode': parseLocation(profileData!.location).zip || undefined,
+        'city': parseLocation(profileData!.location).city || undefined,
         'linkedin': profileData!.linkedinUrl,
         'linkedinquestion': profileData!.linkedinUrl,
         'linkedinprofile': profileData!.linkedinUrl,
@@ -3646,7 +3697,8 @@ async function fillFormInner(container: Element, silent = false) {
       if (basicsOnly && (mapping.type === 'summary' || mapping.type === 'title')) continue;
       if (mapping.value && mapping.patterns.some((p) => {
         const regex = new RegExp(p, 'i');
-        return identifiers.some((id) => regex.test(id));
+        // Scrubbed first: "ethnicity" holds "city" and "relocation" holds "location".
+        return identifiers.some((id) => regex.test(scrubIdentifier(id)));
       })) {
         console.log('[ProfileAI] ✓ Filling', mapping.type, 'into', name || id || `#${index}`);
         fillInput(input, mapping.value);
@@ -3742,6 +3794,13 @@ async function fillFormInner(container: Element, silent = false) {
       }
     }
 
+    // 5b. Still empty: the saved facts may know it. Asked together after this pass, and
+    // only for questions the catalog recognises, so nothing else leaves the page.
+    if (!filled && (inputType === 'text' || inputType === '' || inputType === 'number' || input.tagName === 'TEXTAREA')) {
+      const q = (label || placeholder || ariaLabel || '').trim();
+      if (q && q.length <= 160) factTextCandidates.push({ input: input as HTMLInputElement | HTMLTextAreaElement, question: q });
+    }
+
     // 6. Collect unfilled custom questions for AI (if enabled)
     if (!filled && autofillMode.useAI) {
       const question = getInputLabel(input) || (input.placeholder || '') || (input.getAttribute('aria-label') || '');
@@ -3750,6 +3809,19 @@ async function fillFormInner(container: Element, silent = false) {
       }
     }
   });
+
+  // Free-text facts from memory. Whatever they fill is not sent on to the AI batch.
+  {
+    // Quick Fill Basics covers the address and zip, which are basics; everything else waits for the full fill.
+    const textCands = basicsOnly
+      ? factTextCandidates.filter((c) => { const f = matchFact(c.question, factCatalog); return f?.id === 'streetAddress' || f?.id === 'postalCode'; })
+      : factTextCandidates;
+    filledCount += await fillFactTexts(textCands, skippedFields);
+    for (let i = customQuestions.length - 1; i >= 0; i--) {
+      const cq = customQuestions[i];
+      if ((cq.fieldType === 'text' || cq.fieldType === 'textarea') && (cq.input as HTMLInputElement).value?.trim()) customQuestions.splice(i, 1);
+    }
+  }
 
   // --- Handle radio button groups ---
   const radioGroups = new Map<string, HTMLInputElement[]>();
@@ -3907,21 +3979,13 @@ async function fillFormInner(container: Element, silent = false) {
         }
       }
       if (!desiredValue) desiredValue = 'Prefer not to say';
-    } else if (q.includes('authorized') || q.includes('legally') || q.includes('eligible to work') || q.includes('right to work')) {
-      desiredValue = 'Yes';
-    } else if (q.includes('sponsorship') || q.includes('visa')) {
-      desiredValue = 'No';
-    } else if (q.includes('willing to relocate') || q.includes('open to relocation')) {
-      desiredValue = 'Yes';
+    } else if (isFactShapedQuestion(q)) {
+      // Facts: no default. Unanswered radio groups go to the saved answers.
     } else if (q.includes('18 years') || q.includes('age') || q.includes('over 18') || q.includes('at least 18')) {
       desiredValue = 'Yes';
     } else if (q.includes('agree') || q.includes('consent') || q.includes('acknowledge') || q.includes('certify') || q.includes('confirm')) {
       desiredValue = 'Yes';
-    } else if (q.includes('remote') || q.includes('work from home') || q.includes('hybrid')) {
-      desiredValue = 'Yes';
     } else if (q.includes('background check') || q.includes('drug test') || q.includes('drug screen')) {
-      desiredValue = 'Yes';
-    } else if (q.includes('commute') || q.includes('on-site') || q.includes('onsite') || q.includes('in office') || q.includes('in-office') || q.includes('currently able') || q.includes('days a week')) {
       desiredValue = 'Yes';
     } else if (q.includes('non-compete') || q.includes('non compete') || q.includes('noncompete')) {
       desiredValue = 'No';
@@ -3937,15 +4001,10 @@ async function fillFormInner(container: Element, silent = false) {
         if (deg.includes('phd') || deg.includes('doctor')) desiredValue = 'Doctorate';
         else if (deg.includes('master')) desiredValue = 'Master';
         else if (deg.includes('bachelor')) desiredValue = 'Bachelor';
-        else desiredValue = 'Bachelor';
-      } else {
-        desiredValue = 'Bachelor';
+        // An unrecognised degree, or none on the profile, is left for the person.
       }
     } else if (q.includes('experience level') || q.includes('seniority') || q.includes('career level')) {
-      const expCount = profileData?.experience?.length || 0;
-      if (expCount >= 5) desiredValue = 'Senior';
-      else if (expCount >= 3) desiredValue = 'Mid';
-      else desiredValue = 'Entry';
+      // A level is not read from how many jobs are listed; left for the person.
     }
 
     if (desiredValue) {
@@ -3970,6 +4029,8 @@ async function fillFormInner(container: Element, silent = false) {
 
   // --- Handle button-style Yes/No toggles (Ashby, modern ATS) ---
   if (!basicsOnly) filledCount += fillButtonToggles(container, profileData);
+  // Yes/No buttons and ARIA radios that ask about a stored fact, answered from memory.
+  if (!basicsOnly) filledCount += await resolveDeferredFacts(skippedFields);
 
   // --- Handle custom dropdown widgets (React Select, Listbox, Combobox) ---
   const aiDropdownPending: AiDropdownCandidate[] = [];
@@ -3991,14 +4052,19 @@ async function fillFormInner(container: Element, silent = false) {
   // Dropdowns are answered only from the person's saved facts, matched to the
   // options the page really shows. Anything else stays empty for the person:
   // no dropdown is ever sent to the AI batch.
+  // Every choice question on the page (native selects, radio groups, comboboxes), not only
+  // the custom dropdowns the rule pass queued: the rules no longer answer facts, so this is
+  // where "are you authorized to work" and "will you need sponsorship" get their answer.
+  const onPage = await detectChoiceQuestions(0);
+  const pageCands: AiDropdownCandidate[] = onPage
+    .filter((q) => q.options && q.options.length)
+    .map((q) => ({ question: q.question, selectEl: detectedQuestionRegistry.get(q.id) as Element, options: q.options!.map((text) => ({ text })) }))
+    .filter((c) => !!c.selectEl);
   if (basicsOnly) {
-    const found = await detectChoiceQuestions(0);
-    const cands: AiDropdownCandidate[] = found
-      .filter((q) => q.fieldType !== 'radio' && q.options && q.options.length)
-      .map((q) => ({ question: q.question, selectEl: detectedQuestionRegistry.get(q.id) as Element, options: q.options!.map((text) => ({ text })) }))
-      .filter((c) => !!c.selectEl);
-    filledCount += await fillFactDropdowns(cands, skippedFields);
+    filledCount += await fillFactDropdowns(pageCands, skippedFields);
   } else {
+    const queued = new Set(aiDropdownPending.map((c) => c.selectEl));
+    aiDropdownPending.push(...pageCands.filter((c) => !queued.has(c.selectEl)));
     filledCount += await fillFactDropdowns(aiDropdownPending, skippedFields);
   }
   aiDropdownPending.forEach((c) => skippedFields.push(c.question));

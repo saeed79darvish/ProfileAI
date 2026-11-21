@@ -36,7 +36,7 @@ test('detectFact flags sensitive questions and never maps them to a fact', () =>
 
 test('the catalog exposes facts with detect patterns and stories without them', () => {
   const c = publicCatalog();
-  assert.equal(c.facts.length, 10);
+  assert.equal(c.facts.length, 12);
   assert.ok(c.facts.every((f) => Array.isArray(f.detect) && f.ask && f.label));
   assert.deepEqual(c.stories.map((s) => s.id), [
     'motivation', 'idealRole', 'careerGoals', 'proudestAchievement', 'uniqueStrength', 'workStyle', 'idealTeam', 'dealBreakers',
@@ -295,4 +295,13 @@ test('a single question still gets its answer when the model rewords the key', a
   const d = Object.values(r.details)[0];
   require('node:assert').strictEqual(d.source, 'ai');
   require('node:assert').match(d.answer, /Grafana/);
+});
+
+test('address and zip questions are facts; email and web addresses are not', () => {
+  const { detectFact } = require('../config/answerCatalog');
+  for (const q of ['Zip code', 'ZIP / Postal Code *', 'Postal code', 'Postcode']) assert.equal(detectFact(q), 'postalCode', q);
+  for (const q of ['Address', 'Street Address', 'Address Line 1', 'Home address', 'Current mailing address']) assert.equal(detectFact(q), 'streetAddress', q);
+  for (const q of ['Email address', 'LinkedIn profile address', 'Website address', 'Please enter your email address']) {
+    assert.notEqual(detectFact(q), 'streetAddress', q);
+  }
 });

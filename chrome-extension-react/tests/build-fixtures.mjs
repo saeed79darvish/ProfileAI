@@ -25,6 +25,7 @@ const ENTRIES = [
   { entry: 'src/sidepanel/tailorLogic.ts', name: 'tailorLogic' },
   { entry: 'src/answerMemory/index.ts', name: 'answerMemory' },
   { entry: 'src/sidepanel/pendingApplication.ts', name: 'pendingApplication' },
+  { entry: 'src/autofill/fieldRules.ts', name: 'fieldRules' },
 ];
 
 let built = false;

@@ -139,6 +139,28 @@ const FACTS = [
       'referral source',
     ],
   },
+  // Where they live. The profile keeps one line ("San Francisco, CA"), which cannot
+  // say a street or a zip, and guessing either puts a wrong address on an application.
+  // Patterns are narrow on purpose: "email address" and "LinkedIn address" must not match.
+  {
+    id: 'streetAddress',
+    label: 'Street address',
+    ask: 'What is your street address, for application forms that ask for it?',
+    type: 'text',
+    detect: [
+      '^\\s*(street )?address( line)?( 1| one)?\\W*(required)?\\W*$',
+      'street address',
+      'address line (1|one)',
+      '(home|mailing|current|residential|permanent) address',
+    ],
+  },
+  {
+    id: 'postalCode',
+    label: 'Zip or postal code',
+    ask: 'What is your zip or postal code?',
+    type: 'text',
+    detect: ['\\bzip\\b', 'zip ?code', 'postal ?code', 'post ?code'],
+  },
 ];
 
 const STORIES = [
