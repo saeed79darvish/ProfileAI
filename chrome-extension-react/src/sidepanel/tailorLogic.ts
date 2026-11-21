@@ -181,6 +181,12 @@ export function seniorityNote(match: MatchResult | null | undefined, profileTitl
   return `This role asks for ${c.requiredYears}+ years and you have about ${Math.round(Number(c.candidateYears))}. We'll keep your experience but tone down ${phrase}.`;
 }
 
+/** The sentence under the score when the posting's place lowered it. */
+export function locationNote(match: MatchResult | null | undefined): string {
+  const f = Number((match?.components as { locationFit?: number } | undefined)?.locationFit);
+  return f > 0 && f < 1 ? "This job is in a different place than your profile, so the score is lowered. Remote roles open to your country are not affected." : '';
+}
+
 export function isOverqualified(match: MatchResult | null | undefined): boolean {
   const c = match?.components || {};
   return !!(c.requiredYears && c.candidateYears && c.candidateYears >= c.requiredYears * 2);

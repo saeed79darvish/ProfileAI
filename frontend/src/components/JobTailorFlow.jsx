@@ -954,6 +954,9 @@ export default function JobTailorFlow({ open, onClose, job, profile, user, jobDe
             </div>
           </div>
           {seniorityNote && <div className="warn">{seniorityNote}</div>}
+          {c.locationFit > 0 && c.locationFit < 1 && (
+            <div className="warn">This job is in a different place than your profile, so the score is lowered. Remote roles open to your country are not affected.</div>
+          )}
         </ScoreCard>
 
         {covered.length > 0 && (

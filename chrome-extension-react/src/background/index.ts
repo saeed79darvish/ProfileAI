@@ -578,8 +578,8 @@ async function handleMessage(
       }
 
       case 'ANALYZE_KEYWORDS':
-        const keywordData = message.data as { jobDescription: string; jobTitle?: string };
-        const keywordResult = await analyzeKeywords(keywordData.jobDescription, keywordData.jobTitle);
+        const keywordData = message.data as { jobDescription: string; jobTitle?: string; jobLocation?: string };
+        const keywordResult = await analyzeKeywords(keywordData.jobDescription, keywordData.jobTitle, keywordData.jobLocation);
         sendResponse(keywordResult);
         break;
 
@@ -1513,11 +1513,11 @@ const apiFailure = (r: ApiResult, fallback: string) => ({
 
 /** The match, as the web flow reads it: every requirement and its coverage.
  *  Free when the server has it cached. */
-async function jobFit(d: { jobDescription: string; jobTitle?: string }) {
+async function jobFit(d: { jobDescription: string; jobTitle?: string; jobLocation?: string }) {
   if (!d?.jobDescription || d.jobDescription.trim().length < 30) {
     return { success: false, error: 'Could not read this job. Scroll the posting into view and try again.' };
   }
-  const r = await authedApi('POST', '/profiles/job-match', { jobDescription: d.jobDescription, jobTitle: d.jobTitle });
+  const r = await authedApi('POST', '/profiles/job-match', { jobDescription: d.jobDescription, jobTitle: d.jobTitle, jobLocation: d.jobLocation });
   if (!r.ok || !r.body?.success || !r.body?.data) return apiFailure(r, 'Could not score this job');
   return { success: true, data: r.body.data };
 }
@@ -1845,7 +1845,7 @@ async function analyzeActiveJobPage(score = false): Promise<any> {
   console.log('[ProfileAI BG] ANALYZE_JOB_PAGE: analyzing', pageJobInfo.description.length, 'chars');
   // The title carries the role-fit judgement, so it goes in with the body.
   if (!score) return { success: true, jobInfo: pageJobInfo };
-  const analysisResult = await analyzeKeywords(pageJobInfo.description, pageJobInfo.title);
+  const analysisResult = await analyzeKeywords(pageJobInfo.description, pageJobInfo.title, pageJobInfo.location);
   return { ...analysisResult, jobInfo: pageJobInfo };
 }
 
@@ -1861,9 +1861,9 @@ async function analyzeActiveJobPage(score = false): Promise<any> {
  * failing) the card gets the vocabulary scan with the reason and NO number:
  * a guessed score in place of the real one is the thing this replaced.
  */
-async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
+async function analyzeKeywords(jobDescription: string, jobTitle?: string, jobLocation?: string) {
   try {
-    const result = await deepJobMatch(jobDescription, jobTitle);
+    const result = await deepJobMatch(jobDescription, jobTitle, jobLocation);
     if (result.success && result.keywords) {
       console.log('[ProfileAI] Job match:', {
         score: result.keywords.matchScore,
@@ -1886,7 +1886,7 @@ async function analyzeKeywords(jobDescription: string, jobTitle?: string) {
 /** One AI read of a posting against the stored profile. Spends a job-match
  *  allowance, except when the server answers from its cache (same posting,
  *  unchanged profile). */
-async function deepJobMatch(jobDescription: string, jobTitle?: string) {
+async function deepJobMatch(jobDescription: string, jobTitle?: string, jobLocation?: string) {
   if (!authToken) {
     return { success: false, error: 'Sign in to see your match score for this job.' };
   }
@@ -1898,7 +1898,9 @@ async function deepJobMatch(jobDescription: string, jobTitle?: string) {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ jobDescription, jobTitle }),
+      // The posting's place goes in so the score can account for it: a job in another
+      // country is not a strong match on skills alone.
+      body: JSON.stringify({ jobDescription, jobTitle, jobLocation }),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -3182,6 +3184,7 @@ async function analyzeMatch(payload: {
   jobTitle?: string;
   company?: string;
   jobDescription?: string;
+  jobLocation?: string;
 }): Promise<{ success: boolean; analysis?: any; error?: string }> {
   try {
     if (!payload.jobDescription || payload.jobDescription.trim().length < 30) {
@@ -3191,7 +3194,7 @@ async function analyzeMatch(payload: {
 
     // Run on-device match scoring + backend gap analysis in parallel.
     const [keywords, gapsResp] = await Promise.all([
-      analyzeKeywords(payload.jobDescription, payload.jobTitle),
+      analyzeKeywords(payload.jobDescription, payload.jobTitle, payload.jobLocation),
       analyzeGapsForJob(payload.jobDescription).catch(() => null),
     ]);
 

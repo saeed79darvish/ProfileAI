@@ -35,7 +35,7 @@ function forgetProfile(userId) {
 async function readsFor(ids) {
   const sequelize = require('../config/database');
   return sequelize.query(
-    `SELECT id::text AS id, "requirementsRead", "requirementsReadAt" FROM "ExternalJobs" WHERE id::text = ANY($1)`,
+    `SELECT id::text AS id, location, "locationType", "requirementsRead", "requirementsReadAt" FROM "ExternalJobs" WHERE id::text = ANY($1)`,
     { bind: [ids], type: sequelize.constructor.QueryTypes.SELECT }
   );
 }
@@ -55,7 +55,7 @@ async function attachMatches(userId, payload, { sortByMatch = false } = {}) {
     const byId = new Map(rows.map((r) => [r.id, r]));
     let jobs = payload.jobs.map((j) => {
       const row = byId.get(String(j.id));
-      const m = row && row.requirementsRead ? matchFromRequirements(row.requirementsRead, ix) : null;
+      const m = row && row.requirementsRead ? matchFromRequirements(row.requirementsRead, ix, { location: j.location, locationType: j.locationType }) : null;
       return m ? { ...j, match: { score: m.score, met: m.met, partial: m.partial, total: m.total } } : j;
     });
     queueRead(rows.filter((r) => !r.requirementsReadAt).map((r) => r.id).slice(0, QUEUE_PER_PAGE));
@@ -105,7 +105,7 @@ async function matchForJob(userId, jobId) {
     const { readAndStore } = require('./jobRequirementsService');
     read = job ? await readAndStore(job) : null;
   }
-  return read ? matchFromRequirements(read, ix) : null;
+  return read ? matchFromRequirements(read, ix, { location: row.location, locationType: row.locationType }) : null;
 }
 
 module.exports = { attachMatches, matchForJob, forgetProfile };

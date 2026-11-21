@@ -34,6 +34,7 @@ import {
   resumeText,
   scoredRequirements,
   seniorityNote,
+  locationNote,
   stillMissing,
   toggleOption,
   type Answer,
@@ -263,6 +264,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     const res = await send<{ success: boolean; data?: MatchResult; error?: string; limit?: LimitInfo }>('JOB_FIT', {
       jobDescription: job?.description || '',
       jobTitle: job?.title,
+      jobLocation: job?.location,
     });
     if (jobKeyRef.current !== stateKeyRef.current) return;
     if (!res?.success || !res.data) {
@@ -620,6 +622,7 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
             </span>
           </div>
           {note && <div className="tf-warn">{note}</div>}
+          {locationNote(match) && <div className="tf-warn">{locationNote(match)}</div>}
         </section>
 
         {covered.length > 0 && (

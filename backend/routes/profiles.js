@@ -1541,7 +1541,7 @@ router.post('/analyze-gaps', authMiddleware, withServerProfile, analyzeGapsCache
       result: payload,
     });
 
-    res.json(payload);
+    res.json(placeAdjusted(payload, req));
 
   } catch (error) {
     console.error('Error analyzing gaps:', error);
@@ -3236,14 +3236,14 @@ const externalJobText = (job) => [job.description, job.requirements].filter(Bool
  */
 async function resolveJobMatchInput(req, res, next) {
   try {
-    const { externalJobId, jobDescription, jobTitle } = req.body || {};
+    const { externalJobId, jobDescription, jobTitle, jobLocation } = req.body || {};
     if (externalJobId) {
       const { ExternalJob } = require('../models');
-      const job = await ExternalJob.findByPk(externalJobId, { attributes: ['id', 'title', 'description', 'requirements'] });
+      const job = await ExternalJob.findByPk(externalJobId, { attributes: ['id', 'title', 'description', 'requirements', 'location', 'locationType'] });
       if (!job) return res.status(404).json({ error: 'Job not found' });
-      req.jobMatch = { jobDescription: externalJobText(job), jobTitle: job.title };
+      req.jobMatch = { jobDescription: externalJobText(job), jobTitle: job.title, location: job.location, locationType: job.locationType };
     } else {
-      req.jobMatch = { jobDescription: String(jobDescription || ''), jobTitle };
+      req.jobMatch = { jobDescription: String(jobDescription || ''), jobTitle, location: String(jobLocation || '').slice(0, 200), locationType: undefined };
     }
     // A score computed from a fragment is worse than no score: it looks
     // authoritative and is arbitrary. Demand enough text to hold requirements.
@@ -3259,6 +3259,14 @@ async function resolveJobMatchInput(req, res, next) {
 
 /** Served before the allowance check: re-opening a scored job costs nothing,
  *  even for someone who has used their allowance up. */
+/** The cached or fresh { success, data } with the candidate-vs-posting place factor applied. */
+function placeAdjusted(payload, req) {
+  const { withLocationFactor, locationFactor } = require('../utils/jobLocationFit');
+  if (!payload?.data) return payload;
+  const fit = locationFactor(req.candidate?.profileData?.location, req.jobMatch || {});
+  return fit.factor < 1 ? { ...payload, data: withLocationFactor(payload.data, fit) } : payload;
+}
+
 async function jobMatchCacheHit(req, res, next) {
   try {
     const { getCachedAnalysis } = require('../services/aiAnalysisCacheService');
@@ -3270,7 +3278,9 @@ async function jobMatchCacheHit(req, res, next) {
     });
     if (cached) {
       console.log(`[job-match] cache hit for user ${req.user.id} — no credit spent`);
-      return res.json(cached);
+      // The cache holds the score before the place factor: the same posting and
+      // profile can be asked about with a different place, and the factor is free.
+      return res.json(placeAdjusted(cached, req));
     }
   } catch (e) {
     console.warn('[job-match] cache probe failed, continuing:', e.message);
@@ -3290,7 +3300,7 @@ router.post('/job-match/cached', authMiddleware, withServerProfile, async (req, 
       .slice(0, 100);
     if (ids.length === 0) return res.json({ scores: {} });
     const { ExternalJob } = require('../models');
-    const jobs = await ExternalJob.findAll({ where: { id: ids }, attributes: ['id', 'description', 'requirements'] });
+    const jobs = await ExternalJob.findAll({ where: { id: ids }, attributes: ['id', 'description', 'requirements', 'location', 'locationType'] });
     const { getCachedAnalyses } = require('../services/aiAnalysisCacheService');
     const hits = await getCachedAnalyses({
       kind: JOB_MATCH_CACHE_KIND,
@@ -3298,9 +3308,14 @@ router.post('/job-match/cached', authMiddleware, withServerProfile, async (req, 
       profileData: req.candidate.profileData,
       items: jobs.map((j) => ({ id: j.id, jobDescription: externalJobText(j) })),
     });
+    const { locationFactor, withLocationFactor } = require('../utils/jobLocationFit');
     const scores = {};
     for (const [id, payload] of Object.entries(hits)) {
-      if (payload?.data && typeof payload.data.score === 'number') scores[id] = payload.data;
+      if (payload?.data && typeof payload.data.score === 'number') {
+        const job = jobs.find((j) => String(j.id) === String(id));
+        const fit = locationFactor(req.candidate.profileData?.location, job || {});
+        scores[id] = withLocationFactor(payload.data, fit);
+      }
     }
     return res.json({ scores });
   } catch (error) {
@@ -3329,7 +3344,12 @@ router.post('/job-match/rescore', authMiddleware, withServerProfile, async (req,
       recency: components.recency,
       seniorityFit: components.seniorityFit,
     }, req.candidate.profileData);
-    return res.json({ success: true, score: scored.score, projectedScore: scored.projectedScore });
+    // The place factor was applied to the score the client holds; apply it again here.
+    const placed = typeof components.locationFit === 'number' && components.locationFit < 1 && components.locationFit > 0
+      ? { factor: components.locationFit, tier: components.locationTier ?? null } : null;
+    const { withLocationFactor } = require('../utils/jobLocationFit');
+    const final = placed ? withLocationFactor({ score: scored.score, projectedScore: scored.projectedScore }, placed) : scored;
+    return res.json({ success: true, score: final.score, projectedScore: final.projectedScore });
   } catch (error) {
     console.error('[job-match/rescore] failed:', error.message);
     return res.status(500).json({ error: 'Could not update the score' });

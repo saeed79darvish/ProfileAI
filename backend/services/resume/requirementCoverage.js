@@ -11,6 +11,7 @@
  */
 
 const { scoreJobMatch, candidateYears } = require('./jobMatchScore');
+const { locationFactor, withLocationFactor } = require('../../utils/jobLocationFit');
 
 const RECENT_YEARS = 4;
 const DEGREE_RE = /\b(bachelor'?s?|b\.?s\.?c?|b\.?a\.?|master'?s?|m\.?s\.?c?|m\.?b\.?a|ph\.?d|doctorate|degree)\b/i;
@@ -43,6 +44,7 @@ function indexProfile(profile = {}, now = new Date()) {
     certifications: lower(flat(profile.certifications)),
     hasDegree: (profile.education || []).some((e) => DEGREE_RE.test(`${e.degree || ''}`)),
     years: candidateYears(profile.experience),
+    location: String(profile.location || ''),
   };
 }
 
@@ -92,9 +94,11 @@ function roleFitOf(read, ix) {
 /**
  * @param {Object} read - ExternalJob.requirementsRead
  * @param {Object|Object} profileOrIndex - a profile, or indexProfile() of one
+ * @param {{location?: string, locationType?: string}} [job] - the posting's place; a mismatch with the
+ *   candidate's lowers the score (utils/jobLocationFit), as it does on the detail card
  * @returns {{score, met, partial, total, requirements}|null}
  */
-function matchFromRequirements(read, profileOrIndex) {
+function matchFromRequirements(read, profileOrIndex, job = null) {
   if (!read || !Array.isArray(read.requirements) || !read.requirements.length) return null;
   const ix = profileOrIndex && profileOrIndex.roles ? profileOrIndex : indexProfile(profileOrIndex);
   const requirements = read.requirements.map((r) => {
@@ -106,8 +110,11 @@ function matchFromRequirements(read, profileOrIndex) {
   const scored = scoreJobMatch({ requirements, roleFit: roleFitOf(read, ix), recency: 1, seniorityFit: 1 }, null);
   const shown = requirements.filter((r) => r.type !== 'responsibility');
   if (!shown.length) return null;
+  const place = job ? locationFactor(ix.location, job) : { factor: 1, tier: null };
+  const adjusted = withLocationFactor({ score: scored.score }, place);
   return {
-    score: scored.score,
+    score: adjusted.score,
+    ...(place.factor < 1 && { locationFit: place.factor }),
     met: shown.filter((r) => r.coverage === 'strong').length,
     partial: shown.filter((r) => r.coverage === 'partial').length,
     total: shown.length,

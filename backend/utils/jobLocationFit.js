@@ -104,4 +104,40 @@ function locationTier(candidateLocation, job) {
 /** The substrings that put a posting in their metro, for SQL. */
 const metroTerms = (candidateLocation) => expandLocationAliases(candidateLocation);
 
-module.exports = { locationTier, metroTerms, candidateCountry, isUSPlace };
+/**
+ * What a place mismatch costs a match score. A tier is a ranking tool; the
+ * score needs one multiplier. Their metro, or remote and open to their country,
+ * costs nothing. Elsewhere in their country (on-site, so a move) costs a fifth,
+ * and a place they cannot work from costs 40%: Bucharest on-site for someone in
+ * San Francisco should not read as a strong match on skills alone.
+ */
+const LOCATION_FACTOR = Object.freeze({ 0: 0.6, 1: 1, 2: 1, 3: 0.8 });
+
+/**
+ * @returns {{ factor: number, tier: number|null }} factor 1 and tier null when
+ *   either side names no place: not knowing is not a mismatch.
+ */
+function locationFactor(candidateLocation, job = {}) {
+  const none = { factor: 1, tier: null };
+  if (!String(candidateLocation || '').trim()) return none;
+  const text = String(job.location || '').trim();
+  // A scraped "location" that is really a paragraph says nothing about a place.
+  if (text.length > 160) return none;
+  if (!text && job.locationType !== 'remote') return none;
+  const tier = locationTier(candidateLocation, { location: text, locationType: job.locationType });
+  return { factor: LOCATION_FACTOR[tier] ?? 1, tier };
+}
+
+/** A copy of a match result ({ score, projectedScore, components }) with the place factor applied. */
+function withLocationFactor(data, fit) {
+  if (!data || !fit || fit.factor >= 1) return data;
+  const scale = (n) => (typeof n === 'number' ? Math.round(n * fit.factor) : n);
+  return {
+    ...data,
+    score: scale(data.score),
+    projectedScore: scale(data.projectedScore),
+    components: { ...(data.components || {}), locationFit: fit.factor, locationTier: fit.tier },
+  };
+}
+
+module.exports = { locationTier, metroTerms, candidateCountry, isUSPlace, locationFactor, withLocationFactor, LOCATION_FACTOR };

@@ -500,6 +500,7 @@ export const SidePanel: React.FC = () => {
           jobTitle: job?.title,
           company: job?.company,
           jobDescription: job?.description || '',
+          jobLocation: job?.location,
         },
       });
       if (resp?.success && resp?.analysis) {
