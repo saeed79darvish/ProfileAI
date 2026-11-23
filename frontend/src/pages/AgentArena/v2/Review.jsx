@@ -72,6 +72,10 @@ const BREAKDOWN = [
 ];
 const partWord = (p) => (p >= 80 ? 'Strong' : p >= 45 ? 'Partial' : 'Weak');
 
+// Blockers come as { field: { label, name }, reason } from the matcher or
+// { label, name, reason } from the Greenhouse sender.
+const blockLabel = (bk) => bk?.field?.label || bk?.label || bk?.field?.name || bk?.name || 'Answer needed';
+const blockKey = (bk) => bk?.field?.name || bk?.name || bk?.field?.label || bk?.label || 'note';
 // Prep sometimes drafts "[email not provided in profile]"-style stubs.
 const isPlaceholder = (v) => !String(v || '').trim() || /^\s*\[[^\]]*\]\s*$/.test(String(v)) || /not provided in (your )?profile/i.test(String(v));
 const stripHtml = (s) => String(s || '').replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/(p|li|div|h\d)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
@@ -222,7 +226,7 @@ function Detail({ id, position, total, onDone, onChanged }) {
   const bringBack = async () => { if (await run('reopen', () => reopenApplication(id), 'Moved back to Review')) { onChanged(); refetch(); } };
   const iApplied = async () => { if (await run('applied', () => markApplied(id, { note: 'Finished on company site' }), 'Marked as sent')) { onChanged(); onDone(id); } };
   const saveFixes = async () => {
-    const extra = blockers.map((bk) => ({ fieldId: bk.field?.name || bk.field?.label, question: bk.field?.label || bk.field?.name, answer: fix[bk.field?.name || bk.field?.label] }))
+    const extra = blockers.map((bk) => ({ fieldId: blockKey(bk), question: blockLabel(bk), answer: fix[blockKey(bk)] }))
       .filter((a) => String(a.answer || '').trim());
     if (!extra.length) { toast.error('Answer the question first.'); return; }
     const merged = [...(answers || []).filter((a) => !extra.some((e) => e.question === a.question)), ...extra];
@@ -297,10 +301,11 @@ function Detail({ id, position, total, onDone, onChanged }) {
             <strong style={{ fontSize: 16 }}>{blockers.length > 1 ? `${blockers.length} questions` : 'One question'} before this can be sent</strong>
             <Muted $size={14} style={{ color: '#78350f' }}>Your profile doesn't say, and we never guess. Your answer is added to this application.</Muted>
             {(blockers.length ? blockers : [{ field: { label: d.submissionError || 'Answer needed', name: 'note' } }]).map((bk) => {
-              const key = bk.field?.name || bk.field?.label;
+              const key = blockKey(bk);
               return (
                 <Col key={key} $gap={6}>
-                  <label htmlFor={`fix-${key}`} style={{ fontWeight: 600 }}>{bk.field?.label || key}</label>
+                  <label htmlFor={`fix-${key}`} style={{ fontWeight: 600 }}>{blockLabel(bk)}</label>
+                  {bk.reason && !/^empty_required/.test(bk.reason) && <Muted $size={13}>{bk.reason}</Muted>}
                   <Input id={`fix-${key}`} value={fix[key] || ''} onChange={(e) => setFix({ ...fix, [key]: e.target.value })} placeholder="Your answer" />
                 </Col>
               );
