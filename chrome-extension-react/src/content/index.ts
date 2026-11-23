@@ -9,6 +9,7 @@
 // worker disagree about the same posting.
 import { scrapeJobFromDocument } from '../jobScrape';
 import { scrubIdentifier, parseLocation, patternsFor, isFactShapedQuestion } from '../autofill/fieldRules';
+import { findApplyTarget } from '../autofill/applyTarget';
 import { parseWordHint, pickOption, cleanOptionTexts, decideLearn, matchFact, type WordHint, type AnswerCatalog } from '../answerMemory';
 
 // Environment: 'development' | 'production'
@@ -471,6 +472,12 @@ function listenForAuthBroadcast() {
     // Cross-frame close request from the download overlay iframe.
     if (event.data?.type === 'PROFILEAI_CLOSE_DOWNLOAD_OVERLAY' && window.top === window.self) {
       closeDownloadOverlay();
+      // A saved file, not a cancel: the panel returns to its home view and the
+      // posting's application form is opened, so the next step is the application.
+      if (event.data?.downloaded === true) {
+        try { chrome.runtime.sendMessage({ type: 'RESUME_DOWNLOADED' }).catch(() => {}); } catch (_) {}
+        void openApplicationForm();
+      }
       return;
     }
 
@@ -516,7 +523,7 @@ function listenForAuthBroadcast() {
       // content script can remove the overlay. Don't close the tab \u2014 the
       // user is on their job application page.
       if (window.top !== window.self) {
-        window.parent.postMessage({ type: 'PROFILEAI_CLOSE_DOWNLOAD_OVERLAY' }, '*');
+        window.parent.postMessage({ type: 'PROFILEAI_CLOSE_DOWNLOAD_OVERLAY', downloaded: event.data?.downloaded === true }, '*');
         return;
       }
       // If a download overlay is open on this top page, close it.
@@ -1288,6 +1295,20 @@ function openDownloadOverlay() {
   if (fab) fab.style.display = 'none';
 
   console.log('[ProfileAI] Download overlay opened');
+}
+
+/**
+ * After a resume is saved, takes the person to the application form of the posting they
+ * are on: the "Application" tab on Ashby, the Apply link on Greenhouse or Lever. It only
+ * clicks what a person would click next, and only on the same site. An Apply link that
+ * leaves the site is left for them, and a page that already shows a form is left alone.
+ */
+async function openApplicationForm(): Promise<boolean> {
+  const target = findApplyTarget(document, window);
+  if (!target) return false;
+  showNotification('Opening the application form');
+  target.click();
+  return true;
 }
 
 function closeDownloadOverlay(): boolean {

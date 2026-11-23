@@ -26,6 +26,7 @@ const ENTRIES = [
   { entry: 'src/answerMemory/index.ts', name: 'answerMemory' },
   { entry: 'src/sidepanel/pendingApplication.ts', name: 'pendingApplication' },
   { entry: 'src/autofill/fieldRules.ts', name: 'fieldRules' },
+  { entry: 'src/autofill/applyTarget.ts', name: 'applyTarget' },
 ];
 
 let built = false;

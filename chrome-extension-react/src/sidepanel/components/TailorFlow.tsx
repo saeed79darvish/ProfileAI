@@ -570,6 +570,17 @@ export const TailorFlow: React.FC<TailorFlowProps> = ({
     onClose();
   };
 
+  // The resume was saved in the download window on the page: the flow is done, and the
+  // panel goes back to its home view for the application itself.
+  useEffect(() => {
+    const onMessage = (m: { type?: string }) => {
+      if (m?.type === 'RESUME_DOWNLOADED' && stepRef.current === 'apply') finish();
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+
   if (!open) return null;
 
   // --- render ----------------------------------------------------------------

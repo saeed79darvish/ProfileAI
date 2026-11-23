@@ -149,10 +149,11 @@ const ResumeDownloadPage = () => {
     load();
   }, [user, token, navigate, fromExtension, waitingForAuth]);
 
-  const handleClose = () => {
+  const handleClose = (info) => {
     // Notify the content script. In overlay mode the content script removes the
-    // iframe overlay; in standalone tab mode it closes the tab.
-    window.postMessage({ type: 'PROFILEAI_CLOSE_TAB' }, window.location.origin);
+    // iframe overlay; in standalone tab mode it closes the tab. `downloaded` marks a
+    // close that follows a saved file (a cancel does not carry it).
+    window.postMessage({ type: 'PROFILEAI_CLOSE_TAB', downloaded: info?.downloaded === true }, window.location.origin);
     if (!overlayMode) {
       window.close();
       setTimeout(() => navigate('/dashboard'), 300);

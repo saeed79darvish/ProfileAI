@@ -1782,7 +1782,9 @@ export default function ResumePreviewModal({
       triggerDownload(blob, fileName);
       setSaveState({ phase: 'saved', message: '', via: 'download', fileName });
       // A beat, so the browser's download starts and "saved" is seen, then back to the job.
-      if (closeAfterDownload) setTimeout(() => onClose?.(), 900);
+      // Tells the caller this close is a finished download, not a cancel: the extension
+      // then takes the person on to the application form.
+      if (closeAfterDownload) setTimeout(() => onClose?.({ downloaded: true }), 900);
     } catch (err) {
       console.error('Download error:', err);
       setSaveState({ phase: 'failed', message: 'We could not prepare your resume. Check your connection and try again.', via: '', fileName: '' });
