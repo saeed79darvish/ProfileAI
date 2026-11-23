@@ -975,14 +975,24 @@ const startServer = async () => {
       // mounts because we need it to generate tailored materials.
       if (process.env.APPLYPILOT_WORKER_INLINE !== 'false') {
         const featureFlags = require('./config/featureFlags');
-        if (featureFlags.applyPilotAutoSubmit) {
+        // The sender runs Chrome. Inside the API it exhausted memory and
+        // took production down (2026-11-23), so it runs as its own
+        // service (profileai-submit-worker) and only mounts here when
+        // APPLYPILOT_SUBMIT_INLINE=true is set on purpose (local dev).
+        if (featureFlags.applyPilotAutoSubmit && process.env.APPLYPILOT_SUBMIT_INLINE === 'true') {
           const { mountSubmitWorker } = require('./workers/submitWorker');
           mountSubmitWorker().catch((err) => {
             console.error('[submitWorker] mount failed:', err?.message || err);
           });
         } else {
-          console.log('[submitWorker] disabled (APPLYPILOT_AUTOSUBMIT=off — hybrid mode)');
+          console.log('[submitWorker] not running in the API (runs as profileai-submit-worker)');
         }
+        // Cheap DB sweep, safe in the API: sends left in "submitting" by a
+        // crash become "outcome unknown" instead of hanging forever.
+        try {
+          const { recoverStuckSends } = require('./workers/submitWorker');
+          recoverStuckSends().catch((err) => console.warn('[submitWorker] stuck-send sweep failed:', err?.message || err));
+        } catch (err) { console.warn('[submitWorker] sweep unavailable:', err?.message || err); }
 
         // ApplyPilot prep worker — consumes pending applications, runs
         // AI tailoring with retry/backoff. In hybrid mode prep stops at

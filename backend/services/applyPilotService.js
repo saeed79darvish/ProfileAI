@@ -20,6 +20,7 @@ const resumeParserService = require('./resumeParserService');
 const { generateCoverLetterAndAnswers } = require('./coverLetterService');
 const { FORM_TEMPLATES } = require('../config/applicationFormTemplates');
 const { fetchRealQuestions } = require('./ats/realQuestions');
+const { isSensitiveQuestion, rememberedAnswer } = require('./ats/sensitiveQuestions');
 
 /**
  * Build a default set of formFields for prep when the source job didn't
@@ -52,6 +53,12 @@ function isStubAnswer(v) {
 function fillIdentityAnswers(answers, ctx) {
   if (!Array.isArray(answers)) return answers;
   return answers.map((a) => {
+    // Legal / personal questions: only the candidate's own earlier answer,
+    // never an AI draft (it had answered FDA debarment and family
+    // questions unasked). Empty shows as "Not answered" in Review.
+    if (a && isSensitiveQuestion(a.question)) {
+      return { ...a, answer: rememberedAnswer(a.question, ctx.memory) || '' };
+    }
     if (!a || !isStubAnswer(a.answer)) return a;
     const rule = IDENTITY_ANSWERS.find((r) => r.re.test(String(a.question || '')));
     const value = rule ? String(rule.get(ctx) || '').trim() : '';
@@ -837,7 +844,7 @@ async function prepareApplication(appId) {
 
   app.tailoredResume = tailored;
   app.coverLetter = draft.coverLetter;
-  app.formAnswers = fillIdentityAnswers(draft.answers, { user, profile, config });
+  app.formAnswers = fillIdentityAnswers(draft.answers, { user, profile, config, memory });
   app.whyPicked = tailored.whyPicked;
   app.status = 'prepared';
   app.preparedAt = new Date();

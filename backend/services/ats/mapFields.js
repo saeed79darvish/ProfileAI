@@ -11,6 +11,7 @@
  */
 const { callAI, safeParseJSON } = require('../ai/core');
 const { resolveConsentField } = require('./consentHeuristic');
+const { isSensitiveQuestion, rememberedAnswer } = require('./sensitiveQuestions');
 
 // -------------------------------------------------------------
 // Dropdown coercion — for select / radio / multi_select fields the ATS
@@ -230,6 +231,26 @@ function applyConsentHeuristic(fields, { memory }) {
 // one from memory. Returns both the mapping and a list of fields that
 // Claude wasn't confident about (human-in-loop signal).
 // -------------------------------------------------------------
+function answerSensitiveFromMemory(fields, memory) {
+  const mapped = {};
+  const remaining = [];
+  const blockers = [];
+  for (const f of fields) {
+    if (!isSensitiveQuestion(f.label)) { remaining.push(f); continue; }
+    const prior = rememberedAnswer(f.label, memory);
+    const isChoice = Array.isArray(f.options) && f.options.length > 0;
+    const value = prior == null ? null
+      : (isChoice ? coerceAnswerToOption(prior, f.options, { multi: f.type === 'multi_select' || f.type === 'checkbox-group' }) : prior);
+    if (value != null && value !== '' && !(Array.isArray(value) && !value.length)) {
+      mapped[f.name || f.id] = value;
+    } else if (f.required) {
+      blockers.push({ field: f, reason: 'A legal or personal question only you can answer. Answer once and we’ll reuse it.' });
+    }
+    // Optional sensitive questions are left blank rather than guessed.
+  }
+  return { mapped, remaining, blockers };
+}
+
 // "How did you hear about this job?" pickers. Preference order matches
 // how ApplyPilot actually finds jobs (job boards / job sites), then the
 // usual generic fallbacks.
@@ -553,12 +574,17 @@ async function mapFormFields({ app, fields, profile, user, memory, demographics,
   // Pass 2b — "How did you hear about us?" is not a fact about the
   // candidate, so it's answered by rule instead of pausing on an unsure AI.
   const pass2b = answerReferralSource(pass2.remaining);
+  // Pass 2c — legal statements and personal circumstances (debarment,
+  // family at the company, office days…) are answered only from what the
+  // candidate told us before, never by the AI. Otherwise they pause the
+  // send and the candidate answers once.
+  const pass2c = answerSensitiveFromMemory(pass2b.remaining, memory);
   // Pass 3 — everything else → LLM.
-  const pass3 = await llmMatchFields(pass2b.remaining, ctx);
+  const pass3 = await llmMatchFields(pass2c.remaining, ctx);
 
   return {
-    values: { ...pass1.mapped, ...pass2.mapped, ...pass2b.mapped, ...pass3.mapped },
-    blockers: pass3.lowConfidence,
+    values: { ...pass1.mapped, ...pass2.mapped, ...pass2b.mapped, ...pass2c.mapped, ...pass3.mapped },
+    blockers: [...pass2c.blockers, ...pass3.lowConfidence],
     resolutions: pass2.resolutions,
   };
 }

@@ -332,15 +332,51 @@ services:
 
   # ───────── Other background workers — uncomment when you need them ─────────
   #
-  # - type: worker
-  #   name: profileai-submit-worker
-  #   runtime: node
-  #   plan: starter
-  #   rootDir: backend
-  #   buildCommand: npm ci
-  #   startCommand: npm run worker
-  #   autoDeploy: true
-  #   branch: main
-  #   envVars:
-  #     - fromGroup: profileai-shared       # define an env group with all the
-  #                                          # shared vars to avoid duplication
+  # ApplyPilot sender. Runs Chrome (Puppeteer) to fill and submit real
+  # applications. It used to run inside profilleai-api and one send
+  # exhausted the API's 512MB and took production down (2026-11-23), so it
+  # is its own service with enough memory, one send at a time. The API no
+  # longer mounts the sender (APPLYPILOT_SUBMIT_INLINE is unset there).
+  - type: worker
+    name: profileai-submit-worker
+    runtime: node
+    plan: standard           # 2GB; Chrome needs ~300MB-1GB while filling a form
+    region: oregon
+    rootDir: backend
+    # Same half-download cleanup as the API; Chrome lands in
+    # backend/.cache/puppeteer (see backend/.puppeteerrc.cjs).
+    buildCommand: >-
+      if [ -d .cache/puppeteer ]; then
+      for d in .cache/puppeteer/*/*/; do
+      [ -d "$d" ] || continue;
+      [ -n "$(find "$d" -type f -perm -u+x 2>/dev/null | head -1)" ] || rm -rf "$d";
+      done; fi; npm ci
+    startCommand: npm run worker
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: profileai-db
+          property: connectionString
+      - key: DB_SSL
+        value: "false"
+      # Must match the API's value. Approvals are only queued while it is on.
+      - key: APPLYPILOT_AUTOSUBMIT
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        value: https://profilleai.com

@@ -17,7 +17,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import ResumePreviewModal from '../../../components/ResumePreviewModal';
 import { TailoredResumeRender } from '../ReviewPage';
 import { T, Page, Row, Col, Card, H1, H2, Muted, Btn, Chip, CompanyMark, Banner, Empty, Loading, SkeletonRows, Input, Textarea, fitOf, ago } from './ui';
-import { bucketOf, scoutedTime, canAutoSend } from './model';
+import { bucketOf, scoutedTime, canAutoSend, isSensitiveQuestion } from './model';
 
 const Layout = styled.div`
   display: flex; flex-wrap: wrap; align-items: stretch; min-height: calc(100vh - 140px);
@@ -519,7 +519,7 @@ function AnswersEditor({ answers, onSave, onRewrite, busy }) {
               <Col $gap={8}>
                 <Textarea aria-label={`Answer to ${a.question}`} value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 90 }} />
                 <Row $gap={8}>
-                  <Btn $kind="primary" $size="sm" onClick={async () => { const next = answers.map((x, j) => (j === i ? { ...x, answer: text } : x)); setEdit(null); await onSave(next); }}>Save</Btn>
+                  <Btn $kind="primary" $size="sm" onClick={async () => { const next = answers.map((x, j) => (j === i ? { ...x, answer: text } : x)); setEdit(null); await onSave(next); if (isSensitiveQuestion(a.question) && text.trim()) applyPilotAPI.rememberAnswer(a.question, text.trim()).catch(() => {}); }}>Save</Btn>
                   <Btn $size="sm" onClick={() => onRewrite(a, text)} disabled={!!busy}>Rewrite with AI using this as a hint</Btn>
                   <Btn $size="sm" $kind="ghost" onClick={() => setEdit(null)}>Cancel</Btn>
                 </Row>
@@ -527,7 +527,9 @@ function AnswersEditor({ answers, onSave, onRewrite, busy }) {
             ) : (
               <Row $justify="space-between" $align="flex-start">
                 <span style={{ fontSize: 15, fontWeight: 600, flex: '1 1 320px', whiteSpace: 'pre-wrap' }}>
-                  {isPlaceholder(a.answer)
+                  {isPlaceholder(a.answer) && isSensitiveQuestion(a.question)
+                    ? <em style={{ color: T.warn, fontWeight: 600 }}>Only you can answer this. Add your answer; we\u2019ll reuse it on future applications.</em>
+                    : isPlaceholder(a.answer)
                     ? <em style={{ color: T.warn, fontWeight: 600 }}>Not answered. Add it here or on your profile.</em>
                     : a.answer}
                 </span>

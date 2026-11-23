@@ -70,7 +70,7 @@ export default function Dashboard() {
   const last = cfg?.lastScoutRun || null;
   const ready = groupSameRole([...by.ready].sort((a, b) => (b.match || 0) - (a.match || 0)));
   const readyN = by.ready.length;
-  const needs = [...by.code, ...by.question, ...by.blocked];
+  const needs = [...by.unknown, ...by.code, ...by.question, ...by.blocked];
   const weekAgo = Date.now() - 7 * 864e5;
   const sentWeek = by.sent.filter((r) => new Date(r.submittedAt || r.updatedAt).getTime() > weekAgo).length;
   const nothingYet = !queue?.length;

@@ -12,12 +12,12 @@ import { bucketOf, SENT_BUCKETS } from './model';
 
 const GROUPS = [
   { key: 'all', label: 'All', test: () => true },
-  { key: 'needs', label: 'Needs you', test: (b) => b === 'code' || b === 'blocked' },
+  { key: 'needs', label: 'Needs you', test: (b) => b === 'code' || b === 'blocked' || b === 'unknown' },
   { key: 'progress', label: 'In progress', test: (b) => b === 'applying' },
   { key: 'sent', label: 'Sent', test: (b) => b === 'sent' },
 ];
 const CHIP = {
-  sent: ['good', 'Sent'], applying: ['info', 'Applying'], code: ['warn', 'Needs a code'], blocked: ['bad', 'Blocked'],
+  sent: ['good', 'Sent'], applying: ['info', 'Applying'], code: ['warn', 'Needs a code'], blocked: ['bad', 'Blocked'], unknown: ['warn', 'Check your email'],
 };
 const TRACK = [
   ['applied', 'Applied'], ['interviewing', 'Interviewing'], ['offer', 'Offer'], ['hired', 'Hired'],
@@ -139,6 +139,7 @@ function Receipt({ id, onChanged }) {
     b === 'applying' && !waiting && { s: 'todo', label: `Waiting for ${d.company} to confirm`, time: '' },
     b === 'code' && { s: 'warn', label: 'The site asked for the code it emailed you', time: clockTime(d.lastSubmitAttemptAt) },
     b === 'blocked' && { s: 'bad', label: 'Stopped before submitting', time: clockTime(d.lastSubmitAttemptAt) },
+    b === 'unknown' && { s: 'warn', label: 'We couldn\u2019t confirm the result', time: clockTime(d.lastSubmitAttemptAt) },
     b === 'sent' && { s: 'done', label: manual ? 'You finished it on their site' : `We submitted the form on ${d.company}’s site`, time: clockTime(d.submittedAt) },
     b === 'sent' && !manual && { s: 'done', label: `${d.company} confirmed they got it`, time: clockTime(d.submittedAt) },
   ].filter(Boolean);
@@ -171,6 +172,16 @@ function Receipt({ id, onChanged }) {
               onClick={() => run('code', () => applyPilotAPI.resolveApplication(id, { action: 'retry', verificationCode: code }), 'Finishing the application')}>
               {busy === 'code' ? 'Sending…' : 'Finish sending'}
             </Btn>
+          </Row>
+        </Banner>
+      )}
+
+      {b === 'unknown' && (
+        <Banner $tone="warn" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          <span><strong>Did this reach {d.company}?</strong> Sending stopped before we could see their confirmation. Check your email ({d.company} or Greenhouse, Lever, Ashby usually send a \u201cthanks for applying\u201d within minutes). Sending again when it already went through would apply twice.</span>
+          <Row $gap={8}>
+            <Btn $kind="primary" disabled={!!busy} onClick={() => run('done', () => markApplied(id, { note: 'Confirmed by the candidate after an unconfirmed send' }), 'Marked as sent')}>Yes, it was sent</Btn>
+            <Btn disabled={!!busy} onClick={() => run('retry', () => approveApplication(id), 'Sending again')}>No, send it again</Btn>
           </Row>
         </Banner>
       )}

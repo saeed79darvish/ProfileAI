@@ -34,6 +34,63 @@ const { buildAndUpload } = require('../services/resumePdf');
 const { syncTailoredProfileFromApplication } = require('../services/applyPilotService');
 const { resolveAndBackfillApplyUrl } = require('../services/applyPilotUrlResolver');
 const { buildApplicantProfile } = require('../services/ats/applicantProfile');
+const { closeAllBrowsers } = require('../services/ats/browser');
+
+// A real send (load form, fill, submit, wait for confirmation) takes
+// 1 to 2 minutes. Past this, Chrome is closed and the outcome is unknown.
+const SEND_TIMEOUT_MS = 4 * 60 * 1000;
+// A row still "submitting" this long after its attempt started was
+// interrupted (crash, deploy, timeout) and must not be sent again blindly.
+const STUCK_AFTER_MS = 10 * 60 * 1000;
+
+function outcomeUnknownMessage(app) {
+  return `We couldn't confirm whether this application reached ${app.company || 'the company'}. `
+    + 'Check your email for a confirmation before sending it again.';
+}
+
+// Never resend after an interruption: the form may already have been
+// submitted, and sending twice looks bad to the employer.
+async function markOutcomeUnknown(app, why) {
+  app.status = 'needs_attention';
+  app.submissionError = outcomeUnknownMessage(app);
+  app.submissionReceipt = { ...(app.submissionReceipt || {}), ok: false, outcomeUnknown: true, why: why || 'interrupted', at: new Date().toISOString() };
+  await app.save();
+  try {
+    await createNotification(
+      app.userId,
+      'agent_update',
+      `Check your email: ${app.company || 'employer'}`,
+      `We couldn't confirm whether your application for ${app.role || 'the position'} at ${app.company || 'the company'} went through. Check your email for a confirmation, then tell us in ApplyPilot, Sent.`,
+      { applicationId: app.id, updateType: 'outcome_unknown' },
+    );
+  } catch (_) { /* best effort */ }
+}
+
+function withSendTimeout(promise) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error('send_timed_out');
+      err.sendTimedOut = true;
+      reject(err);
+    }, SEND_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Rows left in "submitting" by a crash or restart become "outcome unknown". */
+async function recoverStuckSends() {
+  const cutoff = new Date(Date.now() - STUCK_AFTER_MS);
+  const stuck = await ApplyPilotApplication.findAll({
+    where: { status: 'submitting', lastSubmitAttemptAt: { [Op.lt]: cutoff } },
+    limit: 50,
+  });
+  for (const app of stuck) {
+    console.warn(`[submitWorker] stuck send appId=${app.id} since ${app.lastSubmitAttemptAt?.toISOString?.()} -> outcome unknown`);
+    await markOutcomeUnknown(app, 'stuck');
+  }
+  return stuck.length;
+}
 const {
   getDecryptedCredential,
   getDecryptedCredentialById,
@@ -152,8 +209,17 @@ async function handleJob(job) {
 
   const { app, applyUrl, user, profile, memory, demographics, job: jobRow } = ctx;
 
+  // A row already "submitting" means an earlier attempt was interrupted
+  // (crash, restart, timeout) and this is pg-boss retrying it. The form
+  // may already have been submitted, so never send it again.
+  if (app.status === 'submitting') {
+    console.warn(`[submitWorker] appId=${appId} was interrupted mid-send; not resending`);
+    await markOutcomeUnknown(app, 'interrupted');
+    return;
+  }
+
   // Ignore if state changed since enqueue (e.g. user rejected after approve).
-  if (!['approved', 'submitting'].includes(app.status)) {
+  if (!['approved'].includes(app.status)) {
     console.log(`[submitWorker] skipping appId=${appId}, status=${app.status}`);
     return;
   }
@@ -170,7 +236,7 @@ async function handleJob(job) {
     {
       where: {
         id: app.id,
-        status: { [Op.in]: ['approved', 'submitting'] },
+        status: 'approved',
       },
     },
   );
@@ -268,7 +334,7 @@ async function handleJob(job) {
       await app.save();
     }
 
-    const receipt = await adapter.submit({
+    const receipt = await withSendTimeout(adapter.submit({
       app,
       applyUrl,
       profile,
@@ -280,7 +346,7 @@ async function handleJob(job) {
       resumePdfBuffer,
       resumeFileName,
       verificationCode,
-    });
+    }));
     // Cancel-during-submit guard. The user may have hit Reject while
     // the adapter was mid-POST. Re-fetch the row's authoritative status
     // before claiming success — if it's `rejected`, leave the rejection
@@ -355,6 +421,13 @@ async function handleJob(job) {
       { applicationId: app.id, updateType: 'submitted' },
     );
   } catch (err) {
+    if (err?.sendTimedOut) {
+      console.error(`[submitWorker] appId=${appId} send took over ${SEND_TIMEOUT_MS / 1000}s; closing Chrome`);
+      await closeAllBrowsers().catch(() => {});
+      await app.reload().catch(() => {});
+      await markOutcomeUnknown(app, 'timed_out');
+      return; // never retry: it may have been submitted
+    }
     console.warn(`[submitWorker] submit failed appId=${appId}:`, err.message);
     const credentialFailure = isCredentialError(err);
     if (provider && credential && credentialFailure) {
@@ -433,7 +506,8 @@ async function mountSubmitWorker() {
   }
   const workerId = await boss.work(
     QUEUES.SUBMIT,
-    { teamSize: 2, teamConcurrency: 1 },
+    // One Chrome at a time: each send needs a few hundred MB.
+    { teamSize: 1, teamConcurrency: 1 },
     async (jobOrJobs) => {
       // pg-boss v10 passes an array; v9 passes a single job. Handle both.
       const jobs = Array.isArray(jobOrJobs) ? jobOrJobs : [jobOrJobs];
@@ -460,6 +534,8 @@ if (require.main === module) {
     const { sequelize } = require('../models');
     await sequelize.authenticate();
     console.log('[submitWorker] standalone · DB connected');
+    await recoverStuckSends().catch((err) => console.warn('[submitWorker] stuck-send sweep failed:', err.message));
+    setInterval(() => { recoverStuckSends().catch(() => {}); }, 5 * 60 * 1000).unref();
     await mountSubmitWorker();
 
     const stop = async () => {
@@ -476,4 +552,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { mountSubmitWorker, handleJob };
+module.exports = { mountSubmitWorker, handleJob, recoverStuckSends };

@@ -26,6 +26,18 @@ function getPuppeteer() {
   return puppeteerLib;
 }
 
+// Every browser an adapter opens, so a send that runs past its time
+// limit can be closed from outside (adapters only close their own
+// browser when they finish or throw).
+const activeBrowsers = new Set();
+
+async function closeAllBrowsers() {
+  const list = [...activeBrowsers];
+  activeBrowsers.clear();
+  await Promise.allSettled(list.map((b) => b.close()));
+  return list.length;
+}
+
 async function launchBrowser({ userDataDir, extraArgs = [], viewport = { width: 1280, height: 900 } } = {}) {
   const browser = await getPuppeteer().launch({
     headless: 'new',
@@ -38,6 +50,8 @@ async function launchBrowser({ userDataDir, extraArgs = [], viewport = { width: 
       ...extraArgs,
     ],
   });
+  activeBrowsers.add(browser);
+  browser.once('disconnected', () => activeBrowsers.delete(browser));
   const ua = (await browser.userAgent()).replace(/HeadlessChrome/g, 'Chrome');
   const newPage = async () => {
     const page = await browser.newPage();
@@ -72,4 +86,4 @@ async function hasVisibleCaptcha(page) {
   }).catch(() => false);
 }
 
-module.exports = { getPuppeteer, launchBrowser, hasVisibleCaptcha };
+module.exports = { getPuppeteer, launchBrowser, hasVisibleCaptcha, closeAllBrowsers };

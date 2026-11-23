@@ -4,6 +4,13 @@
 
 const CODE_RE = /verification code|security code|8-character|email code|enter the code/i;
 const CHECK_RE = /captcha|security check|human|bot detect|cloudflare|challenge/i;
+// The sender couldn't tell whether the form was submitted (timeout, crash).
+const UNKNOWN_RE = /couldn.t confirm whether/i;
+
+// Legal statements and personal circumstances: only the user answers these
+// (mirrors backend/services/ats/sensitiveQuestions.js).
+const SENSITIVE_RE = /debar|excluded by|\boig\b|sanction|convicted|conviction|felony|misdemeanor|criminal|pleaded guilty|arrest|family|relative|spouse|domestic partner|related to (anyone|someone|a current|an employee)|conflict of interest|government (official|employee)|politically exposed|non-?compete|non-?solicit|restrictive covenant|terminated|dismissed|fired from|asked to resign|security clearance|background check|drug (test|screen)|days a week|in the office|on-?site requirement|in-office requirement/i;
+export const isSensitiveQuestion = (q) => SENSITIVE_RE.test(String(q || ''));
 
 export function bucketOf(row) {
   const db = row?.dbStatus || row?.status;
@@ -12,6 +19,7 @@ export function bucketOf(row) {
   if (db === 'submitted') return 'sent';
   if (db === 'approved' || db === 'submitting') return 'applying';
   if (db === 'needs_attention' || db === 'failed' || db === 'error') {
+    if (UNKNOWN_RE.test(err)) return 'unknown';
     if (CODE_RE.test(err)) return 'code';
     if (CHECK_RE.test(err) || db === 'failed' || db === 'error') return 'blocked';
     return 'question';
@@ -33,12 +41,12 @@ export function canAutoSend(row) {
 }
 
 export const REVIEW_BUCKETS = new Set(['question', 'ready', 'preparing']);
-export const SENT_BUCKETS = new Set(['applying', 'code', 'blocked', 'sent']);
-export const NEEDS_YOU = new Set(['question', 'code', 'blocked']);
+export const SENT_BUCKETS = new Set(['applying', 'code', 'blocked', 'unknown', 'sent']);
+export const NEEDS_YOU = new Set(['question', 'code', 'blocked', 'unknown']);
 
 export function splitQueue(queue) {
   const rows = Array.isArray(queue) ? queue : [];
-  const by = { ready: [], preparing: [], question: [], code: [], blocked: [], applying: [], sent: [], skipped: [] };
+  const by = { ready: [], preparing: [], question: [], code: [], blocked: [], unknown: [], applying: [], sent: [], skipped: [] };
   rows.forEach((r) => { by[bucketOf(r)].push(r); });
   return by;
 }
@@ -65,6 +73,7 @@ export function groupSameRole(rows) {
 export function needsText(row) {
   const b = bucketOf(row);
   const err = String(row?.submissionError || '').trim();
+  if (b === 'unknown') return { title: `${row.company}: did it go through?`, why: 'We couldn\u2019t confirm the result. Check your email for a confirmation, then tell us.', cta: 'Tell us', to: `/applypilot/sent/${row.id}` };
   if (b === 'code') return { title: `${row.company}: enter the email code`, why: 'The job site emailed you a code to confirm it’s you. Enter it to finish sending.', cta: 'Enter code', to: `/applypilot/sent/${row.id}` };
   if (b === 'blocked') return { title: `${row.company}: couldn’t finish sending`, why: err ? shorten(err) : 'The site stopped the application. Try again or finish it on their site.', cta: 'Fix it', to: `/applypilot/sent/${row.id}` };
   return { title: `${row.company}: a question only you can answer`, why: err ? shorten(err) : 'The form asks something your profile doesn’t say.', cta: 'Answer', to: `/applypilot/review/${row.id}` };
