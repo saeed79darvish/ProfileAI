@@ -20,6 +20,18 @@ export function bucketOf(row) {
   return 'preparing'; // scouting | pending | preparing
 }
 
+/* Can ApplyPilot submit this one itself? Greenhouse (including company
+   careers pages that carry a gh_jid, which the backend maps to
+   Greenhouse's hosted form), Lever and Ashby: yes. Everything else
+   (Workday needs an account, Amazon needs a login, job boards link out)
+   is finished by the user on the company's site. */
+const AUTO_HOST_RE = /(greenhouse\.io|jobs\.lever\.co|jobs\.ashbyhq\.com)/i;
+export function canAutoSend(row) {
+  const url = String(row?.applicationUrl || row?.jobUrl || '');
+  const provider = String(row?.atsProvider || '').toLowerCase();
+  return AUTO_HOST_RE.test(url) || /[?&]gh_jid=/.test(url) || ['greenhouse', 'lever', 'ashby'].includes(provider);
+}
+
 export const REVIEW_BUCKETS = new Set(['question', 'ready', 'preparing']);
 export const SENT_BUCKETS = new Set(['applying', 'code', 'blocked', 'sent']);
 export const NEEDS_YOU = new Set(['question', 'code', 'blocked']);

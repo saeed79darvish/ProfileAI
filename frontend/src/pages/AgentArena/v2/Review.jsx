@@ -16,7 +16,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import ResumePreviewModal from '../../../components/ResumePreviewModal';
 import { TailoredResumeRender } from '../ReviewPage';
 import { T, Page, Row, Col, Card, H1, H2, Muted, Btn, Chip, CompanyMark, Banner, Empty, Loading, SkeletonRows, Input, Textarea, fitOf, ago } from './ui';
-import { bucketOf, scoutedTime } from './model';
+import { bucketOf, scoutedTime, canAutoSend } from './model';
 
 const Layout = styled.div`
   display: flex; flex-wrap: wrap; align-items: stretch; min-height: calc(100vh - 140px);
@@ -133,6 +133,7 @@ export default function Review() {
                         {b === 'question' && <Chip $tone="warn">Needs your answer</Chip>}
                         {b === 'preparing' && <Chip>Getting ready</Chip>}
                         {b === 'ready' && f.n != null && <Chip $tone={f.tone}>{f.n}% · {f.word}</Chip>}
+                        {b === 'ready' && !canAutoSend(r) && <Chip style={{ marginLeft: 6 }}>You finish this one</Chip>}
                         {b === 'skipped' && <Chip>Skipped</Chip>}
                       </span>
                     </Col>
@@ -191,6 +192,9 @@ function Detail({ id, position, total, onDone, onChanged }) {
   const mb = d.matchBreakdown || {};
   const blockers = Array.isArray(d.submission?.receipt?.blockers) ? d.submission.receipt.blockers : [];
   const siteUrl = d.applicationUrl || d.job?.jobUrl || d.jobUrl;
+  // The posting page is friendlier than Greenhouse's bare embedded form.
+  const postUrl = d.job?.jobUrl || d.jobUrl || d.applicationUrl;
+  const selfFinish = !canAutoSend(d);
   const diff = d.diff || {};
   const changes = [
     diff.summary?.new && 'Summary rewritten for this job',
@@ -356,6 +360,13 @@ function Detail({ id, position, total, onDone, onChanged }) {
         )}
 
         {tab === 'Answers' && (
+          <Muted $size={14}>
+            {Array.isArray(d.formScan?.fields) && d.formScan.fields.length
+              ? `These are ${d.company}'s own questions. What you see here is what gets sent.`
+              : `These are common application questions. If ${d.company}'s form asks something else, it's answered from your profile when sending. Use See the filled form to check every answer first.`}
+          </Muted>
+        )}
+        {tab === 'Answers' && (
           <AnswersEditor answers={answers || []} onSave={saveAnswers} busy={busy}
             onRewrite={async (a, guidance) => {
               const r = await run('answer', () => regenerateAnswer(id, { question: a.question, fieldId: a.fieldId, guidance }));
@@ -381,10 +392,17 @@ function Detail({ id, position, total, onDone, onChanged }) {
         <Decide>
           <Row $gap={8}>
             <Btn onClick={skip} disabled={!!busy}>Skip this job</Btn>
-            <Btn $kind="ghost" onClick={seeForm} disabled={!!busy || b === 'preparing'}>{busy === 'preview' ? 'Filling in the form… (about a minute)' : 'See the filled form'}</Btn>
+            {!selfFinish && <Btn $kind="ghost" onClick={seeForm} disabled={!!busy || b === 'preparing'}>{busy === 'preview' ? 'Filling in the form… (about a minute)' : 'See the filled form'}</Btn>}
           </Row>
           <Row $gap={14}>
             {total > 0 && position > 0 && <Muted $size={14}>{position} of {total}</Muted>}
+            {selfFinish && !manual && (
+              <>
+                <span style={{ fontWeight: 600, color: T.ink2, maxWidth: 380 }}>ApplyPilot can't send to {d.company}'s site, so this one is yours to finish. Everything is ready to copy.</span>
+                {postUrl && <Btn as="a" href={postUrl} target="_blank" rel="noopener noreferrer">Open their site</Btn>}
+                <Btn $kind="primary" onClick={iApplied} disabled={busy === 'applied'}>I finished applying</Btn>
+              </>
+            )}
             {manual && (
               <>
                 <span style={{ fontWeight: 600, color: T.warn, maxWidth: 360 }}>Automatic sending is off, so finish this one on {d.company}'s site.</span>
@@ -392,7 +410,7 @@ function Detail({ id, position, total, onDone, onChanged }) {
                 <Btn $kind="primary" onClick={iApplied} disabled={busy === 'applied'}>I finished applying</Btn>
               </>
             )}
-            {!manual && (b === 'question'
+            {!manual && !selfFinish && (b === 'question'
               ? <span style={{ fontWeight: 600, color: T.warn }}>Answer the question above to send</span>
               : <Btn $kind="primary" $size="lg" onClick={approve} disabled={!!busy || b === 'preparing'}>{busy === 'send' ? 'Sending…' : 'Approve and send'}</Btn>)}
           </Row>

@@ -18,6 +18,8 @@
  *
  * Returns the resolved applyUrl (or null), and mutates `app` in place.
  */
+const { canonicalApplyUrl } = require('./ats/realQuestions');
+
 async function resolveAndBackfillApplyUrl(app, { ExternalJob, Job }) {
   let applyUrl = app.applicationUrl || app.jobUrl || null;
 
@@ -32,6 +34,15 @@ async function resolveAndBackfillApplyUrl(app, { ExternalJob, Job }) {
     }
     if (!app.atsProvider && ext?.source) {
       app.atsProvider = ext.source;
+    }
+    // A Greenhouse job that links to the company's own careers page can
+    // still be submitted through Greenhouse's hosted form.
+    const canonical = ext && canonicalApplyUrl({
+      source: ext.source, boardToken: ext.boardToken, externalId: ext.externalId, applyUrl,
+    });
+    if (canonical) {
+      applyUrl = canonical;
+      app.applicationUrl = canonical;
     }
   }
 

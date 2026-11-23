@@ -19,6 +19,7 @@ const { callAI, safeParseJSON } = require('./ai/core');
 const resumeParserService = require('./resumeParserService');
 const { generateCoverLetterAndAnswers } = require('./coverLetterService');
 const { FORM_TEMPLATES } = require('../config/applicationFormTemplates');
+const { fetchRealQuestions } = require('./ats/realQuestions');
 
 /**
  * Build a default set of formFields for prep when the source job didn't
@@ -811,6 +812,17 @@ async function prepareApplication(appId) {
     lastName: user?.lastName || profile?.lastName || '',
   };
 
+  // Draft answers to the employer's own questions when we can get them,
+  // so the user reviews what will actually be sent. Falls back to the
+  // generic template for sources whose questions aren't public.
+  const realQuestions = (Array.isArray(job?.formFields) && job.formFields.length > 0)
+    ? null
+    : await fetchRealQuestions({ source: job?.source, boardToken: job?.boardToken, externalId: job?.externalId });
+  if (realQuestions) {
+    app.formFieldsScanned = realQuestions;
+    app.formFieldsScannedAt = new Date();
+  }
+
   const [tailored, draft] = await Promise.all([
     tailorResume({ profile, job, memory, tailorSettings }),
     draftCoverAndAnswers({
@@ -819,7 +831,7 @@ async function prepareApplication(appId) {
       memory,
       formFields: (Array.isArray(job?.formFields) && job.formFields.length > 0)
         ? job.formFields
-        : defaultFormFields(),
+        : (realQuestions || defaultFormFields()),
     }),
   ]);
 
