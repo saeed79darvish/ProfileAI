@@ -12,6 +12,7 @@ import {
   markApplied, downloadResumePdf,
 } from '../../../hooks/useApplyPilot';
 import { useAuth } from '../../../contexts/AuthContext';
+import { applyPilotAPI } from '../../../services/api';
 import { useToast } from '../../../contexts/ToastContext';
 import ResumePreviewModal from '../../../components/ResumePreviewModal';
 import { TailoredResumeRender } from '../ReviewPage';
@@ -213,8 +214,8 @@ function Detail({ id, position, total, onDone, onChanged }) {
     finally { setBusy(''); }
   };
 
-  const approve = async () => {
-    const res = await run('send', () => approveApplication(id, { coverLetter: letter, formAnswers: answers }));
+  const approve = async (nextAnswers = answers) => {
+    const res = await run('send', () => approveApplication(id, { coverLetter: letter, formAnswers: nextAnswers }));
     if (!res) return;
     const body = res.data || res;
     onChanged();
@@ -233,7 +234,9 @@ function Detail({ id, position, total, onDone, onChanged }) {
     const ok = await run('fix', () => patchAnswers(id, merged));
     if (!ok) return;
     setAnswers(merged);
-    await approve();
+    // Remember each answer so later applications never ask again.
+    await Promise.allSettled(extra.map((a) => applyPilotAPI.rememberAnswer(a.question, a.answer)));
+    await approve(merged);
   };
   const saveAnswers = async (next) => { setAnswers(next); await run('answers', () => patchAnswers(id, next), 'Answers saved'); };
   const rewriteResume = async () => { const r = await run('resume', () => regenerateResume(id, {}), 'Resume rewritten'); if (r?.data) setData((prev) => ({ ...prev, ...r.data })); };
@@ -299,13 +302,12 @@ function Detail({ id, position, total, onDone, onChanged }) {
         {b === 'question' && (
           <Card style={{ background: T.warnSoft, borderColor: T.warnLine }}>
             <strong style={{ fontSize: 16 }}>{blockers.length > 1 ? `${blockers.length} questions` : 'One question'} before this can be sent</strong>
-            <Muted $size={14} style={{ color: '#78350f' }}>Your profile doesn't say, and we never guess. Your answer is added to this application.</Muted>
+            <Muted $size={14} style={{ color: '#78350f' }}>{d.company}'s form asks for something that isn't on your profile or in your ApplyPilot answers yet, and we never guess facts about you. Answer once: we'll use it here and on every future application.</Muted>
             {(blockers.length ? blockers : [{ field: { label: d.submissionError || 'Answer needed', name: 'note' } }]).map((bk) => {
               const key = blockKey(bk);
               return (
                 <Col key={key} $gap={6}>
                   <label htmlFor={`fix-${key}`} style={{ fontWeight: 600 }}>{blockLabel(bk)}</label>
-                  {bk.reason && !/^empty_required/.test(bk.reason) && <Muted $size={13}>{bk.reason}</Muted>}
                   <Input id={`fix-${key}`} value={fix[key] || ''} onChange={(e) => setFix({ ...fix, [key]: e.target.value })} placeholder="Your answer" />
                 </Col>
               );
@@ -417,7 +419,7 @@ function Detail({ id, position, total, onDone, onChanged }) {
             )}
             {!manual && !selfFinish && (b === 'question'
               ? <span style={{ fontWeight: 600, color: T.warn }}>Answer the question above to send</span>
-              : <Btn $kind="primary" $size="lg" onClick={approve} disabled={!!busy || b === 'preparing'}>{busy === 'send' ? 'Sending…' : 'Approve and send'}</Btn>)}
+              : <Btn $kind="primary" $size="lg" onClick={() => approve()} disabled={!!busy || b === 'preparing'}>{busy === 'send' ? 'Sending…' : 'Approve and send'}</Btn>)}
           </Row>
         </Decide>
       )}

@@ -369,6 +369,15 @@ CANDIDATE
 EDUCATION:
 ${educationBlock}
 
+APPLICATION ANSWERS THE CANDIDATE GAVE IN SETUP (use these directly):
+- Phone: ${profile?.phone || 'Unknown'}
+- Salary expectation: ${profile?.salaryExpectation || 'Unknown'}
+- Can start: ${profile?.noticePeriod || 'Unknown'}
+- Willing to relocate: ${profile?.relocationWillingness === true ? 'Yes' : profile?.relocationWillingness === false ? 'No' : 'Depends on the role'}
+- LinkedIn: ${profile?.linkedinUrl || 'Unknown'}
+- GitHub: ${profile?.githubUrl || 'Unknown'}
+- Website / portfolio: ${profile?.portfolioUrl || 'Unknown'}
+
 EXPERIENCE (most recent first):
 ${experienceBlock}
 
@@ -406,6 +415,9 @@ Rules:
 - For "How did you hear about us" / referral-source fields WITH options, always pick the closest option (e.g. "Job Board" or "LinkedIn" → "Job site" / "LinkedIn" / "Online job board"; otherwise "Company website" or "Other"). Never return null for these: they are not facts about the candidate.
 - For COUNTRY / country-of-residence fields, answer from "Lives in". A US city or state (e.g. "San Francisco, CA") means "United States"; pick the matching option verbatim. Only return null when "Lives in" is Unknown.
 - For EDUCATION / degree questions, answer from EDUCATION. A Bachelor's or higher in Computer Science, Math, Statistics, Physics, Engineering, Economics or Data Science counts as a "quantitative" field. If EDUCATION is (none), return null; never invent a degree.
+- For a "Degree" dropdown when EDUCATION has no degree level (bootcamps, certificates, extension programs): pick the option that honestly describes it, such as "Certificate", "Other", "Some college" or "No degree", whichever exists. Do not return null when such an option exists. For "Discipline" / "Field of study" pick the option closest to the field of study in EDUCATION (e.g. software engineering or programming -> "Computer Science"). For "School" pick the closest institution or "Other".
+- For salary expectation / desired pay questions, answer with the Salary expectation above (as a number or range, matching the field's format). Only return null when it is Unknown.
+- For phone, notice period / start date, relocation and links, use APPLICATION ANSWERS THE CANDIDATE GAVE IN SETUP. Only return null when the value is Unknown.
 - For SECURITY CLEARANCE / EXPORT CONTROL fields: only answer "Yes" if the candidate's MEMORY or DEMOGRAPHICS explicitly states they hold one. Otherwise pick the option that means "No" / "N/A — never held". Never claim a clearance the candidate didn't disclose.
 - Respect \`maxLength\` if given — clamp synthesised answers to fit.
 - IMPORTANT: Provide a mapping for EVERY field in the list. For fields you genuinely cannot answer, set answer to null and add a short reason.

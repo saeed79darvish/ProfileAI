@@ -13,6 +13,7 @@ const auth = require('../middleware/auth');
 const service = require('../services/applyPilotService');
 const { mapStatusForUI, UI_STATUS_TO_DB } = require('../services/applyPilotStatus');
 const { resolveAndBackfillApplyUrl } = require('../services/applyPilotUrlResolver');
+const { buildApplicantProfile, rememberAnswer } = require('../services/ats/applicantProfile');
 const voiceService = require('../services/voiceService');
 const { selectAdapter, adapters } = require('../services/ats');
 const { buildAndUpload } = require('../services/resumePdf');
@@ -1732,7 +1733,7 @@ router.post('/applications/:appId/preview', async (req, res) => {
     const receipt = await adapter.submit({
       app,
       applyUrl,
-      profile,
+      profile: buildApplicantProfile(profile, pilotConfig),
       user,
       memory,
       demographics: pilotConfig?.demographics || {},
@@ -2285,6 +2286,21 @@ router.get('/training/memory', async (req, res) => {
     where: { userId: req.userId }, order: [['createdAt', 'ASC']],
   });
   res.json(rows.map(r => ({ id: r.id, topic: r.topic, key: r.key, value: r.value, source: r.source })));
+});
+
+// Save an answer the user gave on one application ("Do you have medical
+// imaging experience?" -> "No") so every later application reuses it
+// instead of asking again.
+router.post('/training/memory', express.json(), async (req, res) => {
+  try {
+    const { question, answer } = req.body || {};
+    const row = await rememberAnswer(req.userId, question, answer);
+    if (!row) return res.status(400).json({ error: 'question_and_answer_required' });
+    return res.json({ ok: true, id: row.id });
+  } catch (err) {
+    console.error('[applypilot] remember answer:', err);
+    return res.status(500).json({ error: 'remember_failed' });
+  }
 });
 
 router.put('/training/memory/:id', async (req, res) => {

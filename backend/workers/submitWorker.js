@@ -33,6 +33,7 @@ const { selectAdapter } = require('../services/ats');
 const { buildAndUpload } = require('../services/resumePdf');
 const { syncTailoredProfileFromApplication } = require('../services/applyPilotService');
 const { resolveAndBackfillApplyUrl } = require('../services/applyPilotUrlResolver');
+const { buildApplicantProfile } = require('../services/ats/applicantProfile');
 const {
   getDecryptedCredential,
   getDecryptedCredentialById,
@@ -106,7 +107,9 @@ async function loadApplicationContext(appId) {
 
   const demographics = pilotConfig?.demographics || {};
 
-  return { app, applyUrl, user, profile, memory, demographics, job: jobRow };
+  // Profile + the ApplyPilot answers from Setup, so phone, salary,
+  // notice period and links are answered instead of pausing the send.
+  return { app, applyUrl, user, profile: buildApplicantProfile(profile, pilotConfig), memory, demographics, job: jobRow };
 }
 
 async function markFailure(app, err, { needsHuman = false } = {}) {

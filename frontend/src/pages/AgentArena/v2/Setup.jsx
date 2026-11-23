@@ -49,7 +49,7 @@ export default function Setup() {
   const blockers = {
     1: !s.roleTitles.length ? 'Add at least one job title.' : null,
     2: !s.workstyle.length ? 'Pick at least one way to work.' : null,
-    3: !s.workAuthorization ? 'Tell us if you can work in the United States.' : null,
+    3: !s.workAuthorization ? 'Tell us if you can work in the United States.' : (!String(s.phone || '').trim() ? 'Add a phone number. Most applications require one.' : null),
     4: null,
   };
   const canLeave = (n) => !blockers[n];

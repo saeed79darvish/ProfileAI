@@ -76,6 +76,7 @@ function hydrate(cfg, profile) {
     githubUrl: p.githubUrl || profile?.githubUrl || '',
     portfolioUrl: p.portfolioUrl || profile?.portfolioUrl || profile?.website || '',
     noticePeriod: p.noticePeriod || '2 weeks',
+    salaryExpectation: p.salaryExpectation || '',
     relocate: p.relocationWillingness === true ? 'yes' : p.relocationWillingness === false ? 'no' : 'depends',
     fresh,
   };
@@ -109,6 +110,7 @@ export function buildPayload(s) {
       githubUrl: blank(s.githubUrl),
       portfolioUrl: blank(s.portfolioUrl),
       noticePeriod: blank(s.noticePeriod),
+      salaryExpectation: blank(s.salaryExpectation),
       relocationWillingness: s.relocate === 'yes' ? true : s.relocate === 'no' ? false : null,
     },
     rails: { blockedCompanies: arr(s.blockedCompanies) },
@@ -375,10 +377,15 @@ export function AnswersSection({ c, showMissing }) {
       </Card>
       <Card><OneOf label="Would you move for a job?" options={RELOCATE} value={s.relocate} onChange={(v) => set({ relocate: v })} /></Card>
       <Card><OneOf label="How soon could you start?" options={NOTICE} value={s.noticePeriod} onChange={(v) => set({ noticePeriod: v })} /></Card>
+      <Card $gap={8}>
+        <label htmlFor="ap-salexp" style={{ fontSize: 15, fontWeight: 700 }}>Salary you'd ask for</label>
+        <Muted $size={13}>Many forms ask this. If you leave it blank we use your lowest salary ({`$${s.salaryFloorK}k`}).</Muted>
+        <Input id="ap-salexp" value={s.salaryExpectation} onChange={(e) => set({ salaryExpectation: e.target.value })} placeholder={`For example $${s.salaryFloorK + 20},000`} style={{ maxWidth: 320 }} />
+      </Card>
       <Card $gap={14}>
         <Row $justify="space-between"><strong>Contact and links</strong><Muted $size={13}>From your profile</Muted></Row>
         <Grid $min={240}>
-          <Field>Phone<Input type="tel" value={s.phone} onChange={(e) => set({ phone: e.target.value })} /></Field>
+          <Field>Phone (most applications require it)<Input type="tel" value={s.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="(415) 555-0134" style={showMissing && !String(s.phone || '').trim() ? { borderColor: T.warnLine, background: T.warnSoft } : undefined} /></Field>
           <Field>LinkedIn<Input type="url" value={s.linkedinUrl} onChange={(e) => set({ linkedinUrl: e.target.value })} placeholder="linkedin.com/in/your-name" /></Field>
           <Field>GitHub (optional)<Input type="url" value={s.githubUrl} onChange={(e) => set({ githubUrl: e.target.value })} placeholder="github.com/your-name" /></Field>
           <Field>Portfolio (optional)<Input type="url" value={s.portfolioUrl} onChange={(e) => set({ portfolioUrl: e.target.value })} placeholder="your-site.com" /></Field>

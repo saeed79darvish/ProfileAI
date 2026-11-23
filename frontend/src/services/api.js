@@ -988,6 +988,9 @@ export const applyPilotAPI = {
     api.post('/applypilot/training/advance', { topic }),
   // Memory CRUD (the "What I've taught my agent" panel).
   getMemory: () => api.get('/applypilot/training/memory'),
+  // Save one answer the user gave on an application so later ones reuse it.
+  rememberAnswer: (question, answer) =>
+    api.post('/applypilot/training/memory', { question, answer }),
   updateMemory: (memoryId, value) =>
     api.put(`/applypilot/training/memory/${memoryId}`, { value }),
   deleteMemory: (memoryId) =>
