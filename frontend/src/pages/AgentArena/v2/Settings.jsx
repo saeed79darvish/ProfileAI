@@ -15,10 +15,25 @@ const Nav = styled.nav`
   @media (max-width: 900px) { max-width: none; position: static; flex-direction: row; flex-wrap: wrap; }
 `;
 
+// Always-visible save bar: people expect a Save button, even though
+// changes also save on their own a moment after typing.
+const SaveBar = styled.div`
+  position: sticky; top: 8px; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-radius: 14px; background: #fff;
+  border: 1px solid ${(p) => (p.$warn ? T.badLine : T.line)};
+  box-shadow: 0 6px 20px rgba(30, 20, 90, 0.06);
+`;
+
 export default function Settings() {
   const c = useCriteria({ autosave: true });
   if (!c.ready) return <Page><Loading /></Page>;
-  const saved = { idle: 'Changes save on their own.', pending: 'Saving…', saving: 'Saving…', saved: 'All changes saved.', error: 'Couldn’t save. Check your connection.' }[c.saveState];
+  const st = c.saveState;
+  const dirty = st === 'pending' || st === 'error';
+  const status = {
+    idle: 'Everything is saved.', pending: 'You have unsaved changes.', saving: 'Saving…',
+    saved: 'All changes saved.', error: 'Couldn’t save. Check your connection and try again.',
+  }[st];
 
   return (
     <Page>
@@ -26,10 +41,15 @@ export default function Settings() {
         <Row $justify="space-between" $align="flex-end">
           <Col $gap={6}>
             <H1>Settings</H1>
-            <Muted role="status" style={{ color: c.saveState === 'error' ? T.bad : T.ink2 }}>{saved} New choices apply from the next job check.</Muted>
+            <Muted>New choices apply from the next job check. To pause, use Pause on the <Link to="/applypilot/dashboard">Dashboard</Link>.</Muted>
           </Col>
-          <Muted $size={14}>To pause, use Pause on the <Link to="/applypilot/dashboard">Dashboard</Link>.</Muted>
         </Row>
+        <SaveBar role="status" $warn={st === 'error'}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: st === 'error' ? T.bad : dirty ? T.warn : T.good }}>{status}</span>
+          <Btn $kind="primary" onClick={() => c.save().catch(() => {})} disabled={!dirty || st === 'saving'}>
+            {st === 'saving' ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+          </Btn>
+        </SaveBar>
         <Row $align="flex-start" $gap={32}>
           <Nav aria-label="Settings sections">
             {SECTIONS.map((s) => <a key={s.key} href={`#set-${s.key}`}>{s.title}</a>)}

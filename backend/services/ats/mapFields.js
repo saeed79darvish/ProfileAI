@@ -230,6 +230,25 @@ function applyConsentHeuristic(fields, { memory }) {
 // one from memory. Returns both the mapping and a list of fields that
 // Claude wasn't confident about (human-in-loop signal).
 // -------------------------------------------------------------
+// "How did you hear about this job?" pickers. Preference order matches
+// how ApplyPilot actually finds jobs (job boards / job sites), then the
+// usual generic fallbacks.
+const REFERRAL_LABEL_RE = /how did you (hear|find|learn)|where did you (hear|find|see)|referral source|source of (this )?(application|referral)|how were you referred/i;
+const REFERRAL_PREFS = [/job (site|board)|online job|job search (site|engine)/i, /internet|online|web/i, /company (website|site|career)|careers? (page|site)/i, /linkedin/i, /^other/i];
+function answerReferralSource(fields) {
+  const mapped = {};
+  const remaining = [];
+  for (const f of fields) {
+    const opts = Array.isArray(f.options) ? f.options.map((o) => (typeof o === 'string' ? o : (o?.label ?? o?.value))).filter(Boolean) : [];
+    if (!REFERRAL_LABEL_RE.test(String(f.label || '')) || !opts.length) { remaining.push(f); continue; }
+    let pick = null;
+    for (const re of REFERRAL_PREFS) { pick = opts.find((o) => re.test(String(o))); if (pick) break; }
+    if (!pick) { remaining.push(f); continue; }
+    mapped[f.name || f.id] = pick;
+  }
+  return { mapped, remaining };
+}
+
 // Prep sometimes drafts stubs like "[email not provided in profile]".
 // Passing those to the matcher risks typing the stub into a real form,
 // so they are dropped; identity fields are filled from the account.
@@ -531,11 +550,14 @@ async function mapFormFields({ app, fields, profile, user, memory, demographics,
   // Pass 2 — consent/attestation checkboxes via training-memory or the
   // conservative label heuristic.
   const pass2 = applyConsentHeuristic(pass1.remaining, ctx);
+  // Pass 2b — "How did you hear about us?" is not a fact about the
+  // candidate, so it's answered by rule instead of pausing on an unsure AI.
+  const pass2b = answerReferralSource(pass2.remaining);
   // Pass 3 — everything else → LLM.
-  const pass3 = await llmMatchFields(pass2.remaining, ctx);
+  const pass3 = await llmMatchFields(pass2b.remaining, ctx);
 
   return {
-    values: { ...pass1.mapped, ...pass2.mapped, ...pass3.mapped },
+    values: { ...pass1.mapped, ...pass2.mapped, ...pass2b.mapped, ...pass3.mapped },
     blockers: pass3.lowConfidence,
     resolutions: pass2.resolutions,
   };
