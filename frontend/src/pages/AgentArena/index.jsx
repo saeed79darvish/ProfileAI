@@ -1,90 +1,60 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import AgentArenaShell from './AgentArenaShell';
-import AgentProfileShell from './AgentProfileShell';
-import DashboardPage from './DashboardPage';
-import LandingPage from './LandingPage';
-import SetupPage from './SetupPage';
-import CoachPage from './CoachPage';
-import ReviewPage from './ReviewPage';
-import ReviewEntry from './ReviewEntry';
-import SentPage from './SentPage';
-import SentDetailPage from './SentDetailPage';
-import { featureFlags } from '../../config/featureFlags';
-
-// Coach training is hidden by default — see featureFlags.applyPilotCoach.
-// When off, every URL that used to land on /coach (incl. back-compat
-// redirects) bounces to the wizard instead so stale deep-links never 404.
-const coachOrAgent = featureFlags.applyPilotCoach
-  ? <CoachPage />
-  : <Navigate to="/applypilot/agent" replace />;
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import Shell from './v2/Shell';
+import Home from './v2/Home';
+import Welcome from './v2/Welcome';
+import Setup from './v2/Setup';
+import Dashboard from './v2/Dashboard';
+import Review from './v2/Review';
+import Sent from './v2/Sent';
+import Settings from './v2/Settings';
 
 /**
- * ApplyPilot · router shell.
+ * ApplyPilot · router (v2 redesign).
  *
- * Post-redesign IA. Two primary tabs + a gear-icon "agent profile"
- * surface that groups the "teach the agent" pages. ATS credentials
- * are handled entirely server-side, so the old Credentials page is
- * not part of the user-facing surface.
+ *   /applypilot/home              → Dashboard if set up, else Welcome
+ *   /applypilot/welcome           → Welcome (not set up yet)
+ *   /applypilot/setup             → 4-step setup
+ *   /applypilot/dashboard         → what to do now
+ *   /applypilot/review[/:appId]   → check and approve applications
+ *   /applypilot/sent[/:appId]     → what was approved, with proof
+ *   /applypilot/settings          → change setup choices, learned answers
  *
- *   /applypilot/dashboard          → DashboardPage (status + ready + blockers)
- *   /applypilot/inbox/:appId       → ReviewPage (single-application detail)
- *   /applypilot/sent               → SentPage
- *   /applypilot/sent/:appId        → SentDetailPage
- *   /applypilot/agent              → AgentProfileShell → SetupPage (job criteria)
- *
- * Deprecated deep-links are redirected:
- *   /applypilot/inbox              → /applypilot/dashboard
- *   /applypilot/setup              → /applypilot/agent
- *   /applypilot/training           → /applypilot/agent
- *   /applypilot/credentials        → /applypilot/agent
- *   /applypilot/agent/credentials  → /applypilot/agent
- *   /applypilot/review             → /applypilot/dashboard
- *   /applypilot/review/:id         → /applypilot/inbox/:id
- *   /applypilot/needs-attention    → /applypilot/dashboard
+ * The navbar's ApplyPilot button goes to /applypilot, which App.jsx
+ * sends to /applypilot/home for users with access. Old deep links
+ * (inbox, agent, training, coach, credentials, needs-attention) redirect.
  */
+function InboxRedirect() {
+  const { appId } = useParams();
+  return <Navigate to={appId ? `/applypilot/review/${appId}` : '/applypilot/review'} replace />;
+}
+
 const AgentArena = () => (
   <Routes>
-    <Route element={<AgentArenaShell />}>
-      <Route index element={<Navigate to="/applypilot/welcome" replace />} />
+    <Route index element={<Home />} />
+    <Route path="home" element={<Home />} />
+    <Route path="welcome" element={<Welcome />} />
+    <Route path="setup" element={<Setup />} />
 
-      <Route path="welcome" element={<LandingPage />} />
-      <Route path="dashboard" element={<DashboardPage />} />
-      <Route path="review" element={<ReviewEntry />} />
-      <Route path="inbox/:appId" element={<ReviewPage />} />
-
-      <Route path="sent" element={<SentPage />} />
-      <Route path="sent/:appId" element={<SentDetailPage />} />
-
-      <Route path="agent" element={<AgentProfileShell />}>
-        <Route index element={<SetupPage />} />
-        <Route path="coach" element={coachOrAgent} />
-        <Route path="training" element={<Navigate to="/applypilot/agent" replace />} />
-        <Route path="credentials" element={<Navigate to="/applypilot/agent" replace />} />
-      </Route>
-
-      {/* Back-compat redirects. */}
-      <Route path="inbox" element={<Navigate to="/applypilot/review" replace />} />
-      <Route path="setup" element={<Navigate to="/applypilot/agent" replace />} />
-      <Route path="training" element={<Navigate to="/applypilot/agent" replace />} />
-      <Route path="coach" element={<Navigate to="/applypilot/agent" replace />} />
-      <Route path="credentials" element={<Navigate to="/applypilot/agent" replace />} />
-      <Route path="review" element={<Navigate to="/applypilot/dashboard" replace />} />
-      <Route path="review/:appId" element={<LegacyReviewRedirect />} />
-      <Route path="needs-attention" element={<Navigate to="/applypilot/dashboard" replace />} />
-
-      {/* Unknown sub-paths → Dashboard */}
-      <Route path="*" element={<Navigate to="/applypilot/dashboard" replace />} />
+    <Route element={<Shell />}>
+      <Route path="dashboard" element={<Dashboard />} />
+      <Route path="review" element={<Review />} />
+      <Route path="review/:appId" element={<Review />} />
+      <Route path="sent" element={<Sent />} />
+      <Route path="sent/:appId" element={<Sent />} />
+      <Route path="settings" element={<Settings />} />
     </Route>
+
+    {/* Back-compat redirects from the previous ApplyPilot screens. */}
+    <Route path="inbox" element={<InboxRedirect />} />
+    <Route path="inbox/:appId" element={<InboxRedirect />} />
+    <Route path="agent/*" element={<Navigate to="/applypilot/settings" replace />} />
+    <Route path="training" element={<Navigate to="/applypilot/settings" replace />} />
+    <Route path="coach" element={<Navigate to="/applypilot/settings" replace />} />
+    <Route path="credentials" element={<Navigate to="/applypilot/settings" replace />} />
+    <Route path="needs-attention" element={<Navigate to="/applypilot/dashboard" replace />} />
+    <Route path="*" element={<Navigate to="/applypilot/home" replace />} />
   </Routes>
 );
-
-// Preserve the appId when bouncing /review/:appId → /inbox/:appId.
-function LegacyReviewRedirect() {
-  const pathname = window.location.pathname;
-  const m = pathname.match(/\/review\/([^/]+)/);
-  const appId = m ? m[1] : '';
-  return <Navigate to={appId ? `/applypilot/inbox/${appId}` : '/applypilot/dashboard'} replace />;
-}
 
 export default AgentArena;

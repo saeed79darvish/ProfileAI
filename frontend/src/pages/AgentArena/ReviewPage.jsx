@@ -783,7 +783,7 @@ function arrayifyBullets(v) {
 }
 const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').trim();
 
-const TailoredResumeRender = ({ rendered, rich, diff, company }) => {
+export const TailoredResumeRender = ({ rendered, rich, diff, company }) => {
   // Prefer the merged `renderedResume` from the backend (rich AI output
   // overlaid on the user's saved Profile). Fall back to `rich` / `diff`
   // for backward compat.

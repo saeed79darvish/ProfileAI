@@ -189,7 +189,9 @@ function ApplyPilotGateway() {
   if (loading) return LazyFallback;
   if (isAuthenticated) {
     if (user?.canUseApplyPilot) {
-      return <Navigate to="/applypilot/welcome" replace />;
+      // Home sends set-up users to the Dashboard and everyone else to
+      // Welcome, so the marketing page never greets someone already using it.
+      return <Navigate to="/applypilot/home" replace />;
     }
     // Authenticated user without access — feature is gated behind the
     // global ENABLE_APPLYPILOT flag and they're not on the allowlist.

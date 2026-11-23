@@ -230,6 +230,17 @@ function applyConsentHeuristic(fields, { memory }) {
 // one from memory. Returns both the mapping and a list of fields that
 // Claude wasn't confident about (human-in-loop signal).
 // -------------------------------------------------------------
+// Prep sometimes drafts stubs like "[email not provided in profile]".
+// Passing those to the matcher risks typing the stub into a real form,
+// so they are dropped; identity fields are filled from the account.
+function isPlaceholderAnswer(v) {
+  const s = String(v == null ? '' : v).trim();
+  return !s || /^\[[^\]]*\]$/.test(s) || /not provided in (your |the )?profile/i.test(s);
+}
+function usableDrafts(formAnswers) {
+  return (Array.isArray(formAnswers) ? formAnswers : []).filter((a) => a && !isPlaceholderAnswer(a.answer));
+}
+
 async function llmMatchFields(fields, { app, profile, user, memory = [], demographics = {}, job = null }) {
   if (!fields.length) return { mapped: {}, lowConfidence: [] };
 
@@ -368,7 +379,7 @@ MEMORY (things the candidate taught the agent — quote verbatim when fit):
 ${(memory || []).slice(0, 20).map((m) => `- ${m.topic}/${m.key}: ${m.value}`).join('\n') || '(none)'}
 
 PRE-DRAFTED ANSWERS (from application prep — generic Q&A; the actual ATS form usually has additional custom questions not covered here):
-${JSON.stringify((app.formAnswers || []).slice(0, 20), null, 2)}
+${JSON.stringify(usableDrafts(app.formAnswers).slice(0, 20), null, 2)}
 
 COVER LETTER (lift relevant sentences when answering "why us / why this role"):
 ${(app.coverLetter || '').slice(0, 1200)}
