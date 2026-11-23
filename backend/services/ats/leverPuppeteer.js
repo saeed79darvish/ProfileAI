@@ -4,17 +4,7 @@ const path = require('path');
 const { mapFormFields } = require('./mapFields');
 const { uploadScreenshot } = require('../screenshotUpload');
 
-let puppeteerLib = null;
-function getPuppeteer() {
-  if (!puppeteerLib) {
-    try {
-      puppeteerLib = require('puppeteer');
-    } catch (_) {
-      throw new Error('puppeteer is not installed. Run `npm install puppeteer` in /backend to enable Lever automation.');
-    }
-  }
-  return puppeteerLib;
-}
+const { launchBrowser, hasVisibleCaptcha } = require('./browser');
 
 function parseUrl(url) {
   if (!url) return null;
@@ -27,6 +17,21 @@ function parseUrl(url) {
 
 function matches(url) {
   return !!parseUrl(url);
+}
+
+// Job links point at the posting (jobs.lever.co/<co>/<id>); the form
+// only exists on its /apply sub-page, so go straight there.
+function toApplyFormUrl(url) {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length >= 2 && parts[2] !== 'apply') {
+      u.pathname = `/${parts[0]}/${parts[1]}/apply`;
+    }
+    return u.toString();
+  } catch (_) {
+    return url;
+  }
 }
 
 async function captureStep(page, { userId, appId, step, label }) {
@@ -42,8 +47,7 @@ async function captureStep(page, { userId, appId, step, label }) {
 
 async function detectHumanBlockers(page) {
   const blockers = [];
-  const recaptcha = await page.$('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], div.g-recaptcha');
-  if (recaptcha) {
+  if (await hasVisibleCaptcha(page)) {
     blockers.push({
       field: { label: 'Captcha challenge', rawName: 'captcha' },
       reason: 'captcha_required',
@@ -54,7 +58,8 @@ async function detectHumanBlockers(page) {
 
 async function harvestFieldsFromDom(page) {
   return page.evaluate(() => {
-    const nodes = document.querySelectorAll('form input, form textarea, form select');
+    const nodes = Array.from(document.querySelectorAll('form input, form textarea, form select'))
+      .filter((el) => el.type !== 'hidden' && !/captcha/i.test(el.name || el.id || ''));
     const fields = [];
     const seen = new Set();
 
@@ -71,6 +76,22 @@ async function harvestFieldsFromDom(page) {
       return candidate.textContent.trim();
     };
 
+    const clean = (s) => String(s || '').replace(/\s+/g, ' ').replace(/[\s✱*]+$/, '').trim();
+    // Radio / checkbox groups: each input's own <label> is just the
+    // option ("Yes"), so the question has to come from the enclosing
+    // .application-question, and the options from the whole group.
+    const questionFor = (el) => {
+      // Each option sits in its own <li>, so look for the question
+      // container first and only fall back to a fieldset.
+      const q = el.closest('.application-question') || el.closest('fieldset');
+      const lbl = q && q.querySelector('.application-label, legend');
+      return lbl ? lbl.innerText : '';
+    };
+    const optionLabel = (el) => {
+      const l = el.closest('label') || (el.id && document.querySelector(`label[for="${el.id}"]`));
+      return clean(l ? l.innerText : el.value);
+    };
+
     for (const el of nodes) {
       const type = (el.type || '').toLowerCase();
       if (type === 'hidden') continue;
@@ -81,14 +102,18 @@ async function harvestFieldsFromDom(page) {
 
       const isSelect = el.tagName === 'SELECT';
       const isTextarea = el.tagName === 'TEXTAREA';
+      const isGroup = (type === 'radio' || type === 'checkbox') && el.name;
+      const group = isGroup ? nodes.filter((n) => n.name === el.name) : null;
       const options = isSelect
         ? Array.from(el.options || []).map((o) => ({ label: (o.textContent || '').trim(), value: o.value }))
-        : undefined;
+        : (group && (type === 'radio' || group.length > 1)
+          ? group.map((n) => ({ label: optionLabel(n), value: n.value }))
+          : undefined);
 
       fields.push({
         name: key,
         rawName: key,
-        label: labelFor(el),
+        label: clean(isGroup && (type === 'radio' || group.length > 1) ? (questionFor(el) || labelFor(el)) : labelFor(el)),
         description: '',
         type: type || (isTextarea ? 'textarea' : (isSelect ? 'select' : 'text')),
         required: !!el.required || el.getAttribute('aria-required') === 'true',
@@ -205,22 +230,14 @@ async function submit(ctx) {
   const resumeFile = path.join(tmpDir, ctx.resumeFileName || 'resume.pdf');
   fs.writeFileSync(resumeFile, ctx.resumePdfBuffer);
 
-  const puppeteer = getPuppeteer();
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 900 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  );
+  const { browser, newPage } = await launchBrowser();
+  const page = await newPage();
 
   const screenshots = [];
   const resolutions = [];
 
   try {
-    await page.goto(applyUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(toApplyFormUrl(applyUrl), { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.waitForSelector('form', { timeout: 20_000 });
 
     screenshots.push(await captureStep(page, {

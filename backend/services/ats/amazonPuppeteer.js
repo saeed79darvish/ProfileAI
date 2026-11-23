@@ -3,17 +3,7 @@ const os = require('os');
 const path = require('path');
 const { uploadScreenshot } = require('../screenshotUpload');
 
-let puppeteerLib = null;
-function getPuppeteer() {
-  if (!puppeteerLib) {
-    try {
-      puppeteerLib = require('puppeteer');
-    } catch (_) {
-      throw new Error('puppeteer is not installed. Run `npm install puppeteer` in /backend to enable Amazon automation.');
-    }
-  }
-  return puppeteerLib;
-}
+const { launchBrowser } = require('./browser');
 
 function parseUrl(url) {
   if (!url) return null;
@@ -182,16 +172,8 @@ async function submit(ctx) {
   const resumeFile = path.join(tmpDir, ctx.resumeFileName || 'resume.pdf');
   fs.writeFileSync(resumeFile, ctx.resumePdfBuffer);
 
-  const puppeteer = getPuppeteer();
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1366, height: 920 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  );
+  const { browser, newPage } = await launchBrowser({ viewport: { width: 1366, height: 920 } });
+  const page = await newPage();
 
   const screenshots = [];
 

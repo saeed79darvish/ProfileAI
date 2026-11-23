@@ -289,6 +289,53 @@ async function llmMatchFields(fields, { app, profile, user, memory = [], demogra
       return `- ${p.title || p.name || 'Project'}: ${(p.description || '').slice(0, 220)}${tech ? ` [${tech}]` : ''}`;
     }).join('\n');
   })();
+  // Without education the LLM had to answer every "Do you have a
+  // Bachelor's degree…?" screener with null, which blocked the whole
+  // application even for candidates with the degree on their profile.
+  const educationBlock = (() => {
+    const es = Array.isArray(profile?.education) ? profile.education : [];
+    const lines = es.filter((e) => e && typeof e === 'object').slice(0, 4).map((e) => {
+      const school = e.institution || e.school || e.name || '';
+      const degree = e.degree || e.degreeType || '';
+      const field = e.field || e.fieldOfStudy || e.major || '';
+      const end = e.endDate || e.graduationDate || e.year || '';
+      return `- ${[degree, field && `in ${field}`].filter(Boolean).join(' ') || 'Studies'}${school ? `, ${school}` : ''}${end ? ` (${end})` : ''}`;
+    });
+    return lines.length ? lines.join('\n') : '(none)';
+  })();
+  const locationLine = profile?.location || profile?.currentLocation || '';
+
+  // Long dropdowns (universities, countries, "how did you hear") used to
+  // be cut to their first 12 options, so the right answer was usually
+  // not in what the LLM saw and it had to return null. Short lists go in
+  // whole; long ones are narrowed to options that share a word with the
+  // candidate's own data, plus catch-alls like "Other".
+  // Each hint word carries a weight: the candidate's school words count
+  // most, so "University of California, Davis" outranks the dozens of
+  // options that only share a common word like "San" or "State".
+  const hintWeights = (() => {
+    const stop = new Set(['the', 'and', 'for', 'university', 'college', 'school', 'institute', 'state', 'of', 'in', 'at']);
+    const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !stop.has(w));
+    const w = new Map();
+    const add = (texts, weight) => texts.flatMap(words).forEach((x) => w.set(x, Math.max(w.get(x) || 0, weight)));
+    const edu = Array.isArray(profile?.education) ? profile.education : [];
+    add(edu.flatMap((e) => [e?.institution, e?.school, e?.name]), 3);
+    add(edu.flatMap((e) => [e?.degree, e?.field]), 2);
+    add([locationLine, ...(app.formAnswers || []).map((a) => a?.answer), 'United States', 'Company website', 'LinkedIn'], 1);
+    return { w, words };
+  })();
+  const optionsForPrompt = (opts) => {
+    if (!Array.isArray(opts)) return undefined;
+    if (opts.length <= 40) return opts;
+    const scored = opts.map((o) => {
+      const label = String(o?.label || o?.value || '');
+      const score = hintWeights.words(label).reduce((s, x) => s + (hintWeights.w.get(x) || 0), 0)
+        + (/^(other|none|prefer not|decline)/i.test(label) ? 0.5 : 0);
+      return { o, score };
+    }).filter((x) => x.score > 0);
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 40).map((x) => x.o);
+  };
   const jdBlock = (() => {
     const desc = job?.description || job?.jobDescription || job?.requirements || '';
     return desc ? String(desc).slice(0, 1200) : '(no JD captured)';
@@ -304,8 +351,12 @@ CANDIDATE
 - Name: ${[user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Unknown'}
 - Email: ${user?.email || ''}
 - Headline: ${profile?.headline || profile?.title || ''}
+- Lives in: ${locationLine || 'Unknown'}
 - Summary: ${(profile?.summary || '').slice(0, 600)}
 - Skills: ${skillsBlock}
+
+EDUCATION:
+${educationBlock}
 
 EXPERIENCE (most recent first):
 ${experienceBlock}
@@ -330,7 +381,7 @@ JOB:
 UNMATCHED ATS FIELDS (one mapping per field please):
 ${JSON.stringify(fields.map((f) => ({
   name: f.name, label: f.label, type: f.type, required: !!f.required,
-  options: f.options?.slice?.(0, 12), maxLength: f.maxLength,
+  options: optionsForPrompt(f.options), maxLength: f.maxLength,
 })), null, 2)}
 
 Rules:
@@ -341,6 +392,8 @@ Rules:
 - For multi_select fields, return an array of exact option strings.
 - For select/radio/react-select fields WITHOUT options listed, infer the best answer from DEMOGRAPHICS, PRE-DRAFTED ANSWERS, or MEMORY. Use the most common option phrasing (e.g. "Yes", "No", "Male", "Female", "Prefer not to say", "I decline to self-identify").
 - For EEO / demographic / self-identification / work-eligibility fields, match from the DEMOGRAPHICS section above. If the candidate hasn't disclosed (no value in DEMOGRAPHICS) and a "Decline to self-identify" / "Prefer not to say" option exists, choose it. Never fabricate ethnicity, gender, veteran, or disability status.
+- For COUNTRY / country-of-residence fields, answer from "Lives in". A US city or state (e.g. "San Francisco, CA") means "United States"; pick the matching option verbatim. Only return null when "Lives in" is Unknown.
+- For EDUCATION / degree questions, answer from EDUCATION. A Bachelor's or higher in Computer Science, Math, Statistics, Physics, Engineering, Economics or Data Science counts as a "quantitative" field. If EDUCATION is (none), return null; never invent a degree.
 - For SECURITY CLEARANCE / EXPORT CONTROL fields: only answer "Yes" if the candidate's MEMORY or DEMOGRAPHICS explicitly states they hold one. Otherwise pick the option that means "No" / "N/A — never held". Never claim a clearance the candidate didn't disclose.
 - Respect \`maxLength\` if given — clamp synthesised answers to fit.
 - IMPORTANT: Provide a mapping for EVERY field in the list. For fields you genuinely cannot answer, set answer to null and add a short reason.

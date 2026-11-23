@@ -32,31 +32,7 @@ const path = require('path');
 const { mapFormFields } = require('./mapFields');
 const { uploadScreenshot } = require('../screenshotUpload');
 
-let puppeteerLib = null;
-function getPuppeteer() {
-  if (!puppeteerLib) {
-    try {
-      // puppeteer-extra wraps puppeteer with the stealth plugin which
-      // patches ~15 headless-Chrome fingerprint leaks (navigator.webdriver,
-      // missing chrome.runtime, fake plugins, broken WebGL vendor, etc.)
-      // so most ATS anti-bot gates (incl. Greenhouse's 8-char email code)
-      // never fire. Falls back to plain puppeteer if the plugin is absent.
-      const extra = require('puppeteer-extra');
-      const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-      extra.use(StealthPlugin());
-      puppeteerLib = extra;
-    } catch (_) {
-      try {
-        puppeteerLib = require('puppeteer');
-      } catch (err) {
-        throw new Error(
-          'puppeteer is not installed. Run `npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth` in /backend to enable the Puppeteer ATS adapter.',
-        );
-      }
-    }
-  }
-  return puppeteerLib;
-}
+const { launchBrowser } = require('./browser');
 
 // Per-user persistent Chrome profile so cookies / IndexedDB build up
 // across submissions. Greenhouse challenges new sessions much more
@@ -151,7 +127,9 @@ async function harvestFieldsFromDom(page) {
       return {
         name: el.name || el.id || '',
         rawName: el.name || el.id || '',
-        label: labelText,
+        // Drop the required "*" and the newlines Greenhouse puts around it
+        // so the label matches saved answers and reads cleanly in blockers.
+        label: labelText.replace(/\s+/g, ' ').replace(/\s*\*\s*$/, '').trim(),
         description: '',
         type,
         required: !!el.required || ariaRequired || labelHasAsterisk,
@@ -671,29 +649,11 @@ async function submit(ctx) {
   const resumeFile = path.join(tmpDir, ctx.resumeFileName || 'resume.pdf');
   fs.writeFileSync(resumeFile, ctx.resumePdfBuffer);
 
-  const puppeteer = getPuppeteer();
-  const userDataDir = userDataDirFor(app?.userId);
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    userDataDir: userDataDir || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--window-size=1280,900',
-    ],
+  const { browser, newPage } = await launchBrowser({
+    userDataDir: userDataDirFor(app?.userId),
+    extraArgs: ['--disable-features=IsolateOrigins,site-per-process'],
   });
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 900 });
-  // Real Chrome UA — stealth plugin patches navigator.webdriver and
-  // related fingerprints, but UA still needs to look plausible.
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  );
-  await page.setExtraHTTPHeaders({
-    'Accept-Language': 'en-US,en;q=0.9',
-  });
+  const page = await newPage();
 
   const screenshots = [];
   let receipt = null;

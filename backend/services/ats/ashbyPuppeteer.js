@@ -21,19 +21,7 @@ const { uploadScreenshot } = require('../screenshotUpload');
 // Lazy Puppeteer loader
 // ──────────────────────────────────────────────────────────────────────────────
 
-let puppeteerLib = null;
-function getPuppeteer() {
-  if (!puppeteerLib) {
-    try {
-      puppeteerLib = require('puppeteer');
-    } catch (_) {
-      throw new Error(
-        'puppeteer is not installed. Run `npm install puppeteer` in /backend to enable Ashby automation.',
-      );
-    }
-  }
-  return puppeteerLib;
-}
+const { launchBrowser, hasVisibleCaptcha } = require('./browser');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // URL matching
@@ -50,6 +38,25 @@ function parseUrl(url) {
 function matches(url) {
   return !!parseUrl(url);
 }
+
+// Job links point at the posting (jobs.ashbyhq.com/<co>/<id>); the form
+// lives on its /application tab, so go straight there.
+function toApplyFormUrl(url) {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length >= 2 && parts[2] !== 'application') {
+      u.pathname = `/${parts[0]}/${parts[1]}/application`;
+    }
+    return u.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
+// Ashby renders the application as a plain <div> container, not a
+// <form>, so every query is scoped to whichever of these exists.
+const FORM_ROOT = 'form, .ashby-application-form-container';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -70,10 +77,7 @@ async function captureStep(page, { userId, appId, step, label }) {
 async function detectHumanBlockers(page) {
   const blockers = [];
 
-  const captcha = await page.$(
-    'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], div.g-recaptcha, [data-sitekey]',
-  );
-  if (captcha) {
+  if (await hasVisibleCaptcha(page)) {
     blockers.push({
       field: { label: 'Captcha challenge', rawName: 'captcha' },
       reason: 'captcha_required',
@@ -91,10 +95,11 @@ async function detectHumanBlockers(page) {
  * with associated `<label>` siblings.
  */
 async function harvestFieldsFromDom(page) {
-  return page.evaluate(() => {
-    const nodes = document.querySelectorAll(
-      'form input:not([type="hidden"]), form textarea, form select',
-    );
+  return page.evaluate((rootSel) => {
+    const root = document.querySelector(rootSel) || document;
+    const nodes = Array.from(root.querySelectorAll(
+      'input:not([type="hidden"]), textarea, select',
+    )).filter((el) => !/recaptcha/i.test(el.name || el.id || ''));
     const fields = [];
     const seen   = new Set();
 
@@ -160,7 +165,7 @@ async function harvestFieldsFromDom(page) {
     }
 
     return fields;
-  });
+  }, FORM_ROOT);
 }
 
 async function fillField(page, name, value, fieldMeta) {
@@ -303,36 +308,21 @@ async function submit(ctx) {
   const resumeFile = path.join(tmpDir, ctx.resumeFileName || 'resume.pdf');
   fs.writeFileSync(resumeFile, ctx.resumePdfBuffer);
 
-  const puppeteer = getPuppeteer();
-  const browser   = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 900 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  );
+  const { browser, newPage } = await launchBrowser();
+  const page = await newPage();
 
   const screenshots = [];
   const resolutions = [];
 
   try {
     // ── 1. Load the apply page ─────────────────────────────────────────────
-    await page.goto(applyUrl, { waitUntil: 'networkidle2', timeout: 60_000 });
+    await page.goto(toApplyFormUrl(applyUrl), { waitUntil: 'networkidle2', timeout: 60_000 });
 
     // Ashby React forms need a moment to hydrate
-    await page
-      .waitForSelector('form', { timeout: 30_000 })
-      .catch(async () => {
-        // Some Ashby postings redirect to /application — follow it
-        const currentUrl = page.url();
-        if (!currentUrl.includes('/application')) {
-          await page.goto(currentUrl + '/application', { waitUntil: 'networkidle2', timeout: 30_000 })
-            .catch(() => {});
-        }
-        await page.waitForSelector('form', { timeout: 20_000 });
-      });
+    await page.waitForSelector(
+      '.ashby-application-form-container input, form input',
+      { timeout: 30_000 },
+    );
 
     screenshots.push(await captureStep(page, {
       userId: app.userId,
@@ -388,11 +378,17 @@ async function submit(ctx) {
     }
 
     // ── 5. Upload resume ──────────────────────────────────────────────────
+    // #_systemfield_resume is Ashby's real resume field. The first file
+    // input on the page is usually "Autofill from resume", which only
+    // re-parses the PDF into the fields we already filled, so skip it.
     const fileInput =
-      (await page.$('form input[type="file"][accept*="pdf" i]')) ||
-      (await page.$('form input[type="file"][name*="resume" i]')) ||
-      (await page.$('form input[type="file"][aria-label*="resume" i]')) ||
-      (await page.$('form input[type="file"]'));
+      (await page.$('input[type="file"]#_systemfield_resume')) ||
+      (await page.$('input[type="file"][name*="resume" i]')) ||
+      (await page.$('input[type="file"][aria-label*="resume" i]')) ||
+      (await page.evaluateHandle(() => Array.from(document.querySelectorAll('input[type="file"]')).find((el) => {
+        let n = el; for (let i = 0; i < 5 && n; i++) n = n.parentElement;
+        return !/autofill/i.test(n?.innerText || '');
+      }) || null).then((h) => h.asElement()));
     if (fileInput) {
       await fileInput.uploadFile(resumeFile);
       await new Promise((r) => setTimeout(r, 900));
