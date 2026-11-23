@@ -137,29 +137,53 @@ export function useCriteria({ autosave = false } = {}) {
     setS(hydrate(cfg, profile));
   }, [cfg, cfgLoading, profile, s]);
 
+  // `pending` is true from the first keystroke until that version is
+  // saved. Leaving the page inside the debounce window used to drop the
+  // change (a phone number typed in Settings never reached the server),
+  // so a pending change is flushed on unmount and before the tab closes.
+  const pending = useRef(false);
+  const latest = useRef(null);
+  useEffect(() => { latest.current = s; }, [s]);
+
   const set = useCallback((patch) => {
     touched.current = true;
+    pending.current = true;
     setS((prev) => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) }));
+    setSaveState('pending');
   }, []);
 
   const save = useCallback(async () => {
-    if (!s) return null;
+    const snapshot = latest.current;
+    if (!snapshot) return null;
     setSaveState('saving');
     try {
-      const res = await saveApplyPilotConfig(buildPayload(s));
+      const res = await saveApplyPilotConfig(buildPayload(snapshot));
+      if (latest.current === snapshot) pending.current = false;
       setSaveState('saved');
       return res;
     } catch (e) {
       setSaveState('error');
       throw e;
     }
-  }, [s]);
+  }, []);
 
   useEffect(() => {
     if (!autosave || !s || !touched.current) return undefined;
     const id = setTimeout(() => { save().catch(() => {}); }, 700);
     return () => clearTimeout(id);
   }, [autosave, s, save]);
+
+  useEffect(() => {
+    if (!autosave) return undefined;
+    const flush = () => {
+      if (pending.current && latest.current) {
+        pending.current = false;
+        saveApplyPilotConfig(buildPayload(latest.current)).catch(() => {});
+      }
+    };
+    window.addEventListener('pagehide', flush);
+    return () => { window.removeEventListener('pagehide', flush); flush(); };
+  }, [autosave]);
 
   const matchKey = s ? JSON.stringify([s.roleTitles, s.seniority, s.industries, s.workstyle, s.locations, s.salaryFloorK, s.allowFederal]) : '';
   useEffect(() => {

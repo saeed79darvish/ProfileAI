@@ -18,7 +18,7 @@ const Nav = styled.nav`
 export default function Settings() {
   const c = useCriteria({ autosave: true });
   if (!c.ready) return <Page><Loading /></Page>;
-  const saved = { idle: 'Changes save on their own.', saving: 'Saving…', saved: 'All changes saved.', error: 'Couldn’t save. Check your connection.' }[c.saveState];
+  const saved = { idle: 'Changes save on their own.', pending: 'Saving…', saving: 'Saving…', saved: 'All changes saved.', error: 'Couldn’t save. Check your connection.' }[c.saveState];
 
   return (
     <Page>
