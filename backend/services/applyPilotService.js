@@ -29,6 +29,35 @@ const { FORM_TEMPLATES } = require('../config/applicationFormTemplates');
  * (no file uploads, no list/section types) so it can pre-draft something
  * useful for the human to review.
  */
+/**
+ * The drafting model writes stubs like "[email not provided in profile]"
+ * for contact questions even when the data exists. Contact answers are
+ * facts, so they come from the account and profile directly; when a fact
+ * is truly missing the answer is left empty (never a bracketed stub, which
+ * could otherwise be typed into a real form).
+ */
+const IDENTITY_ANSWERS = [
+  { re: /e-?mail/i, get: ({ user }) => user?.email },
+  { re: /phone|mobile/i, get: ({ profile, config }) => config?.profile?.phone || profile?.phone },
+  { re: /linkedin/i, get: ({ profile, config }) => config?.profile?.linkedinUrl || profile?.linkedinUrl || profile?.socialLinks?.linkedin },
+  { re: /github/i, get: ({ profile, config }) => config?.profile?.githubUrl || profile?.githubUrl || profile?.socialLinks?.github },
+  { re: /(current |your )?location|where .*based|city/i, get: ({ profile, config }) => config?.profile?.currentLocation || profile?.location },
+  { re: /full name|^name$/i, get: ({ user }) => [user?.firstName, user?.lastName].filter(Boolean).join(' ') },
+];
+function isStubAnswer(v) {
+  const s = String(v == null ? '' : v).trim();
+  return !s || /^\[[^\]]*\]$/.test(s) || /not provided in (your |the )?profile/i.test(s);
+}
+function fillIdentityAnswers(answers, ctx) {
+  if (!Array.isArray(answers)) return answers;
+  return answers.map((a) => {
+    if (!a || !isStubAnswer(a.answer)) return a;
+    const rule = IDENTITY_ANSWERS.find((r) => r.re.test(String(a.question || '')));
+    const value = rule ? String(rule.get(ctx) || '').trim() : '';
+    return { ...a, answer: value };
+  });
+}
+
 function defaultFormFields() {
   const tpl = FORM_TEMPLATES.STANDARD;
   if (!tpl || !Array.isArray(tpl.questions)) return [];
@@ -796,7 +825,7 @@ async function prepareApplication(appId) {
 
   app.tailoredResume = tailored;
   app.coverLetter = draft.coverLetter;
-  app.formAnswers = draft.answers;
+  app.formAnswers = fillIdentityAnswers(draft.answers, { user, profile, config });
   app.whyPicked = tailored.whyPicked;
   app.status = 'prepared';
   app.preparedAt = new Date();

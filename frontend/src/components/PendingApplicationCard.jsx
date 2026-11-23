@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { Drawer, useMediaQuery } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { externalApplicationAPI, externalJobAPI } from '../services/api';
 import { relativeTimeAgo } from '../utils/relativeTime';
 import { load as loadDeparture, clear as clearDeparture, shouldAskOnReturn } from '../utils/applyDeparture';
@@ -95,6 +95,7 @@ export default function PendingApplicationCard() {
   const { isAuthenticated, user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const isPhone = useMediaQuery('(max-width:640px)');
   const [item, setItem] = useState(null);
   const [stage, setStage] = useState('ask'); // ask | applied | later
@@ -186,7 +187,9 @@ export default function PendingApplicationCard() {
     return () => clearInterval(t);
   }, [item]);
 
-  if (!item || otherOpen) return null;
+  // ApplyPilot tracks its own applications (Sent) and keeps its main
+  // action in a bottom bar this card would cover, so stay out of it.
+  if (!item || otherOpen || location.pathname.startsWith('/applypilot')) return null;
 
   const closeAll = () => {
     setItem(null);

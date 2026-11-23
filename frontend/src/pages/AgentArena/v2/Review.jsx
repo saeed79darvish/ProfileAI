@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import {
   useReviewQueue, useApplicationDetail, approveApplication, rejectApplication, reopenApplication,
+  rejectApplicationsBulk, deleteApplication,
   previewApplication, regenerateResume, regenerateCoverLetter, regenerateAnswer, patchAnswers,
   markApplied, downloadResumePdf,
 } from '../../../hooks/useApplyPilot';
@@ -116,6 +117,7 @@ export default function Review() {
             <Filter $on={filter === 'review'} aria-pressed={filter === 'review'} onClick={() => setFilter('review')}>To review {lists.actionable}</Filter>
             <Filter $on={filter === 'skipped'} aria-pressed={filter === 'skipped'} onClick={() => setFilter('skipped')}>Skipped {lists.skipped.length}</Filter>
           </Row>
+          <BulkBar filter={filter} lists={lists} onDone={() => { refetch(); nav('/applypilot/review'); }} />
           <ul style={{ listStyle: 'none', margin: 0, padding: '0 8px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
             {shown.map((r) => {
               const b = bucketOf(r);
@@ -423,6 +425,58 @@ function Detail({ id, position, total, onDone, onChanged }) {
       <ResumePreviewModal open={resumeOpen} onClose={() => setResumeOpen(false)} profileData={null}
         tailoredProfileData={diff.rich || d.renderedResume || null} jobTitle={d.role} company={d.company} user={user} initialTab="preview" />
     </>
+  );
+}
+
+/* Start fresh. "Skip all" only touches applications still waiting for
+   review (sent ones are never included) and can be undone; "Delete all
+   skipped" is the permanent step. Both ask first. */
+function BulkBar({ filter, lists, onDone }) {
+  const toast = useToast();
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ids = (filter === 'skipped' ? lists.skipped : lists.review).map((r) => r.id);
+  if (!ids.length) return null;
+  const skipping = filter !== 'skipped';
+  const go = async () => {
+    setBusy(true);
+    try {
+      if (skipping) {
+        await rejectApplicationsBulk({ ids, reason: 'skipped_all_in_review' });
+        toast.success(`Skipped ${ids.length}. You can bring any of them back from Skipped.`);
+      } else {
+        const results = await Promise.allSettled(ids.map((id) => deleteApplication(id)));
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed) toast.error(`${failed} couldn’t be deleted. Try again.`);
+        else toast.success(`Deleted ${ids.length} skipped application${ids.length === 1 ? '' : 's'}.`);
+      }
+      setConfirm(false);
+      onDone();
+    } catch {
+      toast.error('That didn’t work. Try again in a moment.');
+    } finally { setBusy(false); }
+  };
+  if (!confirm) {
+    return (
+      <Row style={{ padding: '0 16px 10px' }}>
+        <Btn $kind="ghost" $size="sm" onClick={() => setConfirm(true)} style={{ paddingLeft: 0 }}>
+          {skipping ? `Skip all ${ids.length}` : `Delete all ${ids.length} skipped`}
+        </Btn>
+      </Row>
+    );
+  }
+  return (
+    <div role="alertdialog" aria-label="Confirm" style={{ margin: '0 16px 12px', padding: 14, borderRadius: 12, background: skipping ? T.tint : '#fef2f2', border: `1px solid ${skipping ? T.line : T.badLine}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <span style={{ fontSize: 14, lineHeight: 1.5 }}>
+        {skipping
+          ? `Skip all ${ids.length} applications waiting for review? Nothing already sent is affected, and you can bring any back from Skipped.`
+          : `Permanently delete ${ids.length} skipped application${ids.length === 1 ? '' : 's'}? This can’t be undone. ApplyPilot may find these jobs again later.`}
+      </span>
+      <Row $gap={8}>
+        <Btn $size="sm" $kind={skipping ? 'primary' : 'danger'} onClick={go} disabled={busy}>{busy ? 'Working…' : (skipping ? 'Skip all' : 'Delete permanently')}</Btn>
+        <Btn $size="sm" onClick={() => setConfirm(false)} disabled={busy}>Cancel</Btn>
+      </Row>
+    </div>
   );
 }
 
