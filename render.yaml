@@ -84,8 +84,8 @@ services:
     # a browser or renames a folder. "A version directory containing no
     # executable is a failed download" holds regardless of layout.
     buildCommand: >-
-      if [ -d /opt/render/.cache/puppeteer ]; then
-      for d in /opt/render/.cache/puppeteer/*/*/; do
+      if [ -d .cache/puppeteer ]; then
+      for d in .cache/puppeteer/*/*/; do
       [ -d "$d" ] || continue;
       [ -n "$(find "$d" -type f -perm -u+x 2>/dev/null | head -1)" ] || rm -rf "$d";
       done; fi; npm ci
