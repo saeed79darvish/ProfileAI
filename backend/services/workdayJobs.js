@@ -93,6 +93,56 @@ function idOf(posting) {
   return m ? m[1] : last || null;
 }
 
+/** Every facet that has plain values, however deeply Workday nests them ("locationMainGroup" holds two). */
+function leafFacets(facets, out = []) {
+  for (const f of Array.isArray(facets) ? facets : []) {
+    const values = Array.isArray(f && f.values) ? f.values : [];
+    const nested = values.filter((v) => v && Array.isArray(v.values));
+    if (nested.length) leafFacets(nested, out);
+    const plain = values.filter((v) => v && v.id && Number.isFinite(Number(v.count)));
+    if (f && f.facetParameter && plain.length) out.push({ param: f.facetParameter, values: plain.map((v) => ({ id: v.id, label: String(v.descriptor || ''), count: Number(v.count) })) });
+  }
+  return out;
+}
+
+const US_VALUE = /^(united states|usa|u\.s\.a?\.?|us)\b/i;
+
+/**
+ * How to read a board whose list is longer than Workday will page through (2,000). Returns the list of
+ * appliedFacets filters whose results together hold every US job, or null when no facet splits it small enough.
+ *
+ * We only keep US jobs, so a country facet that names the US is the first choice: one filter, and the rest of
+ * the world is never read. Inside it (or with no country facet) the board is split by the facet whose values
+ * each stay under the limit and together cover the most jobs.
+ */
+function planPartitions(facets, total, limit = MAX_LIST) {
+  if (!(total >= limit)) return [{}];
+  const leaves = leafFacets(facets);
+  const country = leaves.find((f) => f.values.some((v) => US_VALUE.test(v.label)));
+  let base = {};
+  let size = total;
+  if (country) {
+    const us = country.values.filter((v) => US_VALUE.test(v.label));
+    base = { [country.param]: us.map((v) => v.id) };
+    size = us.reduce((s, v) => s + v.count, 0);
+    if (size < limit) return [base];
+  }
+  // The counts are for the whole board; inside a US filter they shrink, so a value under the limit board-wide is
+  // under it inside the filter too.
+  const splits = leaves
+    .filter((f) => !country || f.param !== country.param)
+    .filter((f) => f.values.length > 1 && f.values.every((v) => v.count < limit))
+    .map((f) => ({ f, covered: f.values.reduce((s, v) => s + v.count, 0) }))
+    .filter((x) => x.covered >= total * 0.95)
+    .sort((a, b) => b.covered - a.covered || a.f.values.length - b.f.values.length);
+  if (!splits.length) return null;
+  const { f, covered } = splits[0];
+  const filters = f.values.map((v) => ({ ...base, [f.param]: [v.id] }));
+  // A few jobs may carry no value for the split facet; then the split is close but not exact.
+  filters.exact = covered >= total;
+  return filters;
+}
+
 function createWorkday(helpers) {
   // Jobs a detail showed to be outside the US, remembered while this process runs so they are not asked about every sync.
   const notUs = new Map();
@@ -158,27 +208,58 @@ function createWorkday(helpers) {
     };
 
     // 1. The list, newest first. The first page says how many there are; the rest are read a few at a time.
-    const readPage = async (offset) => {
-      const page = await call(listUrl(board), { method: 'POST', body: JSON.stringify({ appliedFacets: {}, limit: PAGE, offset, searchText: '' }) });
+    //    complete stays true only when every job the board has was listed. When it is false the sync must not
+    //    retire stored jobs that are missing from this read: they may simply be on a page we could not get.
+    const readPage = async (offset, appliedFacets = {}) => {
+      const page = await call(listUrl(board), { method: 'POST', body: JSON.stringify({ appliedFacets, limit: PAGE, offset, searchText: '' }) });
       if (!page || !Array.isArray(page.jobPostings)) throw new Error(`Workday ${board.tenant}: the list did not look like a job list`);
       return page;
     };
+    let complete = true;
+    // One filtered (or unfiltered) list, all of its pages. A page that comes back empty before the end is asked
+    // again; Workday does that under load, and treating it as the end would silently drop the rest.
+    const readList = async (appliedFacets, firstPage = null) => {
+      const head = firstPage || await readPage(0, appliedFacets);
+      const total = Number(head.total) || head.jobPostings.length;
+      if (total > MAX_LIST) complete = false;
+      const pages = new Map([[0, head.jobPostings]]);
+      const offsets = [];
+      for (let o = PAGE; o < Math.min(total, MAX_LIST); o += PAGE) offsets.push(o);
+      let nextOffset = 0;
+      const pageWorker = async () => {
+        while (nextOffset < offsets.length) {
+          const o = offsets[nextOffset++];
+          let rows = (await readPage(o, appliedFacets)).jobPostings;
+          for (let attempt = 0; !rows.length && attempt < retries; attempt += 1) {
+            await sleep(retryMs * (attempt + 1));
+            rows = (await readPage(o, appliedFacets)).jobPostings;
+          }
+          if (!rows.length) complete = false;
+          pages.set(o, rows);
+          await sleep(pauseMs);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(listConcurrency, offsets.length) }, pageWorker));
+      const rows = [];
+      for (const o of [...pages.keys()].sort((x, y) => x - y)) for (const p of pages.get(o)) if (p && p.externalPath) rows.push(p);
+      return rows;
+    };
+
     const first = await readPage(0);
     const total = Number(first.total) || first.jobPostings.length;
-    const pages = new Map([[0, first.jobPostings]]);
-    const offsets = [];
-    for (let o = PAGE; o < Math.min(total, MAX_LIST); o += PAGE) offsets.push(o);
-    let nextOffset = 0;
-    const pageWorker = async () => {
-      while (nextOffset < offsets.length) {
-        const o = offsets[nextOffset++];
-        pages.set(o, (await readPage(o)).jobPostings);
-        await sleep(pauseMs);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(listConcurrency, offsets.length) }, pageWorker));
-    const postings = [];
-    for (const o of [...pages.keys()].sort((x, y) => x - y)) for (const p of pages.get(o)) if (p && p.externalPath) postings.push(p);
+    let postings;
+    const plan = planPartitions(first.facets, total);
+    if (!plan) {
+      // Too big to page through and no facet splits it: read what Workday allows and say the read is partial.
+      postings = await readList({}, first);
+      complete = false;
+    } else if (plan.length === 1 && !Object.keys(plan[0]).length) {
+      postings = await readList({}, first);
+    } else {
+      postings = [];
+      for (const filter of plan) postings.push(...await readList(filter));
+      if (plan.length > 1 && plan.exact === false) complete = false;
+    }
     if (!postings.length) throw new Error(`Workday ${board.tenant}: no jobs came back, refusing to treat the board as empty`);
 
     // 2. Keep US jobs; settle the unclear ones ("4 Locations") from the detail below.
@@ -226,10 +307,10 @@ function createWorkday(helpers) {
     };
     await Promise.all(Array.from({ length: detailConcurrency }, worker));
 
-    return { jobs: out, total, listed: postings.length, usCandidates: candidates.length, newDetails: toFetch.length, deferred: Math.max(0, fresh.length - toFetch.length) };
+    return { jobs: out, total, listed: postings.length, complete, partitions: plan ? plan.length : 0, usCandidates: candidates.length, newDetails: toFetch.length, deferred: Math.max(0, fresh.length - toFetch.length) };
   }
 
   return { fetchWorkdayJobs, normalize };
 }
 
-module.exports = { createWorkday, parseToken, usOf, placeFromPath, usFromPath, postedAtFromText, idOf, listUrl, detailUrl, publicUrl, PAGE, MAX_LIST };
+module.exports = { createWorkday, planPartitions, leafFacets, parseToken, usOf, placeFromPath, usFromPath, postedAtFromText, idOf, listUrl, detailUrl, publicUrl, PAGE, MAX_LIST };

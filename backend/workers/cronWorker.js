@@ -65,6 +65,33 @@ function startCron({ inline = false } = {}) {
         });
     });
     console.log(`${tag} ✓ Startup-board discovery scheduled (${discoverySchedule})`);
+
+    // Board import (services/boardImport.js): the StoreSignal directory of
+    // ~9k Greenhouse/Ashby/Lever boards waits in BoardCandidates. Each tick
+    // checks a few against their public feeds (one request a second) and
+    // promotes the best into ATSBoards only while there is room under
+    // MAX_ACTIVE_BOARDS, so raising that one env var is how the corpus grows.
+    // Disable with ENABLE_BOARD_IMPORT=false.
+    if (process.env.ENABLE_BOARD_IMPORT !== 'false') {
+      const { runBoardImportTick } = require('../services/boardImport');
+      let importRunning = false;
+      const importTick = () => {
+        if (importRunning) return;
+        importRunning = true;
+        runBoardImportTick()
+          .then(({ seeded, checked, promoted }) => {
+            if (seeded.inserted || checked.checked || promoted.added) {
+              console.log(`${tag} Board import: +${seeded.inserted} candidates, checked ${checked.checked} (${checked.validated} ok, ${checked.rejected} rejected${checked.rateLimited ? ', rate limited' : ''}), added ${promoted.added} boards (${promoted.active}/${promoted.cap} active)`);
+            }
+          })
+          .catch((err) => console.error(`${tag} Board import error:`, err.message))
+          .finally(() => { importRunning = false; });
+      };
+      const importEvery = process.env.BOARD_IMPORT_CRON || '*/10 * * * *';
+      cron.schedule(importEvery, importTick, { recoverMissedExecutions: false });
+      setTimeout(importTick, 60000);
+      console.log(`${tag} ✓ Board import scheduled (${importEvery})`);
+    }
   } else {
     console.log(`${tag} External jobs sync disabled`);
   }

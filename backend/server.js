@@ -729,6 +729,9 @@ const startServer = async () => {
         await ensureWorkdayPlatform();
         const { up: ensureSeedBoards } = require('./scripts/migrations/ensureSeedBoards');
         await ensureSeedBoards();
+        // The waiting room for imported boards (services/boardImport.js). The cron worker also ensures it.
+        const { up: ensureBoardCandidatesTable } = require('./scripts/migrations/ensureBoardCandidatesTable');
+        await ensureBoardCandidatesTable();
       } catch (err) {
         console.warn('⚠️  Seed ATS boards ensure skipped:', err.message);
       }

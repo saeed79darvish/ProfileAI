@@ -1878,8 +1878,11 @@ async function syncBoard(atsBoard) {
         raw: true,
       });
       const read = await getWorkday().fetchWorkdayJobs(atsBoard.boardToken, { existing: new Map(rows.map((r) => [r.externalId, r])) });
-      console.log(`[ExternalJobs] workday/${atsBoard.boardToken}: ${read.listed} listed, ${read.usCandidates} US, ${read.newDetails} new details, ${read.deferred} deferred`);
+      console.log(`[ExternalJobs] workday/${atsBoard.boardToken}: ${read.listed} listed${read.complete ? '' : ' (partial)'}, ${read.partitions > 1 ? `${read.partitions} partitions, ` : ''}${read.usCandidates} US, ${read.newDetails} new details, ${read.deferred} deferred`);
       await ingestAll(read.jobs);
+      // A partial read (a page Workday would not give us, or a board past its 2,000-job list limit that no facet
+      // splits) must not retire the stored jobs we simply did not see this time.
+      if (read.complete === false) for (const r of rows) fetchedExternalIds.add(r.externalId);
     } else if (atsBoard.platform === 'remoteok') {
       await ingestAll(await fetchRemoteOKJobs());
     } else if (atsBoard.platform === 'adzuna') {
@@ -2138,17 +2141,38 @@ async function syncBoard(atsBoard) {
 //      fetches; running a few at once removes the dead time without adding DB
 //      pressure, since the writes are still chunked per board.
 //
+//   4. A SHARE PER SYSTEM. Each ATS host gets its own ceiling on boards read at
+//      once (Lever asks for about one request a second, Workday throttles a
+//      whole wdN host by IP), so ten thousand boards on one system cannot crowd
+//      out the rest or get our address blocked. The quiet back-off now runs to
+//      a day, because a board that has not changed in a week does not need six
+//      reads a day to catch a closure inside the 30-day window.
+//
 // A wall-clock budget caps each sweep so it cannot overrun its interval. Work
 // left over is simply the stalest set next tick, which is exactly what the
 // ordering already prioritises.
 const SYNC_BASE_INTERVAL_MIN = parseInt(process.env.SYNC_BASE_INTERVAL_MIN || '15', 10);
-const SYNC_MAX_INTERVAL_MIN = parseInt(process.env.SYNC_MAX_INTERVAL_MIN || '240', 10);
+const SYNC_MAX_INTERVAL_MIN = parseInt(process.env.SYNC_MAX_INTERVAL_MIN || '1440', 10);
+// How many quiet syncs it takes to reach the ceiling: 15m, 30m, 1h, 2h, 4h, 8h, 16h, then the 24h cap.
+const SYNC_MAX_QUIET_STEPS = parseInt(process.env.SYNC_MAX_QUIET_STEPS || '7', 10);
+
+/** Boards of one system read at the same time. SYNC_PLATFORM_LIMITS="lever=1,workday=1" overrides. */
+const DEFAULT_PLATFORM_LIMITS = { greenhouse: 2, ashby: 2, lever: 1, workday: 1 };
+function platformLimits(raw = process.env.SYNC_PLATFORM_LIMITS) {
+  const out = { ...DEFAULT_PLATFORM_LIMITS };
+  for (const part of String(raw || '').split(',')) {
+    const [k, v] = part.split('=').map((x) => (x || '').trim());
+    const n = parseInt(v, 10);
+    if (k && Number.isFinite(n) && n > 0) out[k] = n;
+  }
+  return out;
+}
 const SYNC_CONCURRENCY = parseInt(process.env.SYNC_CONCURRENCY || '3', 10);
 const SYNC_BUDGET_MS = parseInt(process.env.SYNC_BUDGET_MS || '600000', 10); // 10 min
 
 /** Minutes a board may wait before it is due again, given its quiet streak. */
 function boardIntervalMinutes(board) {
-  const quiet = Math.min(board.consecutiveNoChangeSyncs || 0, 4);
+  const quiet = Math.min(board.consecutiveNoChangeSyncs || 0, SYNC_MAX_QUIET_STEPS);
   return Math.min(SYNC_BASE_INTERVAL_MIN * 2 ** quiet, SYNC_MAX_INTERVAL_MIN);
 }
 
@@ -2191,13 +2215,23 @@ async function syncAllBoards() {
     );
 
     const results = [];
-    let idx = 0;
     let outOfBudget = false;
+    // Stalest-first order is kept, except that a board whose system is at its
+    // share waits while the next board of another system goes ahead.
+    const limits = platformLimits();
+    const running = {};
+    const pending = due.slice();
+    const takeNext = () => {
+      const i = pending.findIndex((b) => (running[b.platform] || 0) < (limits[b.platform] || SYNC_CONCURRENCY));
+      return i === -1 ? null : pending.splice(i, 1)[0];
+    };
 
     const worker = async () => {
-      while (idx < due.length) {
+      while (pending.length) {
         if (Date.now() - startedAt > SYNC_BUDGET_MS) { outOfBudget = true; return; }
-        const board = due[idx++];
+        const board = takeNext();
+        if (!board) { await sleep(200); continue; }
+        running[board.platform] = (running[board.platform] || 0) + 1;
         try {
           const result = await syncBoard(board);
           results.push({ board: board.name, ...result });
@@ -2206,6 +2240,8 @@ async function syncAllBoards() {
           // errors, which must not abort the other workers.
           console.error(`[ExternalJobs] unexpected sync error for ${board.name}:`, err.message);
           results.push({ board: board.name, success: false, error: err.message });
+        } finally {
+          running[board.platform] -= 1;
         }
         // Politeness delay is per worker, not global, so it overlaps instead of
         // serialising the whole sweep.
@@ -3001,5 +3037,7 @@ module.exports = {
   getBlockedCompanyNames,
   blockCompany,
   validateBoard,
+  boardIntervalMinutes,
+  platformLimits,
   STALE_THRESHOLD_MINUTES
 };

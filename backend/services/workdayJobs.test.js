@@ -172,3 +172,79 @@ test('bare-city jobs are settled by their detail, and a non-US one is not asked 
   assert.equal(fake.calls.detail, 3); // only the stored-less US job is asked again; Shanghai is remembered
   assert.deepEqual(second.jobs.map((j) => j.externalId), ['JR1001']);
 });
+
+// ── Lists Workday will not page through in one go ────────────────────────────
+
+const facetsLike = (us = 2500) => ([
+  { facetParameter: 'jobFamilyGroup', descriptor: 'Job Category', values: [
+    { descriptor: 'Engineering', id: 'eng', count: 1800 }, { descriptor: 'Sales', id: 'sales', count: 1500 }, { descriptor: 'Other', id: 'other', count: 700 },
+  ] },
+  { facetParameter: 'locationMainGroup', values: [
+    { facetParameter: 'locationHierarchy1', descriptor: 'Locations', values: [
+      { descriptor: 'United States of America', id: 'usa', count: us }, { descriptor: 'India', id: 'in', count: 4000 - us },
+    ] },
+  ] },
+]);
+
+test('planPartitions: a small board is one plain read', () => {
+  assert.deepEqual(w.planPartitions(facetsLike(), 1500), [{}]);
+});
+
+test('planPartitions: a big board is read through its US filter when that is small enough', () => {
+  assert.deepEqual(w.planPartitions(facetsLike(1500), 4000), [{ locationHierarchy1: ['usa'] }]);
+});
+
+test('planPartitions: a US filter still too big is split by a facet inside it', () => {
+  const plan = w.planPartitions(facetsLike(2500), 4000);
+  assert.deepEqual([...plan], [
+    { locationHierarchy1: ['usa'], jobFamilyGroup: ['eng'] },
+    { locationHierarchy1: ['usa'], jobFamilyGroup: ['sales'] },
+    { locationHierarchy1: ['usa'], jobFamilyGroup: ['other'] },
+  ]);
+  assert.equal(plan.exact, true);
+});
+
+test('planPartitions: no facet small enough gives null', () => {
+  assert.equal(w.planPartitions([{ facetParameter: 'timeType', values: [{ descriptor: 'Full time', id: 'ft', count: 3999 }, { descriptor: 'Part time', id: 'pt', count: 1 }] }], 4000), null);
+});
+
+test('an empty page in the middle is asked again, and a page that stays empty marks the read partial', async () => {
+  const list = Array.from({ length: 60 }, (_, i) => posting(i));
+  let flaked = 0;
+  const base = fakeWorkday({ list, details: Object.fromEntries(list.map((p, i) => [p.externalPath, info(i)])) });
+  const flaky = async (url, init) => {
+    if (init && init.method === 'POST' && JSON.parse(init.body).offset === 20 && flaked < 1) { flaked += 1; return { ok: true, status: 200, json: async () => ({ total: 60, jobPostings: [] }) }; }
+    return base.fetchImpl(url, init);
+  };
+  const ok = await run({ fetchImpl: flaky }, { retryMs: 0 });
+  assert.equal(ok.listed, 60);
+  assert.equal(ok.complete, true);
+
+  const stuck = async (url, init) => {
+    if (init && init.method === 'POST' && JSON.parse(init.body).offset === 20) return { ok: true, status: 200, json: async () => ({ total: 60, jobPostings: [] }) };
+    return base.fetchImpl(url, init);
+  };
+  const partial = await run({ fetchImpl: stuck }, { retryMs: 0 });
+  assert.equal(partial.listed, 40);
+  assert.equal(partial.complete, false);
+});
+
+test('a board past 2,000 jobs is read through its US filter, completely', async () => {
+  const us = Array.from({ length: 30 }, (_, i) => posting(i));
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    if (init && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      seen.push(body.appliedFacets);
+      if (!Object.keys(body.appliedFacets).length) return { ok: true, status: 200, json: async () => ({ total: 4000, facets: facetsLike(30), jobPostings: us.slice(0, 20) }) };
+      return { ok: true, status: 200, json: async () => ({ total: 30, jobPostings: us.slice(body.offset, body.offset + body.limit) }) };
+    }
+    const n = Number(/Engineer-(\d+)_/.exec(url)[1]);
+    return { ok: true, status: 200, json: async () => ({ jobPostingInfo: info(n) }) };
+  };
+  const out = await run({ fetchImpl }, { retryMs: 0 });
+  assert.equal(out.listed, 30);
+  assert.equal(out.complete, true);
+  assert.equal(out.partitions, 1);
+  assert.ok(seen.some((f) => f.locationHierarchy1 && f.locationHierarchy1[0] === 'usa'));
+});
