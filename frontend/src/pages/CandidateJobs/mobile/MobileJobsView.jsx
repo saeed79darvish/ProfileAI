@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material';
 import { formatTimeAgo } from '../utils';
 import { SALARY_OPTIONS } from '../constants';
+import SourcesCredit from '../SourcesCredit';
 
 /**
  * The jobs list on a phone: one search row with a single filter button, one
@@ -501,6 +502,7 @@ export default function MobileJobsView({
         <div ref={sentinelRef} />
         {loadingMore && <Note><CircularProgress size={22} sx={{ color: '#5b5fd6' }} /></Note>}
         {!hasMore && !loadingMore && <Note>That's every job for these filters.</Note>}
+        <SourcesCredit />
       </>
     );
   };

@@ -181,6 +181,7 @@ import {
 } from './styled';
 import { ROUTES, WITHDRAWABLE_STATUSES, STATUS_CONFIG, THRESHOLDS, TEXT, SALARY_OPTIONS } from './constants';
 import { formatSalary, formatTimeAgo, formatJobPostedTime } from './utils';
+import SourcesCredit from './SourcesCredit';
 import { externalJobAPI, profileAPI, careerContextAPI } from '@/services/api';
 import { jobFiltersFrom, employmentTypeLabel, locationTypeLabel } from '@/utils/jobPreferences';
 import { useJobMatches, scoreJob } from '@/utils/jobMatchStore';
@@ -3617,6 +3618,7 @@ const CandidateJobs = () => {
                       </button>
                     </div>
                   )}
+                  <SourcesCredit />
                 </>
               )}
               </>
